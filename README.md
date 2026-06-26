@@ -1,5 +1,15 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
+## 平台规划入口
+
+当前仓库已从 React Native 默认模板演进为货主端本地 MVP。完整平台建设按阶段推进：
+
+- 总体设计：`docs/superpowers/specs/2026-06-26-complete-platform-architecture-design.md`
+- 阶段 0/1 计划：`docs/superpowers/plans/2026-06-26-platform-stage-0-1-foundation.md`
+- 平台工程说明：`docs/platform/README.md`
+- API 规范：`docs/platform/api-conventions.md`
+- OpenAPI 初稿：`docs/platform/openapi-stage-1.yaml`
+
 # Getting Started
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.

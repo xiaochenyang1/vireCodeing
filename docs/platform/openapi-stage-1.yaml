@@ -1,0 +1,91 @@
+openapi: 3.0.3
+info:
+  title: Truck Platform Stage 1 API
+  version: 0.1.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+  /auth/send-code:
+    post:
+      summary: Send verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendCodeRequest'
+      responses:
+        '200':
+          description: Code sent
+  /auth/login:
+    post:
+      summary: Login with phone and verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login success
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Refresh success
+  /me:
+    get:
+      summary: Current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SendCodeRequest:
+      type: object
+      required: [phone, purpose]
+      properties:
+        phone:
+          type: string
+          example: '13800138000'
+        purpose:
+          type: string
+          enum: [login, register, reset]
+    LoginRequest:
+      type: object
+      required: [phone, code, userType]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+        userType:
+          type: string
+          enum: [shipper, driver]
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
