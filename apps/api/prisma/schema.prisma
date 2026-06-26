@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserType {
+  shipper
+  driver
+  admin
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum VerificationPurpose {
+  login
+  register
+  reset
+}
+
+enum FilePurpose {
+  identity
+  cargo
+  exception
+  receipt
+  invoice
+}
+
+enum FileStatus {
+  pending
+  uploaded
+  rejected
+}
+
+model User {
+  id             String          @id @default(uuid())
+  phone          String          @unique
+  userType       UserType
+  status         UserStatus      @default(active)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  sessions       AuthSession[]
+  files          FileObject[]
+  shipperProfile ShipperProfile?
+}
+
+model AuthSession {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String
+  deviceId         String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  user             User      @relation(fields: [userId], references: [id])
+}
+
+model VerificationCode {
+  id         String              @id @default(uuid())
+  phone      String
+  purpose    VerificationPurpose
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([phone, purpose])
+}
+
+model FileObject {
+  id          String     @id @default(uuid())
+  ownerUserId String
+  purpose     FilePurpose
+  objectKey   String
+  publicUrl   String?
+  status      FileStatus @default(pending)
+  createdAt   DateTime   @default(now())
+  owner        User       @relation(fields: [ownerUserId], references: [id])
+}
+
+model ShipperProfile {
+  userId           String @id
+  displayName      String
+  identityStatus   String @default("unverified")
+  enterpriseStatus String @default("unverified")
+  user             User   @relation(fields: [userId], references: [id])
+}
