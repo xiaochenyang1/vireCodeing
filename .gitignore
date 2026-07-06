@@ -76,4 +76,5 @@ yarn-error.log
 !.yarn/versions
 
 # Git worktrees
+.worktrees
 .worktrees/
