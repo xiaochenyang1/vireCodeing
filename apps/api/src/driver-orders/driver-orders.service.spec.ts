@@ -756,6 +756,200 @@ describe('DriverOrdersService', () => {
       ),
     );
   });
+
+  it('rejects receipt proofs that are not yet uploaded', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const pendingFile = await filesRepository.createPendingFile('driver-1', {
+      purpose: 'receipt',
+      fileName: 'receipt.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+      objectKey: 'driver-1/receipt/receipt.png',
+    });
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+
+    await expect(
+      service.advanceOrderStatus(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        { nextStatus: 'transporting', receiptPhotoFileIds: [pendingFile.id] },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '司机执行凭证尚未上传完成',
+      ),
+    );
+  });
+
+  it('rejects receipt proofs whose purpose is not receipt', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const cargoFile = await createUploadedFile(
+      filesRepository,
+      'driver-1',
+      'cargo',
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+
+    await expect(
+      service.advanceOrderStatus(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        { nextStatus: 'transporting', receiptPhotoFileIds: [cargoFile.id] },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_PURPOSE_INVALID,
+        '司机执行凭证用途不匹配',
+      ),
+    );
+  });
+
+  it('lists the current driver withdrawals with paging metadata', async () => {
+    const { driverWithdrawalsRepository, service } = createService();
+    await driverWithdrawalsRepository.createWithdrawal('driver-1', {
+      amountCents: 5000,
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6225888800001234',
+    });
+    await driverWithdrawalsRepository.createWithdrawal('driver-2', {
+      amountCents: 9000,
+      bankAccountName: '王师傅',
+      bankName: '建设银行',
+      bankAccountNo: '6225888800009999',
+    });
+
+    await expect(
+      service.listWithdrawals(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        { page: 1, pageSize: 20 },
+      ),
+    ).resolves.toMatchObject({
+      items: [expect.objectContaining({ amountCents: 5000 })],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+  });
+
+  it('rejects non-driver users from listing withdrawals', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.listWithdrawals(
+        { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+        { page: 1, pageSize: 20 },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是司机'),
+    );
+  });
+
+  it('derives negotiated completed-order income from the driver quote event', async () => {
+    const { repository, service } = createService();
+    const order = await repository.createOrder('shipper-1', {
+      ...createOrderInput('宝安区福永物流园'),
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      payablePriceCents: undefined,
+    });
+    await repository.submitDriverQuote(order.id, 'driver-1', {
+      quoteCents: 90000,
+      arrivalText: '30 分钟',
+    });
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+      nextStatus: 'transporting',
+    });
+    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+      nextStatus: 'confirming',
+    });
+    await repository.completeOrder(order.id, 'shipper-1');
+
+    const overview = await service.getIncomeOverview({
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver',
+    });
+
+    // 90000 gross → 95% net income.
+    expect(overview.records[0]).toMatchObject({
+      orderId: order.id,
+      grossAmountCents: 90000,
+      netIncomeCents: 85500,
+      platformFeeCents: 4500,
+    });
+    expect(overview.summary.historyIncomeCents).toBe(85500);
+  });
+
+  it('treats a negotiated completed order without a quote as zero income', async () => {
+    const { repository, service } = createService();
+    const order = await repository.createOrder('shipper-1', {
+      ...createOrderInput('宝安区福永物流园'),
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      payablePriceCents: undefined,
+    });
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+      nextStatus: 'transporting',
+    });
+    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+      nextStatus: 'confirming',
+    });
+    await repository.completeOrder(order.id, 'shipper-1');
+
+    const overview = await service.getIncomeOverview({
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver',
+    });
+
+    expect(overview.records[0]).toMatchObject({
+      orderId: order.id,
+      grossAmountCents: 0,
+      netIncomeCents: 0,
+    });
+  });
+
+  it('rejects receipt proofs when no files repository is configured', async () => {
+    const { repository } = createService();
+    const service = new DriverOrdersService(
+      repository,
+      createDriverCertificationRepository({
+        identityStatus: 'approved',
+        vehicleStatus: 'approved',
+      }),
+      new InMemoryDriverAcceptanceSettingsRepository(() => now),
+      new InMemoryDriverWithdrawalsRepository(() => now),
+      undefined,
+      () => now,
+    );
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+
+    await expect(
+      service.advanceOrderStatus(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        { nextStatus: 'transporting', receiptPhotoFileIds: ['file-x'] },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '司机执行凭证不存在'),
+    );
+  });
 });
 
 function createOrderInput(pickupAddress: string) {
