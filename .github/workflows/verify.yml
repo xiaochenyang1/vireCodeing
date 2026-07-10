@@ -1,0 +1,50 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  mobile-and-api:
+    runs-on: ubuntu-latest
+    env:
+      TRUCK_PLATFORM_API_BASE_URL: http://localhost:3000/api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.11.0'
+          cache: npm
+
+      - name: Install mobile dependencies
+        run: npm ci
+
+      - name: Install API dependencies
+        run: npm --prefix apps/api ci
+
+      - name: Write platform runtime config
+        run: npm run platform:config:write
+
+      - name: Test mobile workspace
+        run: npx jest --runInBand
+
+      - name: Typecheck mobile workspace
+        run: npx tsc --noEmit
+
+      - name: Lint mobile workspace
+        run: npm run lint
+
+      - name: Test API workspace
+        run: npm --prefix apps/api test
+
+      - name: Typecheck API workspace
+        run: npm --prefix apps/api run typecheck
+
+      - name: Validate Prisma schema
+        run: npm --prefix apps/api run prisma:validate

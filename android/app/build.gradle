@@ -72,6 +72,22 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+def platformApiBaseUrlProvider = providers.gradleProperty("truckPlatformApiBaseUrl")
+        .orElse(providers.environmentVariable("TRUCK_PLATFORM_API_BASE_URL"))
+        .orElse("")
+
+tasks.register("writePlatformRuntimeConfig", Exec) {
+    description = "Writes the React Native platform API runtime config before Android builds."
+    group = "build setup"
+    workingDir rootProject.projectDir.parentFile
+    commandLine "node", "scripts/write-platform-runtime-config.js"
+    environment "TRUCK_PLATFORM_API_BASE_URL", platformApiBaseUrlProvider.get()
+}
+
+tasks.named("preBuild") {
+    preBuild.dependsOn("writePlatformRuntimeConfig")
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
