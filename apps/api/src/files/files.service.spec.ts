@@ -965,6 +965,319 @@ describe('FilesService', () => {
       message: '文件尚未上传完成',
     });
   });
+
+  it('rejects a storage callback for an unknown file or mismatched object key', async () => {
+    const { service } = createService();
+    const callback = {
+      fileId: 'missing-file',
+      objectKey: 'user-1/cargo/missing.jpg',
+      byteSize: 1024,
+      contentType: 'image/jpeg',
+    };
+
+    await expect(
+      service.confirmStorageCallback({
+        ...callback,
+        signature: signStorageCallback(callback),
+      }),
+    ).rejects.toMatchObject({ code: 'FILE_NOT_FOUND', message: '文件不存在' });
+  });
+
+  it('rejects a storage callback whose metadata mismatches the upload intent', async () => {
+    const { service } = createService();
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    const callback = {
+      fileId: intent.id,
+      objectKey: intent.objectKey,
+      byteSize: 2048,
+      contentType: 'image/jpeg',
+    };
+
+    await expect(
+      service.confirmStorageCallback({
+        ...callback,
+        signature: signStorageCallback(callback),
+      }),
+    ).rejects.toMatchObject({
+      code: 'FILE_STATE_INVALID',
+      message: '对象存储回调元数据与上传意图不一致',
+    });
+  });
+
+  it('rejects a storage callback for a rejected (non-pending) file', async () => {
+    let currentTime = new Date('2026-07-06T03:00:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        storageCallbackSigningSecret: 'unit-test-storage-callback-secret',
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+    );
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    currentTime = new Date('2026-07-06T03:20:00.000Z');
+    await service.rejectExpiredPendingFiles();
+
+    const callback = {
+      fileId: intent.id,
+      objectKey: intent.objectKey,
+      byteSize: intent.byteSize,
+      contentType: intent.contentType,
+    };
+
+    await expect(
+      service.confirmStorageCallback({
+        ...callback,
+        signature: signStorageCallback(callback),
+      }),
+    ).rejects.toMatchObject({
+      code: 'FILE_STATE_INVALID',
+      message: '文件状态不允许确认',
+    });
+  });
+
+  it('rejects a storage callback whose metadata mismatches an already-uploaded file', async () => {
+    const { service } = createService();
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    const first = {
+      fileId: intent.id,
+      objectKey: intent.objectKey,
+      byteSize: intent.byteSize,
+      contentType: intent.contentType,
+    };
+    await service.confirmStorageCallback({
+      ...first,
+      signature: signStorageCallback(first),
+    });
+
+    const mismatched = { ...first, byteSize: 4096 };
+    await expect(
+      service.confirmStorageCallback({
+        ...mismatched,
+        signature: signStorageCallback(mismatched),
+      }),
+    ).rejects.toMatchObject({
+      code: 'FILE_STATE_INVALID',
+      message: '对象存储回调元数据与已上传文件不一致',
+    });
+  });
+
+  it('updates object metadata when an uploaded file receives a new etag', async () => {
+    const { service } = createService();
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    const first = {
+      fileId: intent.id,
+      objectKey: intent.objectKey,
+      byteSize: intent.byteSize,
+      contentType: intent.contentType,
+    };
+    await service.confirmStorageCallback({
+      ...first,
+      signature: signStorageCallback(first),
+    });
+
+    const withEtag = { ...first, etag: '"etag-new"', versionId: 'version-new' };
+    await expect(
+      service.confirmStorageCallback({
+        ...withEtag,
+        signature: signStorageCallback(withEtag),
+      }),
+    ).resolves.toMatchObject({
+      id: intent.id,
+      status: 'uploaded',
+      etag: '"etag-new"',
+      versionId: 'version-new',
+    });
+  });
+
+  it('detects webp content and rejects unrecognized local upload bytes', async () => {
+    const repository = new InMemoryFilesRepository(() => now);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => now,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const storageProvider = {
+      createPublicUrl: jest.fn(() => 'https://storage.example.com/cargo.webp'),
+      createUploadTarget: jest.fn((file, expiresAtIso) => ({
+        uploadUrl: `http://localhost:3000/api/files/uploads/${file.id}`,
+        publicUrl: file.publicUrl,
+        expiresAtIso,
+      })),
+      verifyUploadedFile: jest.fn().mockResolvedValue(undefined),
+      saveUploadedFile: jest.fn().mockResolvedValue(undefined),
+      readUploadedFile: jest.fn(),
+      deleteObject: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => now,
+      },
+      previewUrlSigner,
+      storageProvider,
+    );
+    // "RIFF" + size + "WEBP" header.
+    const webpContent = Buffer.concat([
+      Buffer.from('RIFF', 'ascii'),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]),
+      Buffer.from('WEBP', 'ascii'),
+      Buffer.from([0x00, 0x00]),
+    ]);
+    const webpIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.webp',
+      contentType: 'image/webp',
+      byteSize: webpContent.length,
+    });
+
+    await expect(
+      service.uploadLocalFile('user-1', webpIntent.id, webpContent),
+    ).resolves.toMatchObject({ id: webpIntent.id, status: 'uploaded' });
+
+    const unknownContent = Buffer.from([0x00, 0x01, 0x02, 0x03]);
+    const unknownIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.png',
+      contentType: 'image/png',
+      byteSize: unknownContent.length,
+    });
+
+    await expect(
+      service.uploadLocalFile('user-1', unknownIntent.id, unknownContent),
+    ).rejects.toMatchObject({
+      code: 'FILE_STATE_INVALID',
+      message: '上传内容类型与上传意图不一致，请重新选择文件',
+    });
+  });
+
+  it('counts failed provider deletions when purging rejected objects', async () => {
+    let currentTime = new Date('2026-07-06T03:00:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const storageProvider = {
+      createPublicUrl: jest.fn(() => 'https://storage.example.com/cargo.jpg'),
+      createUploadTarget: jest.fn((file, expiresAtIso) => ({
+        uploadUrl: `http://localhost:3000/api/files/uploads/${file.id}`,
+        publicUrl: file.publicUrl,
+        expiresAtIso,
+      })),
+      verifyUploadedFile: jest.fn().mockResolvedValue(undefined),
+      saveUploadedFile: jest.fn().mockResolvedValue(undefined),
+      readUploadedFile: jest.fn(),
+      deleteObject: jest.fn().mockRejectedValue(new Error('provider down')),
+    };
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+      storageProvider,
+    );
+    await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    currentTime = new Date('2026-07-06T03:20:00.000Z');
+    await service.rejectExpiredPendingFiles();
+
+    await expect(service.deleteRejectedFileObjects()).resolves.toMatchObject({
+      attemptedObjectCount: 1,
+      deletedObjectCount: 0,
+      failedObjectDeletionCount: 1,
+    });
+  });
+
+  it('rejects a storage callback for a pending file whose intent already expired', async () => {
+    let currentTime = new Date('2026-07-06T03:00:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        storageCallbackSigningSecret: 'unit-test-storage-callback-secret',
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+    );
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    // Past the 900s upload window, but the pending file has not been swept yet.
+    currentTime = new Date('2026-07-06T03:15:01.000Z');
+
+    const callback = {
+      fileId: intent.id,
+      objectKey: intent.objectKey,
+      byteSize: intent.byteSize,
+      contentType: intent.contentType,
+    };
+
+    await expect(
+      service.confirmStorageCallback({
+        ...callback,
+        signature: signStorageCallback(callback),
+      }),
+    ).rejects.toMatchObject({
+      code: 'FILE_STATE_INVALID',
+      message: '上传链接已过期，请重新选择文件',
+    });
+  });
 });
 
 function signStorageCallback(input: {
