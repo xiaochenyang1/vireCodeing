@@ -41,7 +41,7 @@ This plan intentionally does not implement payment, maps, push, IM, admin, real 
 - Modify: `docs/03-项目当前状态与补全路线.md`
 - Modify: `docs/platform/README.md`
 
-- [ ] **Step 1: Mark completed driver execution plan items**
+- [x] **Step 1: Mark completed driver execution plan items**
 
 Update each checkbox in `docs/superpowers/plans/2026-07-06-driver-order-execution-first-slice.md` from unchecked to checked because the current workspace contains:
 
@@ -53,7 +53,7 @@ Update each checkbox in `docs/superpowers/plans/2026-07-06-driver-order-executio
 - OpenAPI paths for `/driver/orders`, `/driver/orders/{orderId}`, and `/driver/orders/{orderId}/status`
 - Passing targeted tests: `npm --prefix apps/api test -- driver-orders`, `npx jest --runInBand --runTestsByPath __tests__\platformDriverOrderApi.test.ts`, and `npx jest --runInBand --runTestsByPath __tests__\App.test.tsx --testNamePattern "driver"`
 
-- [ ] **Step 2: Add latest status summary**
+- [x] **Step 2: Add latest status summary**
 
 Add a new top section to `docs/03-项目当前状态与补全路线.md` named `2026-07-06 第一阶段补全基线`.
 
@@ -65,7 +65,7 @@ The section must include these exact categories:
 - `未开发`
 - `下一步顺序`
 
-- [ ] **Step 3: Add platform README baseline**
+- [x] **Step 3: Add platform README baseline**
 
 Add a short `阶段 1 当前基线` section near the top of `docs/platform/README.md` that states:
 
@@ -74,7 +74,7 @@ Add a short `阶段 1 当前基线` section near the top of `docs/platform/READM
 - driver execution first slice is implemented;
 - driver/vehicle certification is the next planned slice.
 
-- [ ] **Step 4: Verify documentation text**
+- [x] **Step 4: Verify documentation text**
 
 Run:
 
@@ -100,7 +100,7 @@ Expected:
 - Create: `apps/api/src/driver-certification/driver-certification.validation.spec.ts`
 - Modify: `apps/api/src/config/prisma-migration.spec.ts`
 
-- [ ] **Step 1: Write validation tests**
+- [x] **Step 1: Write validation tests**
 
 Create `apps/api/src/driver-certification/driver-certification.validation.spec.ts` with tests for:
 
@@ -162,11 +162,11 @@ describe('driver certification validation', () => {
 });
 ```
 
-- [ ] **Step 2: Implement DTOs and validation**
+- [x] **Step 2: Implement DTOs and validation**
 
 Create `dto.ts` with request/result types for identity, vehicle, and snapshot responses. Create `driver-certification.validation.ts` using Zod schemas with trimmed required strings, max lengths, and boolean validation.
 
-- [ ] **Step 3: Add Prisma schema**
+- [x] **Step 3: Add Prisma schema**
 
 Add an enum:
 
@@ -214,11 +214,11 @@ model DriverVehicleCertification {
 
 Add matching optional relations to `User`.
 
-- [ ] **Step 4: Add migration SQL**
+- [x] **Step 4: Add migration SQL**
 
 Create migration SQL with `CREATE TYPE "CertificationStatus"` and the two tables, including foreign keys to `"User"("id")`.
 
-- [ ] **Step 5: Run validation tests**
+- [x] **Step 5: Run validation tests**
 
 Run:
 
@@ -241,7 +241,7 @@ Expected: validation tests pass and Prisma schema validates.
 - Modify: `apps/api/src/app.module.ts`
 - Modify: `apps/api/src/common/errors.ts`
 
-- [ ] **Step 1: Write service tests**
+- [x] **Step 1: Write service tests**
 
 Create tests that assert:
 
@@ -250,11 +250,11 @@ Create tests that assert:
 - submitting identity creates or updates reviewing identity certification;
 - submitting vehicle creates or updates reviewing vehicle certification.
 
-- [ ] **Step 2: Implement repository**
+- [x] **Step 2: Implement repository**
 
 Create an in-memory repository for tests and a Prisma repository using the two new Prisma models.
 
-- [ ] **Step 3: Implement service**
+- [x] **Step 3: Implement service**
 
 Service methods:
 
@@ -264,7 +264,7 @@ Service methods:
 
 Each method must reject non-driver users with `AUTH_FORBIDDEN`.
 
-- [ ] **Step 4: Implement controller and module**
+- [x] **Step 4: Implement controller and module**
 
 Controller routes:
 
@@ -274,11 +274,11 @@ Controller routes:
 
 Use `AccessTokenGuard`, `ZodValidationPipe`, and `ok()`.
 
-- [ ] **Step 5: Wire module**
+- [x] **Step 5: Wire module**
 
 Import `DriverCertificationModule` in `apps/api/src/app.module.ts`.
 
-- [ ] **Step 6: Run backend tests**
+- [x] **Step 6: Run backend tests**
 
 Run:
 
@@ -296,7 +296,7 @@ Expected: all pass.
 - Create: `src/services/platformDriverCertificationApi.ts`
 - Create: `__tests__/platformDriverCertificationApi.test.ts`
 
-- [ ] **Step 1: Write adapter tests**
+- [x] **Step 1: Write adapter tests**
 
 Cover:
 
@@ -305,7 +305,7 @@ Cover:
 - `submitVehicle()` trims fields and calls `PUT /driver/certification/vehicle`.
 - missing access token rejects before fetch through existing platform client behavior.
 
-- [ ] **Step 2: Implement adapter**
+- [x] **Step 2: Implement adapter**
 
 Follow `src/services/platformDriverOrderApi.ts` conventions:
 
@@ -313,7 +313,7 @@ Follow `src/services/platformDriverOrderApi.ts` conventions:
 - throw `PlatformApiError` with `PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID` on invalid local input;
 - reuse `platformGet` and `platformPut` if available, or add `platformPut` to `platformApiClient.ts` with tests if it does not exist.
 
-- [ ] **Step 3: Run adapter tests**
+- [x] **Step 3: Run adapter tests**
 
 Run:
 
@@ -331,7 +331,7 @@ Expected: tests and typecheck pass.
 - Modify: `App.tsx`
 - Modify: `__tests__/App.test.tsx`
 
-- [ ] **Step 1: Write App tests**
+- [x] **Step 1: Write App tests**
 
 Add tests for:
 
@@ -340,11 +340,11 @@ Add tests for:
 - submitting identity shows reviewing status;
 - submitting vehicle failure keeps driver screen visible and shows a notice.
 
-- [ ] **Step 2: Inject adapter**
+- [x] **Step 2: Inject adapter**
 
 Create the certification adapter in `App.tsx` when platform base URL is configured, using the same token source as driver order API.
 
-- [ ] **Step 3: Add DriverHomeScreen card**
+- [x] **Step 3: Add DriverHomeScreen card**
 
 Add a compact card above order hall:
 
@@ -355,7 +355,7 @@ Add a compact card above order hall:
 - submit/resubmit buttons;
 - failure notice reuse.
 
-- [ ] **Step 4: Run UI tests**
+- [x] **Step 4: Run UI tests**
 
 Run:
 
@@ -374,7 +374,7 @@ Expected: targeted tests and full mobile test suite pass.
 - Modify: `docs/03-项目当前状态与补全路线.md`
 - Modify: `docs/platform/README.md`
 
-- [ ] **Step 1: Document API**
+- [x] **Step 1: Document API**
 
 Add OpenAPI paths and schemas for:
 
@@ -382,15 +382,15 @@ Add OpenAPI paths and schemas for:
 - `PUT /driver/certification/identity`
 - `PUT /driver/certification/vehicle`
 
-- [ ] **Step 2: Update OpenAPI contract test**
+- [x] **Step 2: Update OpenAPI contract test**
 
 Extend `apps/api/src/config/openapi-stage-1.spec.ts` to assert the new paths and schemas exist.
 
-- [ ] **Step 3: Update project status**
+- [x] **Step 3: Update project status**
 
 Record driver/vehicle certification first slice as implemented after code and tests pass. Keep payment, maps, push, IM, admin, and real object storage listed as not implemented.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 Run:
 
@@ -410,6 +410,13 @@ Expected:
 
 - all test, typecheck, lint, Prisma validate, and API build commands pass;
 - `db:postgres:doctor` either passes with a reachable PostgreSQL or fails with the known Docker/PostgreSQL environment blocker, which must be reported honestly.
+
+Observed on 2026-07-06:
+
+- `npm test -- --runInBand`: 31 suites / 532 tests passed.
+- `npm --prefix apps/api test`: 40 suites / 288 tests passed.
+- TypeScript, ESLint, Prisma validate, and API build passed.
+- `npm --prefix apps/api run db:postgres:doctor` failed with the known environment blocker: Docker CLI missing and `localhost:5432` PostgreSQL unreachable (`P1001`).
 
 ## Self Review
 

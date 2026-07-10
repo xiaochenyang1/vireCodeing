@@ -23,9 +23,11 @@
 }
 ```
 
+常见业务错误状态：鉴权失败使用 HTTP 401，验证码发送频控使用 HTTP 429，验证码发送上游失败使用 HTTP 502。
+
 ## 认证
 
-移动端请求使用：
+受保护接口移动端请求使用：
 
 ```http
 Authorization: Bearer <accessToken>
@@ -33,6 +35,8 @@ X-Client-Platform: android
 X-App-Version: 0.0.1
 X-Request-Id: req_client_generated_id
 ```
+
+`/auth/send-code`、`/auth/login`、`/auth/password-login`、`/auth/register`、`/auth/reset-password`、`/auth/refresh` 和 `/auth/logout` 不携带 bearer access token；`/me` 和 `/auth/change-password` 这类登录后接口才携带 `Authorization`。
 
 ## 分页
 

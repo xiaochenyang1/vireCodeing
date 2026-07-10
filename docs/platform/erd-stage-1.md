@@ -18,6 +18,10 @@
 - `expires_at`: timestamp
 - `revoked_at`: nullable timestamp
 - `created_at`: timestamp
+- indexes:
+  - `refresh_token_hash, device_id, revoked_at, expires_at` for active refresh lookup.
+  - `user_id, device_id, revoked_at` for same-device session revocation.
+  - `user_id, revoked_at` for password reset/change revoking all active user sessions.
 
 ## verification_codes
 
@@ -46,8 +50,17 @@
 - `enterprise_status`: `unverified` | `reviewing` | `verified` | `rejected`
 - `identity_status`: `unverified` | `reviewing` | `verified` | `rejected`
 
+## order_drafts
+
+- `shipper_id`: references `users.id`, primary key
+- `draft_snapshot`: JSONB
+- `client_updated_at`: nullable timestamp
+- `created_at`: timestamp
+- `updated_at`: timestamp
+
 ## 关系
 
 - 一个 `users` 可以有多个 `auth_sessions`。
 - 一个 `users` 可以有多个 `files`。
 - 货主资料通过 `shipper_profiles.user_id` 关联 `users.id`。
+- 一个货主 `users` 当前最多有一份 `order_drafts` 发单草稿。

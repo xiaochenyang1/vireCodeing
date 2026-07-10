@@ -8,6 +8,8 @@
 
 **Tech Stack:** NestJS, TypeScript, Prisma-backed repository, Jest, existing platform file adapter.
 
+**2026-07-07 Verification Note:** 当前工作区已经包含本计划的 provider、service、module、移动端 adapter 和文档更新。本轮重新核验 `npm --prefix apps/api test -- files` 通过，5 个 suite / 39 个测试通过；`npx jest --runInBand --runTestsByPath __tests__\platformFileApi.test.ts` 通过，9 个测试通过；后续全量核验中根 Jest、根 typecheck、根 lint、API Jest、API typecheck、API lint、Prisma validate 和 API build 均已通过。`db:postgres:doctor` 仍因当前机器缺少 Docker CLI 且 `localhost:5432` PostgreSQL 不可达失败。计划中的 `git commit` 步骤未执行，因为当前工作区已有大量未提交改动且用户未要求提交。
+
 ---
 
 ## File Structure
@@ -27,7 +29,7 @@
 - Create: `apps/api/src/files/file-storage.provider.ts`
 - Create: `apps/api/src/files/file-storage.provider.spec.ts`
 
-- [ ] **Step 1: Write failing provider tests**
+- [x] **Step 1: Write failing provider tests**
 
 Create `apps/api/src/files/file-storage.provider.spec.ts`:
 
@@ -76,7 +78,7 @@ describe('LocalFileStorageProvider', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -86,7 +88,7 @@ npm --prefix apps/api test -- file-storage.provider
 
 Expected: fails because `file-storage.provider.ts` does not exist.
 
-- [ ] **Step 3: Implement provider**
+- [x] **Step 3: Implement provider**
 
 Create `apps/api/src/files/file-storage.provider.ts`:
 
@@ -139,7 +141,7 @@ function normalizeBaseUrl(value: string) {
 }
 ```
 
-- [ ] **Step 4: Run focused test and verify it passes**
+- [x] **Step 4: Run focused test and verify it passes**
 
 Run:
 
@@ -164,7 +166,7 @@ git commit -m "feat(api): add file storage provider boundary"
 - Modify: `apps/api/src/files/files.service.ts`
 - Modify: `apps/api/src/files/files.service.spec.ts`
 
-- [ ] **Step 1: Write failing service test for provider delegation**
+- [x] **Step 1: Write failing service test for provider delegation**
 
 Add this test to `apps/api/src/files/files.service.spec.ts`:
 
@@ -216,7 +218,7 @@ it('delegates upload target creation to the storage provider', async () => {
 });
 ```
 
-- [ ] **Step 2: Run service tests and verify failure**
+- [x] **Step 2: Run service tests and verify failure**
 
 Run:
 
@@ -226,7 +228,7 @@ npm --prefix apps/api test -- files.service
 
 Expected: fails because `FilesService` does not accept `storageProvider`.
 
-- [ ] **Step 3: Refactor `FilesService` constructor**
+- [x] **Step 3: Refactor `FilesService` constructor**
 
 In `apps/api/src/files/files.service.ts`, import provider types:
 
@@ -283,7 +285,7 @@ return {
 
 Remove the private `createPublicUrl` and `normalizeBaseUrl` functions from `files.service.ts`.
 
-- [ ] **Step 4: Run file service tests**
+- [x] **Step 4: Run file service tests**
 
 Run:
 
@@ -293,7 +295,7 @@ npm --prefix apps/api test -- files.service
 
 Expected: pass.
 
-- [ ] **Step 5: Run all file tests**
+- [x] **Step 5: Run all file tests**
 
 Run:
 
@@ -318,7 +320,7 @@ git commit -m "feat(api): use file storage provider in file service"
 - Modify: `apps/api/src/files/files.module.ts`
 - Modify: `apps/api/.env.example`
 
-- [ ] **Step 1: Wire provider in module**
+- [x] **Step 1: Wire provider in module**
 
 In `apps/api/src/files/files.module.ts`, import `LocalFileStorageProvider`:
 
@@ -354,7 +356,7 @@ useFactory: (repository: PrismaFilesRepository) =>
   ),
 ```
 
-- [ ] **Step 2: Document env vars**
+- [x] **Step 2: Document env vars**
 
 Add to `apps/api/.env.example`:
 
@@ -364,7 +366,7 @@ Add to `apps/api/.env.example`:
 # FILE_PUBLIC_URL_BASE=https://files.example.com/public
 ```
 
-- [ ] **Step 3: Run module and env tests**
+- [x] **Step 3: Run module and env tests**
 
 Run:
 
@@ -391,7 +393,7 @@ git commit -m "chore(api): configure local file storage provider"
 - Modify: `docs/platform/README.md`
 - Modify: `docs/03-项目当前状态与补全路线.md`
 
-- [ ] **Step 1: Update platform README file section**
+- [x] **Step 1: Update platform README file section**
 
 Add this paragraph to the file upload section in `docs/platform/README.md`:
 
@@ -399,7 +401,7 @@ Add this paragraph to the file upload section in `docs/platform/README.md`:
 阶段 2 文件上传第一片新增 storage provider 边界：`FilesService` 不再直接拼上传 URL 和 public URL，而是通过 `LocalFileStorageProvider` 生成本地上传目标和公开 URL。当前默认 provider 仍是本地开发路径，保留未来接 S3/OSS 的接口形状，但这一片不声明真实云对象存储、CDN、病毒扫描或缩略图已经完成。
 ```
 
-- [ ] **Step 2: Update project status document**
+- [x] **Step 2: Update project status document**
 
 In `docs/03-项目当前状态与补全路线.md`, update the latest `半成品` section so file upload states:
 
@@ -407,7 +409,7 @@ In `docs/03-项目当前状态与补全路线.md`, update the latest `半成品`
 - 文件上传已有元数据、上传意图、`uploaded` 状态、业务表单文件引用、司机认证附件校验、预览签名和阶段 2 storage provider 边界；还没有真实 S3/OSS 直传、二进制内容代理、病毒扫描、缩略图和清理任务。
 ```
 
-- [ ] **Step 3: Verify docs text**
+- [x] **Step 3: Verify docs text**
 
 Run:
 
@@ -432,7 +434,7 @@ git commit -m "docs: record file storage provider boundary"
 **Files:**
 - Verify only.
 
-- [ ] **Step 1: Run focused tests**
+- [x] **Step 1: Run focused tests**
 
 Run:
 
@@ -444,7 +446,7 @@ npx jest --runInBand --runTestsByPath __tests__\platformFileApi.test.ts
 
 Expected: all pass.
 
-- [ ] **Step 2: Run full checks**
+- [x] **Step 2: Run full checks**
 
 Run:
 
@@ -461,7 +463,7 @@ npm run api:build
 
 Expected: all pass.
 
-- [ ] **Step 3: Run database doctor honestly**
+- [x] **Step 3: Run database doctor honestly**
 
 Run:
 

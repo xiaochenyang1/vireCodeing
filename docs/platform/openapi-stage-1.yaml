@@ -3,7 +3,7 @@ info:
   title: Truck Platform Stage 1 API
   version: 0.1.0
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3000/api
 paths:
   /health:
     get:
@@ -14,6 +14,8 @@ paths:
   /auth/send-code:
     post:
       summary: Send verification code
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
       requestBody:
         required: true
         content:
@@ -23,9 +25,37 @@ paths:
       responses:
         '200':
           description: Code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendCodeResponse'
+        '429':
+          description: Verification code sending is rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_CODE_RATE_LIMITED
+                message: 验证码发送过于频繁
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
+        '502':
+          description: Verification code delivery provider failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_CODE_DELIVERY_FAILED
+                message: 验证码发送失败
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
   /auth/login:
     post:
       summary: Login with phone and verification code
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
       requestBody:
         required: true
         content:
@@ -35,9 +65,132 @@ paths:
       responses:
         '200':
           description: Login success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/password-login:
+    post:
+      summary: Login with phone and password
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordLoginRequest'
+      responses:
+        '200':
+          description: Password login success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordLoginResponse'
+        '401':
+          description: Phone or password is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_PASSWORD_INVALID
+                message: 手机号或密码错误
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/register:
+    post:
+      summary: Register with phone and verification code
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Register success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/reset-password:
+    post:
+      summary: Reset password with phone and verification code
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetPasswordResponse'
+        '401':
+          description: Phone or verification code is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_PASSWORD_RESET_INVALID
+                message: 手机号或验证码错误
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/change-password:
+    post:
+      summary: Change current authenticated user password
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password change success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePasswordResponse'
+        '401':
+          description: Current password or access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_PASSWORD_INVALID
+                message: 当前密码错误
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
   /auth/refresh:
     post:
       summary: Refresh access token
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
       requestBody:
         required: true
         content:
@@ -47,20 +200,2972 @@ paths:
       responses:
         '200':
           description: Refresh success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/logout:
+    post:
+      summary: Logout current device session
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Logout success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
   /me:
     get:
       summary: Current user profile
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /files/upload-intents:
+    post:
+      summary: Create file upload intent
+      description: Creates a pending file object for the current user and returns a first-slice upload URL. This stage records metadata only; real object storage direct upload can replace the uploadUrl later.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFileUploadIntentRequest'
+      responses:
+        '200':
+          description: File upload intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadIntentResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /files/{fileId}:
+    get:
+      summary: Get current user file metadata
+      description: Returns file metadata for the current file owner. Admin users may read any file metadata; non-owner users receive FILE_NOT_FOUND so file ids cannot be enumerated across accounts.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user file metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadRecordResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+        '404':
+          description: File does not exist or does not belong to current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+  /files/{fileId}/uploaded:
+    post:
+      summary: Confirm file upload completion
+      description: Marks a current user's pending file object as uploaded before the upload intent expires. In s3-compatible storage mode the backend first verifies the remote object with a signed HEAD request before changing state.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmFileUploadedRequest'
+      responses:
+        '200':
+          description: File upload confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadRecordResponse'
+        '404':
+          description: File does not exist or does not belong to current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '409':
+          description: File is not pending, the upload intent has expired, or the local binary body does not match the declared byteSize/contentType
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 文件状态不允许确认
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /files/storage-callbacks/s3-compatible:
+    post:
+      summary: Confirm S3 compatible storage callback
+      description: Confirms a pending file from a signed S3-compatible storage callback, stores optional etag/versionId metadata, and marks the file as uploaded. Valid repeated callbacks with matching metadata are idempotent. The callback signature is HMAC-SHA256 using FILE_STORAGE_CALLBACK_SIGNING_SECRET over fileId, objectKey, byteSize, contentType, etag and versionId joined by newlines.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmStorageCallbackRequest'
+      responses:
+        '200':
+          description: Storage callback accepted and file upload confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadRecordResponse'
+        '400':
+          description: Storage callback signature is invalid or callback signing secret is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STORAGE_CALLBACK_INVALID
+                message: 对象存储回调签名无效
+                requestId: req_storage_callback
+                timestamp: '2026-07-07T05:00:00.000Z'
+        '404':
+          description: File does not exist or objectKey does not match the file record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_storage_callback
+                timestamp: '2026-07-07T05:00:00.000Z'
+        '409':
+          description: File state, upload intent expiry, byteSize, contentType, etag or versionId does not allow callback confirmation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 对象存储回调元数据与上传意图不一致
+                requestId: req_storage_callback
+                timestamp: '2026-07-07T05:00:00.000Z'
+  /files/maintenance/reject-expired-pending:
+    post:
+      summary: Reject expired pending file upload intents
+      description: Admin-only maintenance endpoint. Marks pending file objects older than the configured upload expiry cutoff as rejected, without touching uploaded files or current pending upload intents.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Expired pending files rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RejectExpiredPendingFilesResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin, or authenticated user is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: AUTH_FORBIDDEN
+                    message: 当前账号不是管理员
+                    requestId: req_file_cleanup
+                    timestamp: '2026-07-07T06:00:00.000Z'
+                disabled:
+                  value:
+                    code: AUTH_USER_DISABLED
+                    message: 账号已禁用
+                    requestId: req_file_cleanup
+                    timestamp: '2026-07-07T06:00:00.000Z'
+  /files/maintenance/summary:
+    get:
+      summary: Get file maintenance summary
+      description: Admin-only maintenance endpoint. Returns aggregate file object counts and the current upload expiry cutoff so admins can audit pending cleanup before running it.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: File maintenance summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMaintenanceSummaryResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin, or authenticated user is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: AUTH_FORBIDDEN
+                    message: 当前账号不是管理员
+                    requestId: req_file_summary
+                    timestamp: '2026-07-07T06:00:00.000Z'
+                disabled:
+                  value:
+                    code: AUTH_USER_DISABLED
+                    message: 账号已禁用
+                    requestId: req_file_summary
+                    timestamp: '2026-07-07T06:00:00.000Z'
+  /files/maintenance/delete-rejected-objects:
+    post:
+      summary: Retry rejected file object deletion
+      description: Admin-only maintenance endpoint. Attempts best-effort provider object deletion for file objects already marked rejected, useful after earlier cleanup runs recorded failedObjectDeletionCount.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Rejected file object deletion attempted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteRejectedFileObjectsResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin, or authenticated user is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: AUTH_FORBIDDEN
+                    message: 当前账号不是管理员
+                    requestId: req_file_delete_rejected
+                    timestamp: '2026-07-07T06:00:00.000Z'
+                disabled:
+                  value:
+                    code: AUTH_USER_DISABLED
+                    message: 账号已禁用
+                    requestId: req_file_delete_rejected
+                    timestamp: '2026-07-07T06:00:00.000Z'
+  /files/uploads/{fileId}:
+    post:
+      summary: Confirm local upload target
+      description: Receives binary file content for the local development storage provider, writes it under FILE_STORAGE_ROOT/objectKey, then marks the current user's pending file object as uploaded before the upload intent expires. Real object storage direct upload callbacks can replace this later.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Local upload target confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadRecordResponse'
+        '404':
+          description: File does not exist or does not belong to current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '409':
+          description: File is not pending or the upload intent has expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 文件状态不允许确认
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /files/previews/{objectKey}:
+    get:
+      summary: Get signed file preview metadata
+      description: Returns uploaded file metadata after validating the short-lived preview signature. The objectKey path value is the wildcard suffix after /files/previews/ and may contain slashes. Binary local preview content is available through /files/preview-contents/{objectKey}.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: objectKey
+          in: path
+          required: true
+          description: File object key captured as the wildcard suffix after /files/previews/.
+          schema:
+            type: string
+          example: user-1/identity/20260706030000000/file-1.png
+        - name: expiresAtIso
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-06T03:10:00.000Z'
+        - name: signature
+          in: query
+          required: true
+          schema:
+            type: string
+          example: 92ad73eab5d5a99628f721aff86b9d439b0335d31e275c3bf733645ff52f449d
+      security: []
+      responses:
+        '200':
+          description: Signed file preview metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePreviewMetadataResponse'
+        '401':
+          description: Preview signature is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_PREVIEW_SIGNATURE_INVALID
+                message: 预览链接无效或已过期
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '404':
+          description: File object key does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '409':
+          description: File is not uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 文件尚未上传完成
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+  /files/preview-contents/{objectKey}:
+    get:
+      summary: Get signed file preview content
+      description: Returns the local binary file content after validating the short-lived preview signature. The objectKey path value is the wildcard suffix after /files/preview-contents/ and may contain slashes. Real object storage preview redirects can replace this local provider endpoint later.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: objectKey
+          in: path
+          required: true
+          description: File object key captured as the wildcard suffix after /files/preview-contents/.
+          schema:
+            type: string
+          example: user-1/identity/20260706030000000/file-1.png
+        - name: expiresAtIso
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-06T03:10:00.000Z'
+        - name: signature
+          in: query
+          required: true
+          schema:
+            type: string
+          example: 92ad73eab5d5a99628f721aff86b9d439b0335d31e275c3bf733645ff52f449d
+      security: []
+      responses:
+        '200':
+          description: Signed file preview binary content
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Preview signature is invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_PREVIEW_SIGNATURE_INVALID
+                message: 预览链接无效或已过期
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '404':
+          description: File object key does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 文件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+        '409':
+          description: File is not uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 文件尚未上传完成
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+  /shipper/order-draft:
+    get:
+      summary: Get current shipper order draft
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper order draft. Data is null when no draft exists. Drafts older than 24 hours are treated as missing and return null data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderDraftResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper order draft
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperOrderDraftRequest'
+      responses:
+        '200':
+          description: Current shipper order draft saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderDraftResponse'
+        '409':
+          description: The draft has been updated by another device after the client's base version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_DRAFT_CONFLICT
+                message: 发单草稿已被其他设备更新，请先拉取最新草稿后再保存。
+                requestId: req_local
+                timestamp: '2026-07-02T09:05:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/account:
+    get:
+      summary: Get current shipper profile account
+      description: Returns the current shipper's saved account snapshot. Data is null when no platform account snapshot has been saved yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper profile account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileAccountResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper profile account
+      description: Saves the current shipper's display name snapshot. It does not sync bound phone rebind, avatar files or account security settings.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperProfileAccountRequest'
+      responses:
+        '200':
+          description: Current shipper profile account saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileAccountResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/identity-verification:
+    get:
+      summary: Get current shipper identity verification
+      description: Returns the current shipper's saved identity verification snapshot. Data is null when no platform identity verification snapshot has been saved yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper identity verification snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperIdentityVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper identity verification
+      description: Saves the current shipper's identity verification snapshot and resets the snapshot status to reviewing. It does not include third-party face recognition SDK callbacks, admin review, or approval result push.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperIdentityVerificationRequest'
+      responses:
+        '200':
+          description: Current shipper identity verification snapshot saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperIdentityVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/enterprise-verification:
+    get:
+      summary: Get current shipper enterprise verification
+      description: Returns the current shipper's saved enterprise verification snapshot. Data is null when no platform enterprise verification snapshot has been saved yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper enterprise verification snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperEnterpriseVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper enterprise verification
+      description: Saves the current shipper's enterprise verification snapshot and resets the snapshot status to reviewing. It does not include admin review, invoice issuance, or tax status callbacks.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperEnterpriseVerificationRequest'
+      responses:
+        '200':
+          description: Current shipper enterprise verification snapshot saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperEnterpriseVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/invoices:
+    get:
+      summary: List current shipper invoice applications
+      description: Returns the current shipper's invoice application snapshots ordered by latest createdAt first.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper invoice application list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperInvoiceApplicationListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    post:
+      summary: Create current shipper invoice application
+      description: Creates a reviewing invoice application for the current shipper. Only current shipper completed orders can be selected. amountCents is derived from payablePriceCents when present, otherwise falls back to priceCents. Non-rejected historical invoice applications occupy selected orders and rejected applications may reuse order ids. vat-special invoice applications require a non-rejected enterprise verification snapshot.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipperInvoiceApplicationRequest'
+      responses:
+        '200':
+          description: Current shipper invoice application created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperInvoiceApplicationResponse'
+        '400':
+          description: Request validation failed or vat-special enterprise verification is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidRequest:
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 至少选择一笔开票订单
+                    requestId: req_local
+                    timestamp: '2026-07-09T09:00:00.000Z'
+                vatSpecialRequiresEnterprise:
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 增值税专用发票需先提交企业认证资料
+                    requestId: req_local
+                    timestamp: '2026-07-09T09:00:00.000Z'
+        '404':
+          description: One or more selected orders do not exist or do not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-09T09:00:00.000Z'
+        '409':
+          description: Selected orders are not completed, have no invoiceable amount, or are already occupied by a non-rejected invoice application
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                orderNotCompleted:
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 仅已完成订单可申请发票
+                    requestId: req_local
+                    timestamp: '2026-07-09T09:00:00.000Z'
+                orderAmountInvalid:
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 订单金额不可开票
+                    requestId: req_local
+                    timestamp: '2026-07-09T09:00:00.000Z'
+                orderOccupied:
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 订单已存在开票申请
+                    requestId: req_local
+                    timestamp: '2026-07-09T09:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/spending-records:
+    get:
+      summary: List current shipper spending records
+      description: Returns the current shipper's spending snapshot ordered by latest occurredAt first. It is a spending snapshot derived from order payment fields and does not represent real payment, escrow, or refund ledger entries.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper spending records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSpendingRecordsResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/evaluations:
+    get:
+      summary: List current shipper profile evaluations
+      description: Returns the current shipper's evaluation records ordered by latest submittedAt first. It is derived from order evaluation_submitted events and merges driver evaluation_replied events when present.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper profile evaluations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileEvaluationSnapshotResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/evaluations/received:
+    get:
+      summary: List current shipper received evaluations
+      description: Returns evaluations that drivers submitted for the current shipper, ordered by latest submittedAt first. It is derived from order shipper_evaluation_submitted events.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper received evaluations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperReceivedEvaluationSnapshotResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/coupons:
+    get:
+      summary: List current shipper coupon wallet
+      description: Returns the current shipper's coupon wallet snapshot ordered by latest issuedAt first. Coupon issue, marketing rules, payment settlement and refund return are still out of scope; order creation/update/cancel/complete can lock, release and redeem existing coupons.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper coupon wallet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperCouponWalletResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /admin/shipper-coupons:
+    post:
+      summary: Issue a shipper coupon manually
+      description: Admin-only first slice for manually issuing a usable coupon to a shipper wallet. It does not include marketing rule engines, batch campaigns, approval workflow, payment settlement, or refund return.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueShipperCouponRequest'
+      responses:
+        '200':
+          description: Shipper coupon issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperCouponRecordResponse'
+        '400':
+          description: Coupon issue request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: VALIDATION_ERROR
+                message: 优惠券失效时间必须晚于生效时间
+                requestId: req_local
+                timestamp: '2026-07-09T10:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /shipper/profile/address-book:
+    get:
+      summary: Get current shipper profile address book
+      description: Returns the current shipper's saved common addresses and contacts. Data is null when no platform address book has been saved yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper profile address book
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileAddressBookResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper profile address book
+      description: Replaces the current shipper's common address and contact snapshot. It does not sync identity verification, coupons, invoices or account security settings.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperProfileAddressBookRequest'
+      responses:
+        '200':
+          description: Current shipper profile address book saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileAddressBookResponse'
+        '409':
+          description: The address book has been updated by another device after the client's base version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: PROFILE_ADDRESS_BOOK_CONFLICT
+                message: 常用地址/联系人已被其他设备更新，请先拉取最新地址簿后再保存。
+                requestId: req_local
+                timestamp: '2026-07-03T08:35:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/profile/frequent-routes:
+    get:
+      summary: Get current shipper profile frequent routes
+      description: Returns the current shipper's saved frequent route snapshot. Data is null when no platform frequent routes snapshot has been saved yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper profile frequent routes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileFrequentRoutesResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    put:
+      summary: Save current shipper profile frequent routes
+      description: Replaces the current shipper's frequent route snapshot. It does not sync completed order route mining, dispatch recommendations or driver route preferences.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveShipperProfileFrequentRoutesRequest'
+      responses:
+        '200':
+          description: Current shipper profile frequent routes saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperProfileFrequentRoutesResponse'
+        '409':
+          description: The frequent routes snapshot has been updated by another device after the client's base version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: PROFILE_FREQUENT_ROUTES_CONFLICT
+                message: 常用路线已被其他设备更新，请先拉取最新路线后再保存。
+                requestId: req_local
+                timestamp: '2026-07-04T08:35:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/orders:
+    post:
+      summary: Create shipper order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipperOrderRequest'
+      responses:
+        '200':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    get:
+      summary: List current shipper orders
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Single status filter. Do not send together with statuses.
+          schema:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated status collection. Used by mobile active orders, for example loading and transporting. Spaces and empty parts are ignored, duplicate statuses are normalized away. Do not send together with status.
+          schema:
+            type: string
+          example: loading,transporting
+        - name: keyword
+          in: query
+          required: false
+          description: Search order number, cargo, pickup/delivery address, contacts, phones and vehicle requirement text. Whitespace is trimmed, blank values are ignored, and the value must be 100 characters or fewer.
+          schema:
+            type: string
+            maxLength: 100
+          example: 南山门店
+        - name: createdFromIso
+          in: query
+          required: false
+          description: Inclusive created-at lower bound in ISO 8601 format. Whitespace is trimmed and blank values are ignored. Must be earlier than createdToIso when both bounds are present.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        - name: createdToIso
+          in: query
+          required: false
+          description: Exclusive created-at upper bound in ISO 8601 format. Whitespace is trimmed and blank values are ignored. Must be later than createdFromIso when both bounds are present.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-03T00:00:00.000Z'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/orders/{orderId}:
+    get:
+      summary: Get current shipper order detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+    put:
+      summary: Update current shipper order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipperOrderRequest'
+      responses:
+        '200':
+          description: Order updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许修改
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/cancel:
+    post:
+      summary: Cancel current shipper order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelShipperOrderRequest'
+      responses:
+        '200':
+          description: Order cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow cancellation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许取消
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/complete:
+    post:
+      summary: Complete shipper order after delivery
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Order completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow delivery confirmation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许确认送达
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/status:
+    post:
+      summary: Advance current shipper order status
+      description: 'Advances status in order: waiting to loading, loading to transporting, transporting to confirming. Completion still uses /complete.'
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvanceShipperOrderStatusRequest'
+      responses:
+        '200':
+          description: Order status advanced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow advancing to the requested status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许推进到目标状态
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/exception:
+    post:
+      summary: Report an exception for current shipper order
+      description: Appends an exception_reported event for a transporting or confirming order. Optional photoFileIds must belong to the current shipper, be uploaded, and use exception purpose. It does not change the order status.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportShipperOrderExceptionRequest'
+      responses:
+        '200':
+          description: Order exception reported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow exception reporting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许上报异常
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/change-request:
+    post:
+      summary: Submit current shipper order change request
+      description: Appends a change_requested event for a loading, transporting or confirming order. Waiting orders should use PUT /shipper/orders/{orderId}; this endpoint does not change the order body or status.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitShipperOrderChangeRequest'
+      responses:
+        '200':
+          description: Order change request submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow change requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许提交修改申请
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/evaluation:
+    post:
+      summary: Submit current shipper order evaluation
+      description: Appends an evaluation_submitted event for a completed order. Optional photoFileIds must belong to the current shipper, be uploaded, and use evaluation purpose. It does not create the full review center record yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitShipperOrderEvaluationRequest'
+      responses:
+        '200':
+          description: Order evaluation submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '409':
+          description: Current order status does not allow evaluation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单状态不允许评价
+                requestId: req_local
+                timestamp: '2026-07-01T08:10:00.000Z'
+  /admin/orders/attachments:
+    get:
+      summary: List admin order attachment audit summaries
+      description: Lists searchable order attachment audit summaries for admin review. This first slice helps operators find orders with cargo or event attachment references before opening the per-order audit detail; batch processing is not included yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: keyword
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          description: Optional order number, cargo, address, contact, or vehicle keyword.
+          example: HY202607
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+          description: Optional order status filter for attachment audit summaries.
+          example: loading
+        - name: shipperId
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+          description: Optional exact shipper user id filter for attachment audit summaries.
+          example: user-platform-order
+        - name: createdFromIso
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        - name: createdToIso
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-08T00:00:00.000Z'
+        - name: hasMissingFiles
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Only return orders whose attachment audit matches the missing-file state.
+          example: true
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 50
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin order attachment audit summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderAttachmentAuditListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T03:00:00.000Z'
+  /admin/orders/{orderId}/attachments:
+    get:
+      summary: Get admin order attachment audit
+      description: Returns cargo photo file metadata and order event attachment file metadata for admin audit. Missing historical file references remain visible in missingFileIds. Resolved files include local short-lived signed previewUrl and previewExpiresAtIso values; real object-storage signed URLs and the full admin workbench are later integrations.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin order attachment audit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderAttachmentAuditResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+        '404':
+          description: Order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-01T08:00:00.000Z'
+  /driver/certification:
+    get:
+      summary: Get current driver certification snapshot
+      description: Returns identity and vehicle certification state for the current driver.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver certification snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/certification/identity:
+    put:
+      summary: Submit current driver identity certification
+      description: Stores the current driver's real-name identity materials and moves identity certification to reviewing. Certification file ids must belong to the current driver, be uploaded, and use identity purpose.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDriverIdentityCertificationRequest'
+      responses:
+        '200':
+          description: Driver identity certification submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '400':
+          description: Identity certification request is invalid, or a certification file purpose is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_PURPOSE_INVALID
+                message: 认证附件用途不匹配
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Certification file does not exist or does not belong to current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 认证附件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Certification file has not been uploaded yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 认证附件尚未上传完成
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/certification/vehicle:
+    put:
+      summary: Submit current driver vehicle certification
+      description: Stores the current driver's vehicle, driving, transport qualification, and operation permit materials and moves vehicle certification to reviewing. Certification file ids must belong to the current driver, be uploaded, and use identity purpose.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDriverVehicleCertificationRequest'
+      responses:
+        '200':
+          description: Driver vehicle certification submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '400':
+          description: Vehicle certification request is invalid, or a certification file purpose is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_PURPOSE_INVALID
+                message: 认证附件用途不匹配
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Certification file does not exist or does not belong to current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_NOT_FOUND
+                message: 认证附件不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Certification file has not been uploaded yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: FILE_STATE_INVALID
+                message: 认证附件尚未上传完成
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications:
+    get:
+      summary: List driver certifications for admin review
+      description: Lists driver identity and vehicle certification snapshots for the admin review queue. The default status filter is reviewing.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Certification status filter for either identity or vehicle records.
+          schema:
+            type: string
+            enum: [reviewing, approved, rejected]
+            default: reviewing
+          example: reviewing
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver certification review queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/{driverId}/identity/review:
+    post:
+      summary: Review driver identity certification
+      description: Allows an admin user to approve or reject an existing driver identity certification record and appends a driver certification review audit event. This first slice does not send notifications yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDriverCertificationRequest'
+      responses:
+        '200':
+          description: Driver identity certification reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '400':
+          description: Review request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Driver identity certification record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_NOT_FOUND
+                message: 司机认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/{driverId}/vehicle/review:
+    post:
+      summary: Review driver vehicle certification
+      description: Allows an admin user to approve or reject an existing driver vehicle certification record and appends a driver certification review audit event. This first slice does not send notifications yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDriverCertificationRequest'
+      responses:
+        '200':
+          description: Driver vehicle certification reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '400':
+          description: Review request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Driver vehicle certification record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_NOT_FOUND
+                message: 司机认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/{driverId}/attachments:
+    get:
+      summary: Get driver certification attachment previews
+      description: Returns file metadata and publicUrl values for a driver's submitted identity and vehicle certification attachments. This first slice exposes existing file metadata only; real object-storage signed preview URLs are still a later integration.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver certification attachment preview metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationAttachmentPreviewResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/{driverId}/review-events:
+    get:
+      summary: List driver certification review audit events
+      description: Lists review audit events for a driver's identity and vehicle certifications. Events are returned newest first.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver certification review audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationReviewEventResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/order-hall:
+    get:
+      summary: List waiting orders for current driver
+      description: Returns waiting shipper orders available for the current driver first-slice order hall.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Waiting order hall for current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverOrderHallResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/settings/acceptance:
+    get:
+      summary: Get current driver acceptance settings
+      description: This first slice stores online/offline status, maximum service distance, and preferred vehicle types for the current driver. maxDistanceKm is persisted now and will back nearby-order filtering once order coordinates are available.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver acceptance settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverAcceptanceSettingsResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T02:00:00.000Z'
+    put:
+      summary: Save current driver acceptance settings
+      description: Saves online/offline status, maximum service distance, and preferred vehicle types for the current driver. Vehicle type preferences are used by the mobile driver hall to filter compatible orders after load in this slice.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveDriverAcceptanceSettingsRequest'
+      responses:
+        '200':
+          description: Driver acceptance settings saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverAcceptanceSettingsResponse'
+        '400':
+          description: Acceptance settings request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: VALIDATION_ERROR
+                message: 接单范围至少 1 公里
+                requestId: req_local
+                timestamp: '2026-07-09T02:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T02:00:00.000Z'
+  /driver/income:
+    get:
+      summary: Get current driver income overview
+      description: Returns first-slice income summary and recent completed-income records for the current driver. Net income is currently calculated as 95% of payablePriceCents or priceCents. If a completed negotiable order still has no stored amount, this slice falls back to the latest quote submitted by the same driver.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver income overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverIncomeResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T03:00:00.000Z'
+  /driver/withdrawals:
+    get:
+      summary: List current driver withdrawal requests
+      description: Returns recent withdrawal requests submitted by the current driver in created-desc order.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver withdrawal requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverWithdrawalListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T03:00:00.000Z'
+    post:
+      summary: Create current driver withdrawal request
+      description: Creates a reviewing withdrawal request for the current driver and stores only masked bank-account snapshot data in this slice.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDriverWithdrawalRequest'
+      responses:
+        '200':
+          description: Driver withdrawal request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverWithdrawalResponse'
+        '400':
+          description: Withdrawal request is invalid or exceeds current available balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_WITHDRAWAL_BALANCE_INSUFFICIENT
+                message: 可提现余额不足
+                requestId: req_local
+                timestamp: '2026-07-09T03:20:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T03:00:00.000Z'
+  /driver/orders:
+    get:
+      summary: List accepted orders for current driver
+      description: Returns orders accepted by the current driver and currently in loading, transporting or confirming execution states.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated driver execution statuses. Defaults to loading,transporting,confirming.
+          schema:
+            type: string
+          example: loading,transporting,confirming
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver accepted orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverMyOrdersResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/orders/{orderId}:
+    get:
+      summary: Get current driver accepted order detail
+      description: Returns order detail only when the current driver has accepted the order.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver accepted order detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Order does not exist or was not accepted by current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/orders/{orderId}/quote:
+    post:
+      summary: Submit driver quote for a waiting order
+      description: Appends a driver_quote_submitted event to a waiting order and keeps the order status waiting. The current driver must have approved identity and vehicle certification, and current acceptance settings must be online.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverQuoteOrderRequest'
+      responses:
+        '200':
+          description: Driver quote submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver, Driver identity or vehicle certification is not approved, or current acceptance settings are offline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_ACCEPTANCE_OFFLINE
+                message: 司机当前处于离线接单状态
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Current order status cannot receive driver quotes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单已不可接单
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/orders/{orderId}/accept:
+    post:
+      summary: Accept a waiting order as current driver
+      description: Moves a waiting order to loading and appends a driver_accepted event. The current driver must have approved identity and vehicle certification, and current acceptance settings must be online.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverAcceptOrderRequest'
+      responses:
+        '200':
+          description: Driver accepted order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver, Driver identity or vehicle certification is not approved, or current acceptance settings are offline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_REQUIRED
+                message: 司机实名和车辆认证通过后才能接单
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Current order status cannot be accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前订单已不可接单
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/orders/{orderId}/status:
+    post:
+      summary: Advance current driver accepted order status
+      description: Allows loading to transporting and transporting to confirming. Completion remains the shipper confirmation flow in this slice.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverAdvanceOrderStatusRequest'
+      responses:
+        '200':
+          description: Driver order status advanced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Order does not exist or was not accepted by current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Current driver order status cannot advance to requested status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前司机订单状态不允许推进到目标状态
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /driver/orders/{orderId}/evaluation-reply:
+    post:
+      summary: Reply to a shipper evaluation
+      description: Appends an evaluation_replied event to an order accepted by the current driver after the shipper has submitted an evaluation. The order status is not changed.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverReplyEvaluationRequest'
+      responses:
+        '200':
+          description: Driver evaluation reply appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Order does not exist or was not accepted by current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: The order has not received a shipper evaluation yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 订单尚未收到货主评价
+                requestId: req_local
+                timestamp: '2026-07-09T08:30:00.000Z'
+  /driver/orders/{orderId}/shipper-evaluation:
+    post:
+      summary: Submit a driver evaluation for the shipper
+      description: Appends a shipper_evaluation_submitted event to a completed order accepted by the current driver. This is the first slice of driver-to-shipper evaluation and does not include moderation, appeal handling, or credit-score settlement yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverEvaluateShipperRequest'
+      responses:
+        '200':
+          description: Driver evaluation for shipper appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-09T08:30:00.000Z'
+        '404':
+          description: Order does not exist or was not accepted by current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-09T08:30:00.000Z'
+        '409':
+          description: The order is not completed yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 订单完成后才能评价货主
+                requestId: req_local
+                timestamp: '2026-07-09T08:30:00.000Z'
 components:
+  parameters:
+    RequestIdHeader:
+      name: x-request-id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Optional request correlation id echoed in success and business error responses.
+      example: req_mobile_001
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+  responses:
+    DisabledUserError:
+      description: Authenticated user is disabled
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: AUTH_USER_DISABLED
+            message: 账号已禁用
+            requestId: req_local
+            timestamp: '2026-06-26T06:00:00.000Z'
+    ShipperOnlyError:
+      description: Current authenticated user is not a shipper
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: AUTH_FORBIDDEN
+            message: 当前账号不是货主
+            requestId: req_local
+            timestamp: '2026-07-06T08:00:00.000Z'
+    AdminOnlyError:
+      description: Current authenticated user is not an admin
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: AUTH_FORBIDDEN
+            message: 当前账号不是管理员
+            requestId: req_local
+            timestamp: '2026-07-09T10:00:00.000Z'
   schemas:
     SendCodeRequest:
       type: object
@@ -68,24 +3173,2634 @@ components:
       properties:
         phone:
           type: string
+          pattern: '^1[3-9]\d{9}$'
           example: '13800138000'
         purpose:
           type: string
           enum: [login, register, reset]
+    SendCodeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/SendCodeResult'
+    SendCodeResult:
+      type: object
+      required: [expireSeconds]
+      properties:
+        expireSeconds:
+          type: integer
+          example: 300
+        devCode:
+          type: string
+          description: Returned only in non-production environments.
+          example: '123456'
     LoginRequest:
       type: object
-      required: [phone, code, userType]
+      required: [phone, code, userType, deviceId]
       properties:
         phone:
           type: string
+          pattern: '^1[3-9]\d{9}$'
         code:
           type: string
+          pattern: '^\d{6}$'
         userType:
           type: string
           enum: [shipper, driver]
+        deviceId:
+          type: string
+          minLength: 1
+    RegisterRequest:
+      type: object
+      required: [phone, code, userType, deviceId, password]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        userType:
+          type: string
+          enum: [shipper, driver]
+        deviceId:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 6
+          writeOnly: true
+          description: 密码需至少 6 位并包含字母和数字。
+    PasswordLoginRequest:
+      type: object
+      required: [phone, password, userType, deviceId]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        password:
+          type: string
+          minLength: 6
+          writeOnly: true
+          description: 密码需至少 6 位并包含字母和数字。
+        userType:
+          type: string
+          enum: [shipper, driver]
+        deviceId:
+          type: string
+          minLength: 1
+    ResetPasswordRequest:
+      type: object
+      required: [phone, code, password]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        password:
+          type: string
+          minLength: 6
+          writeOnly: true
+          description: 密码需至少 6 位并包含字母和数字。
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          writeOnly: true
+        newPassword:
+          type: string
+          minLength: 6
+          writeOnly: true
+          description: 密码需至少 6 位并包含字母和数字。
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginResult'
+    LoginResult:
+      type: object
+      required: [user, tokens]
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthenticatedUser'
+        tokens:
+          $ref: '#/components/schemas/TokenPair'
+    RegisterResponse:
+      allOf:
+        - $ref: '#/components/schemas/LoginResponse'
+    PasswordLoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/LoginResponse'
+    ResetPasswordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ResetPasswordResult'
+    ResetPasswordResult:
+      type: object
+      required: [reset]
+      properties:
+        reset:
+          type: boolean
+          enum: [true]
+          example: true
+    ChangePasswordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ChangePasswordResult'
+    ChangePasswordResult:
+      type: object
+      required: [changed]
+      properties:
+        changed:
+          type: boolean
+          enum: [true]
+          example: true
     RefreshRequest:
       type: object
-      required: [refreshToken]
+      required: [refreshToken, deviceId]
       properties:
         refreshToken:
           type: string
+          pattern: '^refresh\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          example: 'refresh.550e8400-e29b-41d4-a716-446655440000'
+        deviceId:
+          type: string
+          minLength: 1
+    RefreshResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/TokenPair'
+    LogoutRequest:
+      type: object
+      required: [refreshToken, deviceId]
+      properties:
+        refreshToken:
+          type: string
+          pattern: '^refresh\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          example: 'refresh.550e8400-e29b-41d4-a716-446655440000'
+        deviceId:
+          type: string
+          minLength: 1
+    LogoutResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/LogoutResult'
+    LogoutResult:
+      type: object
+      required: [loggedOut]
+      properties:
+        loggedOut:
+          type: boolean
+          enum: [true]
+          example: true
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthenticatedUser'
+    CreateShipperOrderRequest:
+      type: object
+      required:
+        - cargoType
+        - weightText
+        - quantityText
+        - pickupAddress
+        - pickupContact
+        - pickupPhone
+        - deliveryAddress
+        - deliveryContact
+        - deliveryPhone
+        - vehicleRequirement
+        - needTailboard
+        - needTarp
+        - pickupTimeIso
+        - pricingMode
+        - paymentMethod
+      properties:
+        cargoType:
+          type: string
+          minLength: 1
+          example: 数码
+        weightText:
+          type: string
+          minLength: 1
+          example: 1.8 吨
+        volumeText:
+          type: string
+          example: 8 方
+        quantityText:
+          type: string
+          minLength: 1
+          example: 18 箱
+        cargoDescription:
+          type: string
+          maxLength: 200
+          example: 高价值设备，轻拿轻放
+        cargoPhotoCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+          example: 2
+        cargoPhotoFileIds:
+          type: array
+          maxItems: 6
+          description: Order cargo photo file ids. Files must belong to the current shipper, be uploaded, and use cargo purpose. When present, cargoPhotoCount is derived from this array length.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example:
+            - file-cargo-1
+        pickupAddress:
+          type: string
+          minLength: 1
+          example: 宝安临时仓
+        pickupNoteText:
+          type: string
+          maxLength: 50
+          example: 西门装货
+        pickupContact:
+          type: string
+          minLength: 1
+          example: 赵经理
+        pickupPhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13800138001'
+        deliveryAddress:
+          type: string
+          minLength: 1
+          example: 南山门店新址
+        deliveryNoteText:
+          type: string
+          maxLength: 50
+          example: 到店联系收货
+        deliveryContact:
+          type: string
+          minLength: 1
+          example: 钱店长
+        deliveryPhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13800138002'
+        vehicleRequirement:
+          type: string
+          minLength: 1
+          example: 中型货车
+        vehicleLengthText:
+          type: string
+          example: 4.2 米
+        needTailboard:
+          type: boolean
+          example: false
+        needTarp:
+          type: boolean
+          example: false
+        pickupTimeIso:
+          type: string
+          format: date-time
+          example: '2026-07-02T01:30:00.000Z'
+        expectedDeliveryTimeText:
+          type: string
+          example: 当天送达
+        valueAddedServicesText:
+          type: string
+          example: 装卸协助（2 人）
+        pricingMode:
+          type: string
+          enum: [fixed, negotiable]
+          description: When pricingMode is negotiable, priceCents and coupon pricing fields must be omitted.
+        priceCents:
+          type: integer
+          minimum: 1
+          description: Required when pricingMode is fixed; omitted when pricingMode is negotiable.
+          example: 76000
+        paymentMethod:
+          type: string
+          enum: [cod, online]
+        couponId:
+          type: string
+          description: For a fixed price couponed order, couponId, couponTitle, couponDiscountCents and payablePriceCents must be provided together.
+          example: coupon-new-user
+        couponTitle:
+          type: string
+          example: 新用户立减券
+        couponDiscountCents:
+          type: integer
+          minimum: 0
+          example: 5000
+        payablePriceCents:
+          type: integer
+          minimum: 0
+          description: For a fixed price couponed order, couponId, couponTitle, couponDiscountCents and payablePriceCents must be provided together; payablePriceCents must equal priceCents minus couponDiscountCents.
+          example: 71000
+    CancelShipperOrderRequest:
+      type: object
+      required: [reasonText]
+      properties:
+        reasonText:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: 计划有变
+        description:
+          type: string
+          maxLength: 200
+          example: 客户临时调整发货计划
+    AdvanceShipperOrderStatusRequest:
+      type: object
+      required: [nextStatus]
+      properties:
+        nextStatus:
+          type: string
+          enum: [loading, transporting, confirming]
+          example: loading
+    ReportShipperOrderExceptionRequest:
+      type: object
+      required: [typeLabel, description]
+      properties:
+        typeLabel:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 司机延误
+        description:
+          type: string
+          minLength: 6
+          maxLength: 200
+          example: 司机反馈高速拥堵，预计晚到 40 分钟
+        photoCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+          example: 2
+        photoFileIds:
+          type: array
+          maxItems: 6
+          description: Uploaded exception file ids to bind to the exception event.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-exception-delay-1]
+    SubmitShipperOrderChangeRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 请把卸货地址改到南山门店二期，装货时间顺延 1 小时
+    SubmitShipperOrderEvaluationRequest:
+      type: object
+      required: [rating, tags, content]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            type: string
+            minLength: 1
+          example: [准时, 服务好]
+        content:
+          type: string
+          minLength: 6
+          maxLength: 200
+          example: 司机服务细致，整体运输体验很好
+        anonymous:
+          type: boolean
+          example: false
+        photoCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+          example: 1
+        photoFileIds:
+          type: array
+          maxItems: 6
+          description: Uploaded evaluation file ids to bind to the evaluation event.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-evaluation-photo-1]
+    CreateFileUploadIntentRequest:
+      type: object
+      required: [purpose, fileName, contentType, byteSize]
+      properties:
+        purpose:
+          type: string
+          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+          description: Business purpose for the file object.
+          example: identity
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: 身份证正面.png
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, application/pdf]
+          example: image/png
+        byteSize:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+          example: 2048
+    ConfirmFileUploadedRequest:
+      type: object
+      properties:
+        publicUrl:
+          type: string
+          example: https://cdn.example.com/user-1/identity/file-1.png
+    ConfirmStorageCallbackRequest:
+      type: object
+      required: [fileId, objectKey, byteSize, contentType, signature]
+      properties:
+        fileId:
+          type: string
+          minLength: 1
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        objectKey:
+          type: string
+          minLength: 1
+          example: user-1/cargo/20260707050000000/file-cargo-1.jpg
+        byteSize:
+          type: integer
+          minimum: 1
+          example: 2048
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, application/pdf]
+          example: image/jpeg
+        etag:
+          type: string
+          description: Optional object storage entity tag from the uploaded object.
+          example: '"etag-1"'
+        versionId:
+          type: string
+          description: Optional object storage version id from versioned buckets.
+          example: version-1
+        signature:
+          type: string
+          minLength: 1
+          description: HMAC-SHA256 hex signature using FILE_STORAGE_CALLBACK_SIGNING_SECRET.
+          example: 477a3f0f0a12bdb2840ef7cce80e13f2b36925c631552d2d8f899a3e2f063214
+    FileUploadRecord:
+      type: object
+      required:
+        - id
+        - ownerUserId
+        - purpose
+        - contentType
+        - byteSize
+        - objectKey
+        - status
+        - createdAtIso
+      properties:
+        id:
+          type: string
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        ownerUserId:
+          type: string
+          example: user-1
+        purpose:
+          type: string
+          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+        contentType:
+          type: string
+          example: image/png
+        byteSize:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+          example: 2048
+        objectKey:
+          type: string
+          example: user-1/identity/20260706030000000/file-1.png
+        publicUrl:
+          type: string
+          example: https://cdn.example.com/user-1/identity/file-1.png
+        etag:
+          type: string
+          description: Object storage entity tag saved from upload confirmation callback when available.
+          example: '"etag-1"'
+        versionId:
+          type: string
+          description: Object storage version id saved from upload confirmation callback when available.
+          example: version-1
+        status:
+          type: string
+          enum: [pending, uploaded, rejected]
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T03:00:00.000Z'
+    FileUploadIntent:
+      allOf:
+        - $ref: '#/components/schemas/FileUploadRecord'
+        - type: object
+          required: [uploadUrl, expiresAtIso]
+          properties:
+            uploadUrl:
+              type: string
+              example: http://localhost:3000/api/files/uploads/file-1
+            expiresAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-06T03:15:00.000Z'
+    FileUploadIntentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileUploadIntent'
+    FileUploadRecordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileUploadRecord'
+    RejectExpiredPendingFilesResult:
+      type: object
+      required:
+        - rejectedCount
+        - deletedObjectCount
+        - failedObjectDeletionCount
+        - cutoffIso
+      properties:
+        rejectedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        deletedObjectCount:
+          type: integer
+          minimum: 0
+          example: 3
+        failedObjectDeletionCount:
+          type: integer
+          minimum: 0
+          example: 0
+        cutoffIso:
+          type: string
+          format: date-time
+          example: '2026-07-07T05:45:00.000Z'
+    RejectExpiredPendingFilesResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RejectExpiredPendingFilesResult'
+    DeleteRejectedFileObjectsResult:
+      type: object
+      required:
+        - attemptedObjectCount
+        - deletedObjectCount
+        - failedObjectDeletionCount
+      properties:
+        attemptedObjectCount:
+          type: integer
+          minimum: 0
+          example: 3
+        deletedObjectCount:
+          type: integer
+          minimum: 0
+          example: 2
+        failedObjectDeletionCount:
+          type: integer
+          minimum: 0
+          example: 1
+    DeleteRejectedFileObjectsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DeleteRejectedFileObjectsResult'
+    FileMaintenanceSummaryResult:
+      type: object
+      required:
+        - totalCount
+        - pendingCount
+        - uploadedCount
+        - rejectedCount
+        - expiredPendingCount
+        - cutoffIso
+      properties:
+        totalCount:
+          type: integer
+          minimum: 0
+          example: 128
+        pendingCount:
+          type: integer
+          minimum: 0
+          example: 7
+        uploadedCount:
+          type: integer
+          minimum: 0
+          example: 118
+        rejectedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        expiredPendingCount:
+          type: integer
+          minimum: 0
+          example: 2
+        cutoffIso:
+          type: string
+          format: date-time
+          example: '2026-07-07T05:45:00.000Z'
+    FileMaintenanceSummaryResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileMaintenanceSummaryResult'
+    FilePreviewMetadataResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileUploadRecord'
+    ShipperOrderStatus:
+      type: string
+      enum: [waiting, loading, transporting, confirming, completed, cancelled]
+    ShipperOrder:
+      allOf:
+        - $ref: '#/components/schemas/CreateShipperOrderRequest'
+        - type: object
+          required:
+            - id
+            - orderNo
+            - shipperId
+            - status
+            - createdAtIso
+            - updatedAtIso
+            - events
+          properties:
+            id:
+              type: string
+              example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+            orderNo:
+              type: string
+              example: HY202607010777
+            shipperId:
+              type: string
+              example: user-platform-order
+            status:
+              $ref: '#/components/schemas/ShipperOrderStatus'
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-01T08:00:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-01T08:00:00.000Z'
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShipperOrderEvent'
+    ShipperOrderEvent:
+      type: object
+      required: [id, eventType, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: order_event_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        eventType:
+          type: string
+          description: Order event type. Driver first-slice events include driver_quote_submitted, driver_accepted, driver_status_changed, evaluation_replied and shipper_evaluation_submitted.
+          enum:
+            - created
+            - status_advanced
+            - cancelled
+            - completed
+            - exception_reported
+            - change_requested
+            - evaluation_submitted
+            - driver_quote_submitted
+            - driver_accepted
+            - driver_status_changed
+            - evaluation_replied
+            - shipper_evaluation_submitted
+          example: driver_quote_submitted
+        actorUserId:
+          type: string
+          description: User id that produced this event when the actor is not implied by the order owner.
+          example: user-driver-001
+        noteText:
+          type: string
+          description: Free text note or compact JSON payload for first-slice driver quote metadata.
+          example: '{"quoteCents":88000,"arrivalText":"45 分钟到达","noteText":"可带尾板"}'
+        attachmentFileIds:
+          type: array
+          description: Order event attachment file ids. Created and updated order events include cargo photo file ids when cargoPhotoFileIds are submitted.
+          items:
+            type: string
+          example: [file-exception-delay-1]
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-01T08:00:00.000Z'
+    AdminOrderAttachmentFileRecord:
+      allOf:
+        - $ref: '#/components/schemas/FileUploadRecord'
+        - type: object
+          required: [previewUrl, previewExpiresAtIso]
+          properties:
+            previewUrl:
+              type: string
+              format: uri
+              description: Signed short-lived preview URL for admin order attachment audit.
+              example: '/api/files/preview-contents/shipper-1/cargo/file-cargo-1.png?expiresAtIso=2026-07-06T08%3A10%3A00.000Z&signature=local-signature'
+            previewExpiresAtIso:
+              type: string
+              format: date-time
+              description: Expiration time for the signed admin order attachment preview URL.
+              example: '2026-07-06T08:10:00.000Z'
+    AdminOrderAttachmentFileGroup:
+      type: object
+      required: [fileIds, files, missingFileIds]
+      properties:
+        fileIds:
+          type: array
+          description: Normalized attachment file ids stored on the order body or event snapshot.
+          items:
+            type: string
+          example: [file-cargo-1]
+        files:
+          type: array
+          description: File metadata found for the normalized file ids.
+          items:
+            $ref: '#/components/schemas/AdminOrderAttachmentFileRecord'
+        missingFileIds:
+          type: array
+          description: Attachment file ids referenced by the order or event but not found in file metadata storage.
+          items:
+            type: string
+          example: []
+    AdminOrderAttachmentAuditEvent:
+      type: object
+      required: [eventId, eventType, createdAtIso, attachmentFileIds, files, missingFileIds]
+      properties:
+        eventId:
+          type: string
+          example: order_event_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        eventType:
+          type: string
+          description: Order event type with attachment file ids.
+          example: created
+        noteText:
+          type: string
+          description: Free text note or compact JSON payload stored on the order event.
+          example: '{"cargoPhotoFileIds":["file-cargo-1"]}'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-01T08:00:00.000Z'
+        attachmentFileIds:
+          type: array
+          description: Normalized attachment file ids stored on this order event snapshot.
+          items:
+            type: string
+          example: [file-cargo-1]
+        files:
+          type: array
+          description: File metadata found for this event attachment snapshot.
+          items:
+            $ref: '#/components/schemas/AdminOrderAttachmentFileRecord'
+        missingFileIds:
+          type: array
+          description: Event attachment file ids that no longer resolve to file metadata.
+          items:
+            type: string
+          example: []
+    AdminOrderAttachmentAudit:
+      type: object
+      required: [orderId, orderNo, shipperId, cargo, events]
+      properties:
+        orderId:
+          type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        orderNo:
+          type: string
+          example: HY202607010777
+        shipperId:
+          type: string
+          example: user-platform-order
+        cargo:
+          $ref: '#/components/schemas/AdminOrderAttachmentFileGroup'
+        events:
+          type: array
+          description: Order events that contain attachment file ids.
+          items:
+            $ref: '#/components/schemas/AdminOrderAttachmentAuditEvent'
+    AdminOrderAttachmentAuditSummary:
+      type: object
+      required:
+        - orderId
+        - orderNo
+        - shipperId
+        - status
+        - createdAtIso
+        - cargoFileCount
+        - eventAttachmentFileCount
+        - totalFileIdCount
+        - resolvedFileCount
+        - missingFileIds
+        - hasMissingFiles
+      properties:
+        orderId:
+          type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        orderNo:
+          type: string
+          example: HY202607010777
+        shipperId:
+          type: string
+          example: user-platform-order
+        status:
+          $ref: '#/components/schemas/ShipperOrderStatus'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-01T08:00:00.000Z'
+        cargoFileCount:
+          type: integer
+          description: Unique cargo attachment file id count stored on the order body.
+          example: 1
+        eventAttachmentFileCount:
+          type: integer
+          description: Unique attachment file id count stored across order event snapshots.
+          example: 2
+        totalFileIdCount:
+          type: integer
+          description: Unique file id count across cargo and event attachment references.
+          example: 2
+        resolvedFileCount:
+          type: integer
+          description: File id count that resolves to file metadata storage.
+          example: 1
+        missingFileIds:
+          type: array
+          description: Attachment file ids referenced by the order or events but not found in file metadata storage.
+          items:
+            type: string
+          example: [file-missing-cargo]
+        hasMissingFiles:
+          type: boolean
+          example: true
+    AdminOrderAttachmentAuditListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderAttachmentAuditSummary'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    AdminOrderAttachmentAuditListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminOrderAttachmentAuditListResult'
+    AdminOrderAttachmentAuditResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminOrderAttachmentAudit'
+    ShipperOrderResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperOrder'
+    ShipperOrderListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperOrder'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    ShipperOrderListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperOrderListResult'
+    DriverOrderHallResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperOrder'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 3
+    DriverOrderHallResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverOrderHallResult'
+    DriverMyOrdersResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperOrder'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    DriverMyOrdersResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverMyOrdersResult'
+    SaveDriverAcceptanceSettingsRequest:
+      type: object
+      required: [isOnline, maxDistanceKm, vehicleTypePreferences]
+      properties:
+        isOnline:
+          type: boolean
+          example: true
+        maxDistanceKm:
+          type: integer
+          minimum: 1
+          maximum: 500
+          example: 50
+        vehicleTypePreferences:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          example: [medium, box]
+    DriverAcceptanceSettings:
+      allOf:
+        - $ref: '#/components/schemas/SaveDriverAcceptanceSettingsRequest'
+        - type: object
+          required: [driverId, createdAtIso, updatedAtIso]
+          properties:
+            driverId:
+              type: string
+              example: driver-1
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T02:00:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T02:05:00.000Z'
+    DriverAcceptanceSettingsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverAcceptanceSettings'
+    DriverIncomeRecord:
+      type: object
+      required:
+        [
+          orderId,
+          orderNo,
+          completedAtIso,
+          routeText,
+          vehicleType,
+          grossAmountCents,
+          platformFeeCents,
+          netIncomeCents,
+        ]
+      properties:
+        orderId:
+          type: string
+          example: order-1
+        orderNo:
+          type: string
+          example: HY202607090001
+        completedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T02:10:00.000Z'
+        routeText:
+          type: string
+          example: 宝安区福永物流园 -> 龙岗区坂田仓
+        vehicleType:
+          type: string
+          example: medium
+        grossAmountCents:
+          type: integer
+          example: 76000
+        platformFeeCents:
+          type: integer
+          example: 3800
+        netIncomeCents:
+          type: integer
+          example: 72200
+    DriverIncomeSummary:
+      type: object
+      required:
+        [
+          todayIncomeCents,
+          weekIncomeCents,
+          monthIncomeCents,
+          historyIncomeCents,
+          pendingSettlementCents,
+          availableWithdrawalCents,
+          reviewingWithdrawalCents,
+          completedOrderCount,
+        ]
+      properties:
+        todayIncomeCents:
+          type: integer
+          example: 36100
+        weekIncomeCents:
+          type: integer
+          example: 72200
+        monthIncomeCents:
+          type: integer
+          example: 120300
+        historyIncomeCents:
+          type: integer
+          example: 520400
+        pendingSettlementCents:
+          type: integer
+          description: Estimated net income of current loading, transporting and confirming orders.
+          example: 79800
+        availableWithdrawalCents:
+          type: integer
+          example: 24100
+        reviewingWithdrawalCents:
+          type: integer
+          example: 12000
+        completedOrderCount:
+          type: integer
+          example: 8
+    DriverIncomeOverview:
+      type: object
+      required: [driverId, summary, records]
+      properties:
+        driverId:
+          type: string
+          example: driver-1
+        summary:
+          $ref: '#/components/schemas/DriverIncomeSummary'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverIncomeRecord'
+    DriverIncomeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverIncomeOverview'
+    CreateDriverWithdrawalRequest:
+      type: object
+      required: [amountCents, bankAccountName, bankName, bankAccountNo]
+      properties:
+        amountCents:
+          type: integer
+          minimum: 100
+          description: Withdrawal amount in cents. Minimum 1 yuan in this slice.
+          example: 12000
+        bankAccountName:
+          type: string
+          minLength: 2
+          maxLength: 30
+          example: 李师傅
+        bankName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          example: 招商银行深圳宝安支行
+        bankAccountNo:
+          type: string
+          description: Digits only. The API stores only a masked snapshot.
+          pattern: '^\d{10,30}$'
+          example: '6225888800001234'
+    DriverWithdrawalStatus:
+      type: string
+      enum: [reviewing, paid, rejected]
+      example: reviewing
+    DriverWithdrawal:
+      type: object
+      required:
+        [
+          id,
+          driverId,
+          amountCents,
+          bankAccountName,
+          bankName,
+          bankAccountMasked,
+          status,
+          createdAtIso,
+          updatedAtIso,
+        ]
+      properties:
+        id:
+          type: string
+          example: withdrawal-1
+        driverId:
+          type: string
+          example: driver-1
+        amountCents:
+          type: integer
+          example: 12000
+        bankAccountName:
+          type: string
+          example: 李师傅
+        bankName:
+          type: string
+          example: 招商银行深圳宝安支行
+        bankAccountMasked:
+          type: string
+          example: '**** **** **** 1234'
+        status:
+          $ref: '#/components/schemas/DriverWithdrawalStatus'
+        rejectionReason:
+          type: string
+          example: 银行卡信息不一致
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T03:20:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T03:20:00.000Z'
+    DriverWithdrawalListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverWithdrawal'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+    DriverWithdrawalResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverWithdrawal'
+    DriverWithdrawalListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverWithdrawalListResult'
+    DriverQuoteOrderRequest:
+      type: object
+      required: [quoteCents, arrivalText]
+      properties:
+        quoteCents:
+          type: integer
+          minimum: 1
+          description: Driver quote amount in cents.
+          example: 88000
+        arrivalText:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: 45 分钟到达
+        noteText:
+          type: string
+          maxLength: 200
+          example: 可带尾板
+    DriverAcceptOrderRequest:
+      type: object
+      properties:
+        noteText:
+          type: string
+          maxLength: 200
+          example: 已联系货主，马上出发
+    DriverAdvanceOrderStatusRequest:
+      type: object
+      required: [nextStatus]
+      properties:
+        nextStatus:
+          type: string
+          enum: [transporting, confirming]
+          example: transporting
+        receiptPhotoFileIds:
+          type: array
+          maxItems: 6
+          description: Driver execution receipt proof file ids, use receipt purpose.
+          items:
+            type: string
+          example: [file-receipt-1]
+    DriverReplyEvaluationRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 谢谢认可，后续继续保持。
+    DriverEvaluateShipperRequest:
+      type: object
+      required: [rating, tags, content]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+        tags:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            type: string
+            minLength: 1
+            maxLength: 40
+          example: [沟通顺畅, 装货配合]
+        content:
+          type: string
+          minLength: 6
+          maxLength: 200
+          example: 货主装货配合好，结算沟通清楚。
+        anonymous:
+          type: boolean
+          example: false
+    DriverCertificationStatus:
+      type: string
+      enum: [unsubmitted, reviewing, approved, rejected]
+      example: reviewing
+    DriverCertificationDriver:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          example: driver-1
+        phone:
+          type: string
+          description: driver phone
+          example: '13900139009'
+    DriverIdentityCertification:
+      type: object
+      required: [driverId, status]
+      properties:
+        driverId:
+          type: string
+          example: driver-1
+        realName:
+          type: string
+          example: 李师傅
+        identityNumber:
+          type: string
+          example: 11010119900307201X
+        identityFrontFileId:
+          type: string
+          example: file-id-front
+        identityBackFileId:
+          type: string
+          example: file-id-back
+        status:
+          $ref: '#/components/schemas/DriverCertificationStatus'
+        rejectionReason:
+          type: string
+          example: 身份证照片不清晰
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T08:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T08:05:00.000Z'
+    DriverVehicleCertification:
+      type: object
+      required: [driverId, status]
+      properties:
+        driverId:
+          type: string
+          example: driver-1
+        plateNumber:
+          type: string
+          example: 粤B12345
+        vehicleType:
+          type: string
+          example: 厢式货车
+        vehicleLengthText:
+          type: string
+          example: 4.2 米
+        loadCapacityText:
+          type: string
+          example: 2 吨
+        hasTailboard:
+          type: boolean
+          example: false
+        drivingLicenseFileId:
+          type: string
+          example: file-driving-license
+        driverLicenseFileId:
+          type: string
+          example: file-driver-license
+        transportQualificationFileId:
+          type: string
+          example: file-transport-qualification
+        operationPermitFileId:
+          type: string
+          example: file-operation-permit
+        vehiclePhotoFileId:
+          type: string
+          example: file-vehicle-photo
+        status:
+          $ref: '#/components/schemas/DriverCertificationStatus'
+        rejectionReason:
+          type: string
+          example: 行驶证信息与车辆照片不一致
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T08:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T08:05:00.000Z'
+    DriverCertificationSnapshot:
+      type: object
+      required: [driver, identity, vehicle]
+      properties:
+        driver:
+          $ref: '#/components/schemas/DriverCertificationDriver'
+        identity:
+          $ref: '#/components/schemas/DriverIdentityCertification'
+        vehicle:
+          $ref: '#/components/schemas/DriverVehicleCertification'
+    DriverCertificationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverCertificationSnapshot'
+    DriverCertificationListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverCertificationSnapshot'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    DriverCertificationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverCertificationListResult'
+    DriverCertificationAttachment:
+      allOf:
+        - $ref: '#/components/schemas/FileUploadRecord'
+        - type: object
+          required: [attachmentType, previewUrl, previewExpiresAtIso]
+          properties:
+            attachmentType:
+              type: string
+              enum: [identityFront, identityBack, drivingLicense, driverLicense, transportQualification, operationPermit, vehiclePhoto]
+              example: identityFront
+            previewUrl:
+              type: string
+              format: uri
+              description: Signed short-lived preview URL for admin certification attachment review.
+              example: 'https://cdn.example.com/driver-1/front.png?expiresAtIso=2026-07-06T08%3A10%3A00.000Z&signature=local-signature'
+            previewExpiresAtIso:
+              type: string
+              format: date-time
+              description: Expiration time for the signed preview URL.
+              example: '2026-07-06T08:10:00.000Z'
+    DriverCertificationIdentityAttachments:
+      type: object
+      properties:
+        identityFront:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+        identityBack:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+    DriverCertificationVehicleAttachments:
+      type: object
+      properties:
+        drivingLicense:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+        driverLicense:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+        transportQualification:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+        operationPermit:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+        vehiclePhoto:
+          $ref: '#/components/schemas/DriverCertificationAttachment'
+    DriverCertificationAttachmentPreview:
+      type: object
+      required: [driverId, identity, vehicle]
+      properties:
+        driverId:
+          type: string
+          example: driver-1
+        identity:
+          $ref: '#/components/schemas/DriverCertificationIdentityAttachments'
+        vehicle:
+          $ref: '#/components/schemas/DriverCertificationVehicleAttachments'
+    DriverCertificationAttachmentPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverCertificationAttachmentPreview'
+    DriverCertificationReviewEvent:
+      type: object
+      required: [id, driverId, reviewerAdminId, certificationType, fromStatus, toStatus, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: driver-certification-review-event-1
+        driverId:
+          type: string
+          example: driver-1
+        reviewerAdminId:
+          type: string
+          example: admin-1
+        certificationType:
+          type: string
+          enum: [identity, vehicle]
+          example: identity
+        fromStatus:
+          $ref: '#/components/schemas/DriverCertificationStatus'
+        toStatus:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        rejectionReason:
+          type: string
+          example: 证件照片不清晰
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-06T08:00:00.000Z'
+    DriverCertificationReviewEventResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/DriverCertificationReviewEvent'
+    SubmitDriverIdentityCertificationRequest:
+      type: object
+      required: [realName, identityNumber, identityFrontFileId, identityBackFileId]
+      properties:
+        realName:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 李师傅
+        identityNumber:
+          type: string
+          pattern: '^\d{17}[\dX]$'
+          example: 11010119900307201X
+        identityFrontFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-id-front
+        identityBackFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-id-back
+    SubmitDriverVehicleCertificationRequest:
+      type: object
+      required: [plateNumber, vehicleType, vehicleLengthText, loadCapacityText, hasTailboard, drivingLicenseFileId, driverLicenseFileId, transportQualificationFileId, operationPermitFileId, vehiclePhotoFileId]
+      properties:
+        plateNumber:
+          type: string
+          minLength: 1
+          maxLength: 20
+          example: 粤B12345
+        vehicleType:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: 厢式货车
+        vehicleLengthText:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 4.2 米
+        loadCapacityText:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 2 吨
+        hasTailboard:
+          type: boolean
+          example: false
+        drivingLicenseFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-driving-license
+        driverLicenseFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-driver-license
+        transportQualificationFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-transport-qualification
+        operationPermitFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-operation-permit
+        vehiclePhotoFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-vehicle-photo
+    ReviewDriverCertificationRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        rejectionReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Required when status is rejected. Ignored when status is approved.
+          example: 证件照片不清晰
+    SaveShipperOrderDraftRequest:
+      type: object
+      required: [draftSnapshot]
+      properties:
+        draftSnapshot:
+          type: object
+          additionalProperties: true
+          description: Mobile order draft snapshot. The backend stores it as JSONB for the current shipper.
+          example:
+            cargoType: digital
+            pickupAddress: 宝安临时仓
+            deliveryAddress: 南山门店新址
+        clientUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-02T08:30:00.000Z'
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optional optimistic concurrency base. When provided and the current server draft updatedAtIso is different, the backend rejects the save with ORDER_DRAFT_CONFLICT.
+          example: '2026-07-02T09:00:00.000Z'
+    ShipperOrderDraft:
+      type: object
+      required: [shipperId, draftSnapshot, updatedAtIso]
+      properties:
+        shipperId:
+          type: string
+          example: user-platform-order
+        draftSnapshot:
+          type: object
+          additionalProperties: true
+        clientUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-02T08:30:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-02T09:00:00.000Z'
+    ShipperOrderDraftResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperOrderDraft'
+    ShipperProfileAddressBookAddress:
+      type: object
+      required: [id, name, address, contactText]
+      properties:
+        id:
+          type: string
+          example: address-local-3
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 龙华临时仓
+        address:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: 龙华区临时中转仓
+        contactText:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 吴主管 13900139001
+        tagText:
+          type: string
+          example: 备用装货地
+    ShipperProfileAddressBookContact:
+      type: object
+      required: [id, name, roleText, phoneText]
+      properties:
+        id:
+          type: string
+          example: contact-local-3
+        name:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 吴主管
+        roleText:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 备用装货负责人
+        phoneText:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13900139001'
+        noteText:
+          type: string
+          example: 龙华临时仓
+    SaveShipperProfileAddressBookRequest:
+      type: object
+      required: [addresses, contacts]
+      properties:
+        addresses:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ShipperProfileAddressBookAddress'
+        contacts:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ShipperProfileAddressBookContact'
+        clientUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-03T08:00:00.000Z'
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optional optimistic concurrency base. When provided and the current server address book updatedAtIso is different, the backend rejects the save with PROFILE_ADDRESS_BOOK_CONFLICT.
+          example: '2026-07-03T08:30:00.000Z'
+    ShipperProfileAddressBook:
+      allOf:
+        - $ref: '#/components/schemas/SaveShipperProfileAddressBookRequest'
+        - type: object
+          required: [shipperId, updatedAtIso]
+          properties:
+            shipperId:
+              type: string
+              example: user-profile-address-book
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-03T08:30:00.000Z'
+    ShipperProfileAddressBookResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperProfileAddressBook'
+    SaveShipperProfileAccountRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 晨星货主
+    ShipperProfileAccount:
+      allOf:
+        - $ref: '#/components/schemas/SaveShipperProfileAccountRequest'
+        - type: object
+          required: [shipperId, phone]
+          properties:
+            shipperId:
+              type: string
+              example: user-profile-account
+            phone:
+              type: string
+              pattern: '^1[3-9]\d{9}$'
+              example: '13900139001'
+    ShipperProfileAccountResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperProfileAccount'
+    ShipperProfileVerificationStatus:
+      type: string
+      enum: [reviewing, approved, rejected]
+      example: reviewing
+    SaveShipperIdentityVerificationRequest:
+      type: object
+      required: [realName, idNumber, identityFrontFileId, identityBackFileId, faceVerified]
+      properties:
+        realName:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 张先生
+        idNumber:
+          type: string
+          pattern: '^\d{17}[\dX]$'
+          example: 44030019900101123X
+        identityFrontFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-front
+        identityBackFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-back
+        faceVerified:
+          type: boolean
+          description: Local face verification placeholder flag. The first slice only accepts true.
+          example: true
+    ShipperIdentityVerification:
+      allOf:
+        - $ref: '#/components/schemas/SaveShipperIdentityVerificationRequest'
+        - type: object
+          required: [shipperId, status, createdAtIso, updatedAtIso]
+          properties:
+            shipperId:
+              type: string
+              example: user-profile-identity
+            status:
+              $ref: '#/components/schemas/ShipperProfileVerificationStatus'
+            rejectionReason:
+              type: string
+              example: 身份证照片边缘不完整
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T08:00:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T08:05:00.000Z'
+    ShipperIdentityVerificationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperIdentityVerification'
+    SaveShipperEnterpriseVerificationRequest:
+      type: object
+      required: [enterpriseName, creditCode, legalName, legalId, enterprisePhone, licenseFileId]
+      properties:
+        enterpriseName:
+          type: string
+          minLength: 1
+          maxLength: 60
+          example: 深圳晨星贸易有限公司
+        creditCode:
+          type: string
+          pattern: '^[0-9A-Z]{15,20}$'
+          example: 91440300MA5TEST001
+        legalName:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 张先生
+        legalId:
+          type: string
+          pattern: '^\d{17}[\dX]$'
+          example: 44030019900101123X
+        enterprisePhone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13900139088'
+        licenseFileId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: file-license
+    ShipperEnterpriseVerification:
+      allOf:
+        - $ref: '#/components/schemas/SaveShipperEnterpriseVerificationRequest'
+        - type: object
+          required: [shipperId, status, createdAtIso, updatedAtIso]
+          properties:
+            shipperId:
+              type: string
+              example: user-profile-enterprise
+            status:
+              $ref: '#/components/schemas/ShipperProfileVerificationStatus'
+            rejectionReason:
+              type: string
+              example: 营业执照信息与企业名称不一致
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T08:00:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T08:05:00.000Z'
+    ShipperEnterpriseVerificationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperEnterpriseVerification'
+    ShipperInvoiceType:
+      type: string
+      enum: [normal, vat-special]
+      example: normal
+    ShipperInvoiceTitleType:
+      type: string
+      enum: [personal, enterprise]
+      example: enterprise
+    ShipperInvoiceApplicationStatus:
+      type: string
+      enum: [reviewing, approved, rejected]
+      example: reviewing
+    CreateShipperInvoiceApplicationRequest:
+      type: object
+      required: [invoiceType, invoiceTitleType, invoiceTitle, receiverEmail, orderIds]
+      properties:
+        invoiceType:
+          $ref: '#/components/schemas/ShipperInvoiceType'
+        invoiceTitleType:
+          $ref: '#/components/schemas/ShipperInvoiceTitleType'
+        invoiceTitle:
+          type: string
+          minLength: 1
+          maxLength: 60
+          example: 深圳晨星贸易有限公司
+        receiverEmail:
+          type: string
+          format: email
+          example: finance@chenxing.example
+        orderIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          example: [order-platform-completed-1, order-platform-completed-2]
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+            example: order-platform-completed-1
+    ShipperInvoiceApplication:
+      allOf:
+        - $ref: '#/components/schemas/CreateShipperInvoiceApplicationRequest'
+        - type: object
+          required: [id, shipperId, orderNos, amountCents, status, createdAtIso, updatedAtIso]
+          properties:
+            id:
+              type: string
+              example: invoice-application-1
+            shipperId:
+              type: string
+              example: user-profile-invoice
+            orderNos:
+              type: array
+              maxItems: 20
+              example: [HY202607090001, HY202607090002]
+              items:
+                type: string
+                minLength: 1
+                maxLength: 40
+                example: HY202607090001
+            amountCents:
+              type: integer
+              minimum: 1
+              example: 57000
+            status:
+              $ref: '#/components/schemas/ShipperInvoiceApplicationStatus'
+            rejectionReason:
+              type: string
+              example: 发票抬头与企业名称不一致
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T09:00:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-09T09:00:00.000Z'
+    ShipperInvoiceApplicationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperInvoiceApplication'
+    ShipperInvoiceApplicationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShipperInvoiceApplication'
+    ShipperSpendingOrderStatus:
+      type: string
+      enum: [waiting, loading, transporting, confirming, completed, cancelled]
+      example: completed
+    ShipperSpendingPaymentMethod:
+      type: string
+      enum: [cod, online]
+      example: online
+    ShipperSpendingSummary:
+      type: object
+      required: [completedTotalCents, activeTotalCents, refundTotalCents]
+      properties:
+        completedTotalCents:
+          type: integer
+          minimum: 0
+          example: 31000
+        activeTotalCents:
+          type: integer
+          minimum: 0
+          example: 52000
+        refundTotalCents:
+          type: integer
+          minimum: 0
+          example: 26000
+    ShipperSpendingRecord:
+      type: object
+      required: [orderId, orderNo, status, paymentMethod, amountCents, occurredAtIso, routeText]
+      properties:
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order-platform-spending-1
+        orderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090001
+        status:
+          $ref: '#/components/schemas/ShipperSpendingOrderStatus'
+        paymentMethod:
+          $ref: '#/components/schemas/ShipperSpendingPaymentMethod'
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 52000
+        priceCents:
+          type: integer
+          minimum: 1
+          example: 54000
+        payablePriceCents:
+          type: integer
+          minimum: 1
+          example: 52000
+        couponTitle:
+          type: string
+          example: 满 500 减 20
+        couponDiscountCents:
+          type: integer
+          minimum: 1
+          example: 2000
+        occurredAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T09:20:00.000Z'
+        routeText:
+          type: string
+          minLength: 1
+          maxLength: 240
+          example: 宝安仓库 → 南山门店
+    ShipperSpendingSnapshot:
+      type: object
+      required: [shipperId, summary, items]
+      properties:
+        shipperId:
+          type: string
+          example: user-profile-spending
+        summary:
+          $ref: '#/components/schemas/ShipperSpendingSummary'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperSpendingRecord'
+    ShipperSpendingRecordsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperSpendingSnapshot'
+    ShipperProfileEvaluationRecord:
+      type: object
+      required: [id, orderId, orderNo, driverName, rating, tags, content, anonymous, photoCount, submittedAtIso]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: evaluation-platform-1
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order-platform-1
+        orderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090001
+        driverName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 平台司机 driver-1
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+        tags:
+          type: array
+          items:
+            type: string
+          example: [准时送达, 服务好]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 司机服务细致，交付顺畅
+        anonymous:
+          type: boolean
+          example: false
+        photoCount:
+          type: integer
+          minimum: 0
+          example: 2
+        photoFileIds:
+          type: array
+          items:
+            type: string
+          example: [file-eval-1, file-eval-2]
+        submittedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T09:00:00.000Z'
+        driverReplyText:
+          type: string
+          description: Latest evaluation_replied noteText from the accepted driver, when present.
+          example: 感谢反馈
+        driverReplyAtIso:
+          type: string
+          format: date-time
+          description: Created time of the latest accepted driver's evaluation_replied event, when present.
+          example: '2026-07-09T09:30:00.000Z'
+    ShipperProfileEvaluationSnapshot:
+      type: object
+      required: [shipperId, items]
+      properties:
+        shipperId:
+          type: string
+          example: user-profile-evaluation
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperProfileEvaluationRecord'
+    ShipperProfileEvaluationSnapshotResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperProfileEvaluationSnapshot'
+    ShipperReceivedEvaluationRecord:
+      type: object
+      required: [id, orderId, orderNo, driverName, rating, tags, content, anonymous, submittedAtIso]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: received-evaluation-platform-1
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order-platform-1
+        orderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090001
+        driverName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 平台司机 driver-1
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+        tags:
+          type: array
+          items:
+            type: string
+          example: [沟通顺畅, 装卸高效]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 货主配合很好
+        anonymous:
+          type: boolean
+          example: false
+        submittedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T10:00:00.000Z'
+    ShipperReceivedEvaluationSnapshot:
+      type: object
+      required: [shipperId, items]
+      properties:
+        shipperId:
+          type: string
+          example: user-profile-evaluation
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperReceivedEvaluationRecord'
+    ShipperReceivedEvaluationSnapshotResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperReceivedEvaluationSnapshot'
+    ShipperCouponStatus:
+      type: string
+      enum: [usable, locked, used, expired]
+      example: usable
+    ShipperCouponSummary:
+      type: object
+      required: [usableCount, lockedCount, usedCount, expiredCount]
+      properties:
+        usableCount:
+          type: integer
+          minimum: 0
+          example: 2
+        lockedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        usedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        expiredCount:
+          type: integer
+          minimum: 0
+          example: 1
+    ShipperCouponRecord:
+      type: object
+      required: [id, shipperId, title, status, conditionText, discountCents, minOrderAmountCents, validFromIso, validUntilIso, sourceText, issuedAtIso]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: coupon-platform-1
+        shipperId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: user-profile-coupon
+        title:
+          type: string
+          minLength: 1
+          maxLength: 60
+          example: 满 500 减 50
+        status:
+          $ref: '#/components/schemas/ShipperCouponStatus'
+        conditionText:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: 平台订单满 500 元可用
+        discountCents:
+          type: integer
+          minimum: 1
+          example: 5000
+        minOrderAmountCents:
+          type: integer
+          minimum: 0
+          example: 50000
+        validFromIso:
+          type: string
+          format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        validUntilIso:
+          type: string
+          format: date-time
+          example: '2026-07-31T15:59:59.000Z'
+        sourceText:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 平台活动发放
+        issuedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T08:00:00.000Z'
+        lockedOrderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090008
+        lockedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T09:00:00.000Z'
+        usedOrderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090009
+        usedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T10:00:00.000Z'
+    IssueShipperCouponRequest:
+      type: object
+      required: [shipperId, title, conditionText, discountCents, minOrderAmountCents, validFromIso, validUntilIso]
+      properties:
+        shipperId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: user-profile-coupon
+        title:
+          type: string
+          minLength: 1
+          maxLength: 60
+          example: 后台满 500 减 50
+        conditionText:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: 平台订单满 500 元可用
+        discountCents:
+          type: integer
+          minimum: 1
+          example: 5000
+        minOrderAmountCents:
+          type: integer
+          minimum: 0
+          example: 50000
+        validFromIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T00:00:00.000Z'
+        validUntilIso:
+          type: string
+          format: date-time
+          example: '2026-08-09T00:00:00.000Z'
+        sourceText:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 运营补偿
+    ShipperCouponRecordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperCouponRecord'
+    ShipperCouponWallet:
+      type: object
+      required: [shipperId, summary, items]
+      properties:
+        shipperId:
+          type: string
+          example: user-profile-coupon
+        summary:
+          $ref: '#/components/schemas/ShipperCouponSummary'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperCouponRecord'
+    ShipperCouponWalletResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperCouponWallet'
+    ShipperFrequentRoute:
+      type: object
+      required: [id, name, from, to, lastUsedText]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: route-local-3
+        name:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: 龙华仓 -> 福田展厅
+        from:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 龙华仓
+        to:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 福田展厅
+        lastUsedText:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 刚刚添加
+        lastUsedIso:
+          type: string
+          format: date-time
+          example: '2026-07-04T08:00:00.000Z'
+    SaveShipperProfileFrequentRoutesRequest:
+      type: object
+      required: [routes]
+      properties:
+        routes:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ShipperFrequentRoute'
+        clientUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-04T08:00:00.000Z'
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optional optimistic concurrency base. When provided and the current server frequent routes updatedAtIso is different, the backend rejects the save with PROFILE_FREQUENT_ROUTES_CONFLICT.
+          example: '2026-07-04T08:30:00.000Z'
+    ShipperProfileFrequentRoutes:
+      allOf:
+        - $ref: '#/components/schemas/SaveShipperProfileFrequentRoutesRequest'
+        - type: object
+          required: [shipperId, updatedAtIso]
+          properties:
+            shipperId:
+              type: string
+              example: user-profile-frequent-routes
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-04T08:30:00.000Z'
+    ShipperProfileFrequentRoutesResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/ShipperProfileFrequentRoutes'
+    AuthenticatedUser:
+      type: object
+      required: [id, phone, userType]
+      properties:
+        id:
+          type: string
+          example: local-user-13800138000
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+          example: '13800138000'
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          description: HS256 JWT access token.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.example.signature
+        refreshToken:
+          type: string
+          pattern: '^refresh\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+          example: 'refresh.550e8400-e29b-41d4-a716-446655440000'
+        expiresIn:
+          type: integer
+          example: 900
+    ApiSuccessEnvelope:
+      type: object
+      required: [code, message, requestId, timestamp]
+      properties:
+        code:
+          type: string
+          enum: [OK]
+        message:
+          type: string
+          enum: [success]
+        requestId:
+          type: string
+          example: req_local
+        timestamp:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [code, message, requestId, timestamp]
+      properties:
+        code:
+          type: string
+          example: AUTH_CODE_RATE_LIMITED
+        message:
+          type: string
+          example: 验证码发送过于频繁
+        requestId:
+          type: string
+          example: req_local
+        timestamp:
+          type: string
+          format: date-time

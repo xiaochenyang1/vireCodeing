@@ -8,6 +8,8 @@
 
 **Tech Stack:** NestJS controller/module, plain HTML/CSS/JavaScript, existing admin certification API, Jest.
 
+**2026-07-07 Verification Note:** 当前工作区已经包含本计划的实现文件和文档更新。本轮重新核验 `npm --prefix apps/api test -- admin-console` 通过，6 个测试通过；后续全量核验中 `npm --prefix apps/api test`、`npm --prefix apps/api run typecheck`、`npm --prefix apps/api run lint`、`npm run api:build`、`npm test -- --runInBand`、`npx tsc --noEmit`、`npm run lint` 和 `npm --prefix apps/api run prisma:validate` 均已通过。`db:postgres:doctor` 仍因当前机器缺少 Docker CLI 且 `localhost:5432` PostgreSQL 不可达失败，这是环境阻塞。计划中的 `git commit` 步骤未执行，因为当前工作区已有大量未提交改动且用户未要求提交。
+
 ---
 
 ## File Structure
@@ -26,7 +28,7 @@
 - Create: `apps/api/src/admin-console/driver-certification-admin-console.ts`
 - Create: `apps/api/src/admin-console/admin-console.controller.spec.ts`
 
-- [ ] **Step 1: Write failing render tests**
+- [x] **Step 1: Write failing render tests**
 
 Create `apps/api/src/admin-console/admin-console.controller.spec.ts`:
 
@@ -59,7 +61,7 @@ describe('driver certification admin console page', () => {
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify it fails**
+- [x] **Step 2: Run focused test and verify it fails**
 
 Run:
 
@@ -69,7 +71,7 @@ npm --prefix apps/api test -- admin-console
 
 Expected: fails because `driver-certification-admin-console.ts` does not exist.
 
-- [ ] **Step 3: Implement HTML renderer**
+- [x] **Step 3: Implement HTML renderer**
 
 Create `apps/api/src/admin-console/driver-certification-admin-console.ts` with:
 
@@ -410,7 +412,7 @@ export function renderDriverCertificationAdminConsole() {
 }
 ```
 
-- [ ] **Step 4: Run focused render tests**
+- [x] **Step 4: Run focused render tests**
 
 Run:
 
@@ -437,7 +439,7 @@ git commit -m "feat(api): add driver certification admin console page"
 - Modify: `apps/api/src/admin-console/admin-console.controller.spec.ts`
 - Modify: `apps/api/src/app.module.ts`
 
-- [ ] **Step 1: Add failing controller test**
+- [x] **Step 1: Add failing controller test**
 
 Append to `apps/api/src/admin-console/admin-console.controller.spec.ts`:
 
@@ -455,7 +457,7 @@ describe('AdminConsoleController', () => {
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify failure**
+- [x] **Step 2: Run focused test and verify failure**
 
 Run:
 
@@ -465,7 +467,7 @@ npm --prefix apps/api test -- admin-console
 
 Expected: fails because controller does not exist.
 
-- [ ] **Step 3: Implement controller**
+- [x] **Step 3: Implement controller**
 
 Create `apps/api/src/admin-console/admin-console.controller.ts`:
 
@@ -483,7 +485,7 @@ export class AdminConsoleController {
 }
 ```
 
-- [ ] **Step 4: Implement module and app wiring**
+- [x] **Step 4: Implement module and app wiring**
 
 Create `apps/api/src/admin-console/admin-console.module.ts`:
 
@@ -505,7 +507,7 @@ import { AdminConsoleModule } from './admin-console/admin-console.module';
 
 Add `AdminConsoleModule` to the `imports` array.
 
-- [ ] **Step 5: Run API module tests and typecheck**
+- [x] **Step 5: Run API module tests and typecheck**
 
 Run:
 
@@ -532,7 +534,7 @@ git commit -m "feat(api): serve driver certification admin console"
 - Modify: `apps/api/src/admin-console/admin-console.controller.spec.ts`
 - Modify: `apps/api/src/admin-console/driver-certification-admin-console.ts`
 
-- [ ] **Step 1: Add failing tests for token and rejection safeguards**
+- [x] **Step 1: Add failing tests for token and rejection safeguards**
 
 Add tests:
 
@@ -555,7 +557,7 @@ it('keeps API calls under the existing global api prefix', () => {
 });
 ```
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 Run:
 
@@ -565,7 +567,7 @@ npm --prefix apps/api test -- admin-console
 
 Expected: pass if Task 1 renderer already included those strings. If it fails, add the missing literal safeguards to `driver-certification-admin-console.ts`.
 
-- [ ] **Step 3: Run lint and typecheck**
+- [x] **Step 3: Run lint and typecheck**
 
 Run:
 
@@ -593,7 +595,7 @@ If no files changed because Task 1 already satisfied the tests, skip this commit
 - Modify: `docs/platform/README.md`
 - Modify: `docs/03-项目当前状态与补全路线.md`
 
-- [ ] **Step 1: Update platform README**
+- [x] **Step 1: Update platform README**
 
 Add to `docs/platform/README.md` near the driver certification section:
 
@@ -601,7 +603,7 @@ Add to `docs/platform/README.md` near the driver certification section:
 司机认证 Web 审核台第一片已提供 `GET /api/admin/driver-certification-console`。页面由 API 服务直接返回静态 HTML，admin 手动粘贴 access token 后可查看认证队列、附件预览、审核事件，并对实名/车辆认证执行通过或驳回。它仍不是完整运营后台，没有账号登录页、权限矩阵、报表、客服流转或多角色后台导航。
 ```
 
-- [ ] **Step 2: Update project status**
+- [x] **Step 2: Update project status**
 
 In `docs/03-项目当前状态与补全路线.md`, update the driver certification half-built text:
 
@@ -609,7 +611,7 @@ In `docs/03-项目当前状态与补全路线.md`, update the driver certificati
 - 司机实名/车辆认证已有后端、移动端、admin API 和 Web 审核台第一片；审核台可查看队列、附件预览、审核事件并通过/驳回，但还不是完整运营后台。
 ```
 
-- [ ] **Step 3: Verify docs**
+- [x] **Step 3: Verify docs**
 
 Run:
 
@@ -634,7 +636,7 @@ git commit -m "docs: record driver certification admin console"
 **Files:**
 - Verify only.
 
-- [ ] **Step 1: Run focused tests**
+- [x] **Step 1: Run focused tests**
 
 Run:
 
@@ -645,7 +647,7 @@ npm --prefix apps/api test -- driver-certification
 
 Expected: both pass.
 
-- [ ] **Step 2: Run API checks**
+- [x] **Step 2: Run API checks**
 
 Run:
 
@@ -658,7 +660,7 @@ npm run api:build
 
 Expected: all pass.
 
-- [ ] **Step 3: Run full workspace checks**
+- [x] **Step 3: Run full workspace checks**
 
 Run:
 
@@ -671,7 +673,7 @@ npm --prefix apps/api run prisma:validate
 
 Expected: all pass.
 
-- [ ] **Step 4: Run database doctor honestly**
+- [x] **Step 4: Run database doctor honestly**
 
 Run:
 

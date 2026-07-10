@@ -8,6 +8,8 @@
 
 **Tech Stack:** Node.js CommonJS scripts, Prisma CLI, Prisma Client, Jest, npm scripts, PostgreSQL, Docker Compose.
 
+**2026-07-07 Verification Note:** 当前工作区已经包含本计划的 password masking、`wait` 命令、npm scripts 和文档更新。本轮重新核验 `npm --prefix apps/api test -- postgres-verification-script` 通过，14 个测试通过；`npm --prefix apps/api test -- stage-1-database-scripts` 通过，5 个测试通过；后续全量核验中根 Jest、根 typecheck、根 lint、API Jest、API typecheck、API lint、Prisma validate 和 API build 均已通过。`db:postgres:doctor` 失败原因是 Docker CLI 缺失和 Prisma `P1001`，`db:postgres:wait` 失败原因是 `localhost:5432` PostgreSQL 不可达；因此 `db:postgres:bootstrap` 未运行。计划中的 `git commit` 步骤未执行，因为当前工作区已有大量未提交改动且用户未要求提交。
+
 ---
 
 ## File Structure
@@ -24,7 +26,7 @@
 - Modify: `apps/api/scripts/verify-postgres.js`
 - Modify: `apps/api/src/config/postgres-verification-script.spec.ts`
 
-- [ ] **Step 1: Write failing tests for masked database URLs**
+- [x] **Step 1: Write failing tests for masked database URLs**
 
 Add this test to `apps/api/src/config/postgres-verification-script.spec.ts`:
 
@@ -44,7 +46,7 @@ it('masks database credentials in doctor display output', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run:
 
@@ -54,7 +56,7 @@ npm --prefix apps/api test -- postgres-verification-script
 
 Expected: fails because `formatDatabaseUrlForDisplay` is not exported yet.
 
-- [ ] **Step 3: Implement password masking**
+- [x] **Step 3: Implement password masking**
 
 In `apps/api/scripts/verify-postgres.js`, add this function near `resolveDatabaseUrl`:
 
@@ -88,7 +90,7 @@ console.log(`DATABASE_URL: ${formatDatabaseUrlForDisplay(report.databaseUrl)}`);
 
 Add `formatDatabaseUrlForDisplay` to `module.exports`.
 
-- [ ] **Step 4: Run focused test and verify it passes**
+- [x] **Step 4: Run focused test and verify it passes**
 
 Run:
 
@@ -113,7 +115,7 @@ git commit -m "chore(api): mask postgres doctor database url"
 - Modify: `apps/api/scripts/verify-postgres.js`
 - Modify: `apps/api/src/config/postgres-verification-script.spec.ts`
 
-- [ ] **Step 1: Write failing tests for `wait` command parsing and invocation**
+- [x] **Step 1: Write failing tests for `wait` command parsing and invocation**
 
 Add this test to `apps/api/src/config/postgres-verification-script.spec.ts`:
 
@@ -149,7 +151,7 @@ it('creates a Prisma db execute invocation for wait connectivity checks', () => 
 });
 ```
 
-- [ ] **Step 2: Run focused test and verify it fails**
+- [x] **Step 2: Run focused test and verify it fails**
 
 Run:
 
@@ -159,7 +161,7 @@ npm --prefix apps/api test -- postgres-verification-script
 
 Expected: fails because `wait` and `createPrismaConnectionInvocation` do not exist.
 
-- [ ] **Step 3: Implement the wait command**
+- [x] **Step 3: Implement the wait command**
 
 In `apps/api/scripts/verify-postgres.js`, update `parseArgs` command validation to include `wait`:
 
@@ -229,7 +231,7 @@ if (command === 'wait') {
 
 Add `createPrismaConnectionInvocation` and `runPrismaConnectionCheck` to `module.exports`.
 
-- [ ] **Step 4: Run focused test and verify it passes**
+- [x] **Step 4: Run focused test and verify it passes**
 
 Run:
 
@@ -254,7 +256,7 @@ git commit -m "chore(api): add postgres connectivity wait command"
 - Modify: `apps/api/package.json`
 - Modify: `apps/api/src/config/postgres-verification-script.spec.ts`
 
-- [ ] **Step 1: Write failing package script assertions**
+- [x] **Step 1: Write failing package script assertions**
 
 Update `apps/api/src/config/postgres-verification-script.spec.ts` in the package script test:
 
@@ -273,7 +275,7 @@ expect(packageJson.scripts['db:test:postgres:bootstrap']).toBe(
 );
 ```
 
-- [ ] **Step 2: Run focused test and verify it fails**
+- [x] **Step 2: Run focused test and verify it fails**
 
 Run:
 
@@ -283,7 +285,7 @@ npm --prefix apps/api test -- postgres-verification-script
 
 Expected: fails because package scripts are not updated.
 
-- [ ] **Step 3: Update `apps/api/package.json` scripts**
+- [x] **Step 3: Update `apps/api/package.json` scripts**
 
 Change the database script block so it includes:
 
@@ -296,7 +298,7 @@ Change the database script block so it includes:
 
 Keep existing `doctor/status/deploy/seed/smoke` scripts unchanged.
 
-- [ ] **Step 4: Run package script tests and API typecheck**
+- [x] **Step 4: Run package script tests and API typecheck**
 
 Run:
 
@@ -322,7 +324,7 @@ git commit -m "chore(api): wire postgres wait into bootstrap"
 - Modify: `docs/platform/README.md`
 - Modify: `docs/03-项目当前状态与补全路线.md`
 
-- [ ] **Step 1: Update platform README**
+- [x] **Step 1: Update platform README**
 
 In `docs/platform/README.md`, update the PostgreSQL acceptance section to list this order:
 
@@ -345,7 +347,7 @@ Also document:
 当前机器核验结果：`db:postgres:doctor` 仍失败，Docker CLI 缺失，默认 `localhost:5432` PostgreSQL 不可达，Prisma 返回 `P1001`。这属于环境阻塞，不是业务代码通过。
 ```
 
-- [ ] **Step 2: Update project status document**
+- [x] **Step 2: Update project status document**
 
 In `docs/03-项目当前状态与补全路线.md`, add or update the latest top section with:
 
@@ -357,7 +359,7 @@ In `docs/03-项目当前状态与补全路线.md`, add or update the latest top 
 - 下一步需要提供 Docker Desktop 或真实 `DATABASE_URL`，再运行 `db:postgres:bootstrap`。
 ```
 
-- [ ] **Step 3: Verify documentation text**
+- [x] **Step 3: Verify documentation text**
 
 Run:
 
@@ -382,7 +384,7 @@ git commit -m "docs: update postgres acceptance status"
 **Files:**
 - Verify only.
 
-- [ ] **Step 1: Run focused API tests**
+- [x] **Step 1: Run focused API tests**
 
 Run:
 
@@ -393,7 +395,7 @@ npm --prefix apps/api test -- stage-1-database-scripts
 
 Expected: both pass.
 
-- [ ] **Step 2: Run full automated checks**
+- [x] **Step 2: Run full automated checks**
 
 Run:
 
@@ -410,7 +412,7 @@ npm run api:build
 
 Expected: all pass.
 
-- [ ] **Step 3: Run PostgreSQL doctor and wait**
+- [x] **Step 3: Run PostgreSQL doctor and wait**
 
 Run:
 
@@ -421,7 +423,7 @@ npm --prefix apps/api run db:postgres:wait
 
 Expected with current machine: `doctor` and `wait` may fail because Docker CLI is missing and PostgreSQL is not reachable. Report the exact failure instead of claiming database acceptance passed.
 
-- [ ] **Step 4: Run bootstrap only when PostgreSQL is reachable**
+- [x] **Step 4: Run bootstrap only when PostgreSQL is reachable**
 
 Run only after `db:postgres:wait` passes:
 
