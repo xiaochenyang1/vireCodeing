@@ -105,6 +105,24 @@ describe('ProfileVerificationService', () => {
     );
   });
 
+  it('rejects shipper identity verification when a file is entirely missing', async () => {
+    const repository = new InMemoryProfileVerificationRepository();
+    const filesRepository = createFilesRepository([]);
+    const service = new ProfileVerificationService(repository, filesRepository);
+
+    await expect(
+      service.saveIdentity('shipper-1', {
+        realName: '张先生',
+        idNumber: '44030019900101123X',
+        identityFrontFileId: 'file-missing',
+        identityBackFileId: 'file-back',
+        faceVerified: true,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '认证附件不存在'),
+    );
+  });
+
   it('rejects shipper enterprise verification files with invalid purpose', async () => {
     const repository = new InMemoryProfileVerificationRepository();
     const filesRepository = createFilesRepository([

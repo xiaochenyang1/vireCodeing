@@ -336,4 +336,54 @@ describe('orders validation', () => {
       }),
     ).toThrow('修改说明不能为空');
   });
+
+  it('parses a list status collection passed as an array', () => {
+    expect(
+      parseListShipperOrdersQuery({
+        statuses: ['loading', 'transporting', 'loading'],
+      }),
+    ).toMatchObject({
+      statuses: ['loading', 'transporting'],
+    });
+  });
+
+  it('rejects a create order whose pickup and delivery address are identical', () => {
+    expect(() =>
+      parseCreateShipperOrderRequest({
+        cargoType: 'build',
+        weightText: '2.5 吨',
+        quantityText: '12 箱',
+        pickupAddress: '宝安区福永物流园',
+        pickupContact: '赵经理',
+        pickupPhone: '13900139001',
+        deliveryAddress: '宝安区福永物流园',
+        deliveryContact: '钱店长',
+        deliveryPhone: '13900139002',
+        vehicleRequirement: 'medium',
+        needTailboard: false,
+        needTarp: false,
+        pickupTimeIso: '2026-07-02T02:00:00.000Z',
+        pricingMode: 'fixed',
+        priceCents: 76000,
+        paymentMethod: 'cod',
+      }),
+    ).toThrow('装货地址和卸货地址不能相同');
+  });
+
+  it('rejects an admin attachment audit query with a reversed time range', () => {
+    expect(() =>
+      parseAdminOrderAttachmentAuditListQuery({
+        createdFromIso: '2026-07-08T00:00:00.000Z',
+        createdToIso: '2026-07-01T00:00:00.000Z',
+      }),
+    ).toThrow('开始时间必须早于结束时间');
+  });
+
+  it('rejects an admin attachment audit query with a non-boolean hasMissingFiles', () => {
+    expect(() =>
+      parseAdminOrderAttachmentAuditListQuery({
+        hasMissingFiles: 'maybe',
+      }),
+    ).toThrow();
+  });
 });
