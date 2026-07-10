@@ -78,3 +78,14 @@ yarn-error.log
 # Git worktrees
 .worktrees
 .worktrees/
+
+# Local browser profiles / automation artifacts
+.browser-profile/
+.browser-profile-2/
+chrome-stdout.log
+chrome-stderr.log
+
+# Unrelated local files (personal / scratch)
+react_interview_guide.html
+wechat-page.png
+肖晨洋前端开发工程师-test.pdf
