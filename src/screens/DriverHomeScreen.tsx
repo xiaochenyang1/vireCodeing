@@ -11,15 +11,9 @@ import { vehicleRequirementOptions } from '../data/mockData';
 import { colors, styles } from '../styles';
 import type {
   PlatformDriverAcceptanceSettings,
-  PlatformDriverAdvanceOrderStatusRequest,
   PlatformDriverAcceptOrderRequest,
-  PlatformCreateDriverWithdrawalRequest,
-  PlatformDriverEvaluateShipperRequest,
   PlatformDriverIncomeOverview,
-  PlatformDriverExecutingOrderStatus,
-  PlatformDriverQuoteOrderRequest,
   PlatformDriverReplyEvaluationRequest,
-  PlatformSaveDriverAcceptanceSettingsRequest,
   PlatformDriverWithdrawalRecord,
   createPlatformDriverOrderApi,
 } from '../services/platformDriverOrderApi';
@@ -40,6 +34,46 @@ import {
   type DriverEvaluationReplyQueue,
   type DriverEvaluationReplyQueueItem,
 } from '../utils/driverEvaluationReplyQueue';
+import {
+  createAcceptanceSettingsForm,
+  createAcceptanceSettingsRequest,
+  createDriverAdvanceSuccessNotice,
+  createDriverOrderHallNotice,
+  createDriverWithdrawalRequest,
+  createQuoteRequest,
+  createShipperEvaluationRequest,
+  driverCertificationFileUploadConfigs,
+  emptyAcceptanceSettingsForm,
+  emptyCertificationForm,
+  emptyForm,
+  emptyShipperEvaluationForm,
+  emptyWithdrawalForm,
+  filterDriverOrderHallOrders,
+  formatDriverCurrency,
+  formatDriverIncomeTime,
+  getCertificationStatusText,
+  getDriverAcceptanceVehicleTypesText,
+  getDriverAdvanceButtonText,
+  getDriverExecutionReceiptFileIds,
+  getDriverOrderActionFailureNotice,
+  getDriverReceiptUploadButtonText,
+  getDriverStatusText,
+  getDriverWithdrawalStatusText,
+  getLatestDriverEvaluationReply,
+  getLatestDriverShipperEvaluation,
+  getNextDriverStatus,
+  hasDriverEvaluationSubmitted,
+  isDriverEvaluationReplyMissingAccessToken,
+  omitDriverEvaluationReplyQueueItem,
+  upsertOrder,
+  type DriverAcceptanceSettingsFormState,
+  type DriverCertificationFileFieldName,
+  type DriverCertificationFormState,
+  type DriverExecutionProofState,
+  type DriverOrderFormState,
+  type DriverShipperEvaluationFormState,
+  type DriverWithdrawalFormState,
+} from './driver-home/driverHomeUtils';
 
 type PlatformDriverOrderApi = ReturnType<typeof createPlatformDriverOrderApi>;
 type PlatformDriverCertificationApi = ReturnType<
@@ -48,155 +82,6 @@ type PlatformDriverCertificationApi = ReturnType<
 type DriverPlatformFileApi = PlatformFileUploadConfirmationApi &
   Pick<ReturnType<typeof createPlatformFileApi>, 'createUploadIntent'>;
 
-type DriverOrderFormState = {
-  quoteText: string;
-  arrivalText: string;
-  noteText: string;
-};
-
-type DriverCertificationFormState = {
-  realName: string;
-  identityNumber: string;
-  identityFrontFileId: string;
-  identityBackFileId: string;
-  plateNumber: string;
-  vehicleType: string;
-  vehicleLengthText: string;
-  loadCapacityText: string;
-  hasTailboard: boolean;
-  drivingLicenseFileId: string;
-  driverLicenseFileId: string;
-  transportQualificationFileId: string;
-  operationPermitFileId: string;
-  vehiclePhotoFileId: string;
-};
-
-type DriverAcceptanceSettingsFormState = {
-  isOnline: boolean;
-  maxDistanceKmText: string;
-  vehicleTypePreferences: string[];
-};
-
-type DriverWithdrawalFormState = {
-  amountText: string;
-  bankAccountName: string;
-  bankName: string;
-  bankAccountNo: string;
-};
-
-type DriverShipperEvaluationFormState = {
-  ratingText: string;
-  tagsText: string;
-  content: string;
-  anonymous: boolean;
-};
-
-type DriverExecutionProofState = Record<
-  string,
-  {
-    transportingReceiptFileIds: string[];
-    confirmingReceiptFileIds: string[];
-  }
->;
-
-const emptyForm: DriverOrderFormState = {
-  quoteText: '',
-  arrivalText: '',
-  noteText: '',
-};
-
-const emptyCertificationForm: DriverCertificationFormState = {
-  realName: '',
-  identityNumber: '',
-  identityFrontFileId: '',
-  identityBackFileId: '',
-  plateNumber: '',
-  vehicleType: '',
-  vehicleLengthText: '',
-  loadCapacityText: '',
-  hasTailboard: false,
-  drivingLicenseFileId: '',
-  driverLicenseFileId: '',
-  transportQualificationFileId: '',
-  operationPermitFileId: '',
-  vehiclePhotoFileId: '',
-};
-
-const emptyAcceptanceSettingsForm: DriverAcceptanceSettingsFormState = {
-  isOnline: true,
-  maxDistanceKmText: '50',
-  vehicleTypePreferences: [],
-};
-
-const emptyWithdrawalForm: DriverWithdrawalFormState = {
-  amountText: '',
-  bankAccountName: '',
-  bankName: '',
-  bankAccountNo: '',
-};
-
-const emptyShipperEvaluationForm: DriverShipperEvaluationFormState = {
-  ratingText: '',
-  tagsText: '',
-  content: '',
-  anonymous: false,
-};
-
-type DriverCertificationFileFieldName =
-  | 'identityFrontFileId'
-  | 'identityBackFileId'
-  | 'drivingLicenseFileId'
-  | 'driverLicenseFileId'
-  | 'transportQualificationFileId'
-  | 'operationPermitFileId'
-  | 'vehiclePhotoFileId';
-
-type DriverCertificationFileUploadConfig = {
-  fileName: string;
-  successNotice: string;
-  failureNotice: string;
-};
-
-const driverCertificationFileUploadConfigs: Record<
-  DriverCertificationFileFieldName,
-  DriverCertificationFileUploadConfig
-> = {
-  identityFrontFileId: {
-    fileName: '身份证人像面.png',
-    successNotice: '身份证人像面已关联平台文件。',
-    failureNotice: '身份证人像面上传失败，请稍后重试。',
-  },
-  identityBackFileId: {
-    fileName: '身份证国徽面.png',
-    successNotice: '身份证国徽面已关联平台文件。',
-    failureNotice: '身份证国徽面上传失败，请稍后重试。',
-  },
-  drivingLicenseFileId: {
-    fileName: '行驶证.png',
-    successNotice: '行驶证已关联平台文件。',
-    failureNotice: '行驶证上传失败，请稍后重试。',
-  },
-  driverLicenseFileId: {
-    fileName: '驾驶证.png',
-    successNotice: '驾驶证已关联平台文件。',
-    failureNotice: '驾驶证上传失败，请稍后重试。',
-  },
-  transportQualificationFileId: {
-    fileName: '从业资格证.png',
-    successNotice: '从业资格证已关联平台文件。',
-    failureNotice: '从业资格证上传失败，请稍后重试。',
-  },
-  operationPermitFileId: {
-    fileName: '营运证.png',
-    successNotice: '营运证已关联平台文件。',
-    failureNotice: '营运证上传失败，请稍后重试。',
-  },
-  vehiclePhotoFileId: {
-    fileName: '车辆照片.png',
-    successNotice: '车辆照片已关联平台文件。',
-    failureNotice: '车辆照片上传失败，请稍后重试。',
-  },
-};
 
 export function DriverHomeScreen({
   platformDriverOrderApi,
@@ -1715,357 +1600,4 @@ export function DriverHomeScreen({
       ) : null}
     </ScrollView>
   );
-}
-
-function createQuoteRequest(
-  form: DriverOrderFormState,
-): PlatformDriverQuoteOrderRequest | undefined {
-  const quoteYuan = Number(form.quoteText.trim());
-  const arrivalText = form.arrivalText.trim();
-
-  if (!Number.isFinite(quoteYuan) || quoteYuan <= 0 || !arrivalText) {
-    return undefined;
-  }
-
-  const noteText = form.noteText.trim();
-
-  return {
-    quoteCents: Math.round(quoteYuan * 100),
-    arrivalText,
-    ...(noteText ? { noteText } : {}),
-  };
-}
-
-function createAcceptanceSettingsForm(
-  settings: PlatformDriverAcceptanceSettings,
-): DriverAcceptanceSettingsFormState {
-  return {
-    isOnline: settings.isOnline,
-    maxDistanceKmText: String(settings.maxDistanceKm),
-    vehicleTypePreferences: [...settings.vehicleTypePreferences],
-  };
-}
-
-function createAcceptanceSettingsRequest(
-  form: DriverAcceptanceSettingsFormState,
-): PlatformSaveDriverAcceptanceSettingsRequest | undefined {
-  const maxDistanceKm = Number(form.maxDistanceKmText.trim());
-
-  if (!Number.isInteger(maxDistanceKm) || maxDistanceKm < 1 || maxDistanceKm > 500) {
-    return undefined;
-  }
-
-  if (
-    form.vehicleTypePreferences.length > 10 ||
-    new Set(form.vehicleTypePreferences).size !== form.vehicleTypePreferences.length
-  ) {
-    return undefined;
-  }
-
-  return {
-    isOnline: form.isOnline,
-    maxDistanceKm,
-    vehicleTypePreferences: [...form.vehicleTypePreferences],
-  };
-}
-
-function createDriverWithdrawalRequest(
-  form: DriverWithdrawalFormState,
-): PlatformCreateDriverWithdrawalRequest | undefined {
-  const amountYuan = Number(form.amountText.trim());
-  const bankAccountName = form.bankAccountName.trim();
-  const bankName = form.bankName.trim();
-  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
-
-  if (
-    !Number.isFinite(amountYuan) ||
-    amountYuan < 1 ||
-    bankAccountName.length < 2 ||
-    bankName.length < 2 ||
-    !/^\d{10,30}$/.test(bankAccountNo)
-  ) {
-    return undefined;
-  }
-
-  return {
-    amountCents: Math.round(amountYuan * 100),
-    bankAccountName,
-    bankName,
-    bankAccountNo,
-  };
-}
-
-function createShipperEvaluationRequest(
-  form: DriverShipperEvaluationFormState,
-): PlatformDriverEvaluateShipperRequest | undefined {
-  const rating = Number(form.ratingText.trim());
-  const tags = form.tagsText
-    .split(/[、,，]/)
-    .map(tag => tag.trim())
-    .filter(Boolean)
-    .filter((tag, index, allTags) => allTags.indexOf(tag) === index);
-  const content = form.content.trim();
-
-  if (
-    !Number.isInteger(rating) ||
-    rating < 1 ||
-    rating > 5 ||
-    tags.length === 0 ||
-    tags.length > 6 ||
-    content.length < 6 ||
-    content.length > 200
-  ) {
-    return undefined;
-  }
-
-  return {
-    rating,
-    tags,
-    content,
-    ...(form.anonymous ? { anonymous: true } : {}),
-  };
-}
-
-function upsertOrder(
-  orders: PlatformShipperOrder[],
-  updatedOrder: PlatformShipperOrder,
-) {
-  const hasOrder = orders.some(order => order.id === updatedOrder.id);
-
-  if (!hasOrder) {
-    return [updatedOrder, ...orders];
-  }
-
-  return orders.map(order => (order.id === updatedOrder.id ? updatedOrder : order));
-}
-
-function getNextDriverStatus(
-  status: PlatformShipperOrder['status'],
-): PlatformDriverAdvanceOrderStatusRequest['nextStatus'] | undefined {
-  if (status === 'loading') {
-    return 'transporting';
-  }
-
-  if (status === 'transporting') {
-    return 'confirming';
-  }
-
-  return undefined;
-}
-
-function getDriverStatusText(status: PlatformShipperOrder['status']) {
-  const textByStatus: Record<PlatformShipperOrder['status'], string> = {
-    waiting: '待接单',
-    loading: '待装货',
-    transporting: '运输中',
-    confirming: '待货主确认',
-    completed: '已完成',
-    cancelled: '已取消',
-  };
-
-  return textByStatus[status];
-}
-
-function getDriverAdvanceButtonText(status: PlatformShipperOrder['status']) {
-  const nextStatus = getNextDriverStatus(status);
-
-  if (nextStatus === 'transporting') {
-    return '确认发车';
-  }
-
-  if (nextStatus === 'confirming') {
-    return '确认到达';
-  }
-
-  return '暂无可推进状态';
-}
-
-function getDriverReceiptUploadButtonText(
-  status: PlatformShipperOrder['status'],
-) {
-  if (status === 'loading') {
-    return '上传装货凭证';
-  }
-
-  if (status === 'transporting') {
-    return '上传到达凭证';
-  }
-
-  return '上传执行凭证';
-}
-
-function createDriverAdvanceSuccessNotice(
-  nextStatus: PlatformDriverExecutingOrderStatus,
-) {
-  if (nextStatus === 'transporting') {
-    return '司机已确认发车。';
-  }
-
-  return '司机已确认到达，等待货主确认。';
-}
-
-function getCertificationStatusText(
-  status: PlatformDriverCertificationSnapshot['identity']['status'] | undefined,
-) {
-  const textByStatus: Record<
-    PlatformDriverCertificationSnapshot['identity']['status'],
-    string
-  > = {
-    unsubmitted: '未提交',
-    reviewing: '审核中',
-    approved: '已通过',
-    rejected: '已驳回',
-  };
-
-  return status ? textByStatus[status] : '未加载';
-}
-
-function createDriverOrderHallNotice(
-  orders: PlatformShipperOrder[],
-  acceptanceSettings: PlatformDriverAcceptanceSettings | undefined,
-) {
-  const filteredOrders = filterDriverOrderHallOrders(orders, acceptanceSettings);
-
-  if (acceptanceSettings?.isOnline === false) {
-    return '当前处于离线接单，可查看订单但无法报价或接单。';
-  }
-
-  if (filteredOrders.length > 0) {
-    return '';
-  }
-
-  if (orders.length > 0 && acceptanceSettings?.vehicleTypePreferences.length) {
-    return '当前接单车型下暂无匹配订单。';
-  }
-
-  return '暂无可接订单。';
-}
-
-function filterDriverOrderHallOrders(
-  orders: PlatformShipperOrder[],
-  acceptanceSettings: PlatformDriverAcceptanceSettings | undefined,
-) {
-  const vehicleTypePreferences = acceptanceSettings?.vehicleTypePreferences ?? [];
-
-  if (!vehicleTypePreferences.length) {
-    return orders;
-  }
-
-  return orders.filter(order =>
-    vehicleTypePreferences.includes(order.vehicleRequirement),
-  );
-}
-
-function getDriverAcceptanceVehicleTypesText(vehicleTypePreferences: string[]) {
-  if (vehicleTypePreferences.length === 0) {
-    return '不限';
-  }
-
-  return vehicleTypePreferences
-    .map(
-      vehicleType =>
-        vehicleRequirementOptions.find(option => option.id === vehicleType)?.label ??
-        vehicleType,
-    )
-    .join('、');
-}
-
-function formatDriverCurrency(valueCents: number) {
-  return `￥${(valueCents / 100).toFixed(2)}`;
-}
-
-function formatDriverIncomeTime(value: string) {
-  return value.replace('T', ' ').slice(0, 16);
-}
-
-function getDriverWithdrawalStatusText(status: PlatformDriverWithdrawalRecord['status']) {
-  const textByStatus: Record<PlatformDriverWithdrawalRecord['status'], string> = {
-    reviewing: '审核中',
-    paid: '已打款',
-    rejected: '已驳回',
-  };
-
-  return textByStatus[status];
-}
-
-function hasDriverEvaluationSubmitted(order: PlatformShipperOrder) {
-  return (
-    order.events?.some(event => event.eventType === 'evaluation_submitted') ??
-    false
-  );
-}
-
-function getLatestDriverEvaluationReply(order: PlatformShipperOrder) {
-  return (order.events ?? [])
-    .filter(event => event.eventType === 'evaluation_replied')
-    .sort((left, right) =>
-      right.createdAtIso.localeCompare(left.createdAtIso),
-    )[0];
-}
-
-function getLatestDriverShipperEvaluation(order: PlatformShipperOrder) {
-  return (order.events ?? [])
-    .filter(event => event.eventType === 'shipper_evaluation_submitted')
-    .sort((left, right) =>
-      right.createdAtIso.localeCompare(left.createdAtIso),
-    )[0];
-}
-
-function omitDriverEvaluationReplyQueueItem(
-  queue: DriverEvaluationReplyQueue,
-  orderId: string,
-) {
-  const nextQueue = { ...queue };
-  delete nextQueue[orderId];
-  return nextQueue;
-}
-
-function isDriverEvaluationReplyMissingAccessToken(error: unknown) {
-  return (
-    error instanceof PlatformApiError &&
-    error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-  );
-}
-
-function getDriverOrderActionFailureNotice(
-  error: unknown,
-  fallbackNotice: string,
-) {
-  if (
-    error instanceof PlatformApiError &&
-    error.code === 'DRIVER_ACCEPTANCE_OFFLINE'
-  ) {
-    return '当前处于离线接单，请先打开接单开关。';
-  }
-
-  if (
-    error instanceof PlatformApiError &&
-    error.code === 'DRIVER_CERTIFICATION_REQUIRED'
-  ) {
-    return '司机实名和车辆认证通过后才能接单。';
-  }
-
-  return fallbackNotice;
-}
-
-function getDriverExecutionReceiptFileIds(
-  executionProofs: DriverExecutionProofState,
-  orderId: string,
-  status: PlatformShipperOrder['status'],
-) {
-  const proofs = executionProofs[orderId];
-
-  if (!proofs) {
-    return [];
-  }
-
-  if (status === 'loading') {
-    return proofs.transportingReceiptFileIds;
-  }
-
-  if (status === 'transporting') {
-    return proofs.confirmingReceiptFileIds;
-  }
-
-  return [];
 }
