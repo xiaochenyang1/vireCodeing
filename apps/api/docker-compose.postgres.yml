@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: truck-platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: truck_platform
+      POSTGRES_USER: truck
+      POSTGRES_PASSWORD: truck
+    ports:
+      - "5432:5432"
+    volumes:
+      - truck_platform_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U truck -d truck_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  truck_platform_postgres_data:

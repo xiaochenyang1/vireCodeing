@@ -1,0 +1,99 @@
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpStatus,
+} from '@nestjs/common';
+import { ApiErrorCode, BusinessError } from './errors';
+
+type ErrorResponse = {
+  status(statusCode: number): ErrorResponse;
+  json(body: unknown): void;
+};
+
+type ErrorRequest = {
+  headers?: Record<string, string | string[] | undefined>;
+};
+
+const AUTH_ERROR_CODES = new Set<string>([
+  ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+  ApiErrorCode.AUTH_CODE_EXPIRED,
+  ApiErrorCode.AUTH_CODE_INVALID,
+  ApiErrorCode.AUTH_PASSWORD_INVALID,
+  ApiErrorCode.AUTH_PASSWORD_RESET_INVALID,
+  ApiErrorCode.AUTH_REFRESH_TOKEN_INVALID,
+  ApiErrorCode.FILE_PREVIEW_SIGNATURE_INVALID,
+]);
+const RATE_LIMIT_ERROR_CODES = new Set<string>([
+  ApiErrorCode.AUTH_CODE_RATE_LIMITED,
+]);
+const UPSTREAM_ERROR_CODES = new Set<string>([
+  ApiErrorCode.AUTH_CODE_DELIVERY_FAILED,
+]);
+const NOT_FOUND_ERROR_CODES = new Set<string>([
+  ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+  ApiErrorCode.FILE_NOT_FOUND,
+]);
+const FORBIDDEN_ERROR_CODES = new Set<string>([
+  ApiErrorCode.AUTH_FORBIDDEN,
+  ApiErrorCode.AUTH_USER_DISABLED,
+  ApiErrorCode.DRIVER_ACCEPTANCE_OFFLINE,
+  ApiErrorCode.DRIVER_CERTIFICATION_REQUIRED,
+]);
+const CONFLICT_ERROR_CODES = new Set<string>([
+  ApiErrorCode.FILE_STATE_INVALID,
+  ApiErrorCode.ORDER_DRAFT_CONFLICT,
+  ApiErrorCode.ORDER_STATE_INVALID,
+  ApiErrorCode.PROFILE_ADDRESS_BOOK_CONFLICT,
+  ApiErrorCode.PROFILE_FREQUENT_ROUTES_CONFLICT,
+]);
+
+@Catch(BusinessError)
+export class BusinessErrorFilter implements ExceptionFilter<BusinessError> {
+  constructor(private readonly now: () => Date = () => new Date()) {}
+
+  catch(exception: BusinessError, host: ArgumentsHost): void {
+    const http = host.switchToHttp();
+    const response = http.getResponse<ErrorResponse>();
+    const request = http.getRequest<ErrorRequest>();
+    const requestIdHeader = request.headers?.['x-request-id'];
+    const requestId = Array.isArray(requestIdHeader)
+      ? requestIdHeader[0]
+      : requestIdHeader;
+
+    response.status(this.getStatusCode(exception.code)).json({
+      code: exception.code,
+      message: exception.message,
+      requestId: requestId ?? 'req_local',
+      timestamp: this.now().toISOString(),
+    });
+  }
+
+  private getStatusCode(code: ApiErrorCode): number {
+    if (RATE_LIMIT_ERROR_CODES.has(code)) {
+      return HttpStatus.TOO_MANY_REQUESTS;
+    }
+
+    if (UPSTREAM_ERROR_CODES.has(code)) {
+      return HttpStatus.BAD_GATEWAY;
+    }
+
+    if (NOT_FOUND_ERROR_CODES.has(code)) {
+      return HttpStatus.NOT_FOUND;
+    }
+
+    if (FORBIDDEN_ERROR_CODES.has(code)) {
+      return HttpStatus.FORBIDDEN;
+    }
+
+    if (CONFLICT_ERROR_CODES.has(code)) {
+      return HttpStatus.CONFLICT;
+    }
+
+    if (AUTH_ERROR_CODES.has(code)) {
+      return HttpStatus.UNAUTHORIZED;
+    }
+
+    return HttpStatus.BAD_REQUEST;
+  }
+}

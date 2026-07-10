@@ -1,0 +1,1 @@
+ALTER TABLE "OrderCargo" ADD COLUMN "cargoPhotoFileIds" JSONB NOT NULL DEFAULT '[]';

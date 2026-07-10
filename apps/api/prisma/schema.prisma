@@ -28,6 +28,7 @@ enum FilePurpose {
   identity
   cargo
   exception
+  evaluation
   receipt
   invoice
 }
@@ -38,16 +39,43 @@ enum FileStatus {
   rejected
 }
 
+enum CertificationStatus {
+  unsubmitted
+  reviewing
+  approved
+  rejected
+}
+
+enum DriverCertificationType {
+  identity
+  vehicle
+}
+
 model User {
-  id             String          @id @default(uuid())
-  phone          String          @unique
-  userType       UserType
-  status         UserStatus      @default(active)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  sessions       AuthSession[]
-  files          FileObject[]
-  shipperProfile ShipperProfile?
+  id                          String                       @id @default(uuid())
+  phone                       String                       @unique
+  userType                    UserType
+  status                      UserStatus                   @default(active)
+  passwordHash                String?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  sessions                    AuthSession[]
+  files                       FileObject[]
+  shipperProfile              ShipperProfile?
+  orders                      Order[]                      @relation("ShipperOrders")
+  orderDraft                  OrderDraft?
+  addressBook                 ShipperAddressBook?
+  frequentRoutes              ShipperFrequentRoutes?
+  shipperCoupons              ShipperCoupon[]
+  shipperIdentityVerification ShipperIdentityVerification?
+  shipperEnterpriseVerification ShipperEnterpriseVerification?
+  shipperInvoiceApplications  ShipperInvoiceApplication[]
+  driverIdentityCertification DriverIdentityCertification? @relation("DriverIdentityCertification")
+  driverVehicleCertification  DriverVehicleCertification?  @relation("DriverVehicleCertification")
+  driverAcceptanceSettings    DriverAcceptanceSettings?
+  driverWithdrawals           DriverWithdrawal[]
+  driverCertificationReviewEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewEvents")
+  driverCertificationReviewerEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewerEvents")
 }
 
 model AuthSession {
@@ -59,6 +87,10 @@ model AuthSession {
   revokedAt        DateTime?
   createdAt        DateTime  @default(now())
   user             User      @relation(fields: [userId], references: [id])
+
+  @@index([refreshTokenHash, deviceId, revokedAt, expiresAt], name: "AuthSession_refresh_lookup_idx")
+  @@index([userId, deviceId, revokedAt], name: "AuthSession_user_device_active_idx")
+  @@index([userId, revokedAt], name: "AuthSession_user_active_idx")
 }
 
 model VerificationCode {
@@ -70,15 +102,20 @@ model VerificationCode {
   consumedAt DateTime?
   createdAt  DateTime            @default(now())
 
-  @@index([phone, purpose])
+  @@index([phone, purpose, consumedAt, expiresAt, createdAt], name: "VerificationCode_active_lookup_idx")
+  @@index([phone, purpose, createdAt], name: "VerificationCode_rate_lookup_idx")
 }
 
 model FileObject {
   id          String     @id @default(uuid())
   ownerUserId String
   purpose     FilePurpose
+  contentType String
+  byteSize    Int
   objectKey   String
   publicUrl   String?
+  etag        String?
+  versionId   String?
   status      FileStatus @default(pending)
   createdAt   DateTime   @default(now())
   owner        User       @relation(fields: [ownerUserId], references: [id])
@@ -90,4 +127,275 @@ model ShipperProfile {
   identityStatus   String @default("unverified")
   enterpriseStatus String @default("unverified")
   user             User   @relation(fields: [userId], references: [id])
+}
+
+enum OrderStatus {
+  waiting
+  loading
+  transporting
+  confirming
+  completed
+  cancelled
+}
+
+enum PricingMode {
+  fixed
+  negotiable
+}
+
+enum PaymentMethod {
+  cod
+  online
+}
+
+model Order {
+  id                   String             @id @default(uuid())
+  orderNo              String             @unique
+  shipperId            String
+  status               OrderStatus        @default(waiting)
+  pricingMode          PricingMode
+  priceCents           Int?
+  payablePriceCents    Int?
+  paymentMethod        PaymentMethod
+  couponId             String?
+  couponTitle          String?
+  couponDiscountCents  Int?
+  pickupTime           DateTime
+  expectedDeliveryText String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  shipper              User               @relation("ShipperOrders", fields: [shipperId], references: [id])
+  cargo                OrderCargo?
+  locations            OrderLocation[]
+  requirement          OrderRequirement?
+  events               OrderEvent[]
+
+  @@index([shipperId, status, createdAt], name: "Order_shipper_status_created_idx")
+  @@index([shipperId, createdAt], name: "Order_shipper_created_idx")
+}
+
+model OrderCargo {
+  orderId         String @id
+  cargoType       String
+  weightText      String
+  volumeText      String?
+  quantityText    String
+  description     String?
+  cargoPhotoCount Int    @default(0)
+  cargoPhotoFileIds Json @default("[]")
+  order           Order  @relation(fields: [orderId], references: [id])
+}
+
+model OrderLocation {
+  id           String @id @default(uuid())
+  orderId      String
+  type         String
+  address      String
+  contactName  String
+  contactPhone String
+  noteText     String?
+  order        Order  @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, type], name: "OrderLocation_order_type_idx")
+}
+
+model OrderRequirement {
+  orderId                String  @id
+  vehicleType            String
+  vehicleLengthText      String?
+  needTailboard          Boolean @default(false)
+  needTarp               Boolean @default(false)
+  valueAddedServicesText String?
+  order                  Order   @relation(fields: [orderId], references: [id])
+}
+
+model OrderEvent {
+  id                String   @id @default(uuid())
+  orderId           String
+  actorUserId       String
+  eventType         String
+  noteText          String?
+  attachmentFileIds Json     @default("[]")
+  createdAt         DateTime @default(now())
+  order             Order    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, createdAt], name: "OrderEvent_order_created_idx")
+}
+
+model OrderDraft {
+  shipperId       String   @id
+  draftSnapshot   Json
+  clientUpdatedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  shipper         User     @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperAddressBook {
+  shipperId       String   @id
+  addresses       Json
+  contacts        Json
+  clientUpdatedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  shipper         User     @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperFrequentRoutes {
+  shipperId       String   @id
+  routes          Json
+  clientUpdatedAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  shipper         User     @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperCoupon {
+  id                  String   @id @default(uuid())
+  shipperId           String
+  title               String
+  status              String   @default("usable")
+  conditionText       String
+  discountCents       Int
+  minOrderAmountCents Int
+  validFrom           DateTime
+  validUntil          DateTime
+  sourceText          String
+  issuedAt            DateTime @default(now())
+  lockedOrderNo       String?
+  lockedAt            DateTime?
+  usedOrderNo         String?
+  usedAt              DateTime?
+  shipper             User     @relation(fields: [shipperId], references: [id])
+
+  @@index([shipperId, status, issuedAt], name: "ShipperCoupon_shipper_status_issued_idx")
+  @@index([shipperId, validUntil], name: "ShipperCoupon_shipper_valid_until_idx")
+}
+
+model ShipperIdentityVerification {
+  shipperId           String              @id
+  realName            String
+  idNumber            String
+  identityFrontFileId String
+  identityBackFileId  String
+  faceVerified        Boolean             @default(true)
+  status              CertificationStatus @default(reviewing)
+  rejectionReason     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  shipper             User                @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperEnterpriseVerification {
+  shipperId        String              @id
+  enterpriseName   String
+  creditCode       String
+  legalName        String
+  legalId          String
+  enterprisePhone  String
+  licenseFileId    String
+  status           CertificationStatus @default(reviewing)
+  rejectionReason  String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  shipper          User                @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperInvoiceApplication {
+  id               String              @id @default(uuid())
+  shipperId        String
+  invoiceType      String
+  invoiceTitleType String
+  invoiceTitle     String
+  receiverEmail    String
+  orderIds         Json
+  orderNos         Json
+  amountCents      Int
+  status           CertificationStatus @default(reviewing)
+  rejectionReason  String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  shipper          User                @relation(fields: [shipperId], references: [id])
+
+  @@index([shipperId, createdAt], name: "ShipperInvoiceApplication_shipper_created_idx")
+}
+
+model DriverIdentityCertification {
+  driverId            String              @id
+  realName            String
+  identityNumber      String
+  identityFrontFileId String
+  identityBackFileId  String
+  status              CertificationStatus @default(reviewing)
+  rejectionReason     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  driver              User                @relation("DriverIdentityCertification", fields: [driverId], references: [id])
+}
+
+model DriverVehicleCertification {
+  driverId             String              @id
+  plateNumber          String
+  vehicleType          String
+  vehicleLengthText    String
+  loadCapacityText     String
+  hasTailboard         Boolean             @default(false)
+  drivingLicenseFileId String
+  driverLicenseFileId  String?
+  transportQualificationFileId String?
+  operationPermitFileId String?
+  vehiclePhotoFileId   String
+  status               CertificationStatus @default(reviewing)
+  rejectionReason      String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  driver               User                @relation("DriverVehicleCertification", fields: [driverId], references: [id])
+}
+
+model DriverAcceptanceSettings {
+  driverId                String   @id
+  isOnline                Boolean  @default(true)
+  maxDistanceKm           Int      @default(50)
+  vehicleTypePreferences  Json     @default("[]")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  driver                  User     @relation(fields: [driverId], references: [id])
+}
+
+enum DriverWithdrawalStatus {
+  reviewing
+  paid
+  rejected
+}
+
+model DriverWithdrawal {
+  id                String                 @id @default(uuid())
+  driverId          String
+  amountCents       Int
+  bankAccountName   String
+  bankName          String
+  bankAccountMasked String
+  status            DriverWithdrawalStatus @default(reviewing)
+  rejectionReason   String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  driver            User                   @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, createdAt], name: "DriverWithdrawal_driver_created_idx")
+}
+
+model DriverCertificationReviewEvent {
+  id                String                  @id @default(uuid())
+  driverId          String
+  reviewerAdminId   String
+  certificationType DriverCertificationType
+  fromStatus        CertificationStatus
+  toStatus          CertificationStatus
+  rejectionReason   String?
+  createdAt         DateTime                @default(now())
+  driver            User                    @relation("DriverCertificationReviewEvents", fields: [driverId], references: [id])
+  reviewerAdmin     User                    @relation("DriverCertificationReviewerEvents", fields: [reviewerAdminId], references: [id])
+
+  @@index([driverId, createdAt], name: "DriverCertificationReviewEvent_driver_created_idx")
+  @@index([reviewerAdminId, createdAt], name: "DriverCertificationReviewEvent_reviewer_created_idx")
 }
