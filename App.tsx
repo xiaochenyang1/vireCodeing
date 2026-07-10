@@ -19,7 +19,6 @@ import type {
   OrderListFilter,
   OrderSyncOperation,
   RecentOrder,
-  RootScreen,
 } from './src/types';
 import {
   createFailedOrderSyncState,
@@ -60,6 +59,7 @@ import {
   saveAppRuntimeState,
 } from './src/utils/appRuntimeState';
 import { hydrateHomeLocalState } from './src/utils/homeLocalState';
+import { useAppNavigation } from './src/navigation/appNavigation';
 import {
   createPendingProfileSyncState,
   createSyncedProfileSyncState,
@@ -256,16 +256,23 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     [resolvedPlatformApiBaseUrl],
   );
   const [isHydrated, setIsHydrated] = useState(false);
-  const [screen, setScreen] = useState<RootScreen>('auth');
+  const {
+    screen,
+    orderListFilter: initialOrderFilter,
+    orderDetailReturnTarget,
+    homeSupportView: homeInitialSupportView,
+    reset: resetScreen,
+    goAuth,
+    goDriverHome,
+    goHome: navigateHome,
+    goNetworkError,
+    goOrderDraft,
+    goOrders,
+    goOrderDetail,
+  } = useAppNavigation();
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState('');
-  const [initialOrderFilter, setInitialOrderFilter] =
-    useState<OrderListFilter>('all');
-  const [orderDetailReturnTarget, setOrderDetailReturnTarget] =
-    useState<OrderDetailReturnTarget>('home');
-  const [homeInitialSupportView, setHomeInitialSupportView] =
-    useState<HomeSupportView>('home');
   const [draftGateNotice, setDraftGateNotice] = useState('');
   const [networkNotice, setNetworkNotice] = useState('');
   const [platformOrderListNotice, setPlatformOrderListNotice] = useState('');
@@ -373,7 +380,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       setDraftSyncState(
         hydratedDraft ? getDraftStorageSnapshot()?.syncState : undefined,
       );
-      setScreen(
+      resetScreen(
         isAuthSessionSaved
           ? startupUserType === 'driver'
             ? 'driver-home'
@@ -396,7 +403,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         setDraftSyncState(
           hydratedDraft ? getDraftStorageSnapshot()?.syncState : undefined,
         );
-        setScreen(hasSavedAuthSession(now) ? 'home' : 'onboarding');
+        resetScreen(hasSavedAuthSession(now) ? 'home' : 'onboarding');
         setIsHydrated(true);
       }
     });
@@ -404,11 +411,10 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [now, platformAuthApi, syncPlatformAuthenticatedProfile]);
+  }, [now, platformAuthApi, resetScreen, syncPlatformAuthenticatedProfile]);
 
   const openHome = (supportView: HomeSupportView = 'home') => {
-    setHomeInitialSupportView(supportView);
-    setScreen('home');
+    navigateHome(supportView);
   };
 
   const persistRuntimeState = ({
@@ -432,7 +438,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     syncPlatformAuthenticatedProfile(user);
     const nextUserType = user?.userType ?? 'shipper';
     if (nextUserType === 'driver') {
-      setScreen('driver-home');
+      goDriverHome();
       return;
     }
 
@@ -441,7 +447,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
 
   const handleOnboardingFinished = () => {
     saveOnboardingCompleted(now);
-    setScreen('auth');
+    goAuth();
   };
 
   const handleLogout = () => {
@@ -457,14 +463,13 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     }
 
     clearAuthSession();
-    setHomeInitialSupportView('home');
     setNetworkNotice('');
-    setScreen('auth');
+    goAuth();
   };
 
   const openNetworkError = () => {
     setNetworkNotice('');
-    setScreen('network-error');
+    goNetworkError();
   };
 
   const retryNetworkCheck = () => {
@@ -477,14 +482,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     returnTarget: OrderDetailReturnTarget = 'home',
   ) => {
     setSelectedOrderId(orderId);
-    setOrderDetailReturnTarget(returnTarget);
-    if (returnTarget === 'home') {
-      setHomeInitialSupportView('home');
-    }
-    if (returnTarget === 'messages') {
-      setHomeInitialSupportView('messages');
-    }
-    setScreen('order-detail');
+    goOrderDetail(returnTarget);
     refreshPlatformOrderDetail(orderId);
   };
 
@@ -677,14 +675,12 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
   };
 
   const openOrders = () => {
-    setInitialOrderFilter('all');
-    setScreen('orders');
+    goOrders('all');
     refreshPlatformOrders({ page: 1, pageSize: 20 });
   };
 
   const openOrdersWithFilter = (filter: OrderListFilter) => {
-    setInitialOrderFilter(filter);
-    setScreen('orders');
+    goOrders(filter);
     refreshPlatformOrders(createPlatformOrderListQuery(filter));
   };
 
@@ -695,8 +691,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
 
     if (notice) {
       setDraftGateNotice(notice);
-      setHomeInitialSupportView('home');
-      setScreen('home');
+      navigateHome();
       return false;
     }
 
@@ -715,7 +710,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       setDraftConflictPlatformPrefill(undefined);
       setDraftConflictNoticeText('');
       setDraftPrefill(savedDraft);
-      setScreen('order-draft');
+      goOrderDraft();
       return;
     }
 
@@ -727,7 +722,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       setDraftConflictPlatformPrefill(undefined);
       setDraftConflictNoticeText('');
       setDraftPrefill(localDraftSnapshot?.draft ?? savedDraft);
-      setScreen('order-draft');
+      goOrderDraft();
       return;
     }
 
@@ -758,7 +753,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
           setDraftConflictPlatformPrefill(undefined);
           setDraftConflictNoticeText('');
           setDraftPrefill(restoredSnapshot.draft);
-          setScreen('order-draft');
+          goOrderDraft();
           return;
         }
 
@@ -782,14 +777,14 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
             setSavedDraft(draftSnapshotWithPlatformVersion.draft);
             setDraftSyncState(draftSnapshotWithPlatformVersion.syncState);
           }
-          setScreen('order-draft');
+          goOrderDraft();
           return;
         }
 
         setDraftConflictPlatformPrefill(undefined);
         setDraftConflictNoticeText('');
         setDraftPrefill(savedDraft);
-        setScreen('order-draft');
+        goOrderDraft();
       })
       .catch(error => {
         markSavedDraftAsFailed(
@@ -801,7 +796,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         setDraftConflictPlatformPrefill(undefined);
         setDraftConflictNoticeText('');
         setDraftPrefill(localDraftSnapshot?.draft ?? savedDraft);
-        setScreen('order-draft');
+        goOrderDraft();
       });
   };
 
@@ -813,7 +808,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     setDraftConflictPlatformPrefill(undefined);
     setDraftConflictNoticeText('');
     setDraftPrefill(prefill);
-    setScreen('order-draft');
+    goOrderDraft();
   };
 
   const openOrderEditor = (order: RecentOrder) => {
@@ -829,7 +824,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       editingOrderId: order.id,
       noticeText: `正在修改订单：${order.id}`,
     });
-    setScreen('order-draft');
+    goOrderDraft();
   };
 
   const updateSavedDraft = useCallback((draft: DraftOrderPrefill) => {
@@ -1072,7 +1067,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
 
   const returnFromOrderDetail = () => {
     if (orderDetailReturnTarget === 'orders') {
-      setScreen('orders');
+      goOrders();
       return;
     }
 
@@ -1122,9 +1117,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
           setDraftConflictPlatformPrefill(undefined);
           setDraftPrefill(undefined);
           setSelectedOrderId(updatedOrder.id);
-          setOrderDetailReturnTarget('home');
-          setHomeInitialSupportView('home');
-          setScreen('order-detail');
+          goOrderDetail('home');
           return;
         } catch {
           updateOrder(editingOrderId, {
@@ -1140,9 +1133,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
           setDraftConflictPlatformPrefill(undefined);
           setDraftPrefill(undefined);
           setSelectedOrderId(editingOrderId);
-          setOrderDetailReturnTarget('home');
-          setHomeInitialSupportView('home');
-          setScreen('order-detail');
+          goOrderDetail('home');
           return;
         }
       }
@@ -1166,9 +1157,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         setDraftConflictPlatformPrefill(undefined);
         setDraftPrefill(undefined);
         setSelectedOrderId(editingOrderId);
-        setOrderDetailReturnTarget('home');
-        setHomeInitialSupportView('home');
-        setScreen('order-detail');
+        goOrderDetail('home');
         return;
       }
 
@@ -1178,9 +1167,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       setDraftConflictPlatformPrefill(undefined);
       setDraftPrefill(undefined);
       setSelectedOrderId(editingOrderId);
-      setOrderDetailReturnTarget('home');
-      setHomeInitialSupportView('home');
-      setScreen('order-detail');
+      goOrderDetail('home');
       return;
     }
 
@@ -1228,9 +1215,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     setDraftConflictPlatformPrefill(undefined);
     setDraftPrefill(undefined);
     setSelectedOrderId(order.id);
-    setOrderDetailReturnTarget('home');
-    setHomeInitialSupportView('home');
-    setScreen('order-detail');
+    goOrderDetail('home');
   };
 
   const syncLocalCouponUsage = (
