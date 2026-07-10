@@ -448,4 +448,199 @@ describe('platform file api', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [null, 'non-object request'],
+    [
+      { purpose: 'poster', fileName: 'a.png', contentType: 'image/png', byteSize: 1 },
+      'invalid purpose',
+    ],
+    [
+      { purpose: 'identity', fileName: 'a.gif', contentType: 'image/gif', byteSize: 1 },
+      'unsupported content type',
+    ],
+    [
+      { purpose: 'identity', fileName: 'a.png', contentType: 'image/png', byteSize: 0 },
+      'non-positive byte size',
+    ],
+    [
+      { purpose: 'identity', fileName: 'a.png', contentType: 'image/png', byteSize: 10 * 1024 * 1024 + 1 },
+      'oversized byte size',
+    ],
+    [
+      { purpose: 'identity', fileName: '   ', contentType: 'image/png', byteSize: 1 },
+      'blank file name',
+    ],
+  ])(
+    'rejects invalid create-upload-intent requests before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformFileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.createUploadIntent(request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_FILE_UPLOAD_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [null, 'non-object request'],
+    [{ publicUrl: 'ftp://cdn.example.com/x.png' }, 'non-http public url'],
+    [{ publicUrl: 123 }, 'non-string public url'],
+  ])(
+    'rejects invalid confirm-uploaded requests before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformFileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.confirmUploaded('file-1', request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_FILE_UPLOAD_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [123, 'non-string upload url'],
+    ['   ', 'blank upload url'],
+    ['http://evil.example.com/files/uploads/file-1', 'cross-origin target'],
+    ['http://localhost:3000/api/files/uploads/file-1?token=x', 'target with query'],
+    ['http://localhost:3000/api/files/other/file-1', 'target outside uploads prefix'],
+  ])(
+    'rejects invalid local upload targets before sending them: %s',
+    async (uploadUrl, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformFileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.confirmLocalUploadTarget(uploadUrl as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_FILE_UPLOAD_TARGET_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts a valid local upload target and posts to its path', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          id: 'file-1',
+          ownerUserId: 'user-1',
+          purpose: 'identity',
+          objectKey: 'user-1/identity/file-1.png',
+          status: 'uploaded',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        },
+        requestId: 'req-test',
+        timestamp: '2026-07-06T03:00:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.confirmLocalUploadTarget(
+      'http://localhost:3000/api/files/uploads/file-1',
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/files/uploads/file-1',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it.each([
+    [null, 'non-object preview request'],
+    [{ expiresAtIso: 123, signature: 'sig' }, 'non-string expiry'],
+    [
+      { expiresAtIso: '2026-07-06T03:15:00.000Z', signature: '  ' },
+      'blank signature',
+    ],
+  ])(
+    'rejects invalid preview metadata requests before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformFileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.getPreviewMetadata('driver-1/identity/front.png', request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_FILE_PREVIEW_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a non-string preview object key before sending it', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getPreviewMetadata(123 as never, {
+        expiresAtIso: '2026-07-06T03:15:00.000Z',
+        signature: 'valid-signature',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_FILE_PREVIEW_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [123, 'non-string file id'],
+    ['   ', 'blank file id'],
+  ])(
+    'rejects invalid file ids before sending them: %s',
+    async (fileId, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformFileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(api.getFileMetadata(fileId as never)).rejects.toMatchObject({
+        code: 'PLATFORM_FILE_ID_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });
