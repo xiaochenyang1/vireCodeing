@@ -346,7 +346,9 @@ function getTrailingPhotoCount(value: string) {
     : undefined;
 }
 
-function parseDriverQuoteEvent(noteText?: string) {
+function parseDriverQuoteEvent(
+  noteText?: string,
+): ParsedDriverQuoteEvent | undefined {
   if (!noteText) {
     return undefined;
   }

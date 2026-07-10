@@ -1136,6 +1136,46 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/ShipperOnlyError'
+  /admin/evaluations:
+    get:
+      summary: List admin evaluation audit records
+      description: Lists paginated evaluation audit records for admin review, ordered by latest submittedAt first. It is derived from order evaluation_submitted and shipper_evaluation_submitted events. Evaluation review, appeal handling, credit scoring, blacklist and a dedicated evaluation table are still out of scope.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 50
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin evaluation audit records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationAuditListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
   /shipper/profile/coupons:
     get:
       summary: List current shipper coupon wallet
@@ -5507,6 +5547,111 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/ShipperReceivedEvaluationSnapshot'
+    AdminEvaluationDirection:
+      type: string
+      enum: [shipper_to_driver, driver_to_shipper]
+      example: shipper_to_driver
+    AdminEvaluationAuditRecord:
+      type: object
+      required: [id, orderId, orderNo, direction, reviewerUserId, reviewerName, revieweeUserId, revieweeName, rating, tags, content, anonymous, photoCount, submittedAtIso]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: admin-evaluation-audit-1
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order-platform-1
+        orderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090001
+        direction:
+          $ref: '#/components/schemas/AdminEvaluationDirection'
+        reviewerUserId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: user-platform-order
+        reviewerName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 平台货主 user-platform-order
+        revieweeUserId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+        revieweeName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 平台司机 driver-1
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+        tags:
+          type: array
+          items:
+            type: string
+          example: [沟通顺畅, 装卸高效]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 司机很专业
+        anonymous:
+          type: boolean
+          example: false
+        photoCount:
+          type: integer
+          minimum: 0
+          example: 0
+        photoFileIds:
+          type: array
+          items:
+            type: string
+          example: []
+        submittedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T10:00:00.000Z'
+    AdminEvaluationAuditListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminEvaluationAuditRecord'
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+        total:
+          type: integer
+          minimum: 0
+          example: 1
+    AdminEvaluationAuditListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminEvaluationAuditListResult'
     ShipperCouponStatus:
       type: string
       enum: [usable, locked, used, expired]
