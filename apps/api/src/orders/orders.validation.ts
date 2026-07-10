@@ -1,0 +1,376 @@
+import { z } from 'zod';
+import type {
+  AdvanceShipperOrderStatusRequest,
+  AdminOrderAttachmentAuditListQuery,
+  CancelShipperOrderRequest,
+  CreateShipperOrderRequest,
+  ListShipperOrdersQuery,
+  ReportShipperOrderExceptionRequest,
+  SubmitShipperOrderChangeRequest,
+  SubmitShipperOrderEvaluationRequest,
+} from './dto';
+
+const phoneSchema = z.string().trim().regex(/^1[3-9]\d{9}$/, '手机号不合法');
+const optionalTrimmedString = z
+  .string()
+  .trim()
+  .optional()
+  .transform(value => (value === '' ? undefined : value));
+const optionalIsoDateString = optionalTrimmedString.refine(
+  value => value === undefined || !Number.isNaN(Date.parse(value)),
+  '时间范围不合法',
+);
+const optionalListKeywordString = z
+  .string()
+  .trim()
+  .max(100)
+  .optional()
+  .transform(value => (value === '' ? undefined : value));
+const optionalUserIdQueryString = z
+  .string()
+  .trim()
+  .max(120)
+  .optional()
+  .transform(value => (value === '' ? undefined : value));
+const optionalBooleanQuerySchema = z
+  .preprocess(input => {
+    if (input === undefined || input === '') {
+      return undefined;
+    }
+
+    if (input === true || input === 'true') {
+      return true;
+    }
+
+    if (input === false || input === 'false') {
+      return false;
+    }
+
+    return input;
+  }, z.boolean().optional());
+const optionalPhotoFileIdsSchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(6)
+  .optional()
+  .transform(fileIds =>
+    fileIds?.filter(
+      (fileId, index, allFileIds) => allFileIds.indexOf(fileId) === index,
+    ),
+  );
+const shipperOrderStatusSchema = z.enum([
+  'waiting',
+  'loading',
+  'transporting',
+  'confirming',
+  'completed',
+  'cancelled',
+]);
+const optionalOrderStatusQuerySchema = z.preprocess(input => {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  const status = String(input).trim();
+  return status === '' ? undefined : status;
+}, shipperOrderStatusSchema.optional());
+const optionalStatusCollectionSchema = z
+  .preprocess(input => {
+    if (Array.isArray(input)) {
+      return input.flatMap(parseStatusCollectionInput);
+    }
+
+    if (typeof input === 'string') {
+      return parseStatusCollectionInput(input);
+    }
+
+    return input;
+  }, z.array(shipperOrderStatusSchema).optional())
+  .transform(value =>
+    value?.filter((status, index, statuses) => statuses.indexOf(status) === index),
+  );
+
+function parseStatusCollectionInput(input: unknown) {
+  return String(input)
+    .split(',')
+    .map(status => status.trim())
+    .filter(Boolean);
+}
+
+export const createShipperOrderSchema = z
+  .object({
+    cargoType: z.string().trim().min(1, '货物类型不能为空'),
+    weightText: z.string().trim().min(1, '货物重量不能为空'),
+    volumeText: optionalTrimmedString,
+    quantityText: z.string().trim().min(1, '货物数量不能为空'),
+    cargoDescription: z.string().trim().max(200).optional(),
+    cargoPhotoCount: z.number().int().min(0).max(6).optional(),
+    cargoPhotoFileIds: optionalPhotoFileIdsSchema,
+    pickupAddress: z.string().trim().min(1, '装货地址不能为空'),
+    pickupNoteText: z.string().trim().max(50).optional(),
+    pickupContact: z.string().trim().min(1, '装货联系人不能为空'),
+    pickupPhone: phoneSchema,
+    deliveryAddress: z.string().trim().min(1, '卸货地址不能为空'),
+    deliveryNoteText: z.string().trim().max(50).optional(),
+    deliveryContact: z.string().trim().min(1, '卸货联系人不能为空'),
+    deliveryPhone: phoneSchema,
+    vehicleRequirement: z.string().trim().min(1, '车型要求不能为空'),
+    vehicleLengthText: optionalTrimmedString,
+    needTailboard: z.boolean(),
+    needTarp: z.boolean(),
+    pickupTimeIso: z
+      .string()
+      .trim()
+      .refine(value => !Number.isNaN(Date.parse(value)), '装货时间不合法'),
+    expectedDeliveryTimeText: optionalTrimmedString,
+    valueAddedServicesText: optionalTrimmedString,
+    pricingMode: z.enum(['fixed', 'negotiable']),
+    priceCents: z.number().int().positive().optional(),
+    paymentMethod: z.enum(['cod', 'online']),
+    couponId: optionalTrimmedString,
+    couponTitle: optionalTrimmedString,
+    couponDiscountCents: z.number().int().nonnegative().optional(),
+    payablePriceCents: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.pickupAddress === value.deliveryAddress) {
+      context.addIssue({
+        code: 'custom',
+        message: '装货地址和卸货地址不能相同',
+        path: ['deliveryAddress'],
+      });
+    }
+
+    if (value.cargoPhotoFileIds?.length) {
+      value.cargoPhotoCount = value.cargoPhotoFileIds.length;
+    }
+
+    const couponFields = [
+      value.couponId,
+      value.couponTitle,
+      value.couponDiscountCents,
+      value.payablePriceCents,
+    ];
+
+    if (value.pricingMode === 'fixed' && !value.priceCents) {
+      context.addIssue({
+        code: 'custom',
+        message: '一口价订单必须传入价格',
+        path: ['priceCents'],
+      });
+    }
+
+    if (
+      value.pricingMode === 'negotiable' &&
+      (value.priceCents !== undefined ||
+        value.couponId !== undefined ||
+        value.couponTitle !== undefined ||
+        value.couponDiscountCents !== undefined ||
+        value.payablePriceCents !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '司机报价订单不能传入一口价或优惠金额',
+        path: ['pricingMode'],
+      });
+    }
+
+    if (
+      value.pricingMode === 'fixed' &&
+      couponFields.some(couponField => couponField !== undefined) &&
+      couponFields.some(couponField => couponField === undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '优惠券金额字段必须同时传入',
+        path: ['couponId'],
+      });
+    }
+
+    if (
+      value.pricingMode === 'fixed' &&
+      value.priceCents !== undefined &&
+      value.couponDiscountCents !== undefined &&
+      value.payablePriceCents !== undefined &&
+      value.payablePriceCents !== value.priceCents - value.couponDiscountCents
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '实付金额必须等于原价减优惠金额',
+        path: ['payablePriceCents'],
+      });
+    }
+  });
+
+export const listShipperOrdersQuerySchema = z
+  .object({
+    status: shipperOrderStatusSchema.optional(),
+    statuses: optionalStatusCollectionSchema,
+    keyword: optionalListKeywordString,
+    createdFromIso: optionalIsoDateString,
+    createdToIso: optionalIsoDateString,
+    page: z.coerce.number().int().positive().default(1),
+    pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .superRefine((value, context) => {
+    if (value.status && value.statuses?.length) {
+      context.addIssue({
+        code: 'custom',
+        message: '状态筛选只能传入 status 或 statuses 之一',
+        path: ['status'],
+      });
+    }
+
+    if (
+      value.createdFromIso &&
+      value.createdToIso &&
+      Date.parse(value.createdFromIso) >= Date.parse(value.createdToIso)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '开始时间必须早于结束时间',
+        path: ['createdFromIso'],
+      });
+    }
+  });
+
+export const adminOrderAttachmentAuditListQuerySchema = z
+  .object({
+    status: optionalOrderStatusQuerySchema,
+    shipperId: optionalUserIdQueryString,
+    keyword: optionalListKeywordString,
+    createdFromIso: optionalIsoDateString,
+    createdToIso: optionalIsoDateString,
+    hasMissingFiles: optionalBooleanQuerySchema,
+    page: z.coerce.number().int().positive().default(1),
+    pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.createdFromIso &&
+      value.createdToIso &&
+      Date.parse(value.createdFromIso) >= Date.parse(value.createdToIso)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '开始时间必须早于结束时间',
+        path: ['createdFromIso'],
+      });
+    }
+  });
+
+export const cancelShipperOrderSchema = z.object({
+  reasonText: z.string().trim().min(1, '取消原因不能为空').max(50),
+  description: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+});
+
+export const advanceShipperOrderStatusSchema = z.object({
+  nextStatus: z.enum(['loading', 'transporting', 'confirming']),
+});
+
+export const reportShipperOrderExceptionSchema = z.object({
+  typeLabel: z.string().trim().min(1, '异常类型不能为空').max(30),
+  description: z
+    .string()
+    .trim()
+    .min(6, '请至少填写 6 个字的异常说明')
+    .max(200),
+  photoCount: z.number().int().min(0).max(6).optional(),
+  photoFileIds: optionalPhotoFileIdsSchema,
+});
+
+export const submitShipperOrderChangeRequestSchema = z.object({
+  description: z.string().trim().min(1, '修改说明不能为空').max(200),
+});
+
+export const submitShipperOrderEvaluationSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  tags: z
+    .array(z.string().trim().min(1))
+    .min(1, '请选择至少一个评价标签')
+    .max(6)
+    .transform(tags =>
+      tags.filter((tag, index, allTags) => allTags.indexOf(tag) === index),
+    ),
+  content: z
+    .string()
+    .trim()
+    .min(6, '请至少填写 6 个字的评价内容')
+    .max(200, '评价内容最多 200 字'),
+  anonymous: z.boolean().optional(),
+  photoCount: z.number().int().min(0).max(6).optional(),
+  photoFileIds: optionalPhotoFileIdsSchema,
+});
+
+export function parseCreateShipperOrderRequest(
+  input: unknown,
+): CreateShipperOrderRequest {
+  return createShipperOrderSchema.parse(input);
+}
+
+export function parseListShipperOrdersQuery(
+  input: unknown,
+): ListShipperOrdersQuery {
+  const parsed = listShipperOrdersQuerySchema.parse(input);
+
+  return {
+    page: parsed.page,
+    pageSize: parsed.pageSize,
+    status: parsed.status,
+    statuses: parsed.statuses,
+    keyword: parsed.keyword,
+    createdFromIso: parsed.createdFromIso,
+    createdToIso: parsed.createdToIso,
+  };
+}
+
+export function parseAdminOrderAttachmentAuditListQuery(
+  input: unknown,
+): AdminOrderAttachmentAuditListQuery {
+  const parsed = adminOrderAttachmentAuditListQuerySchema.parse(input);
+
+  return {
+    page: parsed.page,
+    pageSize: parsed.pageSize,
+    status: parsed.status,
+    shipperId: parsed.shipperId,
+    keyword: parsed.keyword,
+    createdFromIso: parsed.createdFromIso,
+    createdToIso: parsed.createdToIso,
+    hasMissingFiles: parsed.hasMissingFiles,
+  };
+}
+
+export function parseCancelShipperOrderRequest(
+  input: unknown,
+): CancelShipperOrderRequest {
+  return cancelShipperOrderSchema.parse(input);
+}
+
+export function parseAdvanceShipperOrderStatusRequest(
+  input: unknown,
+): AdvanceShipperOrderStatusRequest {
+  return advanceShipperOrderStatusSchema.parse(input);
+}
+
+export function parseReportShipperOrderExceptionRequest(
+  input: unknown,
+): ReportShipperOrderExceptionRequest {
+  return reportShipperOrderExceptionSchema.parse(input);
+}
+
+export function parseSubmitShipperOrderChangeRequest(
+  input: unknown,
+): SubmitShipperOrderChangeRequest {
+  return submitShipperOrderChangeRequestSchema.parse(input);
+}
+
+export function parseSubmitShipperOrderEvaluationRequest(
+  input: unknown,
+): SubmitShipperOrderEvaluationRequest {
+  return submitShipperOrderEvaluationSchema.parse(input);
+}

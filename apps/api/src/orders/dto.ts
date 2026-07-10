@@ -1,0 +1,170 @@
+import type { FileUploadRecord } from '../files/dto';
+
+export type ShipperOrderStatus =
+  | 'waiting'
+  | 'loading'
+  | 'transporting'
+  | 'confirming'
+  | 'completed'
+  | 'cancelled';
+
+export type ShipperOrderPricingMode = 'fixed' | 'negotiable';
+export type ShipperOrderPaymentMethod = 'cod' | 'online';
+
+export type CreateShipperOrderRequest = {
+  cargoType: string;
+  weightText: string;
+  volumeText?: string;
+  quantityText: string;
+  cargoDescription?: string;
+  cargoPhotoCount?: number;
+  cargoPhotoFileIds?: string[];
+  pickupAddress: string;
+  pickupNoteText?: string;
+  pickupContact: string;
+  pickupPhone: string;
+  deliveryAddress: string;
+  deliveryNoteText?: string;
+  deliveryContact: string;
+  deliveryPhone: string;
+  vehicleRequirement: string;
+  vehicleLengthText?: string;
+  needTailboard: boolean;
+  needTarp: boolean;
+  pickupTimeIso: string;
+  expectedDeliveryTimeText?: string;
+  valueAddedServicesText?: string;
+  pricingMode: ShipperOrderPricingMode;
+  priceCents?: number;
+  paymentMethod: ShipperOrderPaymentMethod;
+  couponId?: string;
+  couponTitle?: string;
+  couponDiscountCents?: number;
+  payablePriceCents?: number;
+};
+
+export type CancelShipperOrderRequest = {
+  reasonText: string;
+  description?: string;
+};
+
+export type AdvanceShipperOrderStatusRequest = {
+  nextStatus: Extract<ShipperOrderStatus, 'loading' | 'transporting' | 'confirming'>;
+};
+
+export type ReportShipperOrderExceptionRequest = {
+  typeLabel: string;
+  description: string;
+  photoCount?: number;
+  photoFileIds?: string[];
+};
+
+export type SubmitShipperOrderChangeRequest = {
+  description: string;
+};
+
+export type SubmitShipperOrderEvaluationRequest = {
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
+};
+
+export type ListShipperOrdersQuery = {
+  status?: ShipperOrderStatus;
+  statuses?: ShipperOrderStatus[];
+  keyword?: string;
+  createdFromIso?: string;
+  createdToIso?: string;
+  page: number;
+  pageSize: number;
+};
+
+export type ShipperOrderEventRecord = {
+  id: string;
+  actorUserId?: string;
+  eventType: string;
+  noteText?: string;
+  attachmentFileIds?: string[];
+  createdAtIso: string;
+};
+
+export type ShipperOrderRecord = CreateShipperOrderRequest & {
+  id: string;
+  orderNo: string;
+  shipperId: string;
+  status: ShipperOrderStatus;
+  createdAtIso: string;
+  updatedAtIso: string;
+  events: ShipperOrderEventRecord[];
+};
+
+export type ListShipperOrdersResult = {
+  items: ShipperOrderRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type AdminOrderAttachmentAuditListQuery = {
+  status?: ShipperOrderStatus;
+  shipperId?: string;
+  keyword?: string;
+  createdFromIso?: string;
+  createdToIso?: string;
+  hasMissingFiles?: boolean;
+  page: number;
+  pageSize: number;
+};
+
+export type AdminOrderAttachmentAuditSummary = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  status: ShipperOrderStatus;
+  createdAtIso: string;
+  cargoFileCount: number;
+  eventAttachmentFileCount: number;
+  totalFileIdCount: number;
+  resolvedFileCount: number;
+  missingFileIds: string[];
+  hasMissingFiles: boolean;
+};
+
+export type ListAdminOrderAttachmentAuditsResult = {
+  items: AdminOrderAttachmentAuditSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type AdminOrderAttachmentFileRecord = FileUploadRecord & {
+  previewUrl?: string;
+  previewExpiresAtIso?: string;
+};
+
+export type AdminOrderAttachmentFileGroup = {
+  fileIds: string[];
+  files: AdminOrderAttachmentFileRecord[];
+  missingFileIds: string[];
+};
+
+export type AdminOrderAttachmentAuditEvent = {
+  eventId: string;
+  eventType: string;
+  noteText?: string;
+  createdAtIso: string;
+  attachmentFileIds: string[];
+  files: AdminOrderAttachmentFileRecord[];
+  missingFileIds: string[];
+};
+
+export type AdminOrderAttachmentAudit = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  cargo: AdminOrderAttachmentFileGroup;
+  events: AdminOrderAttachmentAuditEvent[];
+};
