@@ -1,4 +1,46 @@
 import { mapPlatformOrderToRecentOrder } from '../src/services/platformOrderMapper';
+import type { PlatformShipperOrder } from '../src/services/platformOrderApi';
+
+type PlatformOrderEvent = NonNullable<PlatformShipperOrder['events']>[number];
+
+function baseOrder(
+  overrides: Partial<PlatformShipperOrder> = {},
+): PlatformShipperOrder {
+  return {
+    id: 'order-1',
+    orderNo: 'HY202607010001',
+    shipperId: 'shipper-1',
+    status: 'waiting',
+    cargoType: 'build',
+    weightText: '2.5 吨',
+    quantityText: '12 箱',
+    pickupAddress: '宝安区福永物流园',
+    pickupContact: '赵经理',
+    pickupPhone: '13900139001',
+    deliveryAddress: '南山区科技园',
+    deliveryContact: '钱店长',
+    deliveryPhone: '13900139002',
+    vehicleRequirement: 'medium',
+    needTailboard: false,
+    needTarp: false,
+    pickupTimeIso: '2026-07-02T02:00:00.000Z',
+    pricingMode: 'fixed',
+    priceCents: 76000,
+    paymentMethod: 'cod',
+    createdAtIso: '2026-07-01T08:00:00.000Z',
+    updatedAtIso: '2026-07-01T08:00:00.000Z',
+    ...overrides,
+  } as PlatformShipperOrder;
+}
+
+function event(overrides: Partial<PlatformOrderEvent>): PlatformOrderEvent {
+  return {
+    id: 'e1',
+    eventType: 'driver_quote_submitted',
+    createdAtIso: '2026-07-01T09:00:00.000Z',
+    ...overrides,
+  } as PlatformOrderEvent;
+}
 
 describe('platform order mapper', () => {
   it('maps a platform order to current RecentOrder model', () => {
@@ -424,6 +466,361 @@ describe('platform order mapper', () => {
           },
         ],
       },
+    });
+  });
+
+  it('drops driver quotes whose note payload is malformed or invalid', () => {
+    const order = baseOrder({
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      events: [
+        event({ id: 'q1', actorUserId: 'd1', noteText: 'not-json' }),
+        event({
+          id: 'q2',
+          actorUserId: 'd2',
+          noteText: JSON.stringify({ quoteCents: '800', arrivalText: '20 分钟' }),
+        }),
+        event({ id: 'q3', actorUserId: 'd3', noteText: undefined }),
+      ],
+    });
+
+    expect(mapPlatformOrderToRecentOrder(order).driverQuotes).toBeUndefined();
+  });
+
+  it('keeps only the valid driver quote and fills the missing note default', () => {
+    const order = baseOrder({
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      events: [
+        event({ id: 'bad', actorUserId: 'd1', noteText: '{' }),
+        event({
+          id: 'good',
+          actorUserId: 'd2',
+          noteText: JSON.stringify({ quoteCents: 88000, arrivalText: '30 分钟' }),
+        }),
+      ],
+    });
+
+    const quotes = mapPlatformOrderToRecentOrder(order).driverQuotes;
+    expect(quotes).toHaveLength(1);
+    expect(quotes?.[0]).toMatchObject({
+      driverId: 'd2',
+      quoteText: '￥880',
+      arrivalText: '30 分钟',
+      noteText: '司机未填写报价备注',
+    });
+  });
+
+  it('picks the latest driver quote snapshot when a driver quotes twice', () => {
+    const order = baseOrder({
+      status: 'loading',
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      events: [
+        event({
+          id: 'q-early',
+          actorUserId: 'd1',
+          createdAtIso: '2026-07-01T09:00:00.000Z',
+          noteText: JSON.stringify({
+            quoteCents: 70000,
+            arrivalText: '早',
+            driverSnapshot: { driverName: '旧名', plateNumber: '辽A0001' },
+          }),
+        }),
+        event({
+          id: 'q-late',
+          actorUserId: 'd1',
+          createdAtIso: '2026-07-01T10:00:00.000Z',
+          noteText: JSON.stringify({
+            quoteCents: 90000,
+            arrivalText: '晚',
+            driverSnapshot: { driverName: '新名', plateNumber: '辽A9999' },
+          }),
+        }),
+        event({
+          id: 'accept',
+          eventType: 'driver_accepted',
+          actorUserId: 'd1',
+          createdAtIso: '2026-07-01T11:00:00.000Z',
+        }),
+      ],
+    });
+
+    const mapped = mapPlatformOrderToRecentOrder(order);
+    expect(mapped.priceText).toBe('￥900');
+    expect(mapped.driverInfo).toMatchObject({
+      driverId: 'd1',
+      driverName: '新名',
+      plateNumber: '辽A9999',
+    });
+  });
+
+  it('ignores exception events without a proper "：" separator or empty parts', () => {
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'transporting',
+          events: [
+            event({
+              id: 'ex',
+              eventType: 'exception_reported',
+              noteText: '没有分隔符',
+            }),
+          ],
+        }),
+      ).exceptionReport,
+    ).toBeUndefined();
+
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'transporting',
+          events: [
+            event({
+              id: 'ex2',
+              eventType: 'exception_reported',
+              noteText: '：只有描述',
+            }),
+          ],
+        }),
+      ).exceptionReport,
+    ).toBeUndefined();
+  });
+
+  it('parses an exception report with a trailing photo count', () => {
+    const report = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'transporting',
+        events: [
+          event({
+            id: 'ex3',
+            eventType: 'exception_reported',
+            noteText: '货损：外包装破损；图片凭证 2 张',
+          }),
+        ],
+      }),
+    ).exceptionReport;
+
+    expect(report).toMatchObject({
+      typeLabel: '货损',
+      description: '外包装破损',
+      photoCount: 2,
+      statusText: '待客服跟进',
+    });
+  });
+
+  it('ignores evaluation events without a valid rating or tags', () => {
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'completed',
+          events: [
+            event({
+              id: 'ev',
+              eventType: 'evaluation_submitted',
+              noteText: '无评分格式；内容',
+            }),
+          ],
+        }),
+      ).evaluation,
+    ).toBeUndefined();
+
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'completed',
+          events: [
+            event({
+              id: 'ev2',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：；内容',
+            }),
+          ],
+        }),
+      ).evaluation,
+    ).toBeUndefined();
+  });
+
+  it('parses an anonymous evaluation with tags and photo count', () => {
+    const evaluation = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'completed',
+        events: [
+          event({
+            id: 'ev3',
+            eventType: 'evaluation_submitted',
+            noteText: '5 星：准时、专业；匿名评价；图片凭证 1 张；送达很及时',
+          }),
+        ],
+      }),
+    ).evaluation;
+
+    expect(evaluation).toMatchObject({
+      rating: 5,
+      tags: ['准时', '专业'],
+      anonymous: true,
+      photoCount: 1,
+      content: '送达很及时',
+    });
+  });
+
+  it('falls back to a placeholder driver when the accepted snapshot is empty', () => {
+    const mapped = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        events: [
+          event({
+            id: 'accept',
+            eventType: 'driver_accepted',
+            actorUserId: 'd7',
+            noteText: JSON.stringify({ driverSnapshot: { driverName: '   ' } }),
+          }),
+        ],
+      }),
+    );
+
+    expect(mapped.driverInfo).toMatchObject({
+      driverId: 'd7',
+      driverName: '平台司机 d7',
+      ratingText: '平台已接单',
+      plateNumber: '车牌待补充',
+      completedOrdersText: '0 单',
+    });
+  });
+
+  it('omits pickup time text when the pickup time is missing or unparseable', () => {
+    expect(
+      mapPlatformOrderToRecentOrder(baseOrder({ pickupTimeIso: undefined }))
+        .pickupTimeText,
+    ).toBeUndefined();
+
+    expect(
+      mapPlatformOrderToRecentOrder(baseOrder({ pickupTimeIso: 'not-a-date' }))
+        .pickupTimeText,
+    ).toBeUndefined();
+  });
+
+  it('formats non-integer yuan amounts with two decimals', () => {
+    expect(
+      mapPlatformOrderToRecentOrder(baseOrder({ priceCents: 76050 })).priceText,
+    ).toBe('￥760.50');
+  });
+
+  it('keeps a photo-count-only description as-is when no "；" prefix precedes it', () => {
+    // The strip regex requires a "；" before "图片凭证 N 张"; without it the
+    // description is kept verbatim, so a report is still produced.
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'transporting',
+          events: [
+            event({
+              id: 'ex-only-photo',
+              eventType: 'exception_reported',
+              noteText: '货损：图片凭证 2 张',
+            }),
+          ],
+        }),
+      ).exceptionReport,
+    ).toMatchObject({
+      typeLabel: '货损',
+      description: '图片凭证 2 张',
+      photoCount: 2,
+    });
+  });
+
+  it('drops an exception whose description becomes empty after stripping photos', () => {
+    expect(
+      mapPlatformOrderToRecentOrder(
+        baseOrder({
+          status: 'transporting',
+          events: [
+            event({
+              id: 'ex-empty',
+              eventType: 'exception_reported',
+              noteText: '货损：；图片凭证 2 张',
+            }),
+          ],
+        }),
+      ).exceptionReport,
+    ).toBeUndefined();
+  });
+
+  it('uses the latest event when multiple same-type events exist', () => {
+    const report = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'transporting',
+        events: [
+          event({
+            id: 'ex-old',
+            eventType: 'exception_reported',
+            createdAtIso: '2026-07-01T09:00:00.000Z',
+            noteText: '货损：旧描述',
+          }),
+          event({
+            id: 'ex-new',
+            eventType: 'exception_reported',
+            createdAtIso: '2026-07-01T10:00:00.000Z',
+            noteText: '延误：新描述',
+          }),
+        ],
+      }),
+    ).exceptionReport;
+
+    expect(report).toMatchObject({ typeLabel: '延误', description: '新描述' });
+  });
+
+  it('handles accepted events whose note payload is a JSON array', () => {
+    const mapped = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        events: [
+          event({
+            id: 'q',
+            actorUserId: 'd9',
+            noteText: JSON.stringify({
+              quoteCents: 66000,
+              arrivalText: '20 分钟',
+              driverSnapshot: { driverName: '孙师傅', plateNumber: '辽A6666' },
+            }),
+          }),
+          event({
+            id: 'accept',
+            eventType: 'driver_accepted',
+            actorUserId: 'd9',
+            createdAtIso: '2026-07-01T11:00:00.000Z',
+            noteText: '[]',
+          }),
+        ],
+      }),
+    );
+
+    // Accepted payload has no snapshot → falls back to the driver's quote snapshot.
+    expect(mapped.driverInfo).toMatchObject({
+      driverId: 'd9',
+      driverName: '孙师傅',
+      plateNumber: '辽A6666',
+    });
+  });
+
+  it('handles accepted events whose note is plain non-JSON text', () => {
+    const mapped = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        events: [
+          event({
+            id: 'accept',
+            eventType: 'driver_accepted',
+            actorUserId: 'd10',
+            noteText: '手动接单',
+          }),
+        ],
+      }),
+    );
+
+    expect(mapped.driverInfo).toMatchObject({
+      driverId: 'd10',
+      driverName: '平台司机 d10',
     });
   });
 });
