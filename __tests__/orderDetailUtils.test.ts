@@ -1,13 +1,31 @@
 import {
+  buildDetailTimeline,
   createBonusOrderChange,
   createChangeRequestOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
   getCancellationSettlement,
+  getOrderPrimaryActionLabel,
   getOrderProgressAction,
+  getOrderSecondaryActionLabel,
 } from '../src/utils/orderDetail';
-import type { DriverQuote } from '../src/types';
+import type { DriverQuote, RecentOrder, RecentOrderStatus } from '../src/types';
+
+function createOrder(overrides: Partial<RecentOrder> = {}): RecentOrder {
+  return {
+    id: 'HY202607090001',
+    status: 'waiting',
+    from: '沈阳',
+    to: '大连',
+    cargoType: '建材',
+    weightText: '2 吨',
+    vehicleRequirement: '中型货车',
+    priceText: '¥860',
+    updatedAtText: '刚刚',
+    ...overrides,
+  };
+}
 
 test('returns local progress action metadata for active order statuses', () => {
   expect(getOrderProgressAction('waiting')).toEqual({
@@ -141,4 +159,64 @@ test('formats evaluation notice with anonymous flag and photo vouchers', () => {
       photoCount: 1,
     }),
   ).toBe('评价已提交：5 星 · 准时、服务好 · 匿名评价 · 图片凭证 1 张 · 司机沟通顺畅，送达很及时');
+});
+
+test('derives the primary action label from order status', () => {
+  const cases: Array<[RecentOrderStatus, string]> = [
+    ['waiting', '查看报价'],
+    ['loading', '联系司机'],
+    ['transporting', '查看位置'],
+    ['confirming', '确认送达'],
+  ];
+
+  cases.forEach(([status, label]) => {
+    expect(getOrderPrimaryActionLabel(createOrder({ status }))).toBe(label);
+  });
+
+  expect(getOrderPrimaryActionLabel(createOrder({ status: 'completed' }))).toBe(
+    '评价司机',
+  );
+  expect(
+    getOrderPrimaryActionLabel(
+      createOrder({
+        status: 'completed',
+        evaluation: { rating: 5, tags: ['准时'], content: '很好' },
+      }),
+    ),
+  ).toBe('查看评价');
+});
+
+test('derives the secondary action label from order status', () => {
+  const cases: Array<[RecentOrderStatus, string]> = [
+    ['waiting', '取消订单'],
+    ['loading', '取消订单'],
+    ['transporting', '上报异常'],
+    ['confirming', '上报异常'],
+    ['completed', '重新下单'],
+    ['cancelled', '重新下单'],
+  ];
+
+  cases.forEach(([status, label]) => {
+    expect(getOrderSecondaryActionLabel(createOrder({ status }))).toBe(label);
+  });
+});
+
+test('builds an active timeline up to the current status label', () => {
+  expect(buildDetailTimeline('运输中')).toEqual([
+    { label: '待接单', active: true },
+    { label: '待装货', active: true },
+    { label: '运输中', active: true },
+    { label: '待确认', active: false },
+    { label: '已完成', active: false },
+  ]);
+});
+
+test('marks no timeline steps active for labels outside the flow', () => {
+  expect(buildDetailTimeline('已取消')).toEqual([
+    { label: '待接单', active: false },
+    { label: '待装货', active: false },
+    { label: '运输中', active: false },
+    { label: '待确认', active: false },
+    { label: '已完成', active: false },
+  ]);
 });

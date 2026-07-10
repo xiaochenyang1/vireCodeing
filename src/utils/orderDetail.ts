@@ -173,3 +173,59 @@ export function createEvaluationNotice(evaluation: {
     evaluation.photoCount ? `图片凭证 ${evaluation.photoCount} 张 · ` : ''
   }${evaluation.content}`;
 }
+
+export function getOrderPrimaryActionLabel(order: RecentOrder): string {
+  switch (order.status) {
+    case 'waiting':
+      return '查看报价';
+    case 'loading':
+      return '联系司机';
+    case 'transporting':
+      return '查看位置';
+    case 'confirming':
+      return '确认送达';
+    default:
+      return order.evaluation ? '查看评价' : '评价司机';
+  }
+}
+
+export function getOrderSecondaryActionLabel(order: RecentOrder): string {
+  switch (order.status) {
+    case 'waiting':
+    case 'loading':
+      return '取消订单';
+    case 'transporting':
+    case 'confirming':
+      return '上报异常';
+    default:
+      return '重新下单';
+  }
+}
+
+export const ORDER_DETAIL_TIMELINE_STEPS = [
+  '待接单',
+  '待装货',
+  '运输中',
+  '待确认',
+  '已完成',
+] as const;
+
+export type OrderDetailTimelineStep = {
+  label: string;
+  active: boolean;
+};
+
+export function buildDetailTimeline(
+  currentStatusLabel: string,
+): OrderDetailTimelineStep[] {
+  const currentIndex = ORDER_DETAIL_TIMELINE_STEPS.indexOf(
+    currentStatusLabel as (typeof ORDER_DETAIL_TIMELINE_STEPS)[number],
+  );
+
+  return ORDER_DETAIL_TIMELINE_STEPS.map(label => ({
+    label,
+    active:
+      label === currentStatusLabel ||
+      ORDER_DETAIL_TIMELINE_STEPS.indexOf(label) <= currentIndex,
+  }));
+}

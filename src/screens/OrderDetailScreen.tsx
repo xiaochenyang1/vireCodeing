@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { showUnavailable } from '../components/SectionHeader';
 import {
   recentOrderStatusCopy,
-  timelineOrder,
 } from '../data/mockData';
 import { styles } from '../styles';
 import { BonusForm } from './order-detail/BonusForm';
@@ -27,6 +26,7 @@ import {
 } from './order-detail/OrderRecordCards';
 import { OrderSyncStatusCard } from './order-detail/OrderSyncStatusCard';
 import { TrackingCard } from './order-detail/TrackingCard';
+import { useOrderDetailPanels } from './order-detail/useOrderDetailPanels';
 import type {
   DraftOrderPrefill,
   FileAttachmentRef,
@@ -41,13 +41,16 @@ import {
   formatVehicleRequirementText,
 } from '../utils/order';
 import {
+  buildDetailTimeline,
   createBonusOrderChange,
   createChangeRequestOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
   getCancellationSettlement,
+  getOrderPrimaryActionLabel,
   getOrderProgressAction,
+  getOrderSecondaryActionLabel,
   type OrderProgressAction,
 } from '../utils/orderDetail';
 
@@ -106,13 +109,7 @@ export function OrderDetailScreen({
   const status = recentOrderStatusCopy[order.status];
   const progressAction = getOrderProgressAction(order.status);
   const vehicleRequirementText = formatVehicleRequirementText(order);
-  const [showQuotes, setShowQuotes] = useState(false);
-  const [showExceptionForm, setShowExceptionForm] = useState(false);
-  const [showEvaluationForm, setShowEvaluationForm] = useState(false);
-  const [showCancellationForm, setShowCancellationForm] = useState(false);
-  const [showChangeRequestForm, setShowChangeRequestForm] = useState(false);
-  const [showTrackingCard, setShowTrackingCard] = useState(false);
-  const [showBonusForm, setShowBonusForm] = useState(false);
+  const { isPanelOpen, closeAllPanels, togglePanel } = useOrderDetailPanels();
   const [localNotice, setLocalNotice] = useState('');
   const driverQuotes = order.driverQuotes ?? [];
   const canRequestChange =
@@ -125,15 +122,7 @@ export function OrderDetailScreen({
       setLocalNotice(`无法打开系统拨号，请手动联系${targetLabel}。`);
     });
   };
-  const currentTimelineIndex = timelineOrder[status.label] ?? -1;
-  const timeline = ['待接单', '待装货', '运输中', '待确认', '已完成'].map(
-    stepLabel => ({
-      label: stepLabel,
-      active:
-        stepLabel === status.label ||
-        timelineOrder[stepLabel] <= currentTimelineIndex,
-    }),
-  );
+  const timeline = buildDetailTimeline(status.label);
   const updateOrderFromDetail = (changes: Partial<RecentOrder>) => {
     onUpdateOrder(order.id, {
       ...changes,
@@ -141,29 +130,8 @@ export function OrderDetailScreen({
     });
   };
 
-  const primaryAction =
-    order.status === 'waiting'
-      ? '查看报价'
-      : order.status === 'loading'
-      ? '联系司机'
-      : order.status === 'transporting'
-      ? '查看位置'
-      : order.status === 'confirming'
-      ? '确认送达'
-      : order.evaluation
-      ? '查看评价'
-      : '评价司机';
-
-  const secondaryAction =
-    order.status === 'waiting'
-      ? '取消订单'
-      : order.status === 'loading'
-      ? '取消订单'
-      : order.status === 'transporting'
-      ? '上报异常'
-      : order.status === 'confirming'
-      ? '上报异常'
-      : '重新下单';
+  const primaryAction = getOrderPrimaryActionLabel(order);
+  const secondaryAction = getOrderSecondaryActionLabel(order);
 
   const runProgressAction = () => {
     if (!progressAction) {
@@ -187,14 +155,13 @@ export function OrderDetailScreen({
     const selection = createDriverQuoteOrderChange(quote);
 
     updateOrderFromDetail(selection.changes);
-    setShowQuotes(false);
+    closeAllPanels();
     setLocalNotice(selection.noticeText);
   };
 
   const runPrimaryAction = () => {
     if (order.status === 'waiting') {
-      setShowQuotes(current => !current);
-      setShowBonusForm(false);
+      togglePanel('quotes');
       setLocalNotice('');
       return;
     }
@@ -215,32 +182,19 @@ export function OrderDetailScreen({
     }
 
     if (order.status === 'completed' && order.evaluation) {
-      setShowEvaluationForm(false);
-      setShowExceptionForm(false);
-      setShowChangeRequestForm(false);
-      setShowTrackingCard(false);
-      setShowBonusForm(false);
+      closeAllPanels();
       setLocalNotice('评价已提交，不可修改。');
       return;
     }
 
     if (order.status === 'completed') {
-      setShowEvaluationForm(current => !current);
-      setShowExceptionForm(false);
-      setShowChangeRequestForm(false);
-      setShowTrackingCard(false);
-      setShowBonusForm(false);
+      togglePanel('evaluation');
       setLocalNotice('');
       return;
     }
 
     if (order.status === 'transporting' && order.driverInfo) {
-      setShowTrackingCard(current => !current);
-      setShowExceptionForm(false);
-      setShowEvaluationForm(false);
-      setShowCancellationForm(false);
-      setShowChangeRequestForm(false);
-      setShowBonusForm(false);
+      togglePanel('tracking');
       setLocalNotice('');
       return;
     }
@@ -272,23 +226,13 @@ export function OrderDetailScreen({
 
   const runSecondaryAction = () => {
     if (order.status === 'waiting' || order.status === 'loading') {
-      setShowCancellationForm(current => !current);
-      setShowExceptionForm(false);
-      setShowEvaluationForm(false);
-      setShowTrackingCard(false);
-      setShowChangeRequestForm(false);
-      setShowBonusForm(false);
+      togglePanel('cancellation');
       setLocalNotice('');
       return;
     }
 
     if (order.status === 'transporting' || order.status === 'confirming') {
-      setShowExceptionForm(current => !current);
-      setShowEvaluationForm(false);
-      setShowCancellationForm(false);
-      setShowChangeRequestForm(false);
-      setShowTrackingCard(false);
-      setShowBonusForm(false);
+      togglePanel('exception');
       setLocalNotice('');
       return;
     }
@@ -328,7 +272,7 @@ export function OrderDetailScreen({
 
     if (onCancelOrder) {
       onCancelOrder(order, cancellationRecord);
-      setShowCancellationForm(false);
+      closeAllPanels();
       setLocalNotice(`订单已取消：${cancellation.reasonText}`);
       return;
     }
@@ -338,7 +282,7 @@ export function OrderDetailScreen({
       updatedAtText: '已取消 · 刚刚',
       cancellation: cancellationRecord,
     });
-    setShowCancellationForm(false);
+    closeAllPanels();
     setLocalNotice(`订单已取消：${cancellation.reasonText}`);
   };
 
@@ -346,7 +290,7 @@ export function OrderDetailScreen({
     const bonusChange = createBonusOrderChange(bonusAmount);
 
     updateOrderFromDetail(bonusChange.changes);
-    setShowBonusForm(false);
+    closeAllPanels();
     setLocalNotice(bonusChange.noticeText);
   };
 
@@ -365,13 +309,13 @@ export function OrderDetailScreen({
           RecentOrder['exceptionReport']
         >,
       );
-      setShowExceptionForm(false);
+      closeAllPanels();
       setLocalNotice(exceptionChange.noticeText);
       return;
     }
 
     updateOrderFromDetail(exceptionChange.changes);
-    setShowExceptionForm(false);
+    closeAllPanels();
     setLocalNotice(exceptionChange.noticeText);
   };
 
@@ -385,13 +329,13 @@ export function OrderDetailScreen({
           RecentOrder['modificationRequest']
         >,
       );
-      setShowChangeRequestForm(false);
+      closeAllPanels();
       setLocalNotice(changeRequest.noticeText);
       return;
     }
 
     updateOrderFromDetail(changeRequest.changes);
-    setShowChangeRequestForm(false);
+    closeAllPanels();
     setLocalNotice(changeRequest.noticeText);
   };
 
@@ -437,7 +381,7 @@ export function OrderDetailScreen({
   }) => {
     if (onSubmitEvaluation) {
       onSubmitEvaluation(order, evaluation);
-      setShowEvaluationForm(false);
+      closeAllPanels();
       setLocalNotice(createEvaluationNotice(evaluation));
       return;
     }
@@ -445,28 +389,17 @@ export function OrderDetailScreen({
     updateOrderFromDetail({
       evaluation,
     });
-    setShowEvaluationForm(false);
+    closeAllPanels();
     setLocalNotice(createEvaluationNotice(evaluation));
   };
 
   const toggleBonusForm = () => {
-    setShowBonusForm(current => !current);
-    setShowQuotes(false);
-    setShowCancellationForm(false);
-    setShowExceptionForm(false);
-    setShowEvaluationForm(false);
-    setShowTrackingCard(false);
-    setShowChangeRequestForm(false);
+    togglePanel('bonus');
     setLocalNotice('');
   };
 
   const toggleChangeRequestForm = () => {
-    setShowChangeRequestForm(current => !current);
-    setShowExceptionForm(false);
-    setShowCancellationForm(false);
-    setShowEvaluationForm(false);
-    setShowTrackingCard(false);
-    setShowBonusForm(false);
+    togglePanel('changeRequest');
     setLocalNotice('');
   };
 
@@ -553,7 +486,7 @@ export function OrderDetailScreen({
         </View>
       ) : null}
 
-      {showQuotes ? (
+      {isPanelOpen('quotes') ? (
         <View style={styles.detailCard}>
           <Text style={styles.draftSectionTitle}>司机报价列表</Text>
           {driverQuotes.length > 0 ? (
@@ -572,28 +505,28 @@ export function OrderDetailScreen({
         </View>
       ) : null}
 
-      {showExceptionForm ? (
+      {isPanelOpen('exception') ? (
         <ExceptionReportForm
           platformFileApi={platformFileApi}
           onSubmit={submitExceptionReport}
         />
       ) : null}
 
-      {showChangeRequestForm ? (
+      {isPanelOpen('changeRequest') ? (
         <ChangeRequestForm onSubmit={submitChangeRequest} />
       ) : null}
 
-      {showCancellationForm ? (
+      {isPanelOpen('cancellation') ? (
         <CancellationForm onSubmit={submitCancellation} />
       ) : null}
 
-      {showBonusForm ? <BonusForm onSubmit={submitBonus} /> : null}
+      {isPanelOpen('bonus') ? <BonusForm onSubmit={submitBonus} /> : null}
 
-      {showTrackingCard && order.driverInfo ? (
+      {isPanelOpen('tracking') && order.driverInfo ? (
         <TrackingCard order={order} driver={order.driverInfo} />
       ) : null}
 
-      {showEvaluationForm ? (
+      {isPanelOpen('evaluation') ? (
         <DriverEvaluationForm
           platformFileApi={platformFileApi}
           onSubmit={submitEvaluation}
