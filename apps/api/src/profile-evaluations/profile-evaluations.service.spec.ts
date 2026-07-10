@@ -448,6 +448,302 @@ describe('ProfileEvaluationsService', () => {
         total: 2,
       });
   });
+
+  it('skips received evaluation notes that fail to parse', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-bad-received',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090010',
+          events: [
+            createEvent({
+              id: 'received-bad',
+              actorUserId: 'driver-3',
+              eventType: 'shipper_evaluation_submitted',
+              noteText: '没有评分格式的评价',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(service.listReceivedRecords('shipper-1')).resolves.toEqual({
+      shipperId: 'shipper-1',
+      items: [],
+    });
+  });
+
+  it('drops an evaluation whose content is empty after stripping tags', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-empty-content',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090011',
+          events: [
+            createEvent({
+              id: 'evaluation-empty',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时；匿名评价；图片凭证 2 张',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(service.listRecords('shipper-1')).resolves.toEqual({
+      shipperId: 'shipper-1',
+      items: [],
+    });
+  });
+
+  it('resolves the driver name from the quote snapshot for received evaluations', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-quote-name',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090012',
+          events: [
+            createEvent({
+              id: 'quote-name',
+              actorUserId: 'driver-5',
+              eventType: 'driver_quote_submitted',
+              noteText: JSON.stringify({
+                quoteCents: 80000,
+                arrivalText: '30 分钟',
+                driverSnapshot: { driverName: '周师傅' },
+              }),
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'received-quote-name',
+              actorUserId: 'driver-5',
+              eventType: 'shipper_evaluation_submitted',
+              noteText: '5 星：配合默契；货主很好',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    const result = await service.listReceivedRecords('shipper-1');
+    expect(result.items[0]).toMatchObject({
+      id: 'received-quote-name',
+      driverName: '周师傅',
+    });
+  });
+
+  it('ignores driver snapshots carried in non-object accepted payloads', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-array-accept',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090013',
+          events: [
+            createEvent({
+              id: 'accepted-array',
+              actorUserId: 'driver-6',
+              eventType: 'driver_accepted',
+              noteText: '[]',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'evaluation-array-accept',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时；司机很专业',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    const result = await service.listRecords('shipper-1');
+    // No usable snapshot name → placeholder driver name for the accepted driver.
+    expect(result.items[0]).toMatchObject({
+      id: 'evaluation-array-accept',
+      driverName: '平台司机 driver-6',
+    });
+  });
+
+  it('breaks reply ties by event index when timestamps are equal', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-reply-tie',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090014',
+          events: [
+            createEvent({
+              id: 'accepted-reply-tie',
+              actorUserId: 'driver-1',
+              eventType: 'driver_accepted',
+              noteText: JSON.stringify({
+                driverSnapshot: { driverName: '吴师傅' },
+              }),
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'evaluation-reply-tie',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时；期待回复',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+            createEvent({
+              id: 'reply-early',
+              actorUserId: 'driver-1',
+              eventType: 'evaluation_replied',
+              noteText: '早回复',
+              createdAtIso: '2026-07-09T10:00:00.000Z',
+            }),
+            createEvent({
+              id: 'reply-late',
+              actorUserId: 'driver-1',
+              eventType: 'evaluation_replied',
+              noteText: '晚回复',
+              createdAtIso: '2026-07-09T10:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    const result = await service.listRecords('shipper-1');
+    expect(result.items[0]).toMatchObject({
+      id: 'evaluation-reply-tie',
+      driverReplyText: '晚回复',
+    });
+  });
+
+  it('skips malformed notes and breaks ties by index in admin audits', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-audit-edge',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090020',
+          events: [
+            createEvent({
+              id: 'audit-broken',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '缺少评分格式',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-tie-early',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '4 星：一般；旧内容',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-tie-late',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时；新内容',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    const result = await service.listAdminEvaluationAudits({
+      page: 1,
+      pageSize: 20,
+    });
+    // The malformed note is dropped; both parseable same-timestamp events
+    // remain as independent audit rows (audits are not deduped per order).
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map(item => item.id).sort()).toEqual([
+      'audit-tie-early',
+      'audit-tie-late',
+    ]);
+    expect(result.items.every(item => item.direction === 'shipper_to_driver')).toBe(
+      true,
+    );
+  });
+
+  it('ignores driver snapshots from malformed or nameless quote events', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-bad-quote',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090021',
+          events: [
+            createEvent({
+              id: 'quote-broken',
+              actorUserId: 'driver-4',
+              eventType: 'driver_quote_submitted',
+              noteText: '{',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'received-bad-quote',
+              actorUserId: 'driver-4',
+              eventType: 'shipper_evaluation_submitted',
+              noteText: '5 星：配合默契；货主很好',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+        createOrder({
+          id: 'order-nameless-quote',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090022',
+          events: [
+            createEvent({
+              id: 'quote-nameless',
+              actorUserId: 'driver-5',
+              eventType: 'driver_quote_submitted',
+              noteText: JSON.stringify({ driverSnapshot: { driverName: 123 } }),
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            }),
+            createEvent({
+              id: 'received-nameless-quote',
+              actorUserId: 'driver-5',
+              eventType: 'shipper_evaluation_submitted',
+              noteText: '4 星：还行；正常合作',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    const result = await service.listReceivedRecords('shipper-1');
+    expect(result.items).toHaveLength(2);
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'received-nameless-quote',
+          driverName: '平台司机 driver-5',
+        }),
+        expect.objectContaining({
+          id: 'received-bad-quote',
+          driverName: '平台司机 driver-4',
+        }),
+      ]),
+    );
+  });
 });
 
 function createOrder(
