@@ -358,6 +358,137 @@ describe('platform driver certification api', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [{ status: 'pending' }, 'invalid status'],
+    [{ page: 0 }, 'zero page'],
+    [{ page: 1.5 }, 'fractional page'],
+    [{ pageSize: 0 }, 'zero pageSize'],
+    [{ pageSize: 51 }, 'oversized pageSize'],
+    [null, 'non-object query'],
+  ])(
+    'rejects invalid admin certification list queries before sending them: %s',
+    async (query, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformDriverCertificationApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.listAdminCertifications(query as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [{ realName: '张三', identityNumber: '21012319', identityFrontFileId: 'f', identityBackFileId: 'b' }, 'malformed id number'],
+    [{ realName: '张三', identityNumber: 123, identityFrontFileId: 'f', identityBackFileId: 'b' }, 'non-string id number'],
+    [{ realName: '  ', identityNumber: '11010119900101001X', identityFrontFileId: 'f', identityBackFileId: 'b' }, 'blank real name'],
+    [null, 'non-object request'],
+  ])(
+    'rejects invalid identity certification submissions before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformDriverCertificationApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(api.submitIdentity(request as never)).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a vehicle submission with a non-boolean hasTailboard', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformDriverCertificationApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.submitVehicle({
+        plateNumber: '辽A12345',
+        vehicleType: '厢式货车',
+        vehicleLengthText: '4.2 米',
+        loadCapacityText: '2 吨',
+        hasTailboard: 'yes',
+        drivingLicenseFileId: 'a',
+        driverLicenseFileId: 'b',
+        transportQualificationFileId: 'c',
+        operationPermitFileId: 'd',
+        vehiclePhotoFileId: 'e',
+      } as never),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ status: 'pending' }, 'unknown review status'],
+    [{ status: 'rejected' }, 'rejected without reason'],
+    [{ status: 'rejected', rejectionReason: '   ' }, 'rejected with blank reason'],
+    [null, 'non-object review'],
+  ])(
+    'rejects invalid admin review requests before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformDriverCertificationApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.reviewAdminIdentity('driver-1', request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('normalizes a rejected review with a trimmed reason', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: { identity: { status: 'rejected' } },
+        requestId: 'req_driver_certification',
+        timestamp: '2026-07-06T08:00:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformDriverCertificationApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.reviewAdminIdentity('driver-1', {
+      status: 'rejected',
+      rejectionReason: '  证件模糊  ',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/admin/driver-certifications/driver-1/identity/review'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ status: 'rejected', rejectionReason: '证件模糊' }),
+      }),
+    );
+  });
 });
 
 function createJsonResponse(data: unknown) {
