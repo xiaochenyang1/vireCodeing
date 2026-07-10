@@ -150,13 +150,13 @@ const DRIVER_ADVANCE_ORDER_STATUSES: PlatformDriverAdvanceOrderStatusRequest['ne
 
 export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
   return {
-    listOrderHall(query: PlatformDriverOrderHallQuery = {}) {
+    async listOrderHall(query: PlatformDriverOrderHallQuery = {}) {
       return platformGet<PlatformDriverOrderHallResult>(
         config,
         createOrderHallPath(query),
       );
     },
-    listMyOrders(query: PlatformDriverMyOrdersQuery = {}) {
+    async listMyOrders(query: PlatformDriverMyOrdersQuery = {}) {
       return platformGet<PlatformDriverOrderHallResult>(
         config,
         createMyOrdersPath(query),
@@ -165,7 +165,7 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
     getIncomeOverview() {
       return platformGet<PlatformDriverIncomeOverview>(config, '/driver/income');
     },
-    listWithdrawals(query: PlatformDriverWithdrawalsQuery = {}) {
+    async listWithdrawals(query: PlatformDriverWithdrawalsQuery = {}) {
       return platformGet<PlatformDriverWithdrawalsResult>(
         config,
         createWithdrawalsPath(query),

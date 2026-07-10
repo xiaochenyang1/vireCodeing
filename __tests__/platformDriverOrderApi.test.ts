@@ -590,6 +590,151 @@ describe('platform driver order api', () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['   ', 'blank order id'],
+    ['', 'empty order id'],
+  ])(
+    'rejects a blank driver order id before sending them: %s',
+    async orderId => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(api.getOrder(orderId)).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_ORDER_ID_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a non-string driver order id before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.quoteOrder(123 as unknown as string, {
+        quoteCents: 88000,
+        arrivalText: '45 分钟到达',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_ORDER_ID_INVALID',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object driver accept request before sending it', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.acceptOrder('order-1', null as unknown as { noteText?: string }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a driver accept note longer than 200 characters', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.acceptOrder('order-1', { noteText: '备'.repeat(201) }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ page: 0 }, 'zero page'],
+    [{ page: 1.5 }, 'fractional page'],
+    [{ pageSize: 51 }, 'oversized pageSize'],
+  ])(
+    'rejects invalid driver order hall pagination before sending them: %s',
+    async (query, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(api.listOrderHall(query)).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [[], 'empty statuses'],
+    [['waiting'], 'non-executing status'],
+    [['loading', 'loading'], 'duplicate statuses'],
+  ])(
+    'rejects invalid driver my-orders statuses before sending them: %s',
+    async (statuses, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.listMyOrders({
+          statuses:
+            statuses as unknown as import('../src/services/platformDriverOrderApi').PlatformDriverExecutingOrderStatus[],
+        }),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [{ page: 0 }, 'zero page'],
+    [{ pageSize: 51 }, 'oversized pageSize'],
+  ])(
+    'rejects invalid driver withdrawals pagination before sending them: %s',
+    async (query, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(api.listWithdrawals(query)).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_WITHDRAWALS_QUERY_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });
 
 function createJsonResponse(data: unknown) {

@@ -10,7 +10,7 @@ test('returns no differences when local and platform drafts match', () => {
     weightText: '2 吨',
     pickupAddress: '沈阳',
     needTailboard: true,
-    valueAddedServiceIds: ['loading-assist'],
+    valueAddedServiceIds: ['loading'],
     cargoPhotoCount: 2,
   };
 
@@ -61,7 +61,7 @@ test('detects boolean field differences with 是/否 labels', () => {
 test('detects array field differences order-insensitively via option labels', () => {
   const differences = createDraftFieldDifferences(
     { valueAddedServiceIds: [] },
-    { valueAddedServiceIds: ['loading-assist'] },
+    { valueAddedServiceIds: ['loading'] },
   );
 
   expect(differences).toHaveLength(1);
@@ -104,14 +104,14 @@ test('merges only blank local string fields from the platform draft', () => {
 test('merges platform value-added services only when local is empty', () => {
   const merged = mergeMissingDraftPrefillFields(
     { valueAddedServiceIds: [] },
-    { valueAddedServiceIds: ['loading-assist'] },
+    { valueAddedServiceIds: ['loading'] },
   );
 
-  expect(merged.valueAddedServiceIds).toEqual(['loading-assist']);
+  expect(merged.valueAddedServiceIds).toEqual(['loading']);
 
   const keptLocal = mergeMissingDraftPrefillFields(
     { valueAddedServiceIds: ['insurance'] },
-    { valueAddedServiceIds: ['loading-assist'] },
+    { valueAddedServiceIds: ['loading'] },
   );
 
   expect(keptLocal.valueAddedServiceIds).toEqual(['insurance']);
