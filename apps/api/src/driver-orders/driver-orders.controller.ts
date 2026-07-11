@@ -25,6 +25,7 @@ import type {
   DriverEvaluateShipperRequest,
   DriverQuoteOrderRequest,
   DriverReplyEvaluationRequest,
+  DriverReportExceptionRequest,
   SaveDriverAcceptanceSettingsRequest,
 } from './dto';
 import { DriverOrdersService } from './driver-orders.service';
@@ -38,6 +39,7 @@ import {
   driverOrderHallQuerySchema,
   driverWithdrawalsQuerySchema,
   driverQuoteOrderSchema,
+  driverReportExceptionSchema,
   parseCreateDriverWithdrawalRequest,
   parseSaveDriverAcceptanceSettingsRequest,
   parseDriverAdvanceOrderStatusRequest,
@@ -47,6 +49,7 @@ import {
   parseDriverOrderHallQuery,
   parseDriverQuoteOrderRequest,
   parseDriverReplyEvaluationRequest,
+  parseDriverReportExceptionRequest,
   parseDriverWithdrawalsQuery,
   saveDriverAcceptanceSettingsSchema,
 } from './driver-orders.validation';
@@ -220,6 +223,23 @@ export class DriverOrdersController {
         getCurrentDriver(request),
         orderId,
         parseDriverReplyEvaluationRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('driver/orders/:orderId/exception')
+  async reportException(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Body(new ZodValidationPipe(driverReportExceptionSchema))
+    body: DriverReportExceptionRequest,
+  ) {
+    return ok(
+      await this.driverOrdersService.reportException(
+        getCurrentDriver(request),
+        orderId,
+        parseDriverReportExceptionRequest(body),
       ),
       getRequestId(request),
     );

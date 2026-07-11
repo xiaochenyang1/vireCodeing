@@ -8,6 +8,7 @@ import {
   parseDriverQuoteOrderRequest,
   parseDriverEvaluateShipperRequest,
   parseDriverReplyEvaluationRequest,
+  parseDriverReportExceptionRequest,
   parseDriverWithdrawalsQuery,
 } from './driver-orders.validation';
 
@@ -138,6 +139,45 @@ describe('driver orders validation', () => {
     expect(() =>
       parseDriverReplyEvaluationRequest({ content: 'x'.repeat(201) }),
     ).toThrow('评价回复最多 200 字');
+  });
+
+  it('parses driver exception requests', () => {
+    expect(
+      parseDriverReportExceptionRequest({
+        typeLabel: ' 货物损坏 ',
+        description: ' 装货时发现外包装已经破损。 ',
+        photoCount: 2,
+        photoFileIds: [' file-1 ', 'file-1', 'file-2'],
+      }),
+    ).toEqual({
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+      photoCount: 2,
+      photoFileIds: ['file-1', 'file-2'],
+    });
+
+    expect(() =>
+      parseDriverReportExceptionRequest({
+        typeLabel: '',
+        description: '装货时发现外包装已经破损。',
+      }),
+    ).toThrow('异常类型不能为空');
+    expect(() =>
+      parseDriverReportExceptionRequest({
+        typeLabel: '货物损坏',
+        description: '太短',
+      }),
+    ).toThrow('请至少填写 6 个字的异常说明');
+    expect(() =>
+      parseDriverReportExceptionRequest({
+        typeLabel: '货物损坏',
+        description: '装货时发现外包装已经破损。',
+        photoFileIds: Array.from(
+          { length: 7 },
+          (_, index) => `file-${index}`,
+        ),
+      }),
+    ).toThrow('异常图片最多 6 张');
   });
 
   it('parses driver shipper evaluation requests', () => {

@@ -18,6 +18,7 @@ import type {
   DriverOrderHallQuery,
   DriverQuoteOrderEventPayload,
   DriverReplyEvaluationRequest,
+  DriverReportExceptionRequest,
 } from '../driver-orders/dto';
 
 export interface OrdersRepository {
@@ -101,6 +102,11 @@ export interface OrdersRepository {
     orderId: string,
     driverId: string,
     input: DriverReplyEvaluationRequest,
+  ): Promise<ShipperOrderRecord>;
+  reportDriverOrderException(
+    orderId: string,
+    driverId: string,
+    input: DriverReportExceptionRequest,
   ): Promise<ShipperOrderRecord>;
   evaluateShipper(
     orderId: string,
@@ -485,6 +491,31 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       actorUserId: driverId,
       eventType: 'evaluation_replied',
       noteText: input.content,
+      createdAtIso: nowIso,
+    });
+
+    return order;
+  }
+
+  async reportDriverOrderException(
+    orderId: string,
+    driverId: string,
+    input: DriverReportExceptionRequest,
+  ) {
+    const order = this.orders.find(currentOrder => currentOrder.id === orderId);
+
+    if (!order) {
+      throw new Error(`Order not found: ${orderId}`);
+    }
+
+    const nowIso = this.now().toISOString();
+    order.updatedAtIso = nowIso;
+    order.events.push({
+      id: `event-${this.orders.length}-${order.events.length + 1}`,
+      actorUserId: driverId,
+      eventType: 'driver_exception_reported',
+      noteText: createOrderExceptionNote(input),
+      attachmentFileIds: input.photoFileIds,
       createdAtIso: nowIso,
     });
 
@@ -1208,6 +1239,31 @@ export class PrismaOrdersRepository implements OrdersRepository {
             actorUserId: driverId,
             eventType: 'evaluation_replied',
             noteText: input.content,
+          },
+        },
+      },
+      include: orderInclude,
+    });
+
+    return mapPrismaOrder(order);
+  }
+
+  async reportDriverOrderException(
+    orderId: string,
+    driverId: string,
+    input: DriverReportExceptionRequest,
+  ) {
+    const order = await this.prisma.order.update({
+      where: {
+        id: orderId,
+      },
+      data: {
+        events: {
+          create: {
+            actorUserId: driverId,
+            eventType: 'driver_exception_reported',
+            noteText: createOrderExceptionNote(input),
+            attachmentFileIds: input.photoFileIds ?? [],
           },
         },
       },

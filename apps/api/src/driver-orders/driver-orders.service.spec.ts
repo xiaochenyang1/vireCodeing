@@ -473,6 +473,151 @@ describe('DriverOrdersService', () => {
     );
   });
 
+  it('reports an exception without changing the driver order status', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(
+      filesRepository,
+      'driver-1',
+      'exception',
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+
+    await expect(
+      service.reportException(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          photoCount: 1,
+          photoFileIds: [proof.id],
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 'loading',
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: 'driver-1',
+          eventType: 'driver_exception_reported',
+          noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+          attachmentFileIds: [proof.id],
+        }),
+      ]),
+    });
+  });
+
+  it('rejects driver exceptions outside executing order states', async () => {
+    const { repository, service } = createService();
+    const order = await createCompletedDriverOrder(
+      repository,
+      'driver-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+
+    await expect(
+      service.reportException(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          typeLabel: '货物损坏',
+          description: '卸货后才发现外包装已经破损。',
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前司机订单状态不允许上报异常',
+      ),
+    );
+  });
+
+  it('rejects exception files owned by another user', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(
+      filesRepository,
+      'driver-2',
+      'exception',
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+
+    await expect(
+      service.reportException(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          photoFileIds: [proof.id],
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常图片不存在'),
+    );
+  });
+
+  it('rejects pending and wrong-purpose exception files', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await repository.createOrder(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const pendingFile = await filesRepository.createPendingFile('driver-1', {
+      purpose: 'exception',
+      fileName: 'exception.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+      objectKey: 'driver-1/exception/exception.png',
+    });
+    const wrongPurposeFile = await createUploadedFile(
+      filesRepository,
+      'driver-1',
+      'receipt',
+    );
+
+    await expect(
+      service.reportException(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          photoFileIds: [pendingFile.id],
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '异常图片尚未上传完成',
+      ),
+    );
+
+    await expect(
+      service.reportException(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          photoFileIds: [wrongPurposeFile.id],
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_PURPOSE_INVALID,
+        '异常图片用途不匹配',
+      ),
+    );
+  });
+
   it('lets a driver evaluate the shipper after a completed accepted order', async () => {
     const { repository, service } = createService();
     const order = await createCompletedDriverOrder(
@@ -993,7 +1138,7 @@ async function createCompletedDriverOrder(
 async function createUploadedFile(
   filesRepository: InMemoryFilesRepository,
   ownerUserId: string,
-  purpose: 'receipt' | 'cargo' = 'receipt',
+  purpose: 'receipt' | 'cargo' | 'exception' = 'receipt',
 ) {
   const pendingFile = await filesRepository.createPendingFile(ownerUserId, {
     purpose,

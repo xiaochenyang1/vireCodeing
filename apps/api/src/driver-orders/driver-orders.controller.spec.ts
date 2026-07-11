@@ -358,6 +358,56 @@ describe('DriverOrdersController', () => {
     );
   });
 
+  it('reports an exception for the authenticated driver', async () => {
+    const service = {
+      reportException: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        status: 'loading',
+      }),
+    } as unknown as DriverOrdersService;
+    const controller = new DriverOrdersController(service);
+
+    await expect(
+      controller.reportException(createRequest('driver-1'), 'order-1', {
+        typeLabel: ' 货物损坏 ',
+        description: ' 装货时发现外包装已经破损。 ',
+        photoFileIds: [' file-1 ', 'file-1'],
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { id: 'order-1', status: 'loading' },
+    });
+
+    expect(service.reportException).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
+      'order-1',
+      {
+        typeLabel: '货物损坏',
+        description: '装货时发现外包装已经破损。',
+        photoFileIds: ['file-1'],
+      },
+    );
+  });
+
+  it('rejects non-driver exception reports before service invocation', async () => {
+    const service = {
+      reportException: jest.fn(),
+    } as unknown as DriverOrdersService;
+    const controller = new DriverOrdersController(service);
+
+    await expect(
+      controller.reportException(
+        createRequest('shipper-1', 'shipper'),
+        'order-1',
+        {} as never,
+      ),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.AUTH_FORBIDDEN,
+      message: '当前账号不是司机',
+    });
+    expect(service.reportException).not.toHaveBeenCalled();
+  });
+
   it('replies to an evaluated order for the authenticated driver', async () => {
     const service = {
       replyToEvaluation: jest.fn().mockResolvedValue({

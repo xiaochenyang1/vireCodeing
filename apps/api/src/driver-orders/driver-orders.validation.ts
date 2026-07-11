@@ -8,6 +8,7 @@ import type {
   DriverOrderHallQuery,
   DriverQuoteOrderRequest,
   DriverReplyEvaluationRequest,
+  DriverReportExceptionRequest,
   DriverWithdrawalsQuery,
   SaveDriverAcceptanceSettingsRequest,
 } from './dto';
@@ -37,6 +38,22 @@ const optionalReceiptPhotoFileIdsSchema = z
       .max(120, '司机执行凭证文件 ID 无效'),
   )
   .max(6, '司机执行凭证最多 6 张')
+  .optional()
+  .transform(value =>
+    value === undefined
+      ? undefined
+      : Array.from(new Set(value.map(fileId => fileId.trim()))),
+  );
+
+const optionalExceptionPhotoFileIdsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, '异常图片文件 ID 无效')
+      .max(120, '异常图片文件 ID 无效'),
+  )
+  .max(6, '异常图片最多 6 张')
   .optional()
   .transform(value =>
     value === undefined
@@ -125,6 +142,21 @@ export const driverReplyEvaluationSchema = z.object({
     .trim()
     .min(1, '评价回复不能为空')
     .max(200, '评价回复最多 200 字'),
+});
+
+export const driverReportExceptionSchema = z.object({
+  typeLabel: z
+    .string()
+    .trim()
+    .min(1, '异常类型不能为空')
+    .max(30, '异常类型最多 30 字'),
+  description: z
+    .string()
+    .trim()
+    .min(6, '请至少填写 6 个字的异常说明')
+    .max(200, '异常说明最多 200 字'),
+  photoCount: z.number().int().min(0).max(6).optional(),
+  photoFileIds: optionalExceptionPhotoFileIdsSchema,
 });
 
 export const driverEvaluateShipperSchema = z.object({
@@ -216,6 +248,12 @@ export function parseDriverReplyEvaluationRequest(
   input: unknown,
 ): DriverReplyEvaluationRequest {
   return driverReplyEvaluationSchema.parse(input);
+}
+
+export function parseDriverReportExceptionRequest(
+  input: unknown,
+): DriverReportExceptionRequest {
+  return driverReportExceptionSchema.parse(input);
 }
 
 export function parseDriverEvaluateShipperRequest(

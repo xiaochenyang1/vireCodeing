@@ -50,6 +50,13 @@ export type DriverReplyEvaluationRequest = {
   content: string;
 };
 
+export type DriverReportExceptionRequest = {
+  typeLabel: string;
+  description: string;
+  photoCount?: number;
+  photoFileIds?: string[];
+};
+
 export type DriverEvaluateShipperRequest = {
   rating: number;
   tags: string[];

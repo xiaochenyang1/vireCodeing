@@ -21,6 +21,7 @@ import type {
   DriverQuoteOrderEventPayload,
   DriverQuoteOrderRequest,
   DriverReplyEvaluationRequest,
+  DriverReportExceptionRequest,
   DriverWithdrawalListResult,
   DriverWithdrawalsQuery,
   SaveDriverAcceptanceSettingsRequest,
@@ -283,6 +284,30 @@ export class DriverOrdersService {
     );
   }
 
+  async reportException(
+    currentUser: AuthenticatedUser,
+    orderId: string,
+    input: DriverReportExceptionRequest,
+  ): Promise<ShipperOrderRecord> {
+    this.assertDriver(currentUser);
+    const order = await this.getOrder(currentUser, orderId);
+
+    if (!isDriverExecutingOrderStatus(order.status)) {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前司机订单状态不允许上报异常',
+      );
+    }
+
+    await this.assertExceptionProofFiles(currentUser.id, input.photoFileIds);
+
+    return this.ordersRepository.reportDriverOrderException(
+      order.id,
+      currentUser.id,
+      input,
+    );
+  }
+
   async evaluateShipper(
     currentUser: AuthenticatedUser,
     orderId: string,
@@ -398,6 +423,44 @@ export class DriverOrdersService {
     }
   }
 
+  private async assertExceptionProofFiles(
+    driverId: string,
+    fileIds: string[] | undefined,
+  ) {
+    if (!fileIds?.length) {
+      return;
+    }
+
+    if (!this.filesRepository) {
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常图片不存在');
+    }
+
+    for (const fileId of fileIds) {
+      const file = await this.filesRepository.findFileByIdAndOwner(
+        fileId,
+        driverId,
+      );
+
+      if (!file) {
+        throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常图片不存在');
+      }
+
+      if (file.status !== 'uploaded') {
+        throw new BusinessError(
+          ApiErrorCode.FILE_STATE_INVALID,
+          '异常图片尚未上传完成',
+        );
+      }
+
+      if (file.purpose !== 'exception') {
+        throw new BusinessError(
+          ApiErrorCode.FILE_PURPOSE_INVALID,
+          '异常图片用途不匹配',
+        );
+      }
+    }
+  }
+
   private async createDriverOrderEventSnapshot(
     currentUser: AuthenticatedUser,
     certification: Awaited<
@@ -487,6 +550,14 @@ function canDriverAdvanceOrderStatus(
 
 function hasSubmittedEvaluation(order: ShipperOrderRecord) {
   return order.events.some(event => event.eventType === 'evaluation_submitted');
+}
+
+function isDriverExecutingOrderStatus(status: ShipperOrderRecord['status']) {
+  return (
+    status === 'loading' ||
+    status === 'transporting' ||
+    status === 'confirming'
+  );
 }
 
 const DRIVER_NET_INCOME_PERCENTAGE = 95;
