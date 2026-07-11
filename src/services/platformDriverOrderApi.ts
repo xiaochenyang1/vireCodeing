@@ -60,6 +60,13 @@ export type PlatformDriverReplyEvaluationRequest = {
   content: string;
 };
 
+export type PlatformDriverReportExceptionRequest = {
+  typeLabel: string;
+  description: string;
+  photoCount?: number;
+  photoFileIds?: string[];
+};
+
 export type PlatformDriverEvaluateShipperRequest = {
   rating: number;
   tags: string[];
@@ -265,6 +272,22 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       >(
         config,
         `/driver/orders/${normalizedOrderId}/evaluation-reply`,
+        normalizedRequest,
+      );
+    },
+    async reportException(
+      orderId: string,
+      request: PlatformDriverReportExceptionRequest,
+    ) {
+      const normalizedOrderId = normalizeDriverOrderId(orderId);
+      const normalizedRequest = normalizeDriverReportExceptionRequest(request);
+
+      return platformPost<
+        PlatformDriverReportExceptionRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/driver/orders/${normalizedOrderId}/exception`,
         normalizedRequest,
       );
     },
@@ -522,6 +545,62 @@ function normalizeDriverReplyEvaluationRequest(
   return { content };
 }
 
+function normalizeDriverReportExceptionRequest(
+  request: PlatformDriverReportExceptionRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throwInvalidExceptionRequest(
+      'Platform driver exception request must be an object',
+    );
+  }
+
+  const typeLabel = normalizeRequiredDriverString(
+    request.typeLabel,
+    'typeLabel',
+    'PLATFORM_DRIVER_ORDER_EXCEPTION_INVALID',
+    30,
+  );
+  const description = normalizeRequiredDriverString(
+    request.description,
+    'description',
+    'PLATFORM_DRIVER_ORDER_EXCEPTION_INVALID',
+    200,
+  );
+
+  if (description.length < 6) {
+    throwInvalidExceptionRequest(
+      'Platform driver exception description is too short',
+    );
+  }
+
+  if (
+    request.photoCount !== undefined &&
+    (typeof request.photoCount !== 'number' ||
+      !Number.isInteger(request.photoCount) ||
+      request.photoCount < 0 ||
+      request.photoCount > 6)
+  ) {
+    throwInvalidExceptionRequest('Platform driver exception photoCount is invalid');
+  }
+
+  const photoFileIds = normalizeOptionalExceptionPhotoFileIds(
+    request.photoFileIds,
+  );
+
+  return {
+    typeLabel,
+    description,
+    ...(request.photoCount === undefined ? {} : { photoCount: request.photoCount }),
+    ...(photoFileIds === undefined ? {} : { photoFileIds }),
+  };
+}
+
 function normalizeDriverEvaluateShipperRequest(
   request: PlatformDriverEvaluateShipperRequest,
 ) {
@@ -757,6 +836,40 @@ function normalizeOptionalDriverFileIds(
   );
 }
 
+function normalizeOptionalExceptionPhotoFileIds(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.length > 6) {
+    throwInvalidExceptionRequest(
+      'Platform driver exception photoFileIds are invalid',
+    );
+  }
+
+  return Array.from(
+    new Set(
+      value.map(fileId => {
+        if (typeof fileId !== 'string') {
+          throwInvalidExceptionRequest(
+            'Platform driver exception photoFileIds must be strings',
+          );
+        }
+
+        const normalizedFileId = fileId.trim();
+
+        if (!normalizedFileId || normalizedFileId.length > 120) {
+          throwInvalidExceptionRequest(
+            'Platform driver exception photoFileIds are invalid',
+          );
+        }
+
+        return normalizedFileId;
+      }),
+    ),
+  );
+}
+
 function assertValidDriverExecutingStatuses(value: unknown) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new PlatformApiError(
@@ -875,6 +988,14 @@ function throwInvalidEvaluationReplyRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
+    0,
+  );
+}
+
+function throwInvalidExceptionRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_DRIVER_ORDER_EXCEPTION_INVALID',
     0,
   );
 }

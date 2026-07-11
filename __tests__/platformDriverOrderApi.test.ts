@@ -364,6 +364,82 @@ describe('platform driver order api', () => {
     );
   });
 
+  it('reports a driver order exception with normalized proof ids', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        id: 'order-1',
+        status: 'transporting',
+        events: [{ id: 'event-1', eventType: 'driver_exception_reported' }],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api/',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.reportException(' order-1 ', {
+      typeLabel: ' 货物损坏 ',
+      description: ' 装货时发现外包装已经破损。 ',
+      photoCount: 2,
+      photoFileIds: [' file-1 ', 'file-1', 'file-2'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/driver/orders/order-1/exception',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          photoCount: 2,
+          photoFileIds: ['file-1', 'file-2'],
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [null, 'non-object request'],
+    [
+      { typeLabel: '', description: '装货时发现外包装已经破损。' },
+      'blank type',
+    ],
+    [
+      { typeLabel: '货物损坏', description: '太短' },
+      'short description',
+    ],
+    [
+      {
+        typeLabel: '货物损坏',
+        description: '装货时发现外包装已经破损。',
+        photoFileIds: Array.from(
+          { length: 7 },
+          (_, index) => `file-${index}`,
+        ),
+      },
+      'too many files',
+    ],
+  ])(
+    'rejects invalid driver exception requests before fetch: %s (%s)',
+    async request => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.reportException('order-1', request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_ORDER_EXCEPTION_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('replies to a driver evaluation with normalized content', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
       createJsonResponse({ id: 'order-1', status: 'completed' }),
