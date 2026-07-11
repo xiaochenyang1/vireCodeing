@@ -6,6 +6,7 @@ import type {
   PlatformDriverEvaluateShipperRequest,
   PlatformDriverExecutingOrderStatus,
   PlatformDriverQuoteOrderRequest,
+  PlatformDriverReportExceptionRequest,
   PlatformSaveDriverAcceptanceSettingsRequest,
   PlatformDriverWithdrawalRecord,
 } from '../../services/platformDriverOrderApi';
@@ -65,6 +66,12 @@ export type DriverShipperEvaluationFormState = {
   anonymous: boolean;
 };
 
+export type DriverExceptionFormState = {
+  typeLabel: string;
+  description: string;
+  photoFileIds: string[];
+};
+
 export type DriverExecutionProofState = Record<
   string,
   {
@@ -115,6 +122,20 @@ export const emptyShipperEvaluationForm: DriverShipperEvaluationFormState = {
   content: '',
   anonymous: false,
 };
+
+export const emptyExceptionForm: DriverExceptionFormState = {
+  typeLabel: '',
+  description: '',
+  photoFileIds: [],
+};
+
+export const driverExceptionTypeOptions = [
+  { id: 'vehicle-failure', label: '车辆故障' },
+  { id: 'traffic-accident', label: '交通事故' },
+  { id: 'cargo-damage', label: '货物损坏' },
+  { id: 'address-contact', label: '地址或联系人异常' },
+  { id: 'other', label: '其他' },
+] as const;
 
 export type DriverCertificationFileFieldName =
   | 'identityFrontFileId'
@@ -284,6 +305,51 @@ export function createShipperEvaluationRequest(
     content,
     ...(form.anonymous ? { anonymous: true } : {}),
   };
+}
+
+export function createDriverExceptionRequest(
+  form: DriverExceptionFormState,
+): PlatformDriverReportExceptionRequest | undefined {
+  const typeLabel = form.typeLabel.trim();
+  const description = form.description.trim();
+  const photoFileIds = Array.from(
+    new Set(form.photoFileIds.map(fileId => fileId.trim()).filter(Boolean)),
+  );
+
+  if (
+    !typeLabel ||
+    typeLabel.length > 30 ||
+    description.length < 6 ||
+    description.length > 200 ||
+    photoFileIds.length > 6
+  ) {
+    return undefined;
+  }
+
+  return {
+    typeLabel,
+    description,
+    photoCount: photoFileIds.length,
+    ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
+  };
+}
+
+export function canDriverReportException(
+  status: PlatformShipperOrder['status'],
+) {
+  return (
+    status === 'loading' ||
+    status === 'transporting' ||
+    status === 'confirming'
+  );
+}
+
+export function getLatestDriverException(order: PlatformShipperOrder) {
+  return (order.events ?? [])
+    .filter(event => event.eventType === 'driver_exception_reported')
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
 }
 
 export function upsertOrder(

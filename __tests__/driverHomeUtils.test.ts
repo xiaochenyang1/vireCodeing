@@ -1,10 +1,13 @@
 import {
+  canDriverReportException,
   createAcceptanceSettingsRequest,
   createDriverAdvanceSuccessNotice,
+  createDriverExceptionRequest,
   createDriverOrderHallNotice,
   createDriverWithdrawalRequest,
   createQuoteRequest,
   createShipperEvaluationRequest,
+  driverExceptionTypeOptions,
   filterDriverOrderHallOrders,
   formatDriverCurrency,
   formatDriverIncomeTime,
@@ -17,6 +20,7 @@ import {
   getDriverStatusText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
+  getLatestDriverException,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
   omitDriverEvaluationReplyQueueItem,
@@ -144,6 +148,82 @@ test('parses shipper evaluation tags and enforces content bounds', () => {
       anonymous: false,
     }),
   ).toBeUndefined();
+});
+
+test('builds a normalized driver exception request with proof ids', () => {
+  expect(
+    createDriverExceptionRequest({
+      typeLabel: ' 货物损坏 ',
+      description: ' 装货时发现外包装已经破损。 ',
+      photoFileIds: [' file-1 ', 'file-1', 'file-2'],
+    }),
+  ).toEqual({
+    typeLabel: '货物损坏',
+    description: '装货时发现外包装已经破损。',
+    photoCount: 2,
+    photoFileIds: ['file-1', 'file-2'],
+  });
+
+  expect(
+    createDriverExceptionRequest({
+      typeLabel: '',
+      description: '装货时发现外包装已经破损。',
+      photoFileIds: [],
+    }),
+  ).toBeUndefined();
+  expect(
+    createDriverExceptionRequest({
+      typeLabel: '货物损坏',
+      description: '太短',
+      photoFileIds: [],
+    }),
+  ).toBeUndefined();
+  expect(
+    createDriverExceptionRequest({
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+      photoFileIds: Array.from({ length: 7 }, (_, index) => `file-${index}`),
+    }),
+  ).toBeUndefined();
+});
+
+test('exposes stable exception types and execution-state visibility', () => {
+  expect(driverExceptionTypeOptions.map(option => option.id)).toEqual([
+    'vehicle-failure',
+    'traffic-accident',
+    'cargo-damage',
+    'address-contact',
+    'other',
+  ]);
+  expect(canDriverReportException('loading')).toBe(true);
+  expect(canDriverReportException('transporting')).toBe(true);
+  expect(canDriverReportException('confirming')).toBe(true);
+  expect(canDriverReportException('completed')).toBe(false);
+});
+
+test('selects the latest driver exception event', () => {
+  const result = getLatestDriverException(
+    order({
+      events: [
+        {
+          id: 'e1',
+          eventType: 'driver_exception_reported',
+          noteText: '车辆故障：发动机异常',
+          createdAtIso: '2026-07-11T01:00:00.000Z',
+        },
+        {
+          id: 'e2',
+          eventType: 'driver_exception_reported',
+          noteText: '货物损坏：外包装破损；图片凭证 2 张',
+          attachmentFileIds: ['file-1', 'file-2'],
+          createdAtIso: '2026-07-11T02:00:00.000Z',
+        },
+      ],
+    }),
+  );
+
+  expect(result?.id).toBe('e2');
+  expect(result?.attachmentFileIds).toEqual(['file-1', 'file-2']);
 });
 
 test('upserts driver orders by id (prepend new, replace existing)', () => {
