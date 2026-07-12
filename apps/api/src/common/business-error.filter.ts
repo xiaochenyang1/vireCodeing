@@ -32,6 +32,7 @@ const UPSTREAM_ERROR_CODES = new Set<string>([
 ]);
 const NOT_FOUND_ERROR_CODES = new Set<string>([
   ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+  ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
   ApiErrorCode.FILE_NOT_FOUND,
 ]);
 const FORBIDDEN_ERROR_CODES = new Set<string>([
@@ -42,6 +43,8 @@ const FORBIDDEN_ERROR_CODES = new Set<string>([
 ]);
 const CONFLICT_ERROR_CODES = new Set<string>([
   ApiErrorCode.FILE_STATE_INVALID,
+  ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+  ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
   ApiErrorCode.ORDER_DRAFT_CONFLICT,
   ApiErrorCode.ORDER_STATE_INVALID,
   ApiErrorCode.PROFILE_ADDRESS_BOOK_CONFLICT,

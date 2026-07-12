@@ -337,4 +337,31 @@ describe('BusinessErrorFilter', () => {
       timestamp: '2026-06-26T06:00:00.000Z',
     });
   });
+
+  it('maps missing exception cases to not found', () => {
+    const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
+    const { host, status } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
+        '异常工单不存在',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(404);
+  });
+
+  it.each([
+    ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+    ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+  ])('maps %s to conflict', code => {
+    const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
+    const { host, status } = createHost();
+
+    filter.catch(new BusinessError(code, '异常工单状态冲突'), host);
+
+    expect(status).toHaveBeenCalledWith(409);
+  });
 });
