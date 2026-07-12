@@ -20,6 +20,12 @@ import type {
   DriverReplyEvaluationRequest,
   DriverReportExceptionRequest,
 } from '../driver-orders/dto';
+import type {
+  OrderExceptionCaseListQuery,
+  OrderExceptionCaseRecord,
+  OrderExceptionCaseStatus,
+  UpdateOrderExceptionCaseRequest,
+} from '../order-exception-cases/dto';
 
 export interface OrdersRepository {
   createOrder(
@@ -34,6 +40,24 @@ export interface OrdersRepository {
     query: AdminOrderAttachmentAuditListQuery,
   ): Promise<ShipperOrderRecord[]>;
   findOrderById(orderId: string): Promise<ShipperOrderRecord | undefined>;
+  listOrderExceptionCases(
+    orderId: string,
+  ): Promise<{ items: OrderExceptionCaseRecord[]; total: number }>;
+  listAdminOrderExceptionCases(
+    query: OrderExceptionCaseListQuery,
+  ): Promise<{ items: OrderExceptionCaseRecord[]; total: number }>;
+  findOrderExceptionCaseById(
+    caseId: string,
+  ): Promise<OrderExceptionCaseRecord | undefined>;
+  transitionOrderExceptionCase(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    nextStatus: OrderExceptionCaseStatus,
+    input: UpdateOrderExceptionCaseRequest,
+  ): Promise<
+    OrderExceptionCaseRecord | 'conflict' | 'state-invalid' | undefined
+  >;
   updateOrder(
     orderId: string,
     actorUserId: string,
@@ -117,6 +141,7 @@ export interface OrdersRepository {
 
 export class InMemoryOrdersRepository implements OrdersRepository {
   private readonly orders: ShipperOrderRecord[] = [];
+  private readonly exceptionCases: OrderExceptionCaseRecord[] = [];
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
@@ -181,6 +206,87 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   async findOrderById(orderId: string) {
     return this.orders.find(order => order.id === orderId);
+  }
+
+  async listOrderExceptionCases(orderId: string) {
+    const items = this.exceptionCases
+      .filter(exceptionCase => exceptionCase.orderId === orderId)
+      .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso));
+
+    return { items, total: items.length };
+  }
+
+  async listAdminOrderExceptionCases(query: OrderExceptionCaseListQuery) {
+    const matched = this.exceptionCases.filter(exceptionCase => {
+      const searchable = `${exceptionCase.caseNo} ${exceptionCase.orderNo}`.toLocaleLowerCase();
+      const keyword = query.keyword?.toLocaleLowerCase();
+
+      return (
+        (!query.status || exceptionCase.status === query.status) &&
+        (!query.sourceRole || exceptionCase.sourceRole === query.sourceRole) &&
+        (!keyword || searchable.includes(keyword)) &&
+        (!query.createdFromIso || exceptionCase.createdAtIso >= query.createdFromIso) &&
+        (!query.createdToIso || exceptionCase.createdAtIso < query.createdToIso)
+      );
+    });
+    const start = (query.page - 1) * query.pageSize;
+
+    return {
+      items: matched.slice(start, start + query.pageSize),
+      total: matched.length,
+    };
+  }
+
+  async findOrderExceptionCaseById(caseId: string) {
+    return this.exceptionCases.find(exceptionCase => exceptionCase.id === caseId);
+  }
+
+  async transitionOrderExceptionCase(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    nextStatus: OrderExceptionCaseStatus,
+    input: UpdateOrderExceptionCaseRequest,
+  ) {
+    const exceptionCase = this.exceptionCases.find(item => item.id === caseId);
+
+    if (!exceptionCase) {
+      return undefined;
+    }
+
+    if (exceptionCase.status !== expectedStatus) {
+      return 'state-invalid' as const;
+    }
+
+    if (exceptionCase.updatedAtIso !== input.baseUpdatedAtIso) {
+      return 'conflict' as const;
+    }
+
+    const updatedAtIso = createNextUpdatedAtIso(
+      exceptionCase.updatedAtIso,
+      this.now(),
+    );
+    exceptionCase.actions.push({
+      id: `exception-action-${exceptionCase.actions.length + 1}`,
+      adminUserId,
+      fromStatus: expectedStatus,
+      toStatus: nextStatus,
+      content: input.content,
+      createdAtIso: updatedAtIso,
+    });
+    exceptionCase.status = nextStatus;
+    exceptionCase.updatedAtIso = updatedAtIso;
+
+    if (nextStatus === 'resolved') {
+      exceptionCase.resolutionText = input.content;
+      exceptionCase.resolvedAtIso = updatedAtIso;
+    }
+
+    if (nextStatus === 'closed') {
+      exceptionCase.closedAtIso = updatedAtIso;
+    }
+
+    return exceptionCase;
   }
 
   async updateOrder(
@@ -280,7 +386,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   async reportOrderException(
     orderId: string,
-    _actorUserId: string,
+    actorUserId: string,
     input: ReportShipperOrderExceptionRequest,
   ) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
@@ -290,14 +396,28 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     }
 
     const nowIso = this.now().toISOString();
-    order.updatedAtIso = nowIso;
-    order.events.push({
+    const event: ShipperOrderEventRecord = {
       id: `event-${this.orders.length}-${order.events.length + 1}`,
+      actorUserId,
       eventType: 'exception_reported',
       noteText: createOrderExceptionNote(input),
       attachmentFileIds: input.photoFileIds,
       createdAtIso: nowIso,
+    };
+    const exceptionCase = createInMemoryExceptionCase({
+      sequence: this.exceptionCases.length + 1,
+      order,
+      event,
+      reporterUserId: actorUserId,
+      sourceRole: 'shipper',
+      input,
+      nowIso,
     });
+
+    order.updatedAtIso = nowIso;
+    order.events.push(event);
+    this.exceptionCases.push(exceptionCase);
+    order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
 
     return order;
   }
@@ -509,15 +629,28 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     }
 
     const nowIso = this.now().toISOString();
-    order.updatedAtIso = nowIso;
-    order.events.push({
+    const event: ShipperOrderEventRecord = {
       id: `event-${this.orders.length}-${order.events.length + 1}`,
       actorUserId: driverId,
       eventType: 'driver_exception_reported',
       noteText: createOrderExceptionNote(input),
       attachmentFileIds: input.photoFileIds,
       createdAtIso: nowIso,
+    };
+    const exceptionCase = createInMemoryExceptionCase({
+      sequence: this.exceptionCases.length + 1,
+      order,
+      event,
+      reporterUserId: driverId,
+      sourceRole: 'driver',
+      input,
+      nowIso,
     });
+
+    order.updatedAtIso = nowIso;
+    order.events.push(event);
+    this.exceptionCases.push(exceptionCase);
+    order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
 
     return order;
   }
@@ -597,6 +730,9 @@ export type PrismaOrderRecord = {
 };
 
 export type PrismaOrdersClient = {
+  $transaction?<T>(
+    callback: (transaction: PrismaOrdersTransactionClient) => Promise<T>,
+  ): Promise<T>;
   order: {
     count(args: {
       where: PrismaOrderWhere;
@@ -622,6 +758,68 @@ export type PrismaOrdersClient = {
       include: typeof orderInclude;
     }): Promise<PrismaOrderRecord>;
   };
+  orderExceptionCase?: {
+    findMany(args: unknown): Promise<PrismaOrderExceptionCaseRecord[]>;
+    findUnique(args: unknown): Promise<PrismaOrderExceptionCaseRecord | null>;
+    update(args: unknown): Promise<PrismaOrderExceptionCaseRecord>;
+    count(args: unknown): Promise<number>;
+    create(args: unknown): Promise<{ id: string; caseNo: string }>;
+  };
+  orderExceptionCaseAction?: {
+    create(args: unknown): Promise<unknown>;
+  };
+};
+
+type PrismaOrdersTransactionClient = {
+  order: {
+    update(args: unknown): Promise<PrismaOrderRecord>;
+    findUnique(args: unknown): Promise<PrismaOrderRecord | null>;
+  };
+  orderEvent: {
+    create(args: unknown): Promise<{
+      id: string;
+      actorUserId: string;
+      eventType: string;
+      noteText: string | null;
+      attachmentFileIds: unknown;
+      createdAt: Date;
+    }>;
+  };
+  orderExceptionCase: {
+    count(args: unknown): Promise<number>;
+    create(args: unknown): Promise<{ id: string; caseNo: string }>;
+    update(args: unknown): Promise<PrismaOrderExceptionCaseRecord>;
+  };
+  orderExceptionCaseAction: {
+    create(args: unknown): Promise<unknown>;
+  };
+};
+
+type PrismaOrderExceptionCaseRecord = {
+  id: string;
+  caseNo: string;
+  orderId: string;
+  sourceEventId: string;
+  reporterUserId: string;
+  sourceRole: 'shipper' | 'driver';
+  typeLabel: string;
+  description: string;
+  attachmentFileIds: unknown;
+  status: 'pending' | 'processing' | 'resolved' | 'closed';
+  resolutionText: string | null;
+  resolvedAt: Date | null;
+  closedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  order: { orderNo: string };
+  actions: Array<{
+    id: string;
+    adminUserId: string;
+    fromStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+    toStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+    content: string;
+    createdAt: Date;
+  }>;
 };
 
 type PrismaOrderWhere = {
@@ -764,6 +962,137 @@ export class PrismaOrdersRepository implements OrdersRepository {
     });
 
     return order ? mapPrismaOrder(order) : undefined;
+  }
+
+  async listOrderExceptionCases(orderId: string) {
+    if (!this.prisma.orderExceptionCase) {
+      return { items: [], total: 0 };
+    }
+
+    const records = await this.prisma.orderExceptionCase.findMany({
+      where: { orderId },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const items = records.map(mapPrismaExceptionCase);
+
+    return { items, total: items.length };
+  }
+
+  async listAdminOrderExceptionCases(query: OrderExceptionCaseListQuery) {
+    if (!this.prisma.orderExceptionCase) {
+      return { items: [], total: 0 };
+    }
+
+    const records = await this.prisma.orderExceptionCase.findMany({
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const keyword = query.keyword?.toLocaleLowerCase();
+    const matched = records.filter(record => {
+      const searchable = `${record.caseNo} ${record.order.orderNo}`.toLocaleLowerCase();
+
+      return (
+        (!query.status || record.status === query.status) &&
+        (!query.sourceRole || record.sourceRole === query.sourceRole) &&
+        (!keyword || searchable.includes(keyword)) &&
+        (!query.createdFromIso || record.createdAt >= new Date(query.createdFromIso)) &&
+        (!query.createdToIso || record.createdAt < new Date(query.createdToIso))
+      );
+    });
+    const start = (query.page - 1) * query.pageSize;
+
+    return {
+      items: matched
+        .slice(start, start + query.pageSize)
+        .map(mapPrismaExceptionCase),
+      total: matched.length,
+    };
+  }
+
+  async findOrderExceptionCaseById(caseId: string) {
+    if (!this.prisma.orderExceptionCase) {
+      return undefined;
+    }
+
+    const record = await this.prisma.orderExceptionCase.findUnique({
+      where: { id: caseId },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    return record ? mapPrismaExceptionCase(record) : undefined;
+  }
+
+  async transitionOrderExceptionCase(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    nextStatus: OrderExceptionCaseStatus,
+    input: UpdateOrderExceptionCaseRequest,
+  ) {
+    if (!this.prisma.orderExceptionCase || !this.prisma.$transaction) {
+      return undefined;
+    }
+
+    const current = await this.prisma.orderExceptionCase.findUnique({
+      where: { id: caseId },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    if (!current) {
+      return undefined;
+    }
+
+    if (current.status !== expectedStatus) {
+      return 'state-invalid' as const;
+    }
+
+    if (current.updatedAt.toISOString() !== input.baseUpdatedAtIso) {
+      return 'conflict' as const;
+    }
+
+    const now = this.now();
+    const updated = await this.prisma.$transaction(async transaction => {
+      await transaction.orderExceptionCaseAction.create({
+        data: {
+          caseId,
+          adminUserId,
+          fromStatus: expectedStatus,
+          toStatus: nextStatus,
+          content: input.content,
+          createdAt: now,
+        },
+      });
+
+      return transaction.orderExceptionCase.update({
+        where: { id: caseId },
+        data: {
+          status: nextStatus,
+          ...(nextStatus === 'resolved'
+            ? { resolutionText: input.content, resolvedAt: now }
+            : {}),
+          ...(nextStatus === 'closed' ? { closedAt: now } : {}),
+        },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+    });
+
+    return mapPrismaExceptionCase(updated);
   }
 
   async listAdminOrdersForAttachmentAudit(
@@ -959,24 +1288,13 @@ export class PrismaOrdersRepository implements OrdersRepository {
     actorUserId: string,
     input: ReportShipperOrderExceptionRequest,
   ) {
-    const order = await this.prisma.order.update({
-      where: {
-        id: orderId,
-      },
-      data: {
-        events: {
-          create: {
-            actorUserId,
-            eventType: 'exception_reported',
-            noteText: createOrderExceptionNote(input),
-            attachmentFileIds: input.photoFileIds ?? [],
-          },
-        },
-      },
-      include: orderInclude,
-    });
-
-    return mapPrismaOrder(order);
+    return this.createPrismaExceptionCase(
+      orderId,
+      actorUserId,
+      'shipper',
+      'exception_reported',
+      input,
+    );
   }
 
   async submitOrderChangeRequest(
@@ -1253,24 +1571,13 @@ export class PrismaOrdersRepository implements OrdersRepository {
     driverId: string,
     input: DriverReportExceptionRequest,
   ) {
-    const order = await this.prisma.order.update({
-      where: {
-        id: orderId,
-      },
-      data: {
-        events: {
-          create: {
-            actorUserId: driverId,
-            eventType: 'driver_exception_reported',
-            noteText: createOrderExceptionNote(input),
-            attachmentFileIds: input.photoFileIds ?? [],
-          },
-        },
-      },
-      include: orderInclude,
-    });
-
-    return mapPrismaOrder(order);
+    return this.createPrismaExceptionCase(
+      orderId,
+      driverId,
+      'driver',
+      'driver_exception_reported',
+      input,
+    );
   }
 
   async evaluateShipper(
@@ -1295,6 +1602,88 @@ export class PrismaOrdersRepository implements OrdersRepository {
     });
 
     return mapPrismaOrder(order);
+  }
+
+  private async createPrismaExceptionCase(
+    orderId: string,
+    reporterUserId: string,
+    sourceRole: 'shipper' | 'driver',
+    eventType: 'exception_reported' | 'driver_exception_reported',
+    input: ReportShipperOrderExceptionRequest,
+  ) {
+    if (!this.prisma.$transaction) {
+      throw new Error('Prisma transaction client is required for exception cases');
+    }
+
+    const now = this.now();
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const result = await this.prisma.$transaction(async transaction => {
+      const sequence =
+        (await transaction.orderExceptionCase.count({
+          where: {
+            createdAt: {
+              gte: dayStart,
+              lt: dayEnd,
+            },
+          },
+        })) + 1;
+      const event = await transaction.orderEvent.create({
+        data: {
+          orderId,
+          actorUserId: reporterUserId,
+          eventType,
+          noteText: createOrderExceptionNote(input),
+          attachmentFileIds: input.photoFileIds ?? [],
+          createdAt: now,
+        },
+      });
+      const createdCase = await transaction.orderExceptionCase.create({
+        data: {
+          caseNo: `YC${formatOrderDate(now)}${String(sequence).padStart(4, '0')}`,
+          orderId,
+          sourceEventId: event.id,
+          reporterUserId,
+          sourceRole,
+          typeLabel: input.typeLabel,
+          description: input.description,
+          attachmentFileIds: input.photoFileIds ?? [],
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      await transaction.order.update({
+        where: { id: orderId },
+        data: { updatedAt: now },
+        include: orderInclude,
+      });
+      const order = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+
+      if (!order) {
+        throw new Error(`Order not found after exception report: ${orderId}`);
+      }
+
+      return { order, event, createdCase };
+    });
+    const order = mapPrismaOrder(result.order);
+    order.latestExceptionCase = {
+      id: result.createdCase.id,
+      caseNo: result.createdCase.caseNo,
+      sourceEventId: result.event.id,
+      sourceRole,
+      status: 'pending',
+      createdAtIso: result.event.createdAt.toISOString(),
+      updatedAtIso: now.toISOString(),
+    };
+
+    return order;
   }
 
   private async createOrderNo(shipperId: string, now: Date) {
@@ -1554,6 +1943,37 @@ function mapPrismaOrderEvent(
   };
 }
 
+function mapPrismaExceptionCase(
+  record: PrismaOrderExceptionCaseRecord,
+): OrderExceptionCaseRecord {
+  return {
+    id: record.id,
+    caseNo: record.caseNo,
+    orderId: record.orderId,
+    orderNo: record.order.orderNo,
+    sourceEventId: record.sourceEventId,
+    reporterUserId: record.reporterUserId,
+    sourceRole: record.sourceRole,
+    typeLabel: record.typeLabel,
+    description: record.description,
+    attachmentFileIds: parseAttachmentFileIds(record.attachmentFileIds) ?? [],
+    status: record.status,
+    resolutionText: record.resolutionText ?? undefined,
+    resolvedAtIso: record.resolvedAt?.toISOString(),
+    closedAtIso: record.closedAt?.toISOString(),
+    createdAtIso: record.createdAt.toISOString(),
+    updatedAtIso: record.updatedAt.toISOString(),
+    actions: record.actions.map(action => ({
+      id: action.id,
+      adminUserId: action.adminUserId,
+      fromStatus: action.fromStatus,
+      toStatus: action.toStatus,
+      content: action.content,
+      createdAtIso: action.createdAt.toISOString(),
+    })),
+  };
+}
+
 function parseAttachmentFileIds(value: unknown) {
   return Array.isArray(value) && value.every(item => typeof item === 'string')
     ? value
@@ -1639,6 +2059,59 @@ function getOrderEventPhotoCount(input: {
   photoFileIds?: string[];
 }) {
   return input.photoFileIds?.length ?? input.photoCount ?? 0;
+}
+
+function createInMemoryExceptionCase({
+  sequence,
+  order,
+  event,
+  reporterUserId,
+  sourceRole,
+  input,
+  nowIso,
+}: {
+  sequence: number;
+  order: ShipperOrderRecord;
+  event: ShipperOrderEventRecord;
+  reporterUserId: string;
+  sourceRole: 'shipper' | 'driver';
+  input: ReportShipperOrderExceptionRequest;
+  nowIso: string;
+}): OrderExceptionCaseRecord {
+  return {
+    id: `exception-case-${sequence}`,
+    caseNo: `YC${formatOrderDate(new Date(nowIso))}${String(sequence).padStart(4, '0')}`,
+    orderId: order.id,
+    orderNo: order.orderNo,
+    sourceEventId: event.id,
+    reporterUserId,
+    sourceRole,
+    typeLabel: input.typeLabel,
+    description: input.description,
+    attachmentFileIds: input.photoFileIds ?? [],
+    status: 'pending',
+    createdAtIso: nowIso,
+    updatedAtIso: nowIso,
+    actions: [],
+  };
+}
+
+function createExceptionCaseSummary(exceptionCase: OrderExceptionCaseRecord) {
+  return {
+    id: exceptionCase.id,
+    caseNo: exceptionCase.caseNo,
+    sourceEventId: exceptionCase.sourceEventId,
+    sourceRole: exceptionCase.sourceRole,
+    status: exceptionCase.status,
+    createdAtIso: exceptionCase.createdAtIso,
+    updatedAtIso: exceptionCase.updatedAtIso,
+  };
+}
+
+function createNextUpdatedAtIso(previousIso: string, now: Date) {
+  const nextTimestamp = Math.max(now.getTime(), Date.parse(previousIso) + 1);
+
+  return new Date(nextTimestamp).toISOString();
 }
 
 function formatOrderDate(date: Date) {

@@ -1,4 +1,5 @@
 import type { FileUploadRecord } from '../files/dto';
+import type { OrderExceptionCaseRecord } from '../order-exception-cases/dto';
 
 export type ShipperOrderStatus =
   | 'waiting'
@@ -99,6 +100,16 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
   createdAtIso: string;
   updatedAtIso: string;
   events: ShipperOrderEventRecord[];
+  latestExceptionCase?: Pick<
+    OrderExceptionCaseRecord,
+    | 'id'
+    | 'caseNo'
+    | 'sourceEventId'
+    | 'sourceRole'
+    | 'status'
+    | 'createdAtIso'
+    | 'updatedAtIso'
+  >;
 };
 
 export type ListShipperOrdersResult = {

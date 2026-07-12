@@ -969,6 +969,19 @@ describe('OrdersService', () => {
         }),
       ],
     });
+    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          orderId: order.id,
+          orderNo: order.orderNo,
+          sourceRole: 'shipper',
+          typeLabel: '司机延误',
+          description: '司机反馈高速拥堵，预计晚到 40 分钟',
+          status: 'pending',
+        }),
+      ],
+    });
   });
 
   it('binds uploaded exception files to the exception event', async () => {
@@ -1153,6 +1166,170 @@ describe('OrdersService', () => {
 });
 
 describe('PrismaOrdersRepository', () => {
+  it('updates an exception case and action history in one transaction', async () => {
+    const currentCase = createPrismaExceptionCaseRecord();
+    const updatedCase = createPrismaExceptionCaseRecord({
+      status: 'processing',
+      updatedAt: new Date('2026-07-12T08:00:01.000Z'),
+      actions: [
+        {
+          id: 'action-1',
+          adminUserId: 'admin-1',
+          fromStatus: 'pending',
+          toStatus: 'processing',
+          content: '客服已经联系司机核实异常情况。',
+          createdAt: new Date('2026-07-12T08:00:01.000Z'),
+        },
+      ],
+    });
+    const transaction = {
+      orderExceptionCase: {
+        update: jest.fn().mockResolvedValue(updatedCase),
+      },
+      orderExceptionCaseAction: {
+        create: jest.fn().mockResolvedValue({ id: 'action-1' }),
+      },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(currentCase),
+      },
+      orderExceptionCaseAction: {
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(async callback => callback(transaction)),
+    } as unknown as PrismaOrdersClient;
+    const repository = new PrismaOrdersRepository(
+      prisma,
+      () => new Date('2026-07-12T08:00:01.000Z'),
+    );
+
+    await expect(
+      repository.transitionOrderExceptionCase(
+        'case-1',
+        'admin-1',
+        'pending',
+        'processing',
+        {
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+          content: '客服已经联系司机核实异常情况。',
+        },
+      ),
+    ).resolves.toMatchObject({ status: 'processing' });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(transaction.orderExceptionCaseAction.create).toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.update).toHaveBeenCalled();
+  });
+
+  it('creates a shipper exception event and case in one transaction', async () => {
+    const event = {
+      id: 'event-exception-1',
+      actorUserId: 'shipper-1',
+      eventType: 'exception_reported',
+      noteText: '司机延误：司机反馈高速拥堵，预计晚到 40 分钟',
+      attachmentFileIds: ['file-exception-1'],
+      createdAt: new Date('2026-07-12T08:00:00.000Z'),
+    };
+    const transaction = {
+      orderEvent: {
+        create: jest.fn().mockResolvedValue(event),
+      },
+      orderExceptionCase: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({
+          id: 'case-1',
+          caseNo: 'YC202607120001',
+        }),
+      },
+      order: {
+        update: jest.fn().mockResolvedValue(
+          createPrismaOrderRecord({ events: [event] }),
+        ),
+        findUnique: jest.fn().mockResolvedValue(
+          createPrismaOrderRecord({ events: [event] }),
+        ),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(async callback => callback(transaction)),
+    } as unknown as PrismaOrdersClient;
+    const repository = new PrismaOrdersRepository(
+      prisma,
+      () => new Date('2026-07-12T08:00:00.000Z'),
+    );
+
+    await repository.reportOrderException('order-1', 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '司机反馈高速拥堵，预计晚到 40 分钟',
+      photoFileIds: ['file-exception-1'],
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(transaction.orderEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: 'order-1',
+        actorUserId: 'shipper-1',
+        eventType: 'exception_reported',
+      }),
+    });
+    expect(transaction.orderExceptionCase.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: 'order-1',
+        sourceEventId: 'event-exception-1',
+        reporterUserId: 'shipper-1',
+        sourceRole: 'shipper',
+        status: 'pending',
+      }),
+    });
+  });
+
+  it('creates a driver exception event and case in one transaction', async () => {
+    const event = {
+      id: 'event-driver-exception-1',
+      actorUserId: 'driver-1',
+      eventType: 'driver_exception_reported',
+      noteText: '货物损坏：装货时发现外包装已经破损。',
+      attachmentFileIds: [],
+      createdAt: new Date('2026-07-12T08:00:00.000Z'),
+    };
+    const transaction = {
+      orderEvent: { create: jest.fn().mockResolvedValue(event) },
+      orderExceptionCase: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({
+          id: 'case-1',
+          caseNo: 'YC202607120001',
+        }),
+      },
+      order: {
+        update: jest.fn().mockResolvedValue(
+          createPrismaOrderRecord({ events: [event] }),
+        ),
+        findUnique: jest.fn().mockResolvedValue(
+          createPrismaOrderRecord({ events: [event] }),
+        ),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(async callback => callback(transaction)),
+    } as unknown as PrismaOrdersClient;
+    const repository = new PrismaOrdersRepository(prisma);
+
+    await repository.reportDriverOrderException('order-1', 'driver-1', {
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+    });
+
+    expect(transaction.orderExceptionCase.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sourceEventId: 'event-driver-exception-1',
+        reporterUserId: 'driver-1',
+        sourceRole: 'driver',
+      }),
+    });
+  });
+
   it('records cargo file ids on the created order event', async () => {
     const prisma = {
       order: {
@@ -1385,6 +1562,42 @@ function createPrismaOrderRecord(overrides: {
       valueAddedServicesText: null,
     },
     events: overrides.events ?? [],
+  };
+}
+
+function createPrismaExceptionCaseRecord(
+  overrides: Partial<{
+    status: 'pending' | 'processing' | 'resolved' | 'closed';
+    updatedAt: Date;
+    actions: Array<{
+      id: string;
+      adminUserId: string;
+      fromStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+      toStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+      content: string;
+      createdAt: Date;
+    }>;
+  }> = {},
+) {
+  return {
+    id: 'case-1',
+    caseNo: 'YC202607120001',
+    orderId: 'order-1',
+    sourceEventId: 'event-exception-1',
+    reporterUserId: 'driver-1',
+    sourceRole: 'driver' as const,
+    typeLabel: '货物损坏',
+    description: '装货时发现外包装已经破损。',
+    attachmentFileIds: [],
+    status: 'pending' as const,
+    resolutionText: null,
+    resolvedAt: null,
+    closedAt: null,
+    createdAt: new Date('2026-07-12T08:00:00.000Z'),
+    updatedAt: new Date('2026-07-12T08:00:00.000Z'),
+    order: { orderNo: 'HY202607120001' },
+    actions: [],
+    ...overrides,
   };
 }
 

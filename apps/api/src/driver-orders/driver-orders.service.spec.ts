@@ -508,6 +508,20 @@ describe('DriverOrdersService', () => {
         }),
       ]),
     });
+    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          orderId: order.id,
+          orderNo: order.orderNo,
+          reporterUserId: 'driver-1',
+          sourceRole: 'driver',
+          typeLabel: '货物损坏',
+          status: 'pending',
+          attachmentFileIds: [proof.id],
+        }),
+      ],
+    });
   });
 
   it('rejects driver exceptions outside executing order states', async () => {
