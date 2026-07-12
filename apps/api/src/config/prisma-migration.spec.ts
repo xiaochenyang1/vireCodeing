@@ -281,4 +281,21 @@ describe('Prisma initial migration', () => {
       'ALTER TABLE "OrderCargo" ADD COLUMN "cargoPhotoFileIds" JSONB NOT NULL DEFAULT \'[]\'',
     );
   });
+
+  it('contains order exception customer service cases and action history', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TYPE "OrderExceptionCaseSourceRole"');
+    expect(sql).toContain('CREATE TYPE "OrderExceptionCaseStatus"');
+    expect(sql).toContain('CREATE TABLE "OrderExceptionCase"');
+    expect(sql).toContain('CREATE TABLE "OrderExceptionCaseAction"');
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "OrderExceptionCase_sourceEventId_key"',
+    );
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "OrderExceptionCase_caseNo_key"',
+    );
+    expect(sql).toContain('OrderExceptionCase_status_created_idx');
+    expect(sql).toContain('OrderExceptionCaseAction_case_created_idx');
+  });
 });

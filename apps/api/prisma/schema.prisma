@@ -51,6 +51,18 @@ enum DriverCertificationType {
   vehicle
 }
 
+enum OrderExceptionCaseSourceRole {
+  shipper
+  driver
+}
+
+enum OrderExceptionCaseStatus {
+  pending
+  processing
+  resolved
+  closed
+}
+
 model User {
   id                          String                       @id @default(uuid())
   phone                       String                       @unique
@@ -76,6 +88,8 @@ model User {
   driverWithdrawals           DriverWithdrawal[]
   driverCertificationReviewEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewEvents")
   driverCertificationReviewerEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewerEvents")
+  reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
+  exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
 }
 
 model AuthSession {
@@ -169,6 +183,7 @@ model Order {
   locations            OrderLocation[]
   requirement          OrderRequirement?
   events               OrderEvent[]
+  exceptionCases       OrderExceptionCase[]
 
   @@index([shipperId, status, createdAt], name: "Order_shipper_status_created_idx")
   @@index([shipperId, createdAt], name: "Order_shipper_created_idx")
@@ -218,8 +233,50 @@ model OrderEvent {
   attachmentFileIds Json     @default("[]")
   createdAt         DateTime @default(now())
   order             Order    @relation(fields: [orderId], references: [id])
+  exceptionCase     OrderExceptionCase? @relation("ExceptionCaseSourceEvent")
 
   @@index([orderId, createdAt], name: "OrderEvent_order_created_idx")
+}
+
+model OrderExceptionCase {
+  id                String                       @id @default(uuid())
+  caseNo            String                       @unique
+  orderId           String
+  sourceEventId     String                       @unique
+  reporterUserId    String
+  sourceRole        OrderExceptionCaseSourceRole
+  typeLabel         String
+  description       String
+  attachmentFileIds Json                         @default("[]")
+  status            OrderExceptionCaseStatus     @default(pending)
+  resolutionText    String?
+  resolvedAt        DateTime?
+  closedAt          DateTime?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  order             Order                        @relation(fields: [orderId], references: [id])
+  sourceEvent       OrderEvent                   @relation("ExceptionCaseSourceEvent", fields: [sourceEventId], references: [id])
+  reporter          User                         @relation("ExceptionCaseReporter", fields: [reporterUserId], references: [id])
+  actions           OrderExceptionCaseAction[]
+
+  @@index([status, createdAt], name: "OrderExceptionCase_status_created_idx")
+  @@index([orderId, createdAt], name: "OrderExceptionCase_order_created_idx")
+  @@index([reporterUserId, createdAt], name: "OrderExceptionCase_reporter_created_idx")
+}
+
+model OrderExceptionCaseAction {
+  id            String                   @id @default(uuid())
+  caseId        String
+  adminUserId   String
+  fromStatus    OrderExceptionCaseStatus
+  toStatus      OrderExceptionCaseStatus
+  content       String
+  createdAt     DateTime                 @default(now())
+  exceptionCase OrderExceptionCase       @relation(fields: [caseId], references: [id])
+  admin         User                     @relation("ExceptionCaseAdminActions", fields: [adminUserId], references: [id])
+
+  @@index([caseId, createdAt], name: "OrderExceptionCaseAction_case_created_idx")
+  @@index([adminUserId, createdAt], name: "OrderExceptionCaseAction_admin_created_idx")
 }
 
 model OrderDraft {
