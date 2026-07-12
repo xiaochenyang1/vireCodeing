@@ -1,5 +1,5 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { showUnavailable } from '../components/SectionHeader';
 import {
@@ -13,6 +13,7 @@ import { DriverEvaluationForm } from './order-detail/DriverEvaluationForm';
 import { DriverInfoCard } from './order-detail/DriverInfoCard';
 import { DriverQuoteCard } from './order-detail/DriverQuoteCard';
 import { ExceptionReportForm } from './order-detail/ExceptionReportForm';
+import { ExceptionCaseProgressPanel } from './order-detail/ExceptionCaseProgressPanel';
 import {
   OrderActionsCard,
   OrderProgressActionCard,
@@ -34,6 +35,11 @@ import type {
   RecentOrder,
 } from '../types';
 import type { createPlatformFileApi } from '../services/platformFileApi';
+import { PlatformApiError } from '../services/platformApiClient';
+import type {
+  createPlatformOrderApi,
+  PlatformOrderExceptionCase,
+} from '../services/platformOrderApi';
 import {
   createFailedOrderSyncState,
   createPrefillFromOrder,
@@ -70,6 +76,7 @@ export function OrderDetailScreen({
   onSubmitChangeRequest,
   onSubmitEvaluation,
   platformFileApi,
+  platformOrderApi,
 }: {
   orderId: string;
   now: number;
@@ -104,11 +111,63 @@ export function OrderDetailScreen({
     ReturnType<typeof createPlatformFileApi>,
     'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
   >;
+  platformOrderApi?: Pick<
+    ReturnType<typeof createPlatformOrderApi>,
+    'listExceptionCases'
+  >;
 }) {
   const order = orders.find(item => item.id === orderId) ?? orders[0];
   const status = recentOrderStatusCopy[order.status];
   const progressAction = getOrderProgressAction(order.status);
   const vehicleRequirementText = formatVehicleRequirementText(order);
+  const [exceptionCases, setExceptionCases] = useState<
+    PlatformOrderExceptionCase[]
+  >([]);
+  const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
+    useState(false);
+  const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
+
+  useEffect(() => {
+    if (!platformOrderApi || !order.platformOrderId) {
+      setExceptionCases([]);
+      setExceptionCaseNotice(undefined);
+      setIsLoadingExceptionCases(false);
+      return;
+    }
+
+    let active = true;
+    setExceptionCases([]);
+    setExceptionCaseNotice(undefined);
+    setIsLoadingExceptionCases(true);
+    platformOrderApi
+      .listExceptionCases(order.platformOrderId)
+      .then(result => {
+        if (active) {
+          setExceptionCases(result.items);
+        }
+      })
+      .catch(error => {
+        if (!active) {
+          return;
+        }
+
+        setExceptionCaseNotice(
+          error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+            ? '登录状态已失效，请重新登录后查看异常处理进度。'
+            : '异常处理进度加载失败，请稍后重试。',
+        );
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingExceptionCases(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [order.platformOrderId, platformOrderApi]);
   const { isPanelOpen, closeAllPanels, togglePanel } = useOrderDetailPanels();
   const [localNotice, setLocalNotice] = useState('');
   const driverQuotes = order.driverQuotes ?? [];
@@ -448,6 +507,12 @@ export function OrderDetailScreen({
           onMarkFailed={markOrderSyncFailed}
         />
       ) : null}
+
+      <ExceptionCaseProgressPanel
+        cases={exceptionCases}
+        isLoading={isLoadingExceptionCases}
+        notice={exceptionCaseNotice}
+      />
 
       <View style={styles.detailCard}>
         <Text style={styles.draftSectionTitle}>状态流转</Text>

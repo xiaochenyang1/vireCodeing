@@ -111,11 +111,13 @@ function createMockDriverOrderApi() {
       .mockResolvedValue(createDriverAcceptanceSettingsSnapshot()),
     saveAcceptanceSettings: jest.fn(),
     getOrder: jest.fn(),
+    listExceptionCases: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     quoteOrder: jest.fn(),
     acceptOrder: jest.fn(),
     advanceOrderStatus: jest.fn(),
     replyToEvaluation: jest.fn(),
     evaluateShipper: jest.fn(),
+    reportException: jest.fn(),
   };
 }
 
@@ -831,6 +833,423 @@ describe('DriverHomeScreen certification uploads', () => {
         receiptPhotoFileIds: ['file-receipt-1'],
       },
     );
+  });
+
+  it('uploads proof and reports a driver exception from an executing order', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110001',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const updatedOrder = {
+      ...order,
+      events: [
+        {
+          id: 'event-driver-exception-1',
+          actorUserId: 'driver-1',
+          eventType: 'driver_exception_reported',
+          noteText:
+            '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+          attachmentFileIds: ['file-exception-1'],
+          createdAtIso: '2026-07-11T08:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.listExceptionCases.mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 'case-driver-1',
+          caseNo: 'YC202607120002',
+          orderId: 'order-1',
+          orderNo: 'HY202607110001',
+          sourceEventId: 'event-driver-exception-1',
+          reporterUserId: 'driver-1',
+          sourceRole: 'driver',
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          attachmentFileIds: [],
+          status: 'processing',
+          createdAtIso: '2026-07-12T08:00:00.000Z',
+          updatedAtIso: '2026-07-12T08:10:00.000Z',
+          actions: [],
+        },
+      ],
+    });
+    platformDriverOrderApi.reportException.mockResolvedValue(updatedOrder);
+    const platformFileApi = {
+      createUploadIntent: jest.fn().mockResolvedValue({
+        id: 'file-exception-1',
+        ownerUserId: 'driver-1',
+        purpose: 'exception',
+        objectKey: 'driver-1/exception/file-exception-1.png',
+        status: 'pending',
+        uploadUrl:
+          'http://localhost:3000/api/files/uploads/file-exception-1',
+        expiresAtIso: '2026-07-11T08:15:00.000Z',
+        createdAtIso: '2026-07-11T08:00:00.000Z',
+      }),
+      confirmLocalUploadTarget: jest.fn().mockResolvedValue({
+        id: 'file-exception-1',
+        ownerUserId: 'driver-1',
+        purpose: 'exception',
+        objectKey: 'driver-1/exception/file-exception-1.png',
+        status: 'uploaded',
+        createdAtIso: '2026-07-11T08:00:00.000Z',
+      }),
+      confirmUploaded: jest.fn(),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listExceptionCases).toHaveBeenCalledWith(
+      'order-1',
+    );
+    expect(getRenderedText(renderer)).toContain('异常处理进度');
+    expect(getRenderedText(renderer)).toContain('YC202607120002');
+    expect(getRenderedText(renderer)).toContain('处理中');
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({
+          testID:
+            'driver-exception-type-cargo-damage-HY202607110001',
+        })
+        .props.onPress();
+      renderer.root
+        .findByProps({
+          testID: 'driver-exception-description-HY202607110001',
+        })
+        .props.onChangeText('  装货时发现外包装已经破损。  ');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'driver-upload-exception-proof-HY202607110001',
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-submit-exception-HY202607110001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.createUploadIntent).toHaveBeenCalledWith({
+      purpose: 'exception',
+      fileName: '异常凭证-1.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+    expect(platformDriverOrderApi.reportException).toHaveBeenCalledWith(
+      'order-1',
+      {
+        typeLabel: '货物损坏',
+        description: '装货时发现外包装已经破损。',
+        photoCount: 1,
+        photoFileIds: ['file-exception-1'],
+      },
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '异常已上报，等待客服跟进。',
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '最新异常：货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+    );
+  });
+
+  it('keeps the exception form and explains unfinished proof files', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110002',
+      status: 'transporting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.reportException.mockRejectedValue(
+      new PlatformApiError(
+        'pending',
+        'FILE_STATE_INVALID',
+        409,
+      ),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110002' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({
+          testID:
+            'driver-exception-type-cargo-damage-HY202607110002',
+        })
+        .props.onPress();
+      renderer.root
+        .findByProps({
+          testID: 'driver-exception-description-HY202607110002',
+        })
+        .props.onChangeText('装货时发现外包装已经破损。');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-submit-exception-HY202607110002' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('异常图片尚未上传完成。');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-exception-description-HY202607110002',
+      }).props.value,
+    ).toBe('装货时发现外包装已经破损。');
+  });
+
+  it('blocks a seventh exception proof before calling the file api', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110004',
+      status: 'confirming' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    let uploadSequence = 0;
+    const platformFileApi = {
+      createUploadIntent: jest.fn().mockImplementation(async () => {
+        uploadSequence += 1;
+        return {
+          id: `file-exception-${uploadSequence}`,
+          ownerUserId: 'driver-1',
+          purpose: 'exception',
+          objectKey: `driver-1/exception/file-exception-${uploadSequence}.png`,
+          status: 'pending',
+          uploadUrl: `http://localhost:3000/api/files/uploads/file-exception-${uploadSequence}`,
+          expiresAtIso: '2026-07-11T08:15:00.000Z',
+          createdAtIso: '2026-07-11T08:00:00.000Z',
+        };
+      }),
+      confirmLocalUploadTarget: jest.fn().mockImplementation(async fileId => ({
+        id: fileId,
+        ownerUserId: 'driver-1',
+        purpose: 'exception',
+        objectKey: `driver-1/exception/${fileId}.png`,
+        status: 'uploaded',
+        createdAtIso: '2026-07-11T08:00:00.000Z',
+      })),
+      confirmUploaded: jest.fn(),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110004' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    for (let index = 0; index < 7; index += 1) {
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({
+            testID: 'driver-upload-exception-proof-HY202607110004',
+          })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+    }
+
+    expect(platformFileApi.createUploadIntent).toHaveBeenCalledTimes(6);
+    expect(getRenderedText(renderer)).toContain('异常图片最多上传 6 张。');
+  });
+
+  it('does not render the exception form for completed orders', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110003',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110003' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-submit-exception-HY202607110003',
+      }),
+    ).toHaveLength(0);
   });
 
   it('submits a driver reply for an evaluated order detail', async () => {

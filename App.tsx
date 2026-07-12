@@ -2187,6 +2187,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
             onSubmitChangeRequest={submitOrderChangeRequestFromDetail}
             onSubmitEvaluation={submitOrderEvaluationFromDetail}
             platformFileApi={platformFileApi}
+            platformOrderApi={platformOrderApi}
           />
         ) : screen === 'orders' ? (
           <OrdersScreen

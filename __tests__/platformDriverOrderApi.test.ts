@@ -2,6 +2,27 @@ import { createPlatformDriverOrderApi } from '../src/services/platformDriverOrde
 import { PlatformApiError } from '../src/services/platformApiClient';
 
 describe('platform driver order api', () => {
+  it('lists driver exception cases with a normalized order id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({ items: [], total: 0 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.listExceptionCases(' order-1 ');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/driver/orders/order-1/exception-cases',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -423,7 +444,7 @@ describe('platform driver order api', () => {
     ],
   ])(
     'rejects invalid driver exception requests before fetch: %s (%s)',
-    async request => {
+    async (request, _caseLabel) => {
       const fetchMock = jest.fn();
       globalThis.fetch = fetchMock as unknown as typeof fetch;
       const api = createPlatformDriverOrderApi({

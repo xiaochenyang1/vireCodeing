@@ -6,6 +6,7 @@ import {
   type PlatformApiConfig,
 } from './platformApiClient';
 import type {
+  PlatformOrderExceptionCaseListResult,
   PlatformShipperOrder,
   PlatformShipperOrderStatus,
 } from './platformOrderApi';
@@ -212,6 +213,14 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       return platformGet<PlatformShipperOrder>(
         config,
         `/driver/orders/${normalizedOrderId}`,
+      );
+    },
+    async listExceptionCases(orderId: string) {
+      const normalizedOrderId = normalizeDriverOrderId(orderId);
+
+      return platformGet<PlatformOrderExceptionCaseListResult>(
+        config,
+        `/driver/orders/${normalizedOrderId}/exception-cases`,
       );
     },
     async quoteOrder(orderId: string, request: PlatformDriverQuoteOrderRequest) {

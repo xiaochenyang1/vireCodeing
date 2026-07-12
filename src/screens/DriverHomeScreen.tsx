@@ -27,7 +27,11 @@ import {
   type PlatformFileUploadConfirmationApi,
   createPlatformFileApi,
 } from '../services/platformFileApi';
-import type { PlatformShipperOrder } from '../services/platformOrderApi';
+import type {
+  PlatformOrderExceptionCase,
+  PlatformShipperOrder,
+} from '../services/platformOrderApi';
+import { ExceptionCaseProgressPanel } from './order-detail/ExceptionCaseProgressPanel';
 import {
   hydrateDriverEvaluationReplyQueue,
   saveDriverEvaluationReplyQueue,
@@ -38,13 +42,17 @@ import {
   createAcceptanceSettingsForm,
   createAcceptanceSettingsRequest,
   createDriverAdvanceSuccessNotice,
+  createDriverExceptionRequest,
   createDriverOrderHallNotice,
   createDriverWithdrawalRequest,
   createQuoteRequest,
   createShipperEvaluationRequest,
+  canDriverReportException,
   driverCertificationFileUploadConfigs,
+  driverExceptionTypeOptions,
   emptyAcceptanceSettingsForm,
   emptyCertificationForm,
+  emptyExceptionForm,
   emptyForm,
   emptyShipperEvaluationForm,
   emptyWithdrawalForm,
@@ -60,6 +68,7 @@ import {
   getDriverStatusText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
+  getLatestDriverException,
   getLatestDriverShipperEvaluation,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
@@ -69,6 +78,7 @@ import {
   type DriverAcceptanceSettingsFormState,
   type DriverCertificationFileFieldName,
   type DriverCertificationFormState,
+  type DriverExceptionFormState,
   type DriverExecutionProofState,
   type DriverOrderFormState,
   type DriverShipperEvaluationFormState,
@@ -99,6 +109,12 @@ export function DriverHomeScreen({
   );
   const [myOrders, setMyOrders] = useState<PlatformShipperOrder[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<PlatformShipperOrder>();
+  const [exceptionCases, setExceptionCases] = useState<
+    PlatformOrderExceptionCase[]
+  >([]);
+  const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
+    useState(false);
+  const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
   const [certification, setCertification] =
     useState<PlatformDriverCertificationSnapshot>();
   const [incomeOverview, setIncomeOverview] =
@@ -122,6 +138,9 @@ export function DriverHomeScreen({
   >({});
   const [shipperEvaluationForms, setShipperEvaluationForms] = useState<
     Record<string, DriverShipperEvaluationFormState>
+  >({});
+  const [exceptionForms, setExceptionForms] = useState<
+    Record<string, DriverExceptionFormState>
   >({});
   const [evaluationReplyQueue, setEvaluationReplyQueue] = useState<
     DriverEvaluationReplyQueue
@@ -287,6 +306,19 @@ export function DriverHomeScreen({
     }));
   };
 
+  const updateExceptionForm = (
+    orderNo: string,
+    changes: Partial<DriverExceptionFormState>,
+  ) => {
+    setExceptionForms(currentForms => ({
+      ...currentForms,
+      [orderNo]: {
+        ...(currentForms[orderNo] ?? emptyExceptionForm),
+        ...changes,
+      },
+    }));
+  };
+
   const toggleAcceptanceVehicleType = (vehicleType: string) => {
     setAcceptanceSettingsForm(current => ({
       ...current,
@@ -377,6 +409,9 @@ export function DriverHomeScreen({
       return;
     }
 
+    setExceptionCases([]);
+    setExceptionCaseNotice(undefined);
+    setIsLoadingExceptionCases(true);
     platformDriverOrderApi
       .getOrder(order.id)
       .then(orderDetail => {
@@ -385,6 +420,22 @@ export function DriverHomeScreen({
       })
       .catch(() => {
         setNotice('司机订单详情加载失败，请稍后重试。');
+      });
+    platformDriverOrderApi
+      .listExceptionCases(order.id)
+      .then(result => {
+        setExceptionCases(result.items);
+      })
+      .catch(error => {
+        setExceptionCaseNotice(
+          error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+            ? '登录状态已失效，请重新登录后查看异常处理进度。'
+            : '异常处理进度加载失败，请稍后重试。',
+        );
+      })
+      .finally(() => {
+        setIsLoadingExceptionCases(false);
       });
   };
 
@@ -564,6 +615,88 @@ export function DriverHomeScreen({
 
         setNotice('货主评价提交失败，请稍后重试。');
       });
+  };
+
+  const submitException = (order: PlatformShipperOrder) => {
+    if (!platformDriverOrderApi) {
+      setNotice('异常上报需要平台 API 配置。');
+      return;
+    }
+
+    const request = createDriverExceptionRequest(
+      exceptionForms[order.orderNo] ?? emptyExceptionForm,
+    );
+
+    if (!request) {
+      setNotice('请填写异常类型和至少 6 个字的异常说明。');
+      return;
+    }
+
+    platformDriverOrderApi
+      .reportException(order.id, request)
+      .then(updatedOrder => {
+        setSelectedOrder(updatedOrder);
+        setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+        setExceptionForms(currentForms => ({
+          ...currentForms,
+          [order.orderNo]: emptyExceptionForm,
+        }));
+        setNotice('异常已上报，等待客服跟进。');
+      })
+      .catch(error => {
+        if (error instanceof PlatformApiError) {
+          const noticeByCode: Record<string, string> = {
+            AUTH_ACCESS_TOKEN_MISSING:
+              '登录状态已失效，请重新登录后上报异常。',
+            ORDER_STATE_INVALID: '当前订单状态不允许上报异常。',
+            FILE_NOT_FOUND: '异常图片不存在，请重新上传。',
+            FILE_STATE_INVALID: '异常图片尚未上传完成。',
+            FILE_PURPOSE_INVALID: '异常图片用途不匹配，请重新上传。',
+          };
+          const mappedNotice = noticeByCode[error.code];
+
+          if (mappedNotice) {
+            setNotice(mappedNotice);
+            return;
+          }
+        }
+
+        setNotice('异常上报失败，请稍后重试。');
+      });
+  };
+
+  const uploadExceptionProof = async (order: PlatformShipperOrder) => {
+    if (!platformFileApi) {
+      setNotice('异常凭证上传需要平台文件 API 配置。');
+      return;
+    }
+
+    const currentForm = exceptionForms[order.orderNo] ?? emptyExceptionForm;
+
+    if (currentForm.photoFileIds.length >= 6) {
+      setNotice('异常图片最多上传 6 张。');
+      return;
+    }
+
+    try {
+      const intent = await platformFileApi.createUploadIntent({
+        purpose: 'exception',
+        fileName: `异常凭证-${currentForm.photoFileIds.length + 1}.png`,
+        contentType: 'image/png',
+        byteSize: 2048,
+      });
+      const uploadedFile = await confirmPlatformFileUploadIntent(
+        platformFileApi,
+        intent,
+      );
+
+      updateExceptionForm(order.orderNo, {
+        photoFileIds: [...currentForm.photoFileIds, uploadedFile.id],
+      });
+      setNotice('异常凭证已关联平台文件。');
+    } catch {
+      setNotice('异常凭证上传失败，请稍后重试。');
+    }
   };
 
   const uploadExecutionReceipt = async (order: PlatformShipperOrder) => {
@@ -758,6 +891,12 @@ export function DriverHomeScreen({
   const latestShipperEvaluation = selectedOrder
     ? getLatestDriverShipperEvaluation(selectedOrder)
     : undefined;
+  const latestDriverException = selectedOrder
+    ? getLatestDriverException(selectedOrder)
+    : undefined;
+  const selectedExceptionForm = selectedOrder
+    ? exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm
+    : emptyExceptionForm;
   const selectedEvaluationReplyQueueItem = selectedOrder
     ? evaluationReplyQueue[selectedOrder.id]
     : undefined;
@@ -1438,6 +1577,69 @@ export function DriverHomeScreen({
           <Text style={styles.detailMeta}>
             事件记录：{selectedOrder.events?.length ?? 0} 条
           </Text>
+          {latestDriverException?.noteText ? (
+            <Text style={styles.detailMeta}>
+              最新异常：{latestDriverException.noteText}
+            </Text>
+          ) : null}
+          <ExceptionCaseProgressPanel
+            cases={exceptionCases}
+            isLoading={isLoadingExceptionCases}
+            notice={exceptionCaseNotice}
+          />
+          {canDriverReportException(selectedOrder.status) ? (
+            <View style={styles.detailInlineGroup}>
+              <Text style={styles.draftSectionTitle}>上报运输异常</Text>
+              {driverExceptionTypeOptions.map(option => (
+                <Pressable
+                  key={option.id}
+                  testID={`driver-exception-type-${option.id}-${selectedOrder.orderNo}`}
+                  style={styles.detailSecondaryButton}
+                  onPress={() =>
+                    updateExceptionForm(selectedOrder.orderNo, {
+                      typeLabel: option.label,
+                    })
+                  }
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    {selectedExceptionForm.typeLabel === option.label
+                      ? `已选：${option.label}`
+                      : option.label}
+                  </Text>
+                </Pressable>
+              ))}
+              <TextInput
+                testID={`driver-exception-description-${selectedOrder.orderNo}`}
+                style={styles.ordersSearchInput}
+                placeholder="异常说明，至少 6 个字"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                value={selectedExceptionForm.description}
+                onChangeText={description =>
+                  updateExceptionForm(selectedOrder.orderNo, { description })
+                }
+              />
+              <Text style={styles.detailMeta}>
+                异常证据：{selectedExceptionForm.photoFileIds.length} / 6 张
+              </Text>
+              <Pressable
+                testID={`driver-upload-exception-proof-${selectedOrder.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() => {
+                  uploadExceptionProof(selectedOrder).catch(() => undefined);
+                }}
+              >
+                <Text style={styles.detailSecondaryButtonText}>上传异常凭证</Text>
+              </Pressable>
+              <Pressable
+                testID={`driver-submit-exception-${selectedOrder.orderNo}`}
+                style={styles.detailPrimaryButton}
+                onPress={() => submitException(selectedOrder)}
+              >
+                <Text style={styles.detailPrimaryButtonText}>提交异常上报</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {hasDriverEvaluationSubmitted(selectedOrder) ? (
             <>
               {latestEvaluationReply?.noteText ? (

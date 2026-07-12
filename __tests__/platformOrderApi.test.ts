@@ -2,6 +2,27 @@ import { createPlatformOrderApi } from '../src/services/platformOrderApi';
 import { PlatformApiError } from '../src/services/platformApiClient';
 
 describe('platform order api', () => {
+  it('lists shipper exception cases with a normalized order id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({ items: [], total: 0 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.listExceptionCases(' order-1 ');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/orders/order-1/exception-cases',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -1856,5 +1877,19 @@ function createInput() {
     pricingMode: 'fixed' as const,
     priceCents: 76000,
     paymentMethod: 'cod' as const,
+  };
+}
+
+function createJsonResponse(data: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      code: 'OK',
+      message: 'success',
+      data,
+      requestId: 'req_order',
+      timestamp: '2026-07-12T08:00:00.000Z',
+    }),
   };
 }

@@ -112,6 +112,48 @@ export type PlatformShipperOrder = PlatformCreateShipperOrderRequest & {
   }>;
 };
 
+export type PlatformOrderExceptionCaseStatus =
+  | 'pending'
+  | 'processing'
+  | 'resolved'
+  | 'closed';
+
+export type PlatformOrderExceptionCaseSourceRole = 'shipper' | 'driver';
+
+export type PlatformOrderExceptionCaseAction = {
+  id: string;
+  adminUserId: string;
+  fromStatus: PlatformOrderExceptionCaseStatus;
+  toStatus: PlatformOrderExceptionCaseStatus;
+  content: string;
+  createdAtIso: string;
+};
+
+export type PlatformOrderExceptionCase = {
+  id: string;
+  caseNo: string;
+  orderId: string;
+  orderNo: string;
+  sourceEventId: string;
+  reporterUserId: string;
+  sourceRole: PlatformOrderExceptionCaseSourceRole;
+  typeLabel: string;
+  description: string;
+  attachmentFileIds: string[];
+  status: PlatformOrderExceptionCaseStatus;
+  resolutionText?: string;
+  resolvedAtIso?: string;
+  closedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+  actions: PlatformOrderExceptionCaseAction[];
+};
+
+export type PlatformOrderExceptionCaseListResult = {
+  items: PlatformOrderExceptionCase[];
+  total: number;
+};
+
 export type PlatformOrderListResult = {
   items: PlatformShipperOrder[];
   page: number;
@@ -153,6 +195,14 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
       return platformGet<PlatformShipperOrder>(
         config,
         `/shipper/orders/${normalizedOrderId}`,
+      );
+    },
+    async listExceptionCases(orderId: string) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+
+      return platformGet<PlatformOrderExceptionCaseListResult>(
+        config,
+        `/shipper/orders/${normalizedOrderId}/exception-cases`,
       );
     },
     async updateOrder(
