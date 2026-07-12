@@ -1,6 +1,7 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { renderDriverCertificationAdminConsole } from './driver-certification-admin-console';
 import { renderOrderAttachmentAdminConsole } from './order-attachment-admin-console';
+import { renderOrderExceptionCaseAdminConsole } from './order-exception-case-admin-console';
 import { renderShipperCouponAdminConsole } from './shipper-coupon-admin-console';
 
 @Controller('admin')
@@ -21,5 +22,11 @@ export class AdminConsoleController {
   @Header('content-type', 'text/html; charset=utf-8')
   getShipperCouponConsole() {
     return renderShipperCouponAdminConsole();
+  }
+
+  @Get('order-exception-case-console')
+  @Header('content-type', 'text/html; charset=utf-8')
+  getOrderExceptionCaseConsole() {
+    return renderOrderExceptionCaseAdminConsole();
   }
 }

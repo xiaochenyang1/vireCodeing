@@ -6,6 +6,7 @@ import { DriverOrdersModule } from './driver-orders/driver-orders.module';
 import { FilesModule } from './files/files.module';
 import { HealthController } from './health/health.controller';
 import { OrderDraftsModule } from './order-drafts/order-drafts.module';
+import { OrderExceptionCasesModule } from './order-exception-cases/order-exception-cases.module';
 import { OrdersModule } from './orders/orders.module';
 import { ProfileAccountModule } from './profile-account/profile-account.module';
 import { ProfileAddressBookModule } from './profile-address-book/profile-address-book.module';
@@ -24,6 +25,7 @@ import { ProfileVerificationModule } from './profile-verification/profile-verifi
     DriverOrdersModule,
     FilesModule,
     OrdersModule,
+    OrderExceptionCasesModule,
     OrderDraftsModule,
     ProfileAccountModule,
     ProfileAddressBookModule,

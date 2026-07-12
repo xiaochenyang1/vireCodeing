@@ -130,4 +130,26 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('issuedCouponResult');
     expect(html).not.toContain('hero');
   });
+
+  it('serves the order exception customer service console html', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getOrderExceptionCaseConsole: () => string;
+      }
+    ).getOrderExceptionCaseConsole();
+
+    expect(html).toContain('异常客服工单');
+    expect(html).toContain('adminToken');
+    expect(html).toContain('/admin/order-exception-cases');
+    expect(html).toContain('/process');
+    expect(html).toContain('/resolve');
+    expect(html).toContain('/close');
+    expect(html).toContain('baseUpdatedAtIso');
+    expect(html).toContain('EXCEPTION_CASE_CONFLICT');
+    expect(html).toContain('caseStatusInput');
+    expect(html).toContain('caseSourceRoleInput');
+    expect(html).toContain('caseKeywordInput');
+    expect(html).not.toContain('hero');
+  });
 });
