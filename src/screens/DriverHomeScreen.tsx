@@ -424,7 +424,7 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .listExceptionCases(order.id)
       .then(result => {
-        setExceptionCases(result.items);
+        setExceptionCases(Array.isArray(result?.items) ? result.items : []);
       })
       .catch(error => {
         setExceptionCaseNotice(

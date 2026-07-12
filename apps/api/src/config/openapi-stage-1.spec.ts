@@ -246,6 +246,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/driver/orders/{orderId}/status:');
     expect(source).toContain('/driver/orders/{orderId}/evaluation-reply:');
     expect(source).toContain('/driver/orders/{orderId}/shipper-evaluation:');
+    expect(source).toContain('/driver/orders/{orderId}/exception:');
     expect(source).toContain('DriverOrderHallResponse');
     expect(source).toContain('DriverMyOrdersResponse');
     expect(source).toContain('DriverAcceptanceSettingsResponse');
@@ -261,6 +262,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('DriverAdvanceOrderStatusRequest');
     expect(source).toContain('DriverReplyEvaluationRequest');
     expect(source).toContain('DriverEvaluateShipperRequest');
+    expect(source).toContain('DriverReportOrderExceptionRequest');
+    expect(source).toContain('driver_exception_reported');
+    expect(source).toContain('Driver exception files may return FILE_NOT_FOUND, FILE_STATE_INVALID or FILE_PURPOSE_INVALID.');
     expect(source).toContain('SaveDriverAcceptanceSettingsRequest');
     expect(source).toContain('CreateDriverWithdrawalRequest');
     expect(source).toContain('availableWithdrawalCents');
@@ -279,6 +283,26 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('evaluation_replied');
     expect(source).toContain('shipper_evaluation_submitted');
     expect(source).toContain('AUTH_FORBIDDEN');
+  });
+
+  it('documents order exception customer service case workflows', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/shipper/orders/{orderId}/exception-cases:');
+    expect(source).toContain('/driver/orders/{orderId}/exception-cases:');
+    expect(source).toContain('/admin/order-exception-cases:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/resolve:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/close:');
+    expect(source).toContain('OrderExceptionCaseRecord');
+    expect(source).toContain('OrderExceptionCaseActionRecord');
+    expect(source).toContain('OrderExceptionCaseStatus');
+    expect(source).toContain('OrderExceptionCaseSourceRole');
+    expect(source).toContain('baseUpdatedAtIso');
+    expect(source).toContain('EXCEPTION_CASE_NOT_FOUND');
+    expect(source).toContain('EXCEPTION_CASE_STATE_INVALID');
+    expect(source).toContain('EXCEPTION_CASE_CONFLICT');
   });
 
   it('documents driver identity and vehicle certification endpoints', () => {

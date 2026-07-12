@@ -143,7 +143,7 @@ export function OrderDetailScreen({
       .listExceptionCases(order.platformOrderId)
       .then(result => {
         if (active) {
-          setExceptionCases(result.items);
+          setExceptionCases(Array.isArray(result?.items) ? result.items : []);
         }
       })
       .catch(error => {

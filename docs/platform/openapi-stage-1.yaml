@@ -3157,6 +3157,206 @@ paths:
                 message: 订单完成后才能评价货主
                 requestId: req_local
                 timestamp: '2026-07-09T08:30:00.000Z'
+  /driver/orders/{orderId}/exception:
+    post:
+      summary: Report an order exception as the driver
+      description: Appends a driver_exception_reported event to an order accepted by the current driver while it is being executed (loading, transporting or confirming). The order status is not changed. Exception photo files must belong to the current driver, be uploaded and use the exception purpose. Driver exception files may return FILE_NOT_FOUND, FILE_STATE_INVALID or FILE_PURPOSE_INVALID. Customer-service ticketing and exception-handling settlement are still out of scope.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DriverReportOrderExceptionRequest'
+      responses:
+        '200':
+          description: Driver order exception appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是司机
+                requestId: req_local
+                timestamp: '2026-07-10T08:30:00.000Z'
+        '404':
+          description: Order does not exist or was not accepted by current driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-10T08:30:00.000Z'
+        '409':
+          description: The order status does not allow reporting an exception
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_STATE_INVALID
+                message: 当前司机订单状态不允许上报异常
+                requestId: req_local
+                timestamp: '2026-07-10T08:30:00.000Z'
+  /shipper/orders/{orderId}/exception-cases:
+    get:
+      summary: List customer-service exception cases for the current shipper order
+      description: Returns public exception case progress for an order owned by the current shipper. Action content is public to the related shipper and accepted driver in this first slice.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Exception cases listed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderExceptionCaseListResponse' }
+        '404':
+          description: Order or exception cases are unavailable to the current shipper
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example: { code: EXCEPTION_CASE_NOT_FOUND, message: 异常工单不存在, requestId: req_local, timestamp: '2026-07-12T08:00:00.000Z' }
+  /driver/orders/{orderId}/exception-cases:
+    get:
+      summary: List customer-service exception cases for the accepted driver order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Exception cases listed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderExceptionCaseListResponse' }
+        '404':
+          description: Order or exception cases are unavailable to the current driver
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /admin/order-exception-cases:
+    get:
+      summary: List order exception customer-service cases
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseStatus' } }
+        - { name: sourceRole, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseSourceRole' } }
+        - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
+        - { name: createdFromIso, in: query, schema: { type: string, format: date-time } }
+        - { name: createdToIso, in: query, schema: { type: string, format: date-time } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin exception cases listed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderExceptionCaseAdminListResponse' }
+        '403':
+          description: Current account is not an administrator
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /admin/order-exception-cases/{caseId}:
+    get:
+      summary: Get an order exception customer-service case
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Exception case detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' }
+        '404':
+          description: Exception case does not exist
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /admin/order-exception-cases/{caseId}/process:
+    post:
+      summary: Accept a pending exception case for processing
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case moved to processing, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /admin/order-exception-cases/{caseId}/resolve:
+    post:
+      summary: Resolve a processing exception case
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case resolved, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /admin/order-exception-cases/{caseId}/close:
+    post:
+      summary: Close a resolved exception case
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case closed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
 components:
   parameters:
     RequestIdHeader:
@@ -3959,7 +4159,7 @@ components:
           example: order_event_01J1Z7P7V2QM9B3V8M3G1N6K8S
         eventType:
           type: string
-          description: Order event type. Driver first-slice events include driver_quote_submitted, driver_accepted, driver_status_changed, evaluation_replied and shipper_evaluation_submitted.
+          description: Order event type. Driver first-slice events include driver_quote_submitted, driver_accepted, driver_status_changed, driver_exception_reported, evaluation_replied and shipper_evaluation_submitted.
           enum:
             - created
             - status_advanced
@@ -3971,6 +4171,7 @@ components:
             - driver_quote_submitted
             - driver_accepted
             - driver_status_changed
+            - driver_exception_reported
             - evaluation_replied
             - shipper_evaluation_submitted
           example: driver_quote_submitted
@@ -4582,6 +4783,34 @@ components:
         anonymous:
           type: boolean
           example: false
+    DriverReportOrderExceptionRequest:
+      type: object
+      required: [typeLabel, description]
+      properties:
+        typeLabel:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 货物受损
+        description:
+          type: string
+          minLength: 6
+          maxLength: 200
+          example: 装货时发现外包装破损，已拍照留证并联系货主
+        photoCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+          example: 2
+        photoFileIds:
+          type: array
+          maxItems: 6
+          description: Uploaded exception file ids (purpose=exception) to bind to the driver_exception_reported event.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-driver-exception-1]
     DriverCertificationStatus:
       type: string
       enum: [unsubmitted, reviewing, approved, rejected]
@@ -5888,6 +6117,94 @@ components:
               nullable: true
               allOf:
                 - $ref: '#/components/schemas/ShipperProfileFrequentRoutes'
+    OrderExceptionCaseStatus:
+      type: string
+      enum: [pending, processing, resolved, closed]
+    OrderExceptionCaseSourceRole:
+      type: string
+      enum: [shipper, driver]
+    OrderExceptionCaseActionRecord:
+      type: object
+      required: [id, adminUserId, fromStatus, toStatus, content, createdAtIso]
+      properties:
+        id: { type: string }
+        adminUserId: { type: string }
+        fromStatus: { $ref: '#/components/schemas/OrderExceptionCaseStatus' }
+        toStatus: { $ref: '#/components/schemas/OrderExceptionCaseStatus' }
+        content: { type: string, minLength: 6, maxLength: 500 }
+        createdAtIso: { type: string, format: date-time }
+    OrderExceptionCaseRecord:
+      type: object
+      required: [id, caseNo, orderId, orderNo, sourceEventId, reporterUserId, sourceRole, typeLabel, description, attachmentFileIds, status, createdAtIso, updatedAtIso, actions]
+      properties:
+        id: { type: string }
+        caseNo: { type: string, example: YC202607120001 }
+        orderId: { type: string }
+        orderNo: { type: string, example: HY202607120001 }
+        sourceEventId: { type: string }
+        reporterUserId: { type: string }
+        sourceRole: { $ref: '#/components/schemas/OrderExceptionCaseSourceRole' }
+        typeLabel: { type: string, maxLength: 30 }
+        description: { type: string, minLength: 6, maxLength: 200 }
+        attachmentFileIds:
+          type: array
+          items: { type: string }
+        status: { $ref: '#/components/schemas/OrderExceptionCaseStatus' }
+        resolutionText: { type: string, minLength: 6, maxLength: 500 }
+        resolvedAtIso: { type: string, format: date-time }
+        closedAtIso: { type: string, format: date-time }
+        createdAtIso: { type: string, format: date-time }
+        updatedAtIso: { type: string, format: date-time }
+        actions:
+          type: array
+          description: Public handling records visible to the related shipper and accepted driver in this first slice.
+          items: { $ref: '#/components/schemas/OrderExceptionCaseActionRecord' }
+    UpdateOrderExceptionCaseRequest:
+      type: object
+      required: [baseUpdatedAtIso, content]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+        content: { type: string, minLength: 6, maxLength: 500 }
+    OrderExceptionCaseListData:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderExceptionCaseRecord' }
+        total: { type: integer, minimum: 0 }
+    OrderExceptionCaseAdminListData:
+      allOf:
+        - $ref: '#/components/schemas/OrderExceptionCaseListData'
+        - type: object
+          required: [page, pageSize]
+          properties:
+            page: { type: integer, minimum: 1 }
+            pageSize: { type: integer, minimum: 1, maximum: 50 }
+    OrderExceptionCaseListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/OrderExceptionCaseListData' }
+    OrderExceptionCaseAdminListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/OrderExceptionCaseAdminListData' }
+    OrderExceptionCaseResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/OrderExceptionCaseRecord' }
     AuthenticatedUser:
       type: object
       required: [id, phone, userType]

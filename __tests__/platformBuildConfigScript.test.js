@@ -70,3 +70,21 @@ test('ci workflow injects platform api base url before verification', () => {
   expect(workflow).toContain('npm --prefix apps/api run typecheck');
   expect(workflow).toContain('npm --prefix apps/api run prisma:validate');
 });
+
+test('api compiler disables stale incremental emit diagnostics for all gates', () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, '..', 'apps', 'api', 'package.json'),
+      'utf8',
+    ),
+  );
+  const tsconfig = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, '..', 'apps', 'api', 'tsconfig.json'),
+      'utf8',
+    ),
+  );
+
+  expect(packageJson.scripts.typecheck).toBe('tsc --noEmit');
+  expect(tsconfig.compilerOptions.incremental).toBe(false);
+});

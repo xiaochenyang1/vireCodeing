@@ -6,6 +6,41 @@ import { orderListOrders } from '../src/data/mockData';
 import { OrderDetailScreen } from '../src/screens/OrderDetailScreen';
 
 describe('OrderDetailScreen exception case progress', () => {
+  it('treats a malformed empty exception case response as an empty list', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-empty-cases',
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({}),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <OrderDetailScreen
+          orderId={order.id}
+          now={Date.parse('2026-07-12T08:00:00.000Z')}
+          orders={[order]}
+          onBack={jest.fn()}
+          onUpdateOrder={jest.fn()}
+          onReorder={jest.fn()}
+          onEditOrder={jest.fn()}
+          platformOrderApi={platformOrderApi}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedText = renderer.root
+      .findAllByType(Text)
+      .flatMap(node => node.props.children)
+      .join(' ');
+
+    expect(renderedText).toContain('暂无异常处理工单');
+  });
+
   it('loads and renders server exception case progress independently', async () => {
     const order = {
       ...orderListOrders[0],

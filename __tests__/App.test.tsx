@@ -554,6 +554,26 @@ function createPlatformApiResponse<T>(data: T) {
   };
 }
 
+function installPlatformFetchMock(fetchMock: jest.Mock) {
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl.endsWith('/exception-cases') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [],
+          total: 0,
+        }),
+      );
+    }
+
+    return fetchMock(input, init);
+  }) as typeof fetch;
+}
+
 function createPlatformApiErrorResponse(
   status: number,
   code: string,
@@ -15620,7 +15640,7 @@ test('cancels a platform order through the shipper order api', async () => {
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15729,7 +15749,7 @@ test('keeps a platform order cancellation queued when action has no auth token',
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15860,7 +15880,7 @@ test('retries a failed platform order cancellation through the cancel api', asyn
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16007,7 +16027,7 @@ test('completes a platform order through the shipper order api', async () => {
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16127,7 +16147,7 @@ test('retries a failed platform order completion through the complete api', asyn
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16251,7 +16271,7 @@ test('updates a waiting platform order through the shipper order api', async () 
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16363,7 +16383,7 @@ test('keeps a waiting platform order update queued when publish has no auth toke
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16489,7 +16509,7 @@ test('retries a failed platform order update through the update api', async () =
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16629,7 +16649,7 @@ test('refreshes platform order detail with backend order id when opening detail'
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16760,7 +16780,7 @@ test('keeps the current platform order detail selected when refresh changes the 
     )
     .mockResolvedValueOnce(createPlatformApiResponse(refreshedPlatformOrder));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -16860,7 +16880,7 @@ test('uses platform order list query when opening a filtered status list', async
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16929,7 +16949,7 @@ test('uses platform order list query when changing order list filters', async ()
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const now = new Date('2026-07-01T08:00:00.000Z').getTime();
@@ -17031,7 +17051,7 @@ test('uses platform status collection query for the active order list filter', a
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17117,7 +17137,7 @@ test('loads the next platform order list page and appends it locally', async () 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17189,7 +17209,7 @@ test('shows a local notice when platform order list refresh fails', async () => 
     )
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17247,7 +17267,7 @@ test('shows a relogin notice when platform order list refresh has no auth token'
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17314,7 +17334,7 @@ test('clears stale platform pagination when a new order list refresh fails', asy
     )
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17409,7 +17429,7 @@ test('keeps failed local order creations when platform order list refresh succee
       createPlatformApiResponse(createPlatformDriverAcceptanceSettingsSnapshot()),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17527,7 +17547,7 @@ test('keeps platform pagination available when local failed order creations are 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17639,7 +17659,7 @@ test('keeps failed local order creations when opening a filtered platform order 
       createPlatformApiResponse(createPlatformDriverAcceptanceSettingsSnapshot()),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17761,7 +17781,7 @@ test('marks the current order sync state when platform order detail refresh fail
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -17886,7 +17906,7 @@ test('keeps platform order detail refresh queued when opening detail has no auth
     .mockResolvedValueOnce(createPlatformApiResponse(null))
     .mockResolvedValueOnce(createPlatformApiResponse(createdPlatformOrder));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -18020,7 +18040,7 @@ test('advances a platform order status through the status api', async () => {
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -18119,7 +18139,7 @@ test('retries a failed platform order status advance through the status api', as
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -18278,7 +18298,7 @@ test('reports a platform order exception through the exception api', async () =>
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -18538,7 +18558,7 @@ test('attaches platform file objects to exception report photos', async () => {
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -18659,7 +18679,7 @@ test('retries a failed platform order exception report through the exception api
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -18821,7 +18841,7 @@ test('submits a platform order evaluation through the evaluation api', async () 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -19054,7 +19074,7 @@ test('attaches platform file objects to evaluation photos', async () => {
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -19177,7 +19197,7 @@ test('retries a failed platform order evaluation through the evaluation api', as
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -19310,7 +19330,7 @@ test('submits a platform order change request through the change request api', a
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -19420,7 +19440,7 @@ test('retries a failed platform order change request through the change request 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -19753,7 +19773,7 @@ test('attaches platform file objects to identity verification photos', async () 
     const app = await renderApp(1000, {
       platformApiBaseUrl: 'http://localhost:3000/api',
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    installPlatformFetchMock(fetchMock);
 
     await loginToHomeWithPlatformAuth(app);
 
@@ -19940,7 +19960,7 @@ test('submits enterprise verification to platform from the profile center', asyn
     const app = await renderApp(1000, {
       platformApiBaseUrl: 'http://localhost:3000/api',
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    installPlatformFetchMock(fetchMock);
 
     await loginToHomeWithPlatformAuth(app);
 
@@ -20059,7 +20079,7 @@ test('logs in as a driver and loads the platform order hall', async () => {
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20145,7 +20165,7 @@ test('loads driver certification snapshot after driver login', async () => {
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20247,7 +20267,7 @@ test('submits driver identity certification from the driver home', async () => {
         vehicle: { driverId: 'driver-1', status: 'unsubmitted' },
       }),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20364,7 +20384,7 @@ test('keeps driver certification panel visible when vehicle certification submit
         '车辆认证资料不完整',
       ),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20500,7 +20520,7 @@ test('shows driver certification gate notice when quote is rejected before appro
         '司机实名和车辆认证通过后才能接单',
       ),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20623,7 +20643,7 @@ test('quotes and accepts a platform driver order from the hall', async () => {
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20737,7 +20757,7 @@ test('keeps the driver hall visible when platform order hall loading fails', asy
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20822,7 +20842,7 @@ test('loads current driver orders and advances execution status', async () => {
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });
@@ -20933,7 +20953,7 @@ test('keeps current driver order detail visible when status advance fails', asyn
         '当前司机订单状态不允许推进到目标状态',
       ),
     );
-  globalThis.fetch = fetchMock;
+  installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
   });

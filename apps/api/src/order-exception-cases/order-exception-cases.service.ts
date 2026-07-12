@@ -33,7 +33,13 @@ export class OrderExceptionCasesService {
   }
 
   async listForAdmin(query: OrderExceptionCaseListQuery) {
-    return this.repository.listAdminOrderExceptionCases(query);
+    const result = await this.repository.listAdminOrderExceptionCases(query);
+
+    return {
+      ...result,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async getForAdmin(caseId: string) {
