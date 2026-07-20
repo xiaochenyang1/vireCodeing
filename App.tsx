@@ -5,16 +5,14 @@ import {
   SafeAreaProvider,
   SafeAreaView,
 } from 'react-native-safe-area-context';
-import {
-  cargoTypeOptions,
-  fallbackSafeAreaMetrics,
-  vehicleRequirementOptions,
-} from './src/data/mockData';
+import { fallbackSafeAreaMetrics } from './src/data/mockData';
 import type {
   DraftOrderInput,
   DraftOrderPrefill,
   HomeSupportView,
   MessageCenterItem,
+  OrderCreateIdempotencyContext,
+  OrderMutationContext,
   OrderDetailReturnTarget,
   OrderListFilter,
   OrderSyncOperation,
@@ -28,6 +26,14 @@ import {
   createPrefillFromOrder,
   createSyncedOrderSyncState,
 } from './src/utils/order';
+import {
+  createFailedOrderMutationSyncState,
+  createOrderCreateContext,
+  createOrderMutationContext,
+  getOrderCreateFailureAction,
+  getOrderMutationFailureAction,
+  getOrderMutationRetryContext,
+} from './src/utils/orderMutationSync';
 import type { OrderProgressAction } from './src/utils/orderDetail';
 import {
   createFailedDraftSyncState,
@@ -57,6 +63,7 @@ import {
   getAppRuntimeState,
   hydrateAppRuntimeState,
   saveAppRuntimeState,
+  saveAppRuntimeStateDurably,
 } from './src/utils/appRuntimeState';
 import { hydrateHomeLocalState } from './src/utils/homeLocalState';
 import { useAppNavigation } from './src/navigation/appNavigation';
@@ -87,8 +94,8 @@ import {
 } from './src/services/platformAuthApi';
 import {
   createPlatformOrderApi,
-  type PlatformCreateShipperOrderRequest,
   type PlatformListShipperOrdersQuery,
+  type PlatformShipperOrder,
 } from './src/services/platformOrderApi';
 import { createPlatformOrderDraftApi } from './src/services/platformOrderDraftApi';
 import { createPlatformProfileApi } from './src/services/platformProfileApi';
@@ -96,14 +103,46 @@ import { createPlatformFrequentRoutesApi } from './src/services/platformFrequent
 import { createPlatformDriverOrderApi } from './src/services/platformDriverOrderApi';
 import { createPlatformDriverCertificationApi } from './src/services/platformDriverCertificationApi';
 import { createPlatformFileApi } from './src/services/platformFileApi';
+import {
+  createPlatformPaymentApi,
+  type PlatformPaymentSdk,
+} from './src/services/platformPaymentApi';
 import { mapPlatformOrderToRecentOrder } from './src/services/platformOrderMapper';
 import { PlatformApiError } from './src/services/platformApiClient';
 import { resolvePlatformApiBaseUrl } from './src/services/platformRuntimeConfig';
 import type { PlatformMobileUserType } from './src/services/platformAuthApi';
+import {
+  createPlatformChangeRequest,
+  createPlatformCreateOrderRequest,
+  createPlatformCreateOrderRequestFromRecentOrder,
+  createPlatformEvaluationRequest,
+  createPlatformExceptionReportRequest,
+  optionalText,
+} from './src/utils/platformOrderRequest';
+import {
+  createPlatformOrderListQuery,
+  findLocalOrderForPlatformOrder,
+  isPlatformOrderAdvanceStatus,
+  isPlatformOrderMutationOperation,
+  mergeRecentOrdersById,
+  normalizePlatformOrderListQuery,
+  shouldKeepLocalCreateOrderInPlatformList,
+  type PlatformOrderMutationOperation,
+} from './src/utils/platformOrderList';
+import {
+  areDraftPrefillsEqual,
+  createDraftPrefillFromPlatformDraft,
+  getPlatformDraftBaseUpdatedAtIso,
+  isAuthAccessTokenMissingError,
+  isOrderDraftConflictError,
+  shouldUsePlatformDraft,
+} from './src/utils/platformSyncGuards';
+import { resumePendingPlatformPayment } from './src/utils/payment';
 
 type AppProps = {
   now?: number;
   platformApiBaseUrl?: string;
+  paymentSdk?: PlatformPaymentSdk;
 };
 
 type PlatformOrderListPaging = {
@@ -119,8 +158,6 @@ const startupPlatformAuthSessionInvalidCodes = new Set([
   'AUTH_ACCESS_TOKEN_INVALID',
   'AUTH_USER_DISABLED',
 ]);
-const orderDraftConflictErrorCode = 'ORDER_DRAFT_CONFLICT';
-const authAccessTokenMissingErrorCode = 'AUTH_ACCESS_TOKEN_MISSING';
 const draftSaveConflictNoticeText =
   '服务端草稿已被其他设备更新，已保留本地草稿，请处理冲突。';
 const draftSaveConflictSyncMessage =
@@ -137,6 +174,43 @@ function shouldClearAuthSessionAfterStartupPlatformAuthError(error: unknown) {
     error instanceof PlatformApiError &&
     startupPlatformAuthSessionInvalidCodes.has(error.code)
   );
+}
+
+function createPlatformOrderCreateFailure(
+  error: unknown,
+  createContext: OrderCreateIdempotencyContext,
+  now: number,
+  fallbackMessage: string,
+) {
+  const failureAction = getOrderCreateFailureAction(error);
+
+  if (failureAction === 'retry') {
+    return {
+      shouldRefresh: false,
+      syncState: createFailedOrderSyncState(
+        fallbackMessage,
+        'create',
+        now,
+        { createContext },
+      ),
+    };
+  }
+
+  const message =
+    failureAction === 'contract-error'
+      ? '平台创建接口返回契约异常（ORDER_CONFLICT），已停止自动重试并保留本地订单。'
+      : error instanceof PlatformApiError &&
+          error.code === 'IDEMPOTENCY_KEY_REUSED'
+        ? '平台发布凭证与原请求不一致，已刷新平台订单；自动重试已停止，请确认后重新发布。'
+        : '平台发布凭证已过期，已刷新平台订单；自动重试已停止，请确认后重新发布。';
+
+  return {
+    shouldRefresh: failureAction === 'refresh',
+    syncState: createFailedOrderSyncState(message, 'create', now, {
+      createContext,
+      retryBlocked: true,
+    }),
+  };
 }
 
 function mergePlatformOrderWithLocalRuntimeState(
@@ -169,7 +243,11 @@ function mergePlatformOrderWithLocalRuntimeState(
   };
 }
 
-function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
+function App({
+  now = Date.now(),
+  platformApiBaseUrl,
+  paymentSdk,
+}: AppProps = {}) {
   const nowRef = useRef(now);
   nowRef.current = now;
   const isDarkMode = useColorScheme() === 'dark';
@@ -189,6 +267,16 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     () =>
       resolvedPlatformApiBaseUrl
         ? createPlatformOrderApi({
+            baseUrl: resolvedPlatformApiBaseUrl,
+            getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
+          })
+        : undefined,
+    [resolvedPlatformApiBaseUrl],
+  );
+  const platformPaymentApi = useMemo(
+    () =>
+      resolvedPlatformApiBaseUrl
+        ? createPlatformPaymentApi({
             baseUrl: resolvedPlatformApiBaseUrl,
             getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
           })
@@ -256,6 +344,8 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     [resolvedPlatformApiBaseUrl],
   );
   const [isHydrated, setIsHydrated] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] =
+    useState<PlatformAuthenticatedUser>();
   const {
     screen,
     orderListFilter: initialOrderFilter,
@@ -353,11 +443,20 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         try {
           const currentUser = await platformAuthApi.getMe();
           startupUserType = currentUser.userType;
+          setAuthenticatedUser(currentUser);
           syncPlatformAuthenticatedProfile(currentUser);
         } catch (error) {
           if (shouldClearAuthSessionAfterStartupPlatformAuthError(error)) {
             clearAuthSession();
           }
+        }
+      }
+
+      if (platformPaymentApi && getAuthSessionSnapshot()?.accessToken) {
+        try {
+          await resumePendingPlatformPayment({ api: platformPaymentApi });
+        } catch {
+          // Keep the pending record so the next cold start or manual refresh can retry.
         }
       }
 
@@ -411,7 +510,13 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [now, platformAuthApi, resetScreen, syncPlatformAuthenticatedProfile]);
+  }, [
+    now,
+    platformAuthApi,
+    platformPaymentApi,
+    resetScreen,
+    syncPlatformAuthenticatedProfile,
+  ]);
 
   const openHome = (supportView: HomeSupportView = 'home') => {
     navigateHome(supportView);
@@ -430,11 +535,136 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     });
   };
 
+  const applyPlatformOrderSnapshot = (
+    orderId: string,
+    platformOrder: PlatformShipperOrder,
+    overrides: Partial<RecentOrder> = {},
+    syncStateOverride?: RecentOrder['syncState'],
+  ) => {
+    const platformRecentOrder = mapPlatformOrderToRecentOrder(platformOrder);
+
+    setOrders(currentOrders => {
+      const nextOrders = currentOrders.map(currentOrder =>
+        currentOrder.id === orderId
+          ? {
+              ...mergePlatformOrderWithLocalRuntimeState(
+                platformRecentOrder,
+                currentOrder,
+              ),
+              ...overrides,
+              ...(syncStateOverride ? { syncState: syncStateOverride } : {}),
+            }
+          : currentOrder,
+      );
+      persistRuntimeState({ nextOrders });
+      return nextOrders;
+    });
+    setSelectedOrderId(currentSelectedOrderId =>
+      currentSelectedOrderId === orderId
+        ? platformRecentOrder.id
+        : currentSelectedOrderId,
+    );
+
+    return platformRecentOrder;
+  };
+
+  const refreshPlatformOrderAfterMutationFailure = async (
+    orderId: string,
+    platformOrderId: string,
+    successMessage: string,
+    failureMessage: string,
+  ) => {
+    if (!platformOrderApi) {
+      updateOrder(orderId, {
+        syncState: createFailedOrderSyncState(
+          failureMessage,
+          'refresh',
+          nowRef.current,
+        ),
+      });
+      return;
+    }
+
+    try {
+      const latestPlatformOrder = await platformOrderApi.getOrder(platformOrderId);
+
+      applyPlatformOrderSnapshot(
+        orderId,
+        latestPlatformOrder,
+        {},
+        createSyncedOrderSyncState(successMessage, 'refresh', nowRef.current),
+      );
+    } catch {
+      updateOrder(orderId, {
+        syncState: createFailedOrderSyncState(
+          failureMessage,
+          'refresh',
+          nowRef.current,
+        ),
+      });
+    }
+  };
+
+  const handlePlatformOrderMutationFailure = async ({
+    error,
+    order,
+    operation,
+    message,
+    mutationContext,
+    changes,
+  }: {
+    error: unknown;
+    order: RecentOrder;
+    operation: PlatformOrderMutationOperation;
+    message: string;
+    mutationContext: OrderMutationContext;
+    changes?: Partial<RecentOrder>;
+  }) => {
+    const failureAction = getOrderMutationFailureAction(error);
+
+    if (
+      failureAction === 'refresh' &&
+      order.platformOrderId
+    ) {
+      await refreshPlatformOrderAfterMutationFailure(
+        order.id,
+        order.platformOrderId,
+        '平台订单已被其他操作更新，已刷新最新详情，请重新发起操作。',
+        '平台订单已被其他操作更新，刷新最新详情失败，请重试刷新后重新发起操作。',
+      );
+      return;
+    }
+
+    if (
+      failureAction === 'reinitiate' &&
+      order.platformOrderId
+    ) {
+      await refreshPlatformOrderAfterMutationFailure(
+        order.id,
+        order.platformOrderId,
+        '当前重试凭证已失效，已刷新最新详情，请重新发起操作。',
+        '当前重试凭证已失效，刷新最新详情失败，请重试刷新后重新发起操作。',
+      );
+      return;
+    }
+
+    updateOrder(order.id, {
+      ...(changes ?? {}),
+      syncState: createFailedOrderMutationSyncState(
+        message,
+        operation,
+        mutationContext,
+        nowRef.current,
+      ),
+    });
+  };
+
   const handleAuthenticated = (
     tokens?: PlatformAuthTokens,
     user?: PlatformAuthenticatedUser,
   ) => {
     saveAuthSession(now, tokens);
+    setAuthenticatedUser(user);
     syncPlatformAuthenticatedProfile(user);
     const nextUserType = user?.userType ?? 'shipper';
     if (nextUserType === 'driver') {
@@ -463,6 +693,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     }
 
     clearAuthSession();
+    setAuthenticatedUser(undefined);
     setNetworkNotice('');
     goAuth();
   };
@@ -1083,13 +1314,24 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
 
     if (editingOrderId) {
       const previousOrder = orders.find(order => order.id === editingOrderId);
-      const localOrderChanges = createOrderUpdateFromDraft(draftOrder, now);
+      const mutationContext =
+        previousOrder?.platformOrderId
+          ? createOrderMutationContext(
+              previousOrder.updatedAtIso ?? previousOrder.createdAtIso,
+            )
+          : undefined;
+      const localOrderChanges = createOrderUpdateFromDraft(
+        draftOrder,
+        now,
+        mutationContext ? { mutationContext } : undefined,
+      );
 
       if (
         previousOrder &&
         platformOrderApi &&
         getAuthSessionSnapshot()?.accessToken &&
-        previousOrder.platformOrderId
+        previousOrder.platformOrderId &&
+        mutationContext
       ) {
         const editedLocalOrder = {
           ...previousOrder,
@@ -1099,19 +1341,16 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         try {
           const platformOrder = await platformOrderApi.updateOrder(
             previousOrder.platformOrderId,
-            createPlatformCreateOrderRequest(draftOrder, editedLocalOrder),
+            {
+              ...createPlatformCreateOrderRequest(draftOrder, editedLocalOrder),
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+            mutationContext.idempotencyKey,
           );
-          const updatedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(order =>
-              order.id === editingOrderId
-                ? mergePlatformOrderWithLocalRuntimeState(updatedOrder, order)
-                : order,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
-          });
+          const updatedOrder = applyPlatformOrderSnapshot(
+            editingOrderId,
+            platformOrder,
+          );
           syncLocalCouponUsage(draftOrder, updatedOrder.id, previousOrder.couponId);
           removeSavedDraft();
           setDraftConflictPlatformPrefill(undefined);
@@ -1119,16 +1358,25 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
           setSelectedOrderId(updatedOrder.id);
           goOrderDetail('home');
           return;
-        } catch {
-          updateOrder(editingOrderId, {
-            ...localOrderChanges,
-            syncState: createFailedOrderSyncState(
-              '平台订单修改失败，已保留本地修改记录。',
-              'update',
-              nowRef.current,
-            ),
+        } catch (error) {
+          const failureAction = getOrderMutationFailureAction(error);
+
+          await handlePlatformOrderMutationFailure({
+            error,
+            order: previousOrder,
+            operation: 'update',
+            message: '平台订单修改失败，已保留本地修改记录。',
+            mutationContext,
+            changes: localOrderChanges,
           });
-          syncLocalCouponUsage(draftOrder, editingOrderId, previousOrder.couponId);
+
+          if (failureAction === 'retry') {
+            syncLocalCouponUsage(
+              draftOrder,
+              editingOrderId,
+              previousOrder.couponId,
+            );
+          }
           removeSavedDraft();
           setDraftConflictPlatformPrefill(undefined);
           setDraftPrefill(undefined);
@@ -1142,13 +1390,15 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         previousOrder &&
         platformOrderApi &&
         previousOrder.platformOrderId &&
-        !getAuthSessionSnapshot()?.accessToken
+        !getAuthSessionSnapshot()?.accessToken &&
+        mutationContext
       ) {
         updateOrder(editingOrderId, {
           ...localOrderChanges,
-          syncState: createFailedOrderSyncState(
+          syncState: createFailedOrderMutationSyncState(
             '平台订单修改需要重新登录后再同步。',
             'update',
+            mutationContext,
             nowRef.current,
           ),
         });
@@ -1171,51 +1421,105 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       return;
     }
 
-    const localOrder = createLocalOrder(draftOrder, orders, now);
-    let order = localOrder;
+    const createContext = createOrderCreateContext();
+    const localOrder = createLocalOrder(draftOrder, orders, now, {
+      createContext,
+    });
+    const hasPlatformAccessToken = Boolean(
+      getAuthSessionSnapshot()?.accessToken,
+    );
+    const pendingOrder =
+      platformOrderApi && !hasPlatformAccessToken
+        ? {
+            ...localOrder,
+            syncState: createFailedOrderSyncState(
+              '平台订单发布需要重新登录后再同步。',
+              'create',
+              nowRef.current,
+              { createContext },
+            ),
+          }
+        : localOrder;
+    const durableOrders = [pendingOrder, ...orders];
 
-    if (platformOrderApi && !getAuthSessionSnapshot()?.accessToken) {
-      order = {
-        ...localOrder,
+    setOrders(durableOrders);
+    syncLocalCouponUsage(draftOrder, pendingOrder.id);
+    removeSavedDraft();
+    setDraftConflictPlatformPrefill(undefined);
+    setDraftPrefill(undefined);
+    setSelectedOrderId(pendingOrder.id);
+    goOrderDetail('home');
+
+    try {
+      await saveAppRuntimeStateDurably({
+        orders: durableOrders,
+        messages,
+      });
+    } catch {
+      const failedOrder = {
+        ...pendingOrder,
         syncState: createFailedOrderSyncState(
-          '平台订单发布需要重新登录后再同步。',
+          '本地订单安全保存失败，未发送平台发布请求。',
           'create',
           nowRef.current,
+          { createContext },
         ),
       };
-    } else if (platformOrderApi && getAuthSessionSnapshot()?.accessToken) {
+      const failedOrders = [failedOrder, ...orders];
+
+      setOrders(failedOrders);
+      saveAppRuntimeState({ orders: failedOrders, messages });
+      return;
+    }
+
+    let order = pendingOrder;
+    let shouldRefreshAfterCreateFailure = false;
+
+    if (platformOrderApi && hasPlatformAccessToken) {
       try {
         const platformOrder = await platformOrderApi.createOrder(
           createPlatformCreateOrderRequest(draftOrder, localOrder),
+          createContext.idempotencyKey,
         );
 
         order = mergePlatformOrderWithLocalRuntimeState(
           mapPlatformOrderToRecentOrder(platformOrder),
           localOrder,
         );
-      } catch {
+      } catch (error) {
+        const failure = createPlatformOrderCreateFailure(
+          error,
+          createContext,
+          nowRef.current,
+          '平台订单接口不可用，已保留本地待同步订单。',
+        );
+
+        shouldRefreshAfterCreateFailure = failure.shouldRefresh;
         order = {
           ...localOrder,
-          syncState: createFailedOrderSyncState(
-            '平台订单接口不可用，已保留本地待同步订单。',
-            'create',
-            nowRef.current,
-          ),
+          syncState: failure.syncState,
         };
       }
-    }
 
-    setOrders(currentOrders => {
-      const nextOrders = [order, ...currentOrders];
-      persistRuntimeState({ nextOrders });
-      return nextOrders;
-    });
-    syncLocalCouponUsage(draftOrder, order.id);
-    removeSavedDraft();
-    setDraftConflictPlatformPrefill(undefined);
-    setDraftPrefill(undefined);
-    setSelectedOrderId(order.id);
-    goOrderDetail('home');
+      setOrders(currentOrders => {
+        const nextOrders = currentOrders.map(currentOrder =>
+          currentOrder.id === localOrder.id ? order : currentOrder,
+        );
+        persistRuntimeState({ nextOrders });
+        return nextOrders;
+      });
+      if (order.id !== localOrder.id) {
+        syncLocalCouponUsage(draftOrder, order.id);
+        setSelectedOrderId(currentSelectedOrderId =>
+          currentSelectedOrderId === localOrder.id
+            ? order.id
+            : currentSelectedOrderId,
+        );
+      }
+      if (shouldRefreshAfterCreateFailure) {
+        refreshPlatformOrders({ page: 1, pageSize: 20 });
+      }
+    }
   };
 
   const syncLocalCouponUsage = (
@@ -1282,14 +1586,54 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       return;
     }
 
+    const retryOperation = order.syncState?.operation;
+    const retryCreateContext: OrderCreateIdempotencyContext | undefined =
+      retryOperation === 'create' ? order.syncState?.createContext : undefined;
+    const retryMutationContext =
+      order.platformOrderId && isPlatformOrderMutationOperation(retryOperation)
+        ? getOrderMutationRetryContext(order)
+        : undefined;
+
+    if (retryOperation === 'create' && order.syncState?.retryBlocked) {
+      return;
+    }
+
     if (!getAuthSessionSnapshot()?.accessToken) {
       updateOrder(order.id, {
+        syncState:
+          retryMutationContext && retryOperation
+            ? createFailedOrderMutationSyncState(
+                '平台订单重试需要重新登录后再同步。',
+                retryOperation,
+                retryMutationContext,
+                nowRef.current,
+              )
+            : retryOperation === 'create' && retryCreateContext
+              ? createFailedOrderSyncState(
+                  '平台订单重试需要重新登录后再同步。',
+                  'create',
+                  nowRef.current,
+                  { createContext: retryCreateContext },
+                )
+            : createFailedOrderSyncState(
+                '平台订单重试需要重新登录后再同步。',
+                retryOperation ?? 'local',
+                nowRef.current,
+              ),
+      });
+      return;
+    }
+
+    if (retryOperation === 'create' && !retryCreateContext) {
+      updateOrder(order.id, {
         syncState: createFailedOrderSyncState(
-          '平台订单重试需要重新登录后再同步。',
-          order.syncState?.operation ?? 'local',
+          '旧创建记录缺少安全重试凭证，已刷新平台订单，请人工确认后作为新订单发布。',
+          'create',
           nowRef.current,
+          { retryBlocked: true },
         ),
       });
+      refreshPlatformOrders({ page: 1, pageSize: 20 });
       return;
     }
 
@@ -1297,26 +1641,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       platformOrderApi
         .getOrder(order.platformOrderId)
         .then(platformOrder => {
-          const refreshedPlatformOrder =
-            mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? mergePlatformOrderWithLocalRuntimeState(
-                    refreshedPlatformOrder,
-                    currentOrder,
-                  )
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
-          });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? refreshedPlatformOrder.id
-              : currentSelectedOrderId,
-          );
+          applyPlatformOrderSnapshot(order.id, platformOrder);
         })
         .catch(() => {
           updateOrder(order.id, {
@@ -1330,41 +1655,31 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       return;
     }
 
-    if (order.syncState?.operation === 'update' && order.platformOrderId) {
+    if (
+      order.syncState?.operation === 'update' &&
+      order.platformOrderId &&
+      retryMutationContext
+    ) {
       platformOrderApi
         .updateOrder(
           order.platformOrderId,
-          createPlatformCreateOrderRequestFromRecentOrder(order),
+          {
+            ...createPlatformCreateOrderRequestFromRecentOrder(order),
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+          },
+          retryMutationContext.idempotencyKey,
         )
         .then(platformOrder => {
-          const syncedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? mergePlatformOrderWithLocalRuntimeState(
-                    syncedOrder,
-                    currentOrder,
-                  )
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
-          });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? syncedOrder.id
-              : currentSelectedOrderId,
-          );
+          applyPlatformOrderSnapshot(order.id, platformOrder);
         })
-        .catch(() => {
-          updateOrder(order.id, {
-            syncState: createFailedOrderSyncState(
-              '平台订单修改重试失败，已继续保留本地修改记录。',
-              'update',
-              nowRef.current,
-            ),
-          });
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'update',
+            message: '平台订单修改重试失败，已继续保留本地修改记录。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
         });
       return;
     }
@@ -1372,82 +1687,60 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     if (
       order.syncState?.operation === 'cancel' &&
       order.platformOrderId &&
-      order.cancellation
+      order.cancellation &&
+      retryMutationContext
     ) {
       platformOrderApi
-        .cancelOrder(order.platformOrderId, {
-          reasonText: order.cancellation.reasonText,
-          description: optionalText(order.cancellation.description),
-        })
+        .cancelOrder(
+          order.platformOrderId,
+          {
+            reasonText: order.cancellation.reasonText,
+            description: optionalText(order.cancellation.description),
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+          },
+          retryMutationContext.idempotencyKey,
+        )
         .then(platformOrder => {
-          const cancelledPlatformOrder =
-            mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? {
-                    ...mergePlatformOrderWithLocalRuntimeState(
-                      cancelledPlatformOrder,
-                      currentOrder,
-                    ),
-                    cancellation: order.cancellation,
-                  }
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
+          applyPlatformOrderSnapshot(order.id, platformOrder, {
+            cancellation: order.cancellation,
           });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? cancelledPlatformOrder.id
-              : currentSelectedOrderId,
-          );
         })
-        .catch(() => {
-          updateOrder(order.id, {
-            syncState: createFailedOrderSyncState(
-              '平台订单取消重试失败，已继续保留本地取消记录。',
-              'cancel',
-              nowRef.current,
-            ),
-          });
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'cancel',
+            message: '平台订单取消重试失败，已继续保留本地取消记录。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
         });
       return;
     }
 
-    if (order.syncState?.operation === 'complete' && order.platformOrderId) {
+    if (
+      order.syncState?.operation === 'complete' &&
+      order.platformOrderId &&
+      retryMutationContext
+    ) {
       platformOrderApi
-        .completeOrder(order.platformOrderId)
+        .completeOrder(
+          order.platformOrderId,
+          {
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+          },
+          retryMutationContext.idempotencyKey,
+        )
         .then(platformOrder => {
-          const completedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? mergePlatformOrderWithLocalRuntimeState(
-                    completedOrder,
-                    currentOrder,
-                  )
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
-          });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? completedOrder.id
-              : currentSelectedOrderId,
-          );
+          applyPlatformOrderSnapshot(order.id, platformOrder);
         })
-        .catch(() => {
-          updateOrder(order.id, {
-            syncState: createFailedOrderSyncState(
-              '平台订单确认送达重试失败，已继续保留本地完成记录。',
-              'complete',
-              nowRef.current,
-            ),
-          });
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'complete',
+            message: '平台订单确认送达重试失败，已继续保留本地完成记录。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
         });
       return;
     }
@@ -1455,41 +1748,29 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     if (
       order.syncState?.operation === 'status' &&
       order.platformOrderId &&
-      isPlatformOrderAdvanceStatus(order.status)
+      isPlatformOrderAdvanceStatus(order.status) &&
+      retryMutationContext
     ) {
       platformOrderApi
-        .advanceOrderStatus(order.platformOrderId, {
-          nextStatus: order.status,
-        })
+        .advanceOrderStatus(
+          order.platformOrderId,
+          {
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+            nextStatus: order.status,
+          },
+          retryMutationContext.idempotencyKey,
+        )
         .then(platformOrder => {
-          const syncedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? mergePlatformOrderWithLocalRuntimeState(
-                    syncedOrder,
-                    currentOrder,
-                  )
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
-          });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? syncedOrder.id
-              : currentSelectedOrderId,
-          );
+          applyPlatformOrderSnapshot(order.id, platformOrder);
         })
-        .catch(() => {
-          updateOrder(order.id, {
-            syncState: createFailedOrderSyncState(
-              '平台订单状态推进重试失败，已继续保留本地状态变更。',
-              'status',
-              nowRef.current,
-            ),
-          });
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'status',
+            message: '平台订单状态推进重试失败，已继续保留本地状态变更。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
         });
       return;
     }
@@ -1635,8 +1916,22 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       return;
     }
 
+    if (retryOperation !== 'create' || !retryCreateContext) {
+      updateOrder(order.id, {
+        syncState: createFailedOrderSyncState(
+          '当前同步记录不支持自动创建重试，请重新发起操作。',
+          retryOperation ?? 'local',
+          nowRef.current,
+        ),
+      });
+      return;
+    }
+
     platformOrderApi
-      .createOrder(createPlatformCreateOrderRequestFromRecentOrder(order))
+      .createOrder(
+        createPlatformCreateOrderRequestFromRecentOrder(order),
+        retryCreateContext.idempotencyKey,
+      )
       .then(platformOrder => {
         const syncedOrder = mapPlatformOrderToRecentOrder(platformOrder);
 
@@ -1658,14 +1953,20 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
             : currentSelectedOrderId,
         );
       })
-      .catch(() => {
+      .catch(error => {
+        const failure = createPlatformOrderCreateFailure(
+          error,
+          retryCreateContext,
+          nowRef.current,
+          '平台订单同步重试失败，已继续保留本地待同步订单。',
+        );
+
         updateOrder(order.id, {
-          syncState: createFailedOrderSyncState(
-            '平台订单同步重试失败，已继续保留本地待同步订单。',
-            'create',
-            nowRef.current,
-          ),
+          syncState: failure.syncState,
         });
+        if (failure.shouldRefresh) {
+          refreshPlatformOrders({ page: 1, pageSize: 20 });
+        }
       });
   };
 
@@ -1681,14 +1982,23 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     changes: Partial<RecentOrder>,
     operation: OrderSyncOperation,
     actionText: string,
+    mutationContext?: OrderMutationContext,
   ) => {
     updateOrder(order.id, {
       ...changes,
-      syncState: createFailedOrderSyncState(
-        `平台订单${actionText}需要重新登录后再同步。`,
-        operation,
-        nowRef.current,
-      ),
+      syncState:
+        mutationContext && isPlatformOrderMutationOperation(operation)
+          ? createFailedOrderMutationSyncState(
+              `平台订单${actionText}需要重新登录后再同步。`,
+              operation,
+              mutationContext,
+              nowRef.current,
+            )
+          : createFailedOrderSyncState(
+              `平台订单${actionText}需要重新登录后再同步。`,
+              operation,
+              nowRef.current,
+            ),
     });
   };
 
@@ -1911,6 +2221,9 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       updatedAtText: progressAction.updatedAtText,
       updatedAtIso: new Date(nowRef.current).toISOString(),
     };
+    const mutationContext = createOrderMutationContext(
+      order.updatedAtIso ?? order.createdAtIso,
+    );
 
     if (isPlatformOrderActionMissingAuth(order)) {
       keepPlatformOrderActionQueuedUntilLogin(
@@ -1918,6 +2231,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         localStatusChanges,
         'status',
         '状态推进',
+        mutationContext,
       );
       return;
     }
@@ -1933,39 +2247,26 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     }
 
     platformOrderApi
-      .advanceOrderStatus(order.platformOrderId, {
-        nextStatus: progressAction.nextStatus,
-      })
+      .advanceOrderStatus(
+        order.platformOrderId,
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          nextStatus: progressAction.nextStatus,
+        },
+        mutationContext.idempotencyKey,
+      )
       .then(platformOrder => {
-        const advancedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? mergePlatformOrderWithLocalRuntimeState(
-                  advancedOrder,
-                  currentOrder,
-                )
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
-        });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? advancedOrder.id
-            : currentSelectedOrderId,
-        );
+        applyPlatformOrderSnapshot(order.id, platformOrder);
       })
-      .catch(() => {
-        updateOrder(order.id, {
-          ...localStatusChanges,
-          syncState: createFailedOrderSyncState(
-            '平台订单状态推进失败，已保留本地状态变更。',
-            'status',
-            nowRef.current,
-          ),
-        });
+      .catch(error => {
+        handlePlatformOrderMutationFailure({
+          error,
+          order,
+          operation: 'status',
+          message: '平台订单状态推进失败，已保留本地状态变更。',
+          mutationContext,
+          changes: localStatusChanges,
+        }).catch(() => undefined);
       });
   };
 
@@ -1979,6 +2280,9 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       updatedAtIso: new Date(nowRef.current).toISOString(),
       cancellation,
     };
+    const mutationContext = createOrderMutationContext(
+      order.updatedAtIso ?? order.createdAtIso,
+    );
 
     if (isPlatformOrderActionMissingAuth(order)) {
       keepPlatformOrderActionQueuedUntilLogin(
@@ -1986,6 +2290,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         localCancellationChanges,
         'cancel',
         '取消',
+        mutationContext,
       );
       return;
     }
@@ -2000,44 +2305,29 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     }
 
     platformOrderApi
-      .cancelOrder(order.platformOrderId, {
-        reasonText: cancellation.reasonText,
-        description: optionalText(cancellation.description),
-      })
+      .cancelOrder(
+        order.platformOrderId,
+        {
+          reasonText: cancellation.reasonText,
+          description: optionalText(cancellation.description),
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        },
+        mutationContext.idempotencyKey,
+      )
       .then(platformOrder => {
-        const cancelledPlatformOrder =
-          mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? {
-                  ...mergePlatformOrderWithLocalRuntimeState(
-                    cancelledPlatformOrder,
-                    currentOrder,
-                  ),
-                  cancellation,
-                }
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
+        applyPlatformOrderSnapshot(order.id, platformOrder, {
+          cancellation,
         });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? cancelledPlatformOrder.id
-            : currentSelectedOrderId,
-        );
       })
-      .catch(() => {
-        updateOrder(order.id, {
-          ...localCancellationChanges,
-          syncState: createFailedOrderSyncState(
-            '平台订单取消失败，已保留本地取消记录。',
-            'cancel',
-            nowRef.current,
-          ),
-        });
+      .catch(error => {
+        handlePlatformOrderMutationFailure({
+          error,
+          order,
+          operation: 'cancel',
+          message: '平台订单取消失败，已保留本地取消记录。',
+          mutationContext,
+          changes: localCancellationChanges,
+        }).catch(() => undefined);
       });
   };
 
@@ -2047,6 +2337,9 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       updatedAtText: '订单已完成 · 刚刚',
       updatedAtIso: new Date(nowRef.current).toISOString(),
     };
+    const mutationContext = createOrderMutationContext(
+      order.updatedAtIso ?? order.createdAtIso,
+    );
 
     if (isPlatformOrderActionMissingAuth(order)) {
       keepPlatformOrderActionQueuedUntilLogin(
@@ -2054,6 +2347,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
         localCompletionChanges,
         'complete',
         '确认送达',
+        mutationContext,
       );
       return;
     }
@@ -2068,37 +2362,25 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
     }
 
     platformOrderApi
-      .completeOrder(order.platformOrderId)
+      .completeOrder(
+        order.platformOrderId,
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        },
+        mutationContext.idempotencyKey,
+      )
       .then(platformOrder => {
-        const completedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? mergePlatformOrderWithLocalRuntimeState(
-                  completedOrder,
-                  currentOrder,
-                )
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
-        });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? completedOrder.id
-            : currentSelectedOrderId,
-        );
+        applyPlatformOrderSnapshot(order.id, platformOrder);
       })
-      .catch(() => {
-        updateOrder(order.id, {
-          ...localCompletionChanges,
-          syncState: createFailedOrderSyncState(
-            '平台订单确认送达失败，已保留本地完成记录。',
-            'complete',
-            nowRef.current,
-          ),
-        });
+      .catch(error => {
+        handlePlatformOrderMutationFailure({
+          error,
+          order,
+          operation: 'complete',
+          message: '平台订单确认送达失败，已保留本地完成记录。',
+          mutationContext,
+          changes: localCompletionChanges,
+        }).catch(() => undefined);
       });
   };
 
@@ -2148,6 +2430,7 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
             platformDriverOrderApi={platformDriverOrderApi}
             platformDriverCertificationApi={platformDriverCertificationApi}
             platformFileApi={platformFileApi}
+            driverAccountId={authenticatedUser?.id}
             onLogout={handleLogout}
           />
         ) : screen === 'network-error' ? (
@@ -2188,6 +2471,8 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
             onSubmitEvaluation={submitOrderEvaluationFromDetail}
             platformFileApi={platformFileApi}
             platformOrderApi={platformOrderApi}
+            platformPaymentApi={platformPaymentApi}
+            platformPaymentSdk={paymentSdk}
           />
         ) : screen === 'orders' ? (
           <OrdersScreen
@@ -2239,385 +2524,6 @@ function App({ now = Date.now(), platformApiBaseUrl }: AppProps = {}) {
       </SafeAreaView>
     </SafeAreaProvider>
   );
-}
-
-function createPlatformCreateOrderRequest(
-  draftOrder: DraftOrderInput,
-  localOrder: RecentOrder,
-): PlatformCreateShipperOrderRequest {
-  const pricingFields = createPlatformPricingFields({
-    pricingMode: draftOrder.pricingMode,
-    priceText: draftOrder.priceText,
-    couponId: draftOrder.couponId,
-    couponTitleText: draftOrder.couponTitleText,
-    couponDiscountText: draftOrder.couponDiscountText,
-    payablePriceText: draftOrder.payablePriceText,
-  });
-
-  return {
-    cargoType: draftOrder.cargoType,
-    weightText: draftOrder.weightText,
-    volumeText: optionalText(draftOrder.volumeText),
-    quantityText: draftOrder.quantityText,
-    cargoDescription: optionalText(draftOrder.cargoDescription),
-    cargoPhotoCount: draftOrder.cargoPhotoCount,
-    ...createPlatformCargoPhotoFileIdFields(draftOrder.cargoPhotoFiles),
-    pickupAddress: draftOrder.pickupAddress,
-    pickupNoteText: optionalText(draftOrder.pickupNoteText),
-    pickupContact: draftOrder.pickupContact,
-    pickupPhone: draftOrder.pickupPhone,
-    deliveryAddress: draftOrder.deliveryAddress,
-    deliveryNoteText: optionalText(draftOrder.deliveryNoteText),
-    deliveryContact: draftOrder.deliveryContact,
-    deliveryPhone: draftOrder.deliveryPhone,
-    vehicleRequirement: draftOrder.vehicleRequirement,
-    vehicleLengthText: localOrder.vehicleLengthText,
-    needTailboard: draftOrder.needTailboard,
-    needTarp: draftOrder.needTarp,
-    pickupTimeIso: localOrder.pickupTimeIso ?? new Date().toISOString(),
-    expectedDeliveryTimeText: optionalText(draftOrder.expectedDeliveryTimeText),
-    valueAddedServicesText: localOrder.valueAddedServicesText,
-    pricingMode: draftOrder.pricingMode,
-    ...pricingFields,
-    paymentMethod: draftOrder.paymentMethod,
-  };
-}
-
-function createPlatformCreateOrderRequestFromRecentOrder(
-  order: RecentOrder,
-): PlatformCreateShipperOrderRequest {
-  const pricingMode =
-    order.priceText === '司机报价' ? 'negotiable' : 'fixed';
-  const pricingFields = createPlatformPricingFields({
-    pricingMode,
-    priceText: order.originalPriceText ?? order.priceText,
-    couponId: order.couponId,
-    couponTitleText: order.couponTitleText,
-    couponDiscountText: order.couponDiscountText,
-    payablePriceText: order.payablePriceText,
-  });
-
-  return {
-    cargoType: getPlatformCargoTypeId(order.cargoType),
-    weightText: order.weightText,
-    volumeText: optionalText(order.volumeText),
-    quantityText: order.quantityText ?? '1 件',
-    cargoDescription: optionalText(order.cargoDescription),
-    cargoPhotoCount: order.cargoPhotoCount,
-    ...createPlatformCargoPhotoFileIdFields(order.cargoPhotoFiles),
-    pickupAddress: order.from,
-    pickupNoteText: optionalText(order.pickupNoteText),
-    pickupContact: order.pickupContact ?? '',
-    pickupPhone: order.pickupPhone ?? '',
-    deliveryAddress: order.to,
-    deliveryNoteText: optionalText(order.deliveryNoteText),
-    deliveryContact: order.deliveryContact ?? '',
-    deliveryPhone: order.deliveryPhone ?? '',
-    vehicleRequirement: getPlatformVehicleRequirementId(order.vehicleRequirement),
-    vehicleLengthText: optionalText(order.vehicleLengthText),
-    needTailboard: Boolean(
-      order.vehicleExtraRequirementsText?.includes('需要尾板'),
-    ),
-    needTarp: Boolean(order.vehicleExtraRequirementsText?.includes('需要篷布')),
-    pickupTimeIso:
-      order.pickupTimeIso ?? order.createdAtIso ?? new Date().toISOString(),
-    expectedDeliveryTimeText: optionalText(order.expectedDeliveryTimeText),
-    valueAddedServicesText: optionalText(order.valueAddedServicesText),
-    pricingMode,
-    ...pricingFields,
-    paymentMethod:
-      order.paymentMethodText === '在线支付' ? 'online' : 'cod',
-  };
-}
-
-function createPlatformPricingFields({
-  pricingMode,
-  priceText,
-  couponId,
-  couponTitleText,
-  couponDiscountText,
-  payablePriceText,
-}: {
-  pricingMode: DraftOrderInput['pricingMode'];
-  priceText?: string;
-  couponId?: string;
-  couponTitleText?: string;
-  couponDiscountText?: string;
-  payablePriceText?: string;
-}): Pick<
-  PlatformCreateShipperOrderRequest,
-  | 'priceCents'
-  | 'couponId'
-  | 'couponTitle'
-  | 'couponDiscountCents'
-  | 'payablePriceCents'
-> {
-  if (pricingMode !== 'fixed') {
-    return {};
-  }
-
-  const couponDiscountCents = parseMoneyCents(couponDiscountText);
-  const payablePriceCents = parseMoneyCents(payablePriceText);
-  const couponTitle = optionalText(couponTitleText);
-  const activeCouponId = optionalText(couponId);
-  const couponFields =
-    activeCouponId &&
-    couponTitle &&
-    couponDiscountCents !== undefined &&
-    payablePriceCents !== undefined
-      ? {
-          couponId: activeCouponId,
-          couponTitle,
-          couponDiscountCents,
-          payablePriceCents,
-        }
-      : {};
-
-  return {
-    priceCents: parseMoneyCents(priceText),
-    ...couponFields,
-  };
-}
-
-function createPlatformExceptionReportRequest(
-  exceptionReport: NonNullable<RecentOrder['exceptionReport']>,
-) {
-  return {
-    typeLabel: exceptionReport.typeLabel,
-    description: exceptionReport.description,
-    ...(exceptionReport.photoCount && exceptionReport.photoCount > 0
-      ? { photoCount: exceptionReport.photoCount }
-      : {}),
-    ...createPlatformPhotoFileIdFields(exceptionReport.photoFiles),
-  };
-}
-
-function createPlatformChangeRequest(
-  modificationRequest: NonNullable<RecentOrder['modificationRequest']>,
-) {
-  return {
-    description: modificationRequest.description,
-  };
-}
-
-function createPlatformEvaluationRequest(
-  evaluation: NonNullable<RecentOrder['evaluation']>,
-) {
-  return {
-    rating: evaluation.rating,
-    tags: evaluation.tags,
-    content: evaluation.content,
-    anonymous: Boolean(evaluation.anonymous),
-    ...(evaluation.photoCount && evaluation.photoCount > 0
-      ? { photoCount: evaluation.photoCount }
-      : {}),
-    ...createPlatformPhotoFileIdFields(evaluation.photoFiles),
-  };
-}
-
-function createPlatformCargoPhotoFileIdFields(
-  cargoPhotoFiles:
-    | DraftOrderInput['cargoPhotoFiles']
-    | RecentOrder['cargoPhotoFiles'],
-) {
-  const cargoPhotoFileIds = normalizeUploadedAttachmentFileIds(cargoPhotoFiles);
-
-  return cargoPhotoFileIds.length > 0 ? { cargoPhotoFileIds } : {};
-}
-
-function createPlatformPhotoFileIdFields(
-  photoFiles:
-    | NonNullable<RecentOrder['exceptionReport']>['photoFiles']
-    | NonNullable<RecentOrder['evaluation']>['photoFiles'],
-) {
-  const photoFileIds = normalizeUploadedAttachmentFileIds(photoFiles);
-
-  return photoFileIds.length > 0 ? { photoFileIds } : {};
-}
-
-function normalizeUploadedAttachmentFileIds(
-  files:
-    | DraftOrderInput['cargoPhotoFiles']
-    | RecentOrder['cargoPhotoFiles']
-    | NonNullable<RecentOrder['exceptionReport']>['photoFiles']
-    | NonNullable<RecentOrder['evaluation']>['photoFiles'],
-) {
-  return Array.from(
-    new Set(
-      (files ?? [])
-        .filter(file => file.status === 'uploaded')
-        .map(file => file.fileId.trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function parseMoneyCents(value?: string) {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.trim().replace(/^[+-]?[￥¥]/, '').replace(/,/g, '');
-  const amount = Number(normalized);
-
-  if (!Number.isFinite(amount)) {
-    return undefined;
-  }
-
-  return Math.round(Math.abs(amount) * 100);
-}
-
-function optionalText(value?: string) {
-  const trimmed = value?.trim();
-
-  return trimmed ? trimmed : undefined;
-}
-
-function getPlatformCargoTypeId(cargoTypeText: string) {
-  return (
-    cargoTypeOptions.find(option => option.label === cargoTypeText)?.id ??
-    cargoTypeText
-  );
-}
-
-function getPlatformVehicleRequirementId(vehicleRequirementText: string) {
-  return (
-    vehicleRequirementOptions.find(
-      option => option.label === vehicleRequirementText,
-    )?.id ?? vehicleRequirementText
-  );
-}
-
-function createPlatformOrderListQuery(
-  filter: OrderListFilter,
-): PlatformListShipperOrdersQuery {
-  const baseQuery = {
-    page: 1,
-    pageSize: 20,
-  };
-
-  if (
-    filter === 'waiting' ||
-    filter === 'confirming' ||
-    filter === 'completed' ||
-    filter === 'cancelled'
-  ) {
-    return {
-      ...baseQuery,
-      status: filter,
-    };
-  }
-
-  if (filter === 'active') {
-    return {
-      ...baseQuery,
-      statuses: ['loading', 'transporting'],
-    };
-  }
-
-  return baseQuery;
-}
-
-function normalizePlatformOrderListQuery(
-  query: PlatformListShipperOrdersQuery,
-): PlatformListShipperOrdersQuery {
-  return {
-    ...query,
-    page: query.page ?? 1,
-    pageSize: query.pageSize ?? 20,
-  };
-}
-
-function mergeRecentOrdersById(
-  currentOrders: RecentOrder[],
-  nextPageOrders: RecentOrder[],
-) {
-  const mergedOrders = [...currentOrders];
-  const existingOrderIds = new Set(currentOrders.map(order => order.id));
-
-  nextPageOrders.forEach(order => {
-    if (!existingOrderIds.has(order.id)) {
-      mergedOrders.push(order);
-      existingOrderIds.add(order.id);
-    }
-  });
-
-  return mergedOrders;
-}
-
-function shouldKeepLocalCreateOrderInPlatformList(
-  order: RecentOrder,
-) {
-  return (
-    !order.platformOrderId &&
-    order.syncState?.operation === 'create' &&
-    order.syncState.status !== 'synced'
-  );
-}
-
-function findLocalOrderForPlatformOrder(
-  currentOrders: RecentOrder[],
-  platformOrder: RecentOrder,
-) {
-  return currentOrders.find(
-    currentOrder =>
-      (platformOrder.platformOrderId &&
-        currentOrder.platformOrderId === platformOrder.platformOrderId) ||
-      currentOrder.id === platformOrder.id,
-  );
-}
-
-function shouldUsePlatformDraft(
-  platformUpdatedAtIso: string,
-  localUpdatedAtIso?: string,
-) {
-  if (!localUpdatedAtIso) {
-    return true;
-  }
-
-  return Date.parse(platformUpdatedAtIso) > Date.parse(localUpdatedAtIso);
-}
-
-function getPlatformDraftBaseUpdatedAtIso(syncState?: DraftSyncState) {
-  return syncState?.platformUpdatedAtIso ??
-    (syncState?.status === 'synced' ? syncState.updatedAtIso : undefined);
-}
-
-function areDraftPrefillsEqual(
-  left: DraftOrderPrefill,
-  right: DraftOrderPrefill,
-) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function isPlatformOrderAdvanceStatus(
-  status: RecentOrder['status'],
-): status is 'loading' | 'transporting' | 'confirming' {
-  return (
-    status === 'loading' ||
-    status === 'transporting' ||
-    status === 'confirming'
-  );
-}
-
-function isOrderDraftConflictError(error: unknown) {
-  return (
-    error instanceof PlatformApiError &&
-    error.code === orderDraftConflictErrorCode
-  );
-}
-
-function isAuthAccessTokenMissingError(error: unknown) {
-  return (
-    error instanceof PlatformApiError &&
-    error.code === authAccessTokenMissingErrorCode
-  );
-}
-
-function createDraftPrefillFromPlatformDraft(
-  draftSnapshot: Record<string, unknown>,
-): DraftOrderPrefill {
-  return draftSnapshot as DraftOrderPrefill;
 }
 
 export default App;

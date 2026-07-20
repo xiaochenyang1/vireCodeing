@@ -5,8 +5,13 @@ import type {
   ConfirmFileUploadedRequest,
   ConfirmStorageCallbackRequest,
   CreateFileUploadIntentRequest,
+  FileMaintenanceReportQuery,
+  FileMaintenanceReportResult,
   FileUploadIntent,
   FileUploadRecord,
+  ListFileMaintenanceFilesQuery,
+  RunFileMaintenanceBatchGovernanceRequest,
+  RunFileMaintenanceBatchGovernanceResult,
 } from './dto';
 import {
   LocalFilePreviewUrlSigner,
@@ -203,6 +208,43 @@ export class FilesService {
     };
   }
 
+  async getMaintenanceReport(
+    query: FileMaintenanceReportQuery,
+  ): Promise<FileMaintenanceReportResult> {
+    const now = this.config.now ? this.config.now() : new Date();
+    const uploadExpiresInSeconds =
+      this.config.uploadExpiresInSeconds ?? defaultUploadExpiresInSeconds;
+    const cutoff = new Date(now.getTime() - uploadExpiresInSeconds * 1000);
+
+    return {
+      ...(await this.repository.getMaintenanceReport(
+        cutoff,
+        query.topOwnersLimit,
+      )),
+      generatedAtIso: now.toISOString(),
+      cutoffIso: cutoff.toISOString(),
+    };
+  }
+
+  async listMaintenanceFiles(query: ListFileMaintenanceFilesQuery) {
+    return this.repository.listMaintenanceFiles(
+      query,
+      this.getUploadExpiryCutoff(),
+    );
+  }
+
+  async runMaintenanceBatchGovernance(
+    input: RunFileMaintenanceBatchGovernanceRequest,
+  ): Promise<RunFileMaintenanceBatchGovernanceResult> {
+    const matchedFiles = await this.repository.findFilesByIds(input.fileIds);
+
+    if (input.action === 'reject_pending') {
+      return this.rejectPendingFilesInBatch(input, matchedFiles);
+    }
+
+    return this.deleteRejectedObjectsInBatch(input, matchedFiles);
+  }
+
   async deleteRejectedFileObjects() {
     const rejectedFiles = await this.repository.findRejectedFiles();
     let deletedObjectCount = 0;
@@ -262,6 +304,82 @@ export class FilesService {
     return {
       file,
       content: await this.storageProvider.readUploadedFile(file),
+    };
+  }
+
+  private async rejectPendingFilesInBatch(
+    input: RunFileMaintenanceBatchGovernanceRequest,
+    matchedFiles: FileUploadRecord[],
+  ): Promise<RunFileMaintenanceBatchGovernanceResult> {
+    const pendingFileIds = matchedFiles
+      .filter(file => file.status === 'pending')
+      .map(file => file.id);
+    const skippedFileIds = matchedFiles
+      .filter(file => file.status !== 'pending')
+      .map(file => file.id);
+    const processedFileIds = new Set<string>();
+
+    await this.repository.rejectPendingFilesByIds(pendingFileIds);
+
+    let deletedObjectCount = 0;
+    let failedObjectDeletionCount = 0;
+    const rejectedFiles = await this.repository.findFilesByIds(pendingFileIds);
+
+    for (const file of rejectedFiles) {
+      if (file.status !== 'rejected') {
+        skippedFileIds.push(file.id);
+        continue;
+      }
+
+      processedFileIds.add(file.id);
+
+      try {
+        await this.storageProvider.deleteObject(file);
+        deletedObjectCount += 1;
+      } catch {
+        failedObjectDeletionCount += 1;
+      }
+    }
+
+    return {
+      action: input.action,
+      requestedCount: input.fileIds.length,
+      matchedCount: matchedFiles.length,
+      processedCount: processedFileIds.size,
+      skippedFileIds: uniqueFileIds(skippedFileIds),
+      deletedObjectCount,
+      failedObjectDeletionCount,
+    };
+  }
+
+  private async deleteRejectedObjectsInBatch(
+    input: RunFileMaintenanceBatchGovernanceRequest,
+    matchedFiles: FileUploadRecord[],
+  ): Promise<RunFileMaintenanceBatchGovernanceResult> {
+    const rejectedFiles = matchedFiles.filter(file => file.status === 'rejected');
+    const skippedFileIds = matchedFiles
+      .filter(file => file.status !== 'rejected')
+      .map(file => file.id);
+    let deletedObjectCount = 0;
+    let failedObjectDeletionCount = 0;
+
+    for (const file of rejectedFiles) {
+      try {
+        await this.storageProvider.deleteObject(file);
+        deletedObjectCount += 1;
+      } catch {
+        failedObjectDeletionCount += 1;
+      }
+    }
+
+    return {
+      action: input.action,
+      requestedCount: input.fileIds.length,
+      matchedCount: matchedFiles.length,
+      processedCount: rejectedFiles.length,
+      skippedFileIds,
+      deletedObjectCount,
+      failedObjectDeletionCount,
     };
   }
 
@@ -472,4 +590,8 @@ function slugifyFileBase(value: string) {
     .replace(/[_\s]+/g, '-')
     .replace(/-+/g, '-')
     .toLowerCase();
+}
+
+function uniqueFileIds(fileIds: string[]) {
+  return Array.from(new Set(fileIds));
 }

@@ -1,3 +1,12 @@
+import {
+  renderAdminConsoleNav,
+  renderAdminConsoleNavStyles,
+} from './admin-console-nav-snippet';
+import {
+  renderAdminSessionControls,
+  renderAdminSessionScript,
+} from './admin-session-snippet';
+
 export function renderOrderAttachmentAdminConsole() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -44,6 +53,15 @@ export function renderOrderAttachmentAdminConsole() {
       display: grid;
       gap: 10px;
     }
+    .session-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .session-link { color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .secondary-button { width: auto; background: #fff; color: var(--accent); border: 1px solid var(--line); }
     input {
       width: 100%;
       border: 1px solid var(--line);
@@ -179,6 +197,7 @@ export function renderOrderAttachmentAdminConsole() {
       padding-left: 10px;
       margin-bottom: 12px;
     }
+    ${renderAdminConsoleNavStyles()}
     @media (max-width: 860px) {
       .console-shell { grid-template-columns: 1fr; }
       .query-panel { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -197,6 +216,13 @@ export function renderOrderAttachmentAdminConsole() {
         <input id="orderIdInput" type="text" aria-label="订单 ID" title="订单 ID" placeholder="order_..." />
         <button id="loadAudit">加载附件审计</button>
       </div>
+      ${renderAdminSessionControls({
+        currentRoute: '/api/admin/order-attachment-console',
+        hintClass: 'meta',
+      })}
+      ${renderAdminConsoleNav({
+        currentRoute: '/api/admin/order-attachment-console',
+      })}
       <div id="notice" class="notice"></div>
       <section class="card">
         <h2>附件审计检索</h2>
@@ -265,6 +291,9 @@ export function renderOrderAttachmentAdminConsole() {
   <script>
     const apiBase = '/api';
     const state = { audit: null, summaries: [] };
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/order-attachment-console',
+    })}
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, character => ({
@@ -283,6 +312,7 @@ export function renderOrderAttachmentAdminConsole() {
     function authHeaders() {
       const token = document.getElementById('adminToken').value.trim();
       if (!token) throw new Error('请先填写 admin access token');
+      persistAdminAccessToken();
       return { Authorization: 'Bearer ' + token };
     }
 
@@ -458,6 +488,7 @@ export function renderOrderAttachmentAdminConsole() {
     document.getElementById('loadAuditList').addEventListener('click', () => loadAuditList());
     document.getElementById('auditPreviousPage').addEventListener('click', () => loadAdjacentAuditPage(-1));
     document.getElementById('auditNextPage').addEventListener('click', () => loadAdjacentAuditPage(1));
+    initializeAdminSession();
   </script>
 </body>
 </html>`;

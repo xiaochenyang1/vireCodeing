@@ -449,6 +449,128 @@ describe('ProfileEvaluationsService', () => {
       });
   });
 
+  it('filters admin evaluation audit records by direction, rating, and keyword', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-audit-filter-1',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090015',
+          events: [
+            createEvent({
+              id: 'accepted-filter-1',
+              actorUserId: 'driver-11',
+              eventType: 'driver_accepted',
+              noteText: JSON.stringify({
+                noteText: '司机接单',
+                driverSnapshot: {
+                  driverName: '王师傅',
+                },
+              }),
+              createdAtIso: '2026-07-09T07:00:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-filter-shipper',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时送达；司机服务稳当',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+        createOrder({
+          id: 'order-audit-filter-2',
+          shipperId: 'shipper-2',
+          orderNo: 'HY202607090016',
+          events: [
+            createEvent({
+              id: 'accepted-filter-2',
+              actorUserId: 'driver-22',
+              eventType: 'driver_accepted',
+              noteText: JSON.stringify({
+                noteText: '司机接单',
+                driverSnapshot: {
+                  driverName: '李师傅',
+                },
+              }),
+              createdAtIso: '2026-07-09T07:30:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-filter-driver',
+              actorUserId: 'driver-22',
+              eventType: 'shipper_evaluation_submitted',
+              noteText: '4 星：沟通顺畅；货主配合装卸',
+              createdAtIso: '2026-07-09T10:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(
+      service.listAdminEvaluationAudits({
+        page: 1,
+        pageSize: 20,
+        direction: 'driver_to_shipper',
+        rating: 4,
+        keyword: '李师傅',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'audit-filter-driver',
+          direction: 'driver_to_shipper',
+          reviewerName: '李师傅',
+          rating: 4,
+          content: '货主配合装卸',
+        }),
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+  });
+
+  it('keeps metadata-like prefixes inside versioned evaluation content', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-versioned-evaluation',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090017',
+          events: [
+            createEvent({
+              id: 'evaluation-versioned',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText:
+                '5 星：准时送达；评价信息：实名；图片凭证 1 张；评价正文：匿名评价；这只是普通正文内容',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(
+      service.listAdminEvaluationAudits({ page: 1, pageSize: 20 }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'evaluation-versioned',
+          anonymous: false,
+          photoCount: 1,
+          content: '匿名评价；这只是普通正文内容',
+        }),
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+  });
+
   it('skips received evaluation notes that fail to parse', async () => {
     const repository = new InMemoryProfileEvaluationsRepository({
       orders: [

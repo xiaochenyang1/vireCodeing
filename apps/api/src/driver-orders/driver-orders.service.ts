@@ -3,7 +3,17 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { DriverCertificationRepository } from '../driver-certification/driver-certification.repository';
 import type { FilesRepository } from '../files/files.repository';
 import type { ShipperOrderRecord } from '../orders/dto';
-import type { OrdersRepository } from '../orders/orders.repository';
+import { assertOrderCanEnterDriverHall } from '../payments/payment-domain';
+import {
+  createDriverWithdrawalFingerprint,
+  type DriverFinanceRepository,
+} from '../payments/driver-finance.repository';
+import { createOrderMutationFingerprint } from '../orders/order-mutation-idempotency';
+import type {
+  ExecuteOrderMutationResult,
+  OrdersRepository,
+  ResolveExistingOrderMutationInput,
+} from '../orders/orders.repository';
 import type { DriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
 import type { DriverWithdrawalsRepository } from './driver-withdrawals.repository';
 import type {
@@ -35,6 +45,8 @@ export class DriverOrdersService {
     private readonly driverWithdrawalsRepository: DriverWithdrawalsRepository,
     private readonly filesRepository?: FilesRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly orderMutationIdempotencyTtlSeconds = 86400,
+    private readonly driverFinanceRepository?: DriverFinanceRepository,
   ) {}
 
   async listOrderHall(
@@ -74,38 +86,18 @@ export class DriverOrdersService {
     currentUser: AuthenticatedUser,
   ): Promise<DriverIncomeOverview> {
     this.assertDriver(currentUser);
-    const incomeContext = await this.buildDriverIncomeContext(currentUser.id);
-    const now = this.now();
-    const startOfToday = getStartOfUtcDay(now);
-    const startOfWeek = getStartOfUtcWeek(now);
-    const startOfMonth = getStartOfUtcMonth(now);
 
-    return {
-      driverId: currentUser.id,
-      summary: {
-        todayIncomeCents: sumDriverIncomeSince(
-          incomeContext.completedIncomeRecords,
-          startOfToday,
-        ),
-        weekIncomeCents: sumDriverIncomeSince(
-          incomeContext.completedIncomeRecords,
-          startOfWeek,
-        ),
-        monthIncomeCents: sumDriverIncomeSince(
-          incomeContext.completedIncomeRecords,
-          startOfMonth,
-        ),
-        historyIncomeCents: incomeContext.historyIncomeCents,
-        pendingSettlementCents: incomeContext.pendingSettlementCents,
-        availableWithdrawalCents: Math.max(
-          incomeContext.historyIncomeCents - incomeContext.consumedWithdrawalCents,
-          0,
-        ),
-        reviewingWithdrawalCents: incomeContext.reviewingWithdrawalCents,
-        completedOrderCount: incomeContext.completedOrderCount,
-      },
-      records: incomeContext.completedIncomeRecords.slice(0, 20),
-    };
+    if (!this.driverFinanceRepository) {
+      throw new BusinessError(
+        ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
+        '司机财务仓储未配置',
+      );
+    }
+
+    return this.driverFinanceRepository.getIncomeOverview(
+      currentUser.id,
+      this.now(),
+    );
   }
 
   async listWithdrawals(
@@ -128,26 +120,40 @@ export class DriverOrdersService {
 
   async createWithdrawal(
     currentUser: AuthenticatedUser,
+    idempotencyKey: string,
     input: CreateDriverWithdrawalRequest,
   ) {
     this.assertDriver(currentUser);
-    const incomeContext = await this.buildDriverIncomeContext(currentUser.id);
-    const availableWithdrawalCents = Math.max(
-      incomeContext.historyIncomeCents - incomeContext.consumedWithdrawalCents,
-      0,
-    );
 
-    if (input.amountCents > availableWithdrawalCents) {
+    if (!this.driverFinanceRepository) {
       throw new BusinessError(
-        ApiErrorCode.DRIVER_WITHDRAWAL_BALANCE_INSUFFICIENT,
-        '可提现余额不足',
+        ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
+        '司机财务仓储未配置',
       );
     }
 
-    return this.driverWithdrawalsRepository.createWithdrawal(
-      currentUser.id,
-      input,
-    );
+    const result =
+      await this.driverFinanceRepository.executeIdempotentWithdrawalRequest({
+        driverId: currentUser.id,
+        idempotencyKey,
+        requestFingerprint: createDriverWithdrawalFingerprint(input),
+        ...input,
+      });
+
+    switch (result.kind) {
+      case 'success':
+        return { ...result.withdrawal, replayed: result.replayed };
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他提现请求使用',
+        );
+      case 'balance-insufficient':
+        throw new BusinessError(
+          ApiErrorCode.DRIVER_WITHDRAWAL_BALANCE_INSUFFICIENT,
+          '可提现余额不足',
+        );
+    }
   }
 
   async quoteOrder(
@@ -178,26 +184,65 @@ export class DriverOrdersService {
   async acceptOrder(
     currentUser: AuthenticatedUser,
     orderId: string,
+    idempotencyKey: string,
     input: DriverAcceptOrderRequest,
   ): Promise<ShipperOrderRecord> {
     this.assertDriver(currentUser);
-    await this.assertDriverOnline(currentUser.id);
-    const certification = await this.assertDriverCertified(currentUser.id);
-    const order = await this.getWaitingOrder(orderId);
-    const driverSnapshot = await this.createDriverOrderEventSnapshot(
-      currentUser,
-      certification,
+    const { baseUpdatedAtIso, noteText } = input;
+    const requestFingerprint = createOrderMutationFingerprint(orderId, {
+      noteText,
+      baseUpdatedAtIso,
+    });
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_accept',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单已不可接单',
     );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
+    const order = await this.ordersRepository.findOrderById(orderId);
+
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
     const eventPayload: DriverAcceptOrderEventPayload = {
-      ...input,
-      driverSnapshot,
+      ...(noteText ? { noteText } : {}),
     };
 
-    return this.ordersRepository.acceptDriverOrder(
-      order.id,
-      currentUser.id,
-      eventPayload,
-    );
+    if (order.status === 'waiting') {
+      await this.assertDriverOnline(currentUser.id);
+      const certification = await this.assertDriverCertified(currentUser.id);
+      eventPayload.driverSnapshot = await this.createDriverOrderEventSnapshot(
+        currentUser,
+        certification,
+      );
+    }
+
+    return this.unwrapOrderMutationResult(
+      await this.ordersRepository.executeIdempotentOrderMutation({
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_accept',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'driver_accept',
+          input: eventPayload,
+        },
+      }),
+      '当前订单已不可接单',
+    ).order;
   }
 
   async listMyOrders(
@@ -238,28 +283,55 @@ export class DriverOrdersService {
   async advanceOrderStatus(
     currentUser: AuthenticatedUser,
     orderId: string,
+    idempotencyKey: string,
     input: DriverAdvanceOrderStatusRequest,
   ): Promise<ShipperOrderRecord> {
     this.assertDriver(currentUser);
-    const order = await this.getOrder(currentUser, orderId);
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_status',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前司机订单状态不允许推进到目标状态',
+    );
 
-    if (!canDriverAdvanceOrderStatus(order.status, input.nextStatus)) {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前司机订单状态不允许推进到目标状态',
-      );
+    if (existingOrder) {
+      return existingOrder;
     }
 
-    await this.assertReceiptProofFiles(
+    const order = await this.ordersRepository.findDriverAcceptedOrder(
       currentUser.id,
-      input.receiptPhotoFileIds,
+      orderId,
     );
 
-    return this.ordersRepository.advanceDriverOrderStatus(
-      order.id,
-      currentUser.id,
-      input,
-    );
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    await this.assertReceiptProofFiles(currentUser.id, input.receiptPhotoFileIds);
+
+    const { baseUpdatedAtIso, ...mutationInput } = input;
+
+    return this.unwrapOrderMutationResult(
+      await this.ordersRepository.executeIdempotentOrderMutation({
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_status',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'driver_status',
+          input: mutationInput,
+        },
+      }),
+      '当前司机订单状态不允许推进到目标状态',
+    ).order;
   }
 
   async replyToEvaluation(
@@ -379,6 +451,8 @@ export class DriverOrdersService {
       );
     }
 
+    assertOrderCanEnterDriverHall(order);
+
     return order;
   }
 
@@ -461,6 +535,56 @@ export class DriverOrdersService {
     }
   }
 
+  private createOrderMutationExpiresAtIso() {
+    return new Date(
+      this.now().getTime() + this.orderMutationIdempotencyTtlSeconds * 1000,
+    ).toISOString();
+  }
+
+  private async resolveExistingOrderMutation(
+    input: ResolveExistingOrderMutationInput,
+    stateInvalidMessage: string,
+  ) {
+    const result =
+      await this.ordersRepository.resolveExistingOrderMutation(input);
+
+    return result
+      ? this.unwrapOrderMutationResult(result, stateInvalidMessage).order
+      : undefined;
+  }
+
+  private unwrapOrderMutationResult(
+    result: ExecuteOrderMutationResult,
+    stateInvalidMessage: string,
+  ) {
+    switch (result.kind) {
+      case 'success':
+        return result;
+      case 'conflict':
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他请求复用',
+        );
+      case 'key-expired':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+          'Idempotency-Key 已过期',
+        );
+      case 'state-invalid':
+        throw new BusinessError(
+          ApiErrorCode.ORDER_STATE_INVALID,
+          stateInvalidMessage,
+        );
+      case 'not-found':
+        throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+  }
+
   private async createDriverOrderEventSnapshot(
     currentUser: AuthenticatedUser,
     certification: Awaited<
@@ -488,64 +612,6 @@ export class DriverOrdersService {
     };
   }
 
-  private async buildDriverIncomeContext(driverId: string) {
-    const [completedOrders, pendingOrders, withdrawals] = await Promise.all([
-      this.ordersRepository.listDriverCompletedOrders(driverId),
-      this.ordersRepository.listDriverPendingSettlementOrders(driverId),
-      this.driverWithdrawalsRepository.listAllWithdrawals(driverId),
-    ]);
-    const completedIncomeRecords = completedOrders
-      .map(order => createDriverIncomeRecord(order, driverId))
-      .sort((left, right) => right.completedAtIso.localeCompare(left.completedAtIso));
-    const historyIncomeCents = completedIncomeRecords.reduce(
-      (total, record) => total + record.netIncomeCents,
-      0,
-    );
-    const pendingSettlementCents = pendingOrders.reduce(
-      (total, order) =>
-        total +
-        calculateDriverNetIncomeCents(
-          getDriverSettlementBaseAmountCents(order, driverId),
-        ),
-      0,
-    );
-    const reviewingWithdrawalCents = withdrawals.reduce(
-      (total, withdrawal) =>
-        withdrawal.status === 'reviewing' ? total + withdrawal.amountCents : total,
-      0,
-    );
-    const consumedWithdrawalCents = withdrawals.reduce(
-      (total, withdrawal) =>
-        withdrawal.status === 'rejected'
-          ? total
-          : total + withdrawal.amountCents,
-      0,
-    );
-
-    return {
-      completedIncomeRecords,
-      completedOrderCount: completedOrders.length,
-      consumedWithdrawalCents,
-      historyIncomeCents,
-      pendingSettlementCents,
-      reviewingWithdrawalCents,
-    };
-  }
-}
-
-function canDriverAdvanceOrderStatus(
-  currentStatus: string,
-  nextStatus: DriverAdvanceOrderStatusRequest['nextStatus'],
-) {
-  const allowedNextStatusByCurrentStatus: Record<
-    string,
-    DriverAdvanceOrderStatusRequest['nextStatus'] | undefined
-  > = {
-    loading: 'transporting',
-    transporting: 'confirming',
-  };
-
-  return allowedNextStatusByCurrentStatus[currentStatus] === nextStatus;
 }
 
 function hasSubmittedEvaluation(order: ShipperOrderRecord) {
@@ -558,108 +624,4 @@ function isDriverExecutingOrderStatus(status: ShipperOrderRecord['status']) {
     status === 'transporting' ||
     status === 'confirming'
   );
-}
-
-const DRIVER_NET_INCOME_PERCENTAGE = 95;
-
-function createDriverIncomeRecord(
-  order: ShipperOrderRecord,
-  driverId: string,
-) {
-  const grossAmountCents = getDriverSettlementBaseAmountCents(order, driverId);
-  const netIncomeCents = calculateDriverNetIncomeCents(grossAmountCents);
-
-  return {
-    orderId: order.id,
-    orderNo: order.orderNo,
-    completedAtIso: getDriverOrderCompletedAtIso(order),
-    routeText: `${order.pickupAddress} -> ${order.deliveryAddress}`,
-    vehicleType: order.vehicleRequirement,
-    grossAmountCents,
-    platformFeeCents: grossAmountCents - netIncomeCents,
-    netIncomeCents,
-  };
-}
-
-function getDriverSettlementBaseAmountCents(
-  order: ShipperOrderRecord,
-  driverId: string,
-) {
-  if (typeof order.payablePriceCents === 'number' && order.payablePriceCents >= 0) {
-    return order.payablePriceCents;
-  }
-
-  if (typeof order.priceCents === 'number' && order.priceCents >= 0) {
-    return order.priceCents;
-  }
-
-  const quoteEvent = [...order.events]
-    .reverse()
-    .find(
-      event =>
-        event.actorUserId === driverId &&
-        event.eventType === 'driver_quote_submitted',
-    );
-
-  if (!quoteEvent?.noteText) {
-    return 0;
-  }
-
-  try {
-    const parsedNote = JSON.parse(quoteEvent.noteText) as {
-      quoteCents?: unknown;
-    };
-
-    return typeof parsedNote.quoteCents === 'number' &&
-      Number.isInteger(parsedNote.quoteCents) &&
-      parsedNote.quoteCents > 0
-      ? parsedNote.quoteCents
-      : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function calculateDriverNetIncomeCents(grossAmountCents: number) {
-  return Math.round((grossAmountCents * DRIVER_NET_INCOME_PERCENTAGE) / 100);
-}
-
-function getDriverOrderCompletedAtIso(order: ShipperOrderRecord) {
-  return (
-    order.events.find(event => event.eventType === 'completed')?.createdAtIso ??
-    order.updatedAtIso
-  );
-}
-
-function sumDriverIncomeSince(
-  records: Array<{ completedAtIso: string; netIncomeCents: number }>,
-  startAt: Date,
-) {
-  const startTimestamp = startAt.getTime();
-
-  return records.reduce(
-    (total, record) =>
-      new Date(record.completedAtIso).getTime() >= startTimestamp
-        ? total + record.netIncomeCents
-        : total,
-    0,
-  );
-}
-
-function getStartOfUtcDay(date: Date) {
-  return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
-}
-
-function getStartOfUtcWeek(date: Date) {
-  const startOfDay = getStartOfUtcDay(date);
-  const utcDay = startOfDay.getUTCDay();
-  const diff = utcDay === 0 ? 6 : utcDay - 1;
-
-  return new Date(startOfDay.getTime() - diff * 24 * 60 * 60 * 1000);
-}
-
-function getStartOfUtcMonth(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
 }

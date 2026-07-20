@@ -33,6 +33,7 @@ export function mapPlatformOrderToRecentOrder(
   );
   const exceptionReport = createExceptionReportFromPlatformEvents(order);
   const evaluation = createEvaluationFromPlatformEvents(order);
+  const latestExceptionCase = createLatestExceptionCaseFromPlatformOrder(order);
 
   return {
     id: order.orderNo,
@@ -65,7 +66,12 @@ export function mapPlatformOrderToRecentOrder(
     couponTitleText,
     couponDiscountText,
     payablePriceText,
+    paymentMethod: order.paymentMethod,
     paymentMethodText: order.paymentMethod === 'online' ? '在线支付' : '货到付款',
+    paymentStatus: order.paymentStatus,
+    assignedDriverId: order.assignedDriverId,
+    paymentSettledAtIso: order.paymentSettledAtIso,
+    refundedAtIso: order.refundedAtIso,
     createdAtIso: order.createdAtIso,
     updatedAtIso: order.updatedAtIso,
     updatedAtText: '平台已同步',
@@ -83,6 +89,7 @@ export function mapPlatformOrderToRecentOrder(
     driverQuotes: createDriverQuotesFromPlatformEvents(order),
     ...(exceptionReport ? { exceptionReport } : {}),
     ...(evaluation ? { evaluation } : {}),
+    ...(latestExceptionCase ? { latestExceptionCase } : {}),
     syncState: {
       status: 'synced',
       message: '订单已从平台 API 同步。',
@@ -251,6 +258,16 @@ function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {
     statusText: '待客服跟进',
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
+  };
+}
+
+function createLatestExceptionCaseFromPlatformOrder(order: PlatformShipperOrder) {
+  if (!order.latestExceptionCase) {
+    return undefined;
+  }
+
+  return {
+    ...order.latestExceptionCase,
   };
 }
 

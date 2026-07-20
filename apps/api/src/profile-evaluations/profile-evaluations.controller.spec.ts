@@ -133,7 +133,11 @@ describe('AdminProfileEvaluationsController', () => {
     const controller = new AdminProfileEvaluationsController(service);
 
     await expect(
-      controller.listEvaluationAudits(createRequest('admin-1', 'admin'), {}),
+      controller.listEvaluationAudits(createRequest('admin-1', 'admin'), {
+        direction: 'driver_to_shipper',
+        rating: '5',
+        keyword: '  货主  ',
+      }),
     ).resolves.toEqual(
       expect.objectContaining({
         code: 'OK',
@@ -152,6 +156,9 @@ describe('AdminProfileEvaluationsController', () => {
     expect(service.listAdminEvaluationAudits).toHaveBeenCalledWith({
       page: 1,
       pageSize: 20,
+      direction: 'driver_to_shipper',
+      rating: 5,
+      keyword: '货主',
     });
   });
 

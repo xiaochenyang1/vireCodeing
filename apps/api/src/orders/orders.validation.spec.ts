@@ -1,11 +1,16 @@
 import {
+  parseAdminOrderFilters,
+  parseAdminOrderReportQuery,
   parseAdvanceShipperOrderStatusRequest,
+  parseCancelShipperOrderRequest,
+  parseCompleteShipperOrderRequest,
   parseCreateShipperOrderRequest,
   parseReportShipperOrderExceptionRequest,
   parseSubmitShipperOrderChangeRequest,
   parseSubmitShipperOrderEvaluationRequest,
   parseListShipperOrdersQuery,
   parseAdminOrderAttachmentAuditListQuery,
+  parseUpdateShipperOrderRequest,
 } from './orders.validation';
 
 describe('orders validation', () => {
@@ -142,6 +147,28 @@ describe('orders validation', () => {
     ).toThrow('司机报价订单不能传入一口价或优惠金额');
   });
 
+  it('rejects online payment before a negotiable order has an agreed amount', () => {
+    expect(() =>
+      parseCreateShipperOrderRequest({
+        cargoType: 'build',
+        weightText: '2.5 吨',
+        quantityText: '12 箱',
+        pickupAddress: '宝安区福永物流园',
+        pickupContact: '赵经理',
+        pickupPhone: '13900139001',
+        deliveryAddress: '南山区科技园',
+        deliveryContact: '钱店长',
+        deliveryPhone: '13900139002',
+        vehicleRequirement: 'medium',
+        needTailboard: false,
+        needTarp: false,
+        pickupTimeIso: '2026-07-16T02:00:00.000Z',
+        pricingMode: 'negotiable',
+        paymentMethod: 'online',
+      }),
+    ).toThrow('在线支付订单必须先确定最终金额');
+  });
+
   it('parses list query defaults', () => {
     expect(parseListShipperOrdersQuery({})).toEqual({
       page: 1,
@@ -201,6 +228,43 @@ describe('orders validation', () => {
     });
   });
 
+  it('parses admin order export filters without pagination', () => {
+    expect(
+      parseAdminOrderFilters({
+        keyword: ' 南山门店 ',
+        statuses: 'loading,transporting',
+        createdFromIso: '2026-07-01T00:00:00.000Z',
+        createdToIso: '2026-07-31T00:00:00.000Z',
+      }),
+    ).toEqual({
+      keyword: '南山门店',
+      status: undefined,
+      statuses: ['loading', 'transporting'],
+      createdFromIso: '2026-07-01T00:00:00.000Z',
+      createdToIso: '2026-07-31T00:00:00.000Z',
+    });
+  });
+
+  it('parses admin order report query defaults', () => {
+    expect(parseAdminOrderReportQuery({})).toEqual({
+      status: undefined,
+      statuses: undefined,
+      keyword: undefined,
+      createdFromIso: undefined,
+      createdToIso: undefined,
+      topShippersLimit: 5,
+    });
+  });
+
+  it('rejects mixed single and collection status filters for admin order report query', () => {
+    expect(() =>
+      parseAdminOrderReportQuery({
+        status: 'waiting',
+        statuses: 'loading,transporting',
+      }),
+    ).toThrow('状态筛选只能传入 status 或 statuses 之一');
+  });
+
   it('parses admin order attachment audit status and shipper query', () => {
     expect(
       parseAdminOrderAttachmentAuditListQuery({
@@ -250,9 +314,11 @@ describe('orders validation', () => {
     expect(
       parseAdvanceShipperOrderStatusRequest({
         nextStatus: 'loading',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       }),
     ).toEqual({
       nextStatus: 'loading',
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
     });
   });
 
@@ -260,8 +326,52 @@ describe('orders validation', () => {
     expect(() =>
       parseAdvanceShipperOrderStatusRequest({
         nextStatus: 'completed',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       }),
     ).toThrow();
+  });
+
+  it('requires a concurrency baseline for shipper mutation requests', () => {
+    expect(() =>
+      parseCancelShipperOrderRequest({
+        reasonText: '计划有变',
+      }),
+    ).toThrow();
+
+    expect(() =>
+      parseUpdateShipperOrderRequest({
+        cargoType: 'build',
+        weightText: '2.5 吨',
+        quantityText: '12 箱',
+        pickupAddress: '宝安区福永物流园',
+        pickupContact: '赵经理',
+        pickupPhone: '13900139001',
+        deliveryAddress: '南山区科技园',
+        deliveryContact: '钱店长',
+        deliveryPhone: '13900139002',
+        vehicleRequirement: 'medium',
+        needTailboard: false,
+        needTarp: false,
+        pickupTimeIso: '2026-07-02T02:00:00.000Z',
+        pricingMode: 'fixed',
+        priceCents: 76000,
+        paymentMethod: 'cod',
+      }),
+    ).toThrow();
+
+    expect(
+      parseCompleteShipperOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+    });
+
+    expect(() =>
+      parseCompleteShipperOrderRequest({
+        baseUpdatedAtIso: '2026-07-12 08:00:00',
+      }),
+    ).toThrow('订单版本时间无效');
   });
 
   it('parses an order exception report request', () => {

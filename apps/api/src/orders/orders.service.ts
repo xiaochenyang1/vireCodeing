@@ -5,16 +5,20 @@ import {
   type FilePreviewUrlSigner,
 } from '../files/file-preview-url.signer';
 import type { FilesRepository } from '../files/files.repository';
-import type { ProfileCouponsService } from '../profile-coupons/profile-coupons.service';
 import type {
   AdvanceShipperOrderStatusRequest,
+  AdminOrderFilters,
   AdminOrderAttachmentAudit,
   AdminOrderAttachmentAuditEvent,
   AdminOrderAttachmentFileRecord,
   AdminOrderAttachmentFileGroup,
   AdminOrderAttachmentAuditListQuery,
   AdminOrderAttachmentAuditSummary,
+  AdminOrderReport,
+  AdminOrderReportTopShipperItem,
+  AdminOrderReportQuery,
   CancelShipperOrderRequest,
+  CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
   ListAdminOrderAttachmentAuditsResult,
   ListShipperOrdersQuery,
@@ -23,8 +27,23 @@ import type {
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
   ShipperOrderRecord,
+  UpdateShipperOrderRequest,
 } from './dto';
-import type { OrdersRepository } from './orders.repository';
+import {
+  createOrderCreateFingerprint,
+  createOrderMutationFingerprint,
+} from './order-mutation-idempotency';
+import type {
+  ExecuteOrderCreateResult,
+  ExecuteOrderMutationResult,
+  OrdersRepository,
+  ResolveExistingOrderMutationInput,
+} from './orders.repository';
+import { assertOrderCanCompleteFinancially } from '../payments/payment-domain';
+
+const defaultAdminOrderReportQuery: AdminOrderReportQuery = {
+  topShippersLimit: 5,
+};
 
 export class OrdersService {
   constructor(
@@ -32,29 +51,43 @@ export class OrdersService {
     private readonly filesRepository?: FilesRepository,
     private readonly previewUrlSigner: FilePreviewUrlSigner =
       new LocalFilePreviewUrlSigner(),
-    private readonly profileCouponsService?: ProfileCouponsService,
+    private readonly now: () => Date = () => new Date(),
+    private readonly orderMutationIdempotencyTtlSeconds = 86400,
   ) {}
 
-  async createOrder(shipperId: string, input: CreateShipperOrderRequest) {
+  async createOrder(
+    shipperId: string,
+    idempotencyKey: string,
+    input: CreateShipperOrderRequest,
+  ) {
+    const requestFingerprint = createOrderCreateFingerprint(input);
+    const existing = await this.repository.resolveExistingOrderCreate({
+      actorUserId: shipperId,
+      operation: 'shipper_create',
+      idempotencyKey,
+      requestFingerprint,
+    });
+
+    if (existing) {
+      return this.unwrapOrderCreateResult(existing).order;
+    }
+
     await this.assertOrderAttachmentFiles(
       shipperId,
       input.cargoPhotoFileIds,
       'cargo',
     );
 
-    await this.lockOrderCoupon(shipperId, input.couponId);
-
-    let order: ShipperOrderRecord;
-    try {
-      order = await this.repository.createOrder(shipperId, input);
-    } catch (error) {
-      await this.releaseOrderCoupon(shipperId, input.couponId);
-      throw error;
-    }
-
-    await this.bindLockedOrderCoupon(shipperId, input.couponId, order.orderNo);
-
-    return order;
+    return this.unwrapOrderCreateResult(
+      await this.repository.executeIdempotentOrderCreate({
+        actorUserId: shipperId,
+        operation: 'shipper_create',
+        idempotencyKey,
+        requestFingerprint,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        input,
+      }),
+    ).order;
   }
 
   async listOrders(
@@ -71,6 +104,103 @@ export class OrdersService {
     };
   }
 
+  async listAdminOrders(
+    query: ListShipperOrdersQuery,
+  ): Promise<ListShipperOrdersResult> {
+    const result = await this.repository.listAdminOrders(query);
+
+    return {
+      items: result.items,
+      page: query.page,
+      pageSize: query.pageSize,
+      total: result.total,
+    };
+  }
+
+  async getAdminOrderReport(
+    query: AdminOrderReportQuery = defaultAdminOrderReportQuery,
+  ): Promise<AdminOrderReport> {
+    const effectiveQuery = {
+      ...defaultAdminOrderReportQuery,
+      ...query,
+    };
+    const orders = await this.listAllAdminOrders(effectiveQuery);
+
+    return {
+      generatedAtIso: this.now().toISOString(),
+      filters: pickAdminOrderFilters(effectiveQuery),
+      summary: summarizeAdminOrders(orders),
+      statusBreakdown: summarizeAdminOrderStatuses(orders),
+      paymentStatusBreakdown: summarizeAdminOrderPaymentStatuses(orders),
+      pricingModeBreakdown: summarizeAdminOrderPricingModes(orders),
+      paymentMethodBreakdown: summarizeAdminOrderPaymentMethods(orders),
+      topShippers: summarizeAdminOrderTopShippers(orders).slice(
+        0,
+        effectiveQuery.topShippersLimit,
+      ),
+    };
+  }
+
+  async exportAdminOrdersCsv(query: AdminOrderFilters = {}): Promise<string> {
+    const orders = await this.listAllAdminOrders(query);
+    const rows = [
+      [
+        'orderId',
+        'orderNo',
+        'shipperId',
+        'status',
+        'paymentStatus',
+        'pricingMode',
+        'paymentMethod',
+        'priceCents',
+        'payablePriceCents',
+        'createdAtIso',
+        'updatedAtIso',
+        'pickupAddress',
+        'pickupContact',
+        'pickupPhone',
+        'deliveryAddress',
+        'deliveryContact',
+        'deliveryPhone',
+        'cargoType',
+        'vehicleRequirement',
+        'cargoPhotoCount',
+        'eventCount',
+        'latestExceptionCaseNo',
+        'latestExceptionCaseStatus',
+      ],
+      ...orders.map(order => [
+        order.id,
+        order.orderNo,
+        order.shipperId,
+        order.status,
+        order.paymentStatus,
+        order.pricingMode,
+        order.paymentMethod,
+        order.priceCents === undefined ? '' : String(order.priceCents),
+        order.payablePriceCents === undefined
+          ? ''
+          : String(order.payablePriceCents),
+        order.createdAtIso,
+        order.updatedAtIso,
+        order.pickupAddress,
+        order.pickupContact,
+        order.pickupPhone,
+        order.deliveryAddress,
+        order.deliveryContact,
+        order.deliveryPhone,
+        order.cargoType,
+        order.vehicleRequirement,
+        String(order.cargoPhotoCount ?? 0),
+        String(order.events.length),
+        order.latestExceptionCase?.caseNo ?? '',
+        order.latestExceptionCase?.status ?? '',
+      ]),
+    ];
+
+    return `\uFEFF${rows.map(formatCsvRow).join('\r\n')}`;
+  }
+
   async getOrder(shipperId: string, orderId: string) {
     const order = await this.repository.findOrderById(orderId);
 
@@ -79,6 +209,71 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  async getAdminOrder(orderId: string) {
+    const order = await this.repository.findOrderById(orderId);
+
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    return order;
+  }
+
+  async cancelAdminOrder(
+    adminUserId: string,
+    orderId: string,
+    idempotencyKey: string,
+    input: CancelShipperOrderRequest,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: adminUserId,
+        orderId,
+        operation: 'shipper_cancel',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许后台取消',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
+    const order = await this.repository.findOrderById(orderId);
+
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    if (order.status !== 'waiting') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前订单状态不允许后台取消',
+      );
+    }
+
+    const { baseUpdatedAtIso, ...mutationInput } = input;
+
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: adminUserId,
+        orderId,
+        operation: 'shipper_cancel',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_cancel',
+          input: mutationInput,
+        },
+      }),
+      '当前订单状态不允许后台取消',
+    ).order;
   }
 
   async getAdminOrderAttachmentAudit(
@@ -159,125 +354,199 @@ export class OrdersService {
   async updateOrder(
     shipperId: string,
     orderId: string,
-    input: CreateShipperOrderRequest,
-  ) {
+    idempotencyKey: string,
+    input: UpdateShipperOrderRequest,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_update',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许修改',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
     const order = await this.repository.findOrderById(orderId);
 
     if (!order || order.shipperId !== shipperId) {
       throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
     }
 
-    if (order.status !== 'waiting') {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前订单状态不允许修改',
-      );
-    }
+    const { baseUpdatedAtIso, ...mutationInput } = input;
 
     await this.assertOrderAttachmentFiles(
       shipperId,
-      input.cargoPhotoFileIds,
+      mutationInput.cargoPhotoFileIds,
       'cargo',
     );
 
-    const previousCouponId = order.couponId;
-    const nextCouponId = input.couponId;
-    const shouldChangeCoupon = previousCouponId !== nextCouponId;
-
-    if (shouldChangeCoupon) {
-      await this.lockOrderCoupon(shipperId, nextCouponId, order.orderNo);
-    }
-
-    let updatedOrder: ShipperOrderRecord;
-    try {
-      updatedOrder = await this.repository.updateOrder(
+    const mutationResult = await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
         orderId,
-        shipperId,
-        input,
-      );
-    } catch (error) {
-      if (shouldChangeCoupon) {
-        await this.releaseOrderCoupon(shipperId, nextCouponId, order.orderNo);
-      }
-      throw error;
-    }
+        operation: 'shipper_update',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_update',
+          input: mutationInput,
+        },
+      });
 
-    if (shouldChangeCoupon) {
-      await this.releaseOrderCoupon(shipperId, previousCouponId, order.orderNo);
-    }
-
-    return updatedOrder;
+    return this.unwrapOrderMutationResult(
+      mutationResult,
+      '当前订单状态不允许修改',
+    ).order;
   }
 
   async cancelOrder(
     shipperId: string,
     orderId: string,
+    idempotencyKey: string,
     input: CancelShipperOrderRequest,
-  ) {
-    const order = await this.repository.findOrderById(orderId);
-
-    if (!order || order.shipperId !== shipperId) {
-      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
-    }
-
-    if (order.status === 'completed' || order.status === 'cancelled') {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前订单状态不允许取消',
-      );
-    }
-
-    const cancelledOrder = await this.repository.cancelOrder(
-      orderId,
-      shipperId,
-      input,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_cancel',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许取消',
     );
 
-    await this.releaseOrderCoupon(shipperId, order.couponId, order.orderNo);
+    if (existingOrder) {
+      return existingOrder;
+    }
 
-    return cancelledOrder;
-  }
-
-  async completeOrder(shipperId: string, orderId: string) {
     const order = await this.repository.findOrderById(orderId);
 
     if (!order || order.shipperId !== shipperId) {
       throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
     }
 
-    if (order.status !== 'confirming') {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前订单状态不允许确认送达',
-      );
+    const { baseUpdatedAtIso, ...mutationInput } = input;
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_cancel',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_cancel',
+          input: mutationInput,
+        },
+      }),
+      '当前订单状态不允许取消',
+    ).order;
+  }
+
+  async completeOrder(
+    shipperId: string,
+    orderId: string,
+    idempotencyKey: string,
+    input: CompleteShipperOrderRequest,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_complete',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许确认送达',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
     }
 
-    const completedOrder = await this.repository.completeOrder(orderId, shipperId);
+    const order = await this.repository.findOrderById(orderId);
 
-    await this.redeemOrderCoupon(shipperId, order.couponId, order.orderNo);
+    if (!order || order.shipperId !== shipperId) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
 
-    return completedOrder;
+    assertOrderCanCompleteFinancially(order);
+
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_complete',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_complete',
+        },
+      }),
+      '当前订单状态不允许确认送达',
+    ).order;
   }
 
   async advanceOrderStatus(
     shipperId: string,
     orderId: string,
+    idempotencyKey: string,
     input: AdvanceShipperOrderStatusRequest,
-  ) {
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_status',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许推进到目标状态',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
     const order = await this.repository.findOrderById(orderId);
 
     if (!order || order.shipperId !== shipperId) {
       throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
     }
 
-    if (!canAdvanceOrderStatus(order.status, input.nextStatus)) {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前订单状态不允许推进到目标状态',
-      );
-    }
+    const { baseUpdatedAtIso, ...mutationInput } = input;
 
-    return this.repository.advanceOrderStatus(orderId, shipperId, input);
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_status',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_status',
+          input: mutationInput,
+        },
+      }),
+      '当前订单状态不允许推进到目标状态',
+    ).order;
   }
 
   async reportOrderException(
@@ -404,56 +673,93 @@ export class OrdersService {
     }
   }
 
-  private async lockOrderCoupon(
-    shipperId: string,
-    couponId?: string,
-    orderNo?: string,
-  ) {
-    if (!couponId || !this.profileCouponsService) {
-      return;
-    }
+  private async listAllAdminOrders(
+    query: AdminOrderFilters = {},
+  ): Promise<ShipperOrderRecord[]> {
+    const pageSize = 50;
+    const items: ShipperOrderRecord[] = [];
+    let page = 1;
 
-    await this.profileCouponsService.lockCoupon(shipperId, couponId, orderNo);
+    while (true) {
+      const result = await this.repository.listAdminOrders({
+        ...query,
+        page,
+        pageSize,
+      });
+      items.push(...result.items);
+
+      if (items.length >= result.total || result.items.length === 0) {
+        return items;
+      }
+
+      page += 1;
+    }
   }
 
-  private async bindLockedOrderCoupon(
-    shipperId: string,
-    couponId: string | undefined,
-    orderNo: string,
-  ) {
-    if (!couponId || !this.profileCouponsService) {
-      return;
-    }
-
-    await this.profileCouponsService.bindLockedCouponToOrder(
-      shipperId,
-      couponId,
-      orderNo,
-    );
+  private createOrderMutationExpiresAtIso() {
+    return new Date(
+      this.now().getTime() + this.orderMutationIdempotencyTtlSeconds * 1000,
+    ).toISOString();
   }
 
-  private async releaseOrderCoupon(
-    shipperId: string,
-    couponId?: string,
-    orderNo?: string,
+  private async resolveExistingOrderMutation(
+    input: ResolveExistingOrderMutationInput,
+    stateInvalidMessage: string,
   ) {
-    if (!couponId || !this.profileCouponsService) {
-      return;
-    }
+    const result = await this.repository.resolveExistingOrderMutation(input);
 
-    await this.profileCouponsService.releaseCoupon(shipperId, couponId, orderNo);
+    return result
+      ? this.unwrapOrderMutationResult(result, stateInvalidMessage).order
+      : undefined;
   }
 
-  private async redeemOrderCoupon(
-    shipperId: string,
-    couponId: string | undefined,
-    orderNo: string,
-  ) {
-    if (!couponId || !this.profileCouponsService) {
-      return;
+  private unwrapOrderCreateResult(result: ExecuteOrderCreateResult) {
+    switch (result.kind) {
+      case 'success':
+        return result;
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他请求复用',
+        );
+      case 'key-expired':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+          'Idempotency-Key 已过期',
+        );
     }
+  }
 
-    await this.profileCouponsService.redeemCoupon(shipperId, couponId, orderNo);
+  private unwrapOrderMutationResult(
+    result: ExecuteOrderMutationResult,
+    stateInvalidMessage: string,
+  ) {
+    switch (result.kind) {
+      case 'success':
+        return result;
+      case 'conflict':
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他请求复用',
+        );
+      case 'key-expired':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+          'Idempotency-Key 已过期',
+        );
+      case 'state-invalid':
+        throw new BusinessError(
+          ApiErrorCode.ORDER_STATE_INVALID,
+          stateInvalidMessage,
+        );
+      case 'not-found':
+        throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
   }
 
   private async resolveAttachmentFileGroup(
@@ -535,18 +841,206 @@ function mapAdminOrderAttachmentFile(
   };
 }
 
-function canAdvanceOrderStatus(
-  currentStatus: string,
-  nextStatus: AdvanceShipperOrderStatusRequest['nextStatus'],
-) {
-  const allowedNextStatusByCurrentStatus: Record<
-    string,
-    AdvanceShipperOrderStatusRequest['nextStatus'] | undefined
-  > = {
-    waiting: 'loading',
-    loading: 'transporting',
-    transporting: 'confirming',
-  };
+const shipperOrderStatusReportOrder = [
+  'waiting',
+  'loading',
+  'transporting',
+  'confirming',
+  'completed',
+  'cancelled',
+] as const;
 
-  return allowedNextStatusByCurrentStatus[currentStatus] === nextStatus;
+const orderPaymentStatusReportOrder = [
+  'not_required',
+  'pending',
+  'escrowed',
+  'settled',
+  'failed',
+  'cancelled',
+  'refund_pending',
+  'refunded',
+  'refund_failed',
+  'legacy_unverified',
+] as const;
+
+const shipperOrderPricingModeReportOrder = ['fixed', 'negotiable'] as const;
+const shipperOrderPaymentMethodReportOrder = ['cod', 'online'] as const;
+
+function pickAdminOrderFilters(query: AdminOrderFilters): AdminOrderFilters {
+  return {
+    status: query.status,
+    statuses: query.statuses ? [...query.statuses] : undefined,
+    keyword: query.keyword,
+    createdFromIso: query.createdFromIso,
+    createdToIso: query.createdToIso,
+  };
+}
+
+function summarizeAdminOrders(orders: ShipperOrderRecord[]) {
+  return {
+    totalOrderCount: orders.length,
+    waitingOrderCount: orders.filter(order => order.status === 'waiting').length,
+    activeOrderCount: orders.filter(order => isActiveOrderStatus(order.status))
+      .length,
+    completedOrderCount: orders.filter(order => order.status === 'completed')
+      .length,
+    cancelledOrderCount: orders.filter(order => order.status === 'cancelled')
+      .length,
+    exceptionOrderCount: orders.filter(order => order.latestExceptionCase).length,
+  };
+}
+
+function summarizeAdminOrderStatuses(orders: ShipperOrderRecord[]) {
+  return shipperOrderStatusReportOrder
+    .map(status => {
+      const matchedOrders = orders.filter(order => order.status === status);
+
+      return {
+        status,
+        orderCount: matchedOrders.length,
+        payablePriceTotalCents: matchedOrders.reduce(
+          (sum, order) => sum + getOrderPayablePriceCents(order),
+          0,
+        ),
+      };
+    })
+    .filter(item => item.orderCount > 0);
+}
+
+function summarizeAdminOrderPaymentStatuses(orders: ShipperOrderRecord[]) {
+  return orderPaymentStatusReportOrder
+    .map(paymentStatus => {
+      const matchedOrders = orders.filter(
+        order => order.paymentStatus === paymentStatus,
+      );
+
+      return {
+        paymentStatus,
+        orderCount: matchedOrders.length,
+        payablePriceTotalCents: matchedOrders.reduce(
+          (sum, order) => sum + getOrderPayablePriceCents(order),
+          0,
+        ),
+      };
+    })
+    .filter(item => item.orderCount > 0);
+}
+
+function summarizeAdminOrderPricingModes(orders: ShipperOrderRecord[]) {
+  return shipperOrderPricingModeReportOrder
+    .map(pricingMode => {
+      const matchedOrders = orders.filter(
+        order => order.pricingMode === pricingMode,
+      );
+
+      return {
+        pricingMode,
+        orderCount: matchedOrders.length,
+        payablePriceTotalCents: matchedOrders.reduce(
+          (sum, order) => sum + getOrderPayablePriceCents(order),
+          0,
+        ),
+      };
+    })
+    .filter(item => item.orderCount > 0);
+}
+
+function summarizeAdminOrderPaymentMethods(orders: ShipperOrderRecord[]) {
+  return shipperOrderPaymentMethodReportOrder
+    .map(paymentMethod => {
+      const matchedOrders = orders.filter(
+        order => order.paymentMethod === paymentMethod,
+      );
+
+      return {
+        paymentMethod,
+        orderCount: matchedOrders.length,
+        payablePriceTotalCents: matchedOrders.reduce(
+          (sum, order) => sum + getOrderPayablePriceCents(order),
+          0,
+        ),
+      };
+    })
+    .filter(item => item.orderCount > 0);
+}
+
+function summarizeAdminOrderTopShippers(
+  orders: ShipperOrderRecord[],
+): AdminOrderReportTopShipperItem[] {
+  const summaryByShipperId = new Map<string, AdminOrderReportTopShipperItem>();
+
+  for (const order of orders) {
+    const summary = summaryByShipperId.get(order.shipperId) ?? {
+      shipperId: order.shipperId,
+      orderCount: 0,
+      waitingOrderCount: 0,
+      activeOrderCount: 0,
+      completedOrderCount: 0,
+      cancelledOrderCount: 0,
+      payablePriceTotalCents: 0,
+      latestOrderCreatedAtIso: undefined,
+    };
+
+    summary.orderCount += 1;
+    summary.payablePriceTotalCents += getOrderPayablePriceCents(order);
+    summary.latestOrderCreatedAtIso =
+      !summary.latestOrderCreatedAtIso ||
+      summary.latestOrderCreatedAtIso < order.createdAtIso
+        ? order.createdAtIso
+        : summary.latestOrderCreatedAtIso;
+
+    if (order.status === 'waiting') {
+      summary.waitingOrderCount += 1;
+    } else if (isActiveOrderStatus(order.status)) {
+      summary.activeOrderCount += 1;
+    } else if (order.status === 'completed') {
+      summary.completedOrderCount += 1;
+    } else if (order.status === 'cancelled') {
+      summary.cancelledOrderCount += 1;
+    }
+
+    summaryByShipperId.set(order.shipperId, summary);
+  }
+
+  return [...summaryByShipperId.values()].sort(compareAdminOrderTopShippers);
+}
+
+function compareAdminOrderTopShippers(
+  left: AdminOrderReportTopShipperItem,
+  right: AdminOrderReportTopShipperItem,
+) {
+  return (
+    right.orderCount - left.orderCount ||
+    right.activeOrderCount - left.activeOrderCount ||
+    right.completedOrderCount - left.completedOrderCount ||
+    right.payablePriceTotalCents - left.payablePriceTotalCents ||
+    (right.latestOrderCreatedAtIso ?? '').localeCompare(
+      left.latestOrderCreatedAtIso ?? '',
+    ) ||
+    left.shipperId.localeCompare(right.shipperId)
+  );
+}
+
+function isActiveOrderStatus(status: ShipperOrderRecord['status']) {
+  return (
+    status === 'loading' ||
+    status === 'transporting' ||
+    status === 'confirming'
+  );
+}
+
+function getOrderPayablePriceCents(order: ShipperOrderRecord) {
+  return order.payablePriceCents ?? order.priceCents ?? 0;
+}
+
+function formatCsvRow(values: Array<string>) {
+  return values
+    .map(value => {
+      const normalized = String(value ?? '');
+
+      return /[",\r\n]/.test(normalized)
+        ? `"${normalized.replace(/"/g, '""')}"`
+        : normalized;
+    })
+    .join(',');
 }

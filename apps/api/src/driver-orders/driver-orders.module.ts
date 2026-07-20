@@ -23,6 +23,11 @@ import {
   PrismaOrdersRepository,
   type PrismaOrdersClient,
 } from '../orders/orders.repository';
+import { createOrderMutationIdempotencyConfigFromEnv } from '../orders/order-mutation-idempotency';
+import {
+  PrismaDriverFinanceRepository,
+  type PrismaDriverFinanceClient,
+} from '../payments/driver-finance.repository';
 import { DriverOrdersController } from './driver-orders.controller';
 import { DriverOrdersService } from './driver-orders.service';
 
@@ -71,6 +76,14 @@ import { DriverOrdersService } from './driver-orders.service';
       inject: [PrismaService],
     },
     {
+      provide: PrismaDriverFinanceRepository,
+      useFactory: (prismaService: PrismaService) =>
+        new PrismaDriverFinanceRepository(
+          prismaService as unknown as PrismaDriverFinanceClient,
+        ),
+      inject: [PrismaService],
+    },
+    {
       provide: DriverOrdersService,
       useFactory: (
         repository: PrismaOrdersRepository,
@@ -78,6 +91,7 @@ import { DriverOrdersService } from './driver-orders.service';
         acceptanceSettingsRepository: PrismaDriverAcceptanceSettingsRepository,
         driverWithdrawalsRepository: PrismaDriverWithdrawalsRepository,
         filesRepository: PrismaFilesRepository,
+        driverFinanceRepository: PrismaDriverFinanceRepository,
       ) =>
         new DriverOrdersService(
           repository,
@@ -85,6 +99,9 @@ import { DriverOrdersService } from './driver-orders.service';
           acceptanceSettingsRepository,
           driverWithdrawalsRepository,
           filesRepository,
+          () => new Date(),
+          createOrderMutationIdempotencyConfigFromEnv(process.env).ttlSeconds,
+          driverFinanceRepository,
         ),
       inject: [
         PrismaOrdersRepository,
@@ -92,6 +109,7 @@ import { DriverOrdersService } from './driver-orders.service';
         PrismaDriverAcceptanceSettingsRepository,
         PrismaDriverWithdrawalsRepository,
         PrismaFilesRepository,
+        PrismaDriverFinanceRepository,
       ],
     },
     DriverOnlyGuard,

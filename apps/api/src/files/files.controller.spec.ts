@@ -233,6 +233,143 @@ describe('FilesController', () => {
     expect(service.getMaintenanceSummary).toHaveBeenCalledWith();
   });
 
+  it('gets file maintenance report through an admin endpoint', async () => {
+    const service = {
+      getMaintenanceReport: jest.fn().mockResolvedValue({
+        generatedAtIso: '2026-07-18T09:00:00.000Z',
+        cutoffIso: '2026-07-18T08:45:00.000Z',
+        purposeBreakdown: [
+          {
+            purpose: 'identity',
+            totalCount: 2,
+            pendingCount: 1,
+            uploadedCount: 0,
+            rejectedCount: 1,
+            expiredPendingCount: 1,
+          },
+        ],
+        topOwners: [
+          {
+            ownerUserId: 'user-1',
+            totalCount: 2,
+            pendingCount: 1,
+            uploadedCount: 0,
+            rejectedCount: 1,
+            expiredPendingCount: 1,
+            latestCreatedAtIso: '2026-07-18T08:30:00.000Z',
+          },
+        ],
+      }),
+    } as unknown as FilesService;
+    const controller = new FilesController(service);
+
+    await expect(
+      controller.getMaintenanceReport(
+        {
+          headers: { 'x-request-id': 'req_file_report' },
+          currentUser: {
+            id: 'admin-1',
+            phone: '13900139000',
+            userType: 'admin',
+          },
+        } as AuthenticatedRequest,
+        {
+          topOwnersLimit: '8',
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        generatedAtIso: '2026-07-18T09:00:00.000Z',
+        cutoffIso: '2026-07-18T08:45:00.000Z',
+        purposeBreakdown: [
+          expect.objectContaining({
+            purpose: 'identity',
+            totalCount: 2,
+            expiredPendingCount: 1,
+          }),
+        ],
+        topOwners: [
+          expect.objectContaining({
+            ownerUserId: 'user-1',
+            latestCreatedAtIso: '2026-07-18T08:30:00.000Z',
+          }),
+        ],
+      },
+      requestId: 'req_file_report',
+    });
+    expect(service.getMaintenanceReport).toHaveBeenCalledWith({
+      topOwnersLimit: 8,
+    });
+  });
+
+  it('lists file maintenance records through an admin endpoint', async () => {
+    const service = {
+      listMaintenanceFiles: jest.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'file-1',
+            ownerUserId: 'user-1',
+            purpose: 'identity',
+            contentType: 'image/png',
+            byteSize: 2048,
+            objectKey: 'user-1/identity/front.png',
+            status: 'pending',
+            createdAtIso: '2026-07-06T03:00:00.000Z',
+            isExpiredPending: true,
+          },
+        ],
+        page: 2,
+        pageSize: 10,
+        total: 11,
+      }),
+    } as unknown as FilesService;
+    const controller = new FilesController(service);
+
+    await expect(
+      controller.listMaintenanceFiles(
+        {
+          headers: { 'x-request-id': 'req_file_list' },
+          currentUser: {
+            id: 'admin-1',
+            phone: '13900139000',
+            userType: 'admin',
+          },
+        } as AuthenticatedRequest,
+        {
+          status: 'pending',
+          purpose: 'identity',
+          ownerUserId: ' user-1 ',
+          keyword: ' front ',
+          page: '2',
+          pageSize: '10',
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        items: [
+          expect.objectContaining({
+            id: 'file-1',
+            isExpiredPending: true,
+          }),
+        ],
+        page: 2,
+        pageSize: 10,
+        total: 11,
+      },
+      requestId: 'req_file_list',
+    });
+    expect(service.listMaintenanceFiles).toHaveBeenCalledWith({
+      status: 'pending',
+      purpose: 'identity',
+      ownerUserId: 'user-1',
+      keyword: 'front',
+      page: 2,
+      pageSize: 10,
+    });
+  });
+
   it('retries rejected file object deletion through an admin endpoint', async () => {
     const service = {
       deleteRejectedFileObjects: jest.fn().mockResolvedValue({
@@ -262,6 +399,105 @@ describe('FilesController', () => {
       requestId: 'req_file_delete_rejected',
     });
     expect(service.deleteRejectedFileObjects).toHaveBeenCalledWith();
+  });
+
+  it('runs file maintenance batch governance through an admin endpoint', async () => {
+    const service = {
+      runMaintenanceBatchGovernance: jest.fn().mockResolvedValue({
+        action: 'reject_pending',
+        requestedCount: 3,
+        matchedCount: 2,
+        processedCount: 1,
+        skippedFileIds: ['file-2'],
+        deletedObjectCount: 1,
+        failedObjectDeletionCount: 0,
+      }),
+    } as unknown as FilesService;
+    const controller = new FilesController(service);
+
+    await expect(
+      controller.runMaintenanceBatchGovernance(
+        {
+          headers: { 'x-request-id': 'req_file_batch_governance' },
+          currentUser: {
+            id: 'admin-1',
+            phone: '13900139000',
+            userType: 'admin',
+          },
+        } as AuthenticatedRequest,
+        {
+          action: 'reject_pending',
+          fileIds: [' file-1 ', 'file-2', 'file-1'],
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        action: 'reject_pending',
+        requestedCount: 3,
+        matchedCount: 2,
+        processedCount: 1,
+        skippedFileIds: ['file-2'],
+        deletedObjectCount: 1,
+        failedObjectDeletionCount: 0,
+      },
+      requestId: 'req_file_batch_governance',
+    });
+    expect(service.runMaintenanceBatchGovernance).toHaveBeenCalledWith({
+      action: 'reject_pending',
+      fileIds: ['file-1', 'file-2'],
+    });
+  });
+
+  it('routes file maintenance list requests before file id metadata routes', async () => {
+    const service = {
+      listMaintenanceFiles: jest.fn().mockResolvedValue({
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      }),
+      getFileMetadata: jest.fn(),
+    } as unknown as FilesService;
+    const authService = {
+      getCurrentUser: jest.fn().mockResolvedValue({
+        id: 'admin-1',
+        phone: '13900139000',
+        userType: 'admin',
+      }),
+    };
+    const app = await createFilesControllerTestApp(service, authService);
+
+    try {
+      const response = await fetch(
+        `${await app.getUrl()}/files/maintenance/files?page=1&pageSize=20`,
+        {
+          headers: {
+            authorization: 'Bearer access.admin-1.900',
+            'x-request-id': 'req_file_list_http',
+          },
+        },
+      );
+
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'OK',
+        data: {
+          items: [],
+          page: 1,
+          pageSize: 20,
+          total: 0,
+        },
+        requestId: 'req_file_list_http',
+      });
+      expect(response.status).toBe(200);
+      expect(service.listMaintenanceFiles).toHaveBeenCalledWith({
+        page: 1,
+        pageSize: 20,
+      });
+      expect(service.getFileMetadata).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
   });
 
   it('routes file maintenance summary requests before file id metadata routes', async () => {
@@ -306,6 +542,55 @@ describe('FilesController', () => {
       });
       expect(response.status).toBe(200);
       expect(service.getMaintenanceSummary).toHaveBeenCalledWith();
+      expect(service.getFileMetadata).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('routes file maintenance report requests before file id metadata routes', async () => {
+    const service = {
+      getMaintenanceReport: jest.fn().mockResolvedValue({
+        generatedAtIso: '2026-07-18T09:00:00.000Z',
+        cutoffIso: '2026-07-18T08:45:00.000Z',
+        purposeBreakdown: [],
+        topOwners: [],
+      }),
+      getFileMetadata: jest.fn(),
+    } as unknown as FilesService;
+    const authService = {
+      getCurrentUser: jest.fn().mockResolvedValue({
+        id: 'admin-1',
+        phone: '13900139000',
+        userType: 'admin',
+      }),
+    };
+    const app = await createFilesControllerTestApp(service, authService);
+
+    try {
+      const response = await fetch(
+        `${await app.getUrl()}/files/maintenance/report?topOwnersLimit=6`,
+        {
+          headers: {
+            authorization: 'Bearer access.admin-1.900',
+            'x-request-id': 'req_file_report_http',
+          },
+        },
+      );
+
+      await expect(response.json()).resolves.toMatchObject({
+        code: 'OK',
+        data: {
+          generatedAtIso: '2026-07-18T09:00:00.000Z',
+          purposeBreakdown: [],
+          topOwners: [],
+        },
+        requestId: 'req_file_report_http',
+      });
+      expect(response.status).toBe(200);
+      expect(service.getMaintenanceReport).toHaveBeenCalledWith({
+        topOwnersLimit: 6,
+      });
       expect(service.getFileMetadata).not.toHaveBeenCalled();
     } finally {
       await app.close();
@@ -572,6 +857,17 @@ describe('FilesController', () => {
       AccessTokenGuard,
       AdminOnlyGuard,
     ]);
+    expect(getGuards(FilesController.prototype.getMaintenanceReport)).toEqual([
+      AccessTokenGuard,
+      AdminOnlyGuard,
+    ]);
+    expect(getGuards(FilesController.prototype.listMaintenanceFiles)).toEqual([
+      AccessTokenGuard,
+      AdminOnlyGuard,
+    ]);
+    expect(
+      getGuards(FilesController.prototype.runMaintenanceBatchGovernance),
+    ).toEqual([AccessTokenGuard, AdminOnlyGuard]);
     expect(
       getGuards(FilesController.prototype.deleteRejectedFileObjects),
     ).toEqual([AccessTokenGuard, AdminOnlyGuard]);

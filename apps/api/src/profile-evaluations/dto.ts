@@ -43,6 +43,9 @@ export type AdminEvaluationDirection =
 export type AdminEvaluationAuditListQuery = {
   page: number;
   pageSize: number;
+  direction?: AdminEvaluationDirection;
+  rating?: number;
+  keyword?: string;
 };
 
 export type AdminEvaluationAuditRecord = {

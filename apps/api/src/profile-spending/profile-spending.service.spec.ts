@@ -2,57 +2,74 @@ import {
   InMemoryProfileSpendingRepository,
 } from './profile-spending.repository';
 import { ProfileSpendingService } from './profile-spending.service';
+import type { ShipperSpendingFinancialRecord } from './dto';
 
 describe('ProfileSpendingService', () => {
-  it('returns a spending snapshot derived from current shipper orders', async () => {
+  it('builds spending totals only from payment, settlement and refund facts', async () => {
     const repository = new InMemoryProfileSpendingRepository({
-      orders: [
-        createOrder({
-          id: 'order-waiting',
-          shipperId: 'shipper-1',
-          orderNo: 'HY202607090004',
-          status: 'waiting',
-          paymentMethod: 'online',
-          priceCents: 76000,
-          updatedAtIso: '2026-07-09T10:00:00.000Z',
-          pickupAddress: '宝安仓库',
-          deliveryAddress: '罗湖门店',
-        }),
-        createOrder({
-          id: 'order-active',
-          shipperId: 'shipper-1',
-          orderNo: 'HY202607090003',
-          status: 'loading',
-          paymentMethod: 'online',
-          priceCents: 54000,
-          payablePriceCents: 52000,
-          couponTitle: '满 500 减 20',
-          couponDiscountCents: 2000,
-          updatedAtIso: '2026-07-09T09:00:00.000Z',
-          pickupAddress: '龙华仓库',
-          deliveryAddress: '福田门店',
-        }),
-        createOrder({
-          id: 'order-completed',
-          shipperId: 'shipper-1',
-          orderNo: 'HY202607090002',
+      financialRecords: [
+        createFinancialRecord({
+          id: 'order-settled',
+          orderNo: 'HY202607150001',
           status: 'completed',
           paymentMethod: 'cod',
-          priceCents: 31000,
-          updatedAtIso: '2026-07-09T08:00:00.000Z',
-          pickupAddress: '坪山工厂',
-          deliveryAddress: '南山门店',
+          paymentStatus: 'settled',
+          priceCents: 999999,
+          settlement: {
+            grossAmountCents: 31000,
+            settledAtIso: '2026-07-15T08:00:00.000Z',
+          },
         }),
-        createOrder({
-          id: 'order-refund',
-          shipperId: 'shipper-1',
-          orderNo: 'HY202607090001',
+        createFinancialRecord({
+          id: 'order-escrowed',
+          orderNo: 'HY202607150002',
+          status: 'loading',
+          paymentMethod: 'online',
+          paymentStatus: 'escrowed',
+          payablePriceCents: 888888,
+          payment: {
+            channel: 'wechat',
+            amountCents: 52000,
+            status: 'escrowed',
+            paidAtIso: '2026-07-15T07:00:00.000Z',
+            createdAtIso: '2026-07-15T06:55:00.000Z',
+          },
+        }),
+        createFinancialRecord({
+          id: 'order-refunded',
+          orderNo: 'HY202607150003',
           status: 'cancelled',
           paymentMethod: 'online',
-          priceCents: 26000,
-          updatedAtIso: '2026-07-08T08:00:00.000Z',
-          pickupAddress: '光明仓库',
-          deliveryAddress: '前海门店',
+          paymentStatus: 'refunded',
+          payment: {
+            channel: 'alipay',
+            amountCents: 26000,
+            status: 'refunded',
+            paidAtIso: '2026-07-14T07:00:00.000Z',
+            createdAtIso: '2026-07-14T06:55:00.000Z',
+          },
+          refund: {
+            amountCents: 26000,
+            status: 'succeeded',
+            succeededAtIso: '2026-07-15T06:00:00.000Z',
+            updatedAtIso: '2026-07-15T06:00:00.000Z',
+          },
+        }),
+        createFinancialRecord({
+          id: 'order-cancelled-unpaid',
+          orderNo: 'HY202607150004',
+          status: 'cancelled',
+          paymentMethod: 'online',
+          paymentStatus: 'cancelled',
+          priceCents: 45000,
+        }),
+        createFinancialRecord({
+          id: 'order-legacy',
+          orderNo: 'HY202607150005',
+          status: 'completed',
+          paymentMethod: 'cod',
+          paymentStatus: 'legacy_unverified',
+          priceCents: 73000,
         }),
       ],
     });
@@ -67,103 +84,47 @@ describe('ProfileSpendingService', () => {
       },
       items: [
         expect.objectContaining({
-          orderId: 'order-waiting',
-          orderNo: 'HY202607090004',
-          status: 'waiting',
-          paymentMethod: 'online',
-          amountCents: 76000,
-          routeText: '宝安仓库 → 罗湖门店',
-          occurredAtIso: '2026-07-09T10:00:00.000Z',
-        }),
-        expect.objectContaining({
-          orderId: 'order-active',
-          orderNo: 'HY202607090003',
-          status: 'loading',
-          paymentMethod: 'online',
-          amountCents: 52000,
-          priceCents: 54000,
-          payablePriceCents: 52000,
-          couponTitle: '满 500 减 20',
-          couponDiscountCents: 2000,
-          routeText: '龙华仓库 → 福田门店',
-        }),
-        expect.objectContaining({
-          orderId: 'order-completed',
-          orderNo: 'HY202607090002',
-          status: 'completed',
-          paymentMethod: 'cod',
+          orderId: 'order-settled',
           amountCents: 31000,
-          routeText: '坪山工厂 → 南山门店',
+          paymentStatus: 'settled',
+          settledAtIso: '2026-07-15T08:00:00.000Z',
+          occurredAtIso: '2026-07-15T08:00:00.000Z',
         }),
         expect.objectContaining({
-          orderId: 'order-refund',
-          orderNo: 'HY202607090001',
-          status: 'cancelled',
-          paymentMethod: 'online',
+          orderId: 'order-escrowed',
+          amountCents: 52000,
+          paymentStatus: 'escrowed',
+          paymentChannel: 'wechat',
+          paymentOrderStatus: 'escrowed',
+          paidAtIso: '2026-07-15T07:00:00.000Z',
+        }),
+        expect.objectContaining({
+          orderId: 'order-refunded',
           amountCents: 26000,
-          routeText: '光明仓库 → 前海门店',
+          paymentStatus: 'refunded',
+          paymentChannel: 'alipay',
+          refundStatus: 'succeeded',
+          refundedAtIso: '2026-07-15T06:00:00.000Z',
         }),
       ],
     });
   });
 
-  it('skips orders without payable or original amount when building the spending snapshot', async () => {
-    const repository = new InMemoryProfileSpendingRepository({
-      orders: [
-        createOrder({
-          shipperId: 'shipper-1',
-          orderNo: 'HY202607090001',
-          status: 'completed',
-          paymentMethod: 'online',
-          updatedAtIso: '2026-07-09T08:00:00.000Z',
-        }),
-      ],
-    });
-    const service = new ProfileSpendingService(repository);
-
-    await expect(service.listRecords('shipper-1')).resolves.toEqual({
-      shipperId: 'shipper-1',
-      summary: {
-        completedTotalCents: 0,
-        activeTotalCents: 0,
-        refundTotalCents: 0,
-      },
-      items: [],
-    });
-  });
 });
 
-function createOrder(
-  overrides: Partial<{
-    id: string;
-    shipperId: string;
-    orderNo: string;
-    status:
-      | 'waiting'
-      | 'loading'
-      | 'transporting'
-      | 'confirming'
-      | 'completed'
-      | 'cancelled';
-    paymentMethod: 'cod' | 'online';
-    priceCents: number;
-    payablePriceCents: number;
-    couponTitle: string;
-    couponDiscountCents: number;
-    updatedAtIso: string;
-    pickupAddress: string;
-    deliveryAddress: string;
-  }>,
-) {
+function createFinancialRecord(
+  overrides: Partial<ShipperSpendingFinancialRecord> = {},
+): ShipperSpendingFinancialRecord {
   return {
     id: 'order-1',
     shipperId: 'shipper-1',
-    orderNo: 'HY202607090001',
-    status: 'completed' as const,
-    paymentMethod: 'online' as const,
-    updatedAtIso: '2026-07-09T08:00:00.000Z',
-    pickupAddress: '默认装货地',
-    deliveryAddress: '默认卸货地',
+    orderNo: 'HY202607150001',
+    status: 'completed',
+    paymentMethod: 'online',
+    paymentStatus: 'settled',
+    updatedAtIso: '2026-07-15T08:00:00.000Z',
+    pickupAddress: '宝安仓库',
+    deliveryAddress: '南山门店',
     ...overrides,
   };
 }

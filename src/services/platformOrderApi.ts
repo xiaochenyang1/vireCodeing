@@ -5,6 +5,7 @@ import {
   platformPut,
   type PlatformApiConfig,
 } from './platformApiClient';
+import type { OrderPaymentStatus } from '../types';
 
 export type PlatformShipperOrderStatus =
   | 'waiting'
@@ -30,6 +31,10 @@ const PLATFORM_SHIPPER_ORDER_ADVANCE_STATUSES: PlatformAdvanceShipperOrderStatus
 ];
 
 const PLATFORM_ORDER_PHONE_PATTERN = /^1[3-9]\d{9}$/;
+const PLATFORM_ORDER_IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PLATFORM_ORDER_DATE_TIME_WITH_OFFSET_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export type PlatformCreateShipperOrderRequest = {
   cargoType: string;
@@ -63,17 +68,27 @@ export type PlatformCreateShipperOrderRequest = {
   payablePriceCents?: number;
 };
 
-export type PlatformCancelShipperOrderRequest = {
+type PlatformOrderMutationRequest = {
+  baseUpdatedAtIso: string;
+};
+
+export type PlatformUpdateShipperOrderRequest =
+  PlatformCreateShipperOrderRequest & PlatformOrderMutationRequest;
+
+export type PlatformCancelShipperOrderRequest = PlatformOrderMutationRequest & {
   reasonText: string;
   description?: string;
 };
 
-export type PlatformAdvanceShipperOrderStatusRequest = {
+export type PlatformAdvanceShipperOrderStatusRequest =
+  PlatformOrderMutationRequest & {
   nextStatus: Extract<
     PlatformShipperOrderStatus,
     'loading' | 'transporting' | 'confirming'
   >;
 };
+
+export type PlatformCompleteShipperOrderRequest = PlatformOrderMutationRequest;
 
 export type PlatformReportShipperOrderExceptionRequest = {
   typeLabel: string;
@@ -95,13 +110,48 @@ export type PlatformSubmitShipperOrderEvaluationRequest = {
   photoFileIds?: string[];
 };
 
+export type PlatformOrderExceptionCaseStatus =
+  | 'pending'
+  | 'processing'
+  | 'resolved'
+  | 'closed';
+
+export type PlatformOrderExceptionCaseSourceRole = 'shipper' | 'driver';
+export type PlatformOrderExceptionCaseCompensationStatus =
+  | 'not_required'
+  | 'pending'
+  | 'offline_completed';
+export type PlatformOrderExceptionCaseCompensationTargetRole =
+  PlatformOrderExceptionCaseSourceRole;
+
+export type PlatformOrderLatestExceptionCase = {
+  id: string;
+  caseNo: string;
+  sourceEventId: string;
+  sourceRole: PlatformOrderExceptionCaseSourceRole;
+  status: PlatformOrderExceptionCaseStatus;
+  resolutionText?: string;
+  resolvedAtIso?: string;
+  compensationStatus?: PlatformOrderExceptionCaseCompensationStatus;
+  compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
+  compensationAmountCents?: number;
+  compensationUpdatedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
 export type PlatformShipperOrder = PlatformCreateShipperOrderRequest & {
   id: string;
   orderNo: string;
   shipperId: string;
   status: PlatformShipperOrderStatus;
+  paymentStatus?: OrderPaymentStatus;
+  assignedDriverId?: string;
+  paymentSettledAtIso?: string;
+  refundedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
+  latestExceptionCase?: PlatformOrderLatestExceptionCase;
   events?: Array<{
     id: string;
     actorUserId?: string;
@@ -111,14 +161,6 @@ export type PlatformShipperOrder = PlatformCreateShipperOrderRequest & {
     createdAtIso: string;
   }>;
 };
-
-export type PlatformOrderExceptionCaseStatus =
-  | 'pending'
-  | 'processing'
-  | 'resolved'
-  | 'closed';
-
-export type PlatformOrderExceptionCaseSourceRole = 'shipper' | 'driver';
 
 export type PlatformOrderExceptionCaseAction = {
   id: string;
@@ -142,6 +184,10 @@ export type PlatformOrderExceptionCase = {
   attachmentFileIds: string[];
   status: PlatformOrderExceptionCaseStatus;
   resolutionText?: string;
+  compensationStatus?: PlatformOrderExceptionCaseCompensationStatus;
+  compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
+  compensationAmountCents?: number;
+  compensationUpdatedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   createdAtIso: string;
@@ -173,13 +219,25 @@ export type PlatformListShipperOrdersQuery = {
 
 export function createPlatformOrderApi(config: PlatformApiConfig) {
   return {
-    createOrder(request: PlatformCreateShipperOrderRequest) {
+    createOrder(
+      request: PlatformCreateShipperOrderRequest,
+      idempotencyKey: string,
+    ) {
       const normalizedRequest = normalizeCreateOrderRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_REQUEST_INVALID',
+      );
 
       return platformPost<
         PlatformCreateShipperOrderRequest,
         PlatformShipperOrder
-      >(config, '/shipper/orders', normalizedRequest);
+      >(
+        config,
+        '/shipper/orders',
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
     },
     async listOrders(query: PlatformListShipperOrdersQuery = {}) {
       assertValidListOrdersQuery(query);
@@ -207,48 +265,88 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
     },
     async updateOrder(
       orderId: string,
-      request: PlatformCreateShipperOrderRequest,
+      request: PlatformUpdateShipperOrderRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeOrderId(orderId);
-      const normalizedRequest = normalizeCreateOrderRequest(request);
+      const normalizedRequest = normalizeUpdateOrderRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_REQUEST_INVALID',
+      );
 
       return platformPut<
-        PlatformCreateShipperOrderRequest,
+        PlatformUpdateShipperOrderRequest,
         PlatformShipperOrder
-      >(config, `/shipper/orders/${normalizedOrderId}`, normalizedRequest);
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
     },
     async cancelOrder(
       orderId: string,
       request: PlatformCancelShipperOrderRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeOrderId(orderId);
       const normalizedRequest = normalizeCancelOrderRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      );
 
       return platformPost<
         PlatformCancelShipperOrderRequest,
         PlatformShipperOrder
-      >(config, `/shipper/orders/${normalizedOrderId}/cancel`, normalizedRequest);
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/cancel`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
     },
-    async completeOrder(orderId: string) {
+    async completeOrder(
+      orderId: string,
+      request: PlatformCompleteShipperOrderRequest,
+      idempotencyKey: string,
+    ) {
       const normalizedOrderId = normalizeOrderId(orderId);
+      const normalizedRequest = normalizeCompleteOrderRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID',
+      );
 
-      return platformPost<undefined, PlatformShipperOrder>(
+      return platformPost<PlatformCompleteShipperOrderRequest, PlatformShipperOrder>(
         config,
         `/shipper/orders/${normalizedOrderId}/complete`,
-        undefined,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
     async advanceOrderStatus(
       orderId: string,
       request: PlatformAdvanceShipperOrderStatusRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeOrderId(orderId);
-      assertValidAdvanceOrderStatusRequest(request);
+      const normalizedRequest = normalizeAdvanceOrderStatusRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+      );
 
       return platformPost<
         PlatformAdvanceShipperOrderStatusRequest,
         PlatformShipperOrder
-      >(config, `/shipper/orders/${normalizedOrderId}/status`, request);
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/status`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
     },
     async reportException(
       orderId: string,
@@ -531,6 +629,21 @@ function normalizeCreateOrderRequest(
   return normalizedRequest;
 }
 
+function normalizeUpdateOrderRequest(
+  request: PlatformUpdateShipperOrderRequest,
+) {
+  const normalizedRequest = normalizeCreateOrderRequest(request);
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_REQUEST_INVALID',
+  );
+
+  return {
+    ...normalizedRequest,
+    baseUpdatedAtIso,
+  };
+}
+
 function normalizeRequiredOrderString(value: unknown, fieldName: string) {
   if (typeof value !== 'string') {
     throwInvalidOrderRequest(`Platform order ${fieldName} must be a string`);
@@ -659,6 +772,10 @@ function normalizeCancelOrderRequest(
     );
   }
 
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+  );
   const reasonTextInput = request.reasonText as unknown;
 
   if (typeof reasonTextInput !== 'string') {
@@ -702,10 +819,12 @@ function normalizeCancelOrderRequest(
     );
   }
 
-  return description ? { reasonText, description } : { reasonText };
+  return description
+    ? { baseUpdatedAtIso, reasonText, description }
+    : { baseUpdatedAtIso, reasonText };
 }
 
-function assertValidAdvanceOrderStatusRequest(
+function normalizeAdvanceOrderStatusRequest(
   request: PlatformAdvanceShipperOrderStatusRequest,
 ) {
   const requestInput = request as unknown;
@@ -731,6 +850,41 @@ function assertValidAdvanceOrderStatusRequest(
       0,
     );
   }
+
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+  );
+
+  return {
+    baseUpdatedAtIso,
+    nextStatus: request.nextStatus,
+  };
+}
+
+function normalizeCompleteOrderRequest(
+  request: PlatformCompleteShipperOrderRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform order complete request must be an object',
+      'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  return {
+    baseUpdatedAtIso: normalizeOrderMutationBaseUpdatedAtIso(
+      request.baseUpdatedAtIso,
+      'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID',
+    ),
+  };
 }
 
 function normalizeReportExceptionRequest(
@@ -1022,6 +1176,80 @@ function normalizeOptionalOrderFileIds(
   });
 
   return Array.from(new Set(normalizedFileIds));
+}
+
+function createOrderMutationRequestOptions(idempotencyKey: string) {
+  return {
+    headers: {
+      'Idempotency-Key': idempotencyKey,
+    },
+  };
+}
+
+function normalizeOrderMutationIdempotencyKey(
+  value: unknown,
+  errorCode:
+    | 'PLATFORM_ORDER_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+) {
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(
+      'Platform order Idempotency-Key is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (
+    !normalizedValue ||
+    normalizedValue.length > 64 ||
+    !PLATFORM_ORDER_IDEMPOTENCY_KEY_PATTERN.test(normalizedValue)
+  ) {
+    throw new PlatformApiError(
+      'Platform order Idempotency-Key is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  return normalizedValue;
+}
+
+function normalizeOrderMutationBaseUpdatedAtIso(
+  value: unknown,
+  errorCode:
+    | 'PLATFORM_ORDER_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+) {
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(
+      'Platform order baseUpdatedAtIso is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (
+    !normalizedValue ||
+    !PLATFORM_ORDER_DATE_TIME_WITH_OFFSET_PATTERN.test(normalizedValue) ||
+    Number.isNaN(Date.parse(normalizedValue))
+  ) {
+    throw new PlatformApiError(
+      'Platform order baseUpdatedAtIso is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  return normalizedValue;
 }
 
 function assertValidListOrdersQuery(query: PlatformListShipperOrdersQuery) {

@@ -3,6 +3,7 @@ import { Text, View } from 'react-native';
 import type { PlatformOrderExceptionCase } from '../../services/platformOrderApi';
 import { styles } from '../../styles';
 import {
+  getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
   sortOrderExceptionCaseActions,
@@ -25,37 +26,46 @@ export function ExceptionCaseProgressPanel({
       {!isLoading && !notice && cases.length === 0 ? (
         <Text style={styles.detailMeta}>暂无异常处理工单</Text>
       ) : null}
-      {cases.map(exceptionCase => (
-        <View
-          key={exceptionCase.id}
-          testID={`exception-case-${exceptionCase.caseNo}`}
-          style={styles.detailInlineGroup}
-        >
-          <Text style={styles.detailMeta}>
-            {exceptionCase.caseNo} ·{' '}
-            {getOrderExceptionCaseStatusText(exceptionCase.status)}
-          </Text>
-          <Text style={styles.detailMeta}>
-            {getOrderExceptionCaseSourceText(exceptionCase.sourceRole)} ·{' '}
-            {exceptionCase.typeLabel}
-          </Text>
-          <Text style={styles.detailMeta}>{exceptionCase.description}</Text>
-          <Text style={styles.detailMeta}>
-            提交时间：{exceptionCase.createdAtIso}
-          </Text>
-          {exceptionCase.resolutionText ? (
+      {cases.map(exceptionCase => {
+        const compensationSummary =
+          getOrderExceptionCaseCompensationSummary(exceptionCase);
+
+        return (
+          <View
+            key={exceptionCase.id}
+            testID={`exception-case-${exceptionCase.caseNo}`}
+            style={styles.detailInlineGroup}
+          >
             <Text style={styles.detailMeta}>
-              处理结论：{exceptionCase.resolutionText}
+              {exceptionCase.caseNo} ·{' '}
+              {getOrderExceptionCaseStatusText(exceptionCase.status)}
             </Text>
-          ) : null}
-          {sortOrderExceptionCaseActions(exceptionCase.actions).map(action => (
-            <Text key={action.id} style={styles.detailMeta}>
-              {getOrderExceptionCaseStatusText(action.fromStatus)} →{' '}
-              {getOrderExceptionCaseStatusText(action.toStatus)}：{action.content}
+            <Text style={styles.detailMeta}>
+              {getOrderExceptionCaseSourceText(exceptionCase.sourceRole)} ·{' '}
+              {exceptionCase.typeLabel}
             </Text>
-          ))}
-        </View>
-      ))}
+            <Text style={styles.detailMeta}>{exceptionCase.description}</Text>
+            <Text style={styles.detailMeta}>
+              提交时间：{exceptionCase.createdAtIso}
+            </Text>
+            {exceptionCase.resolutionText ? (
+              <Text style={styles.detailMeta}>
+                处理结论：{exceptionCase.resolutionText}
+              </Text>
+            ) : null}
+            {compensationSummary ? (
+              <Text style={styles.detailMeta}>{compensationSummary}</Text>
+            ) : null}
+            {sortOrderExceptionCaseActions(exceptionCase.actions).map(action => (
+              <Text key={action.id} style={styles.detailMeta}>
+                {getOrderExceptionCaseStatusText(action.fromStatus)} →{' '}
+                {getOrderExceptionCaseStatusText(action.toStatus)}：
+                {action.content}
+              </Text>
+            ))}
+          </View>
+        );
+      })}
     </View>
   );
 }

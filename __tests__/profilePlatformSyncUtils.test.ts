@@ -115,6 +115,65 @@ test('rejects an invalid platform spending snapshot', () => {
       items: [],
     } as never),
   ).toBe(false);
+  expect(
+    isValidPlatformSpendingSnapshot({
+      shipperId: 's1',
+      summary: {
+        completedTotalCents: 100,
+        activeTotalCents: 0,
+        refundTotalCents: 0,
+      },
+      items: [
+        {
+          orderId: 'order-1',
+          orderNo: 'HY1',
+          status: 'completed',
+          paymentMethod: 'online',
+          amountCents: 100,
+          occurredAtIso: '2026-07-15T08:00:00.000Z',
+          routeText: 'A → B',
+        },
+      ],
+    } as never),
+  ).toBe(false);
+
+  const validSnapshot = {
+    shipperId: 's1',
+    summary: {
+      completedTotalCents: 100,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [
+      {
+        orderId: 'order-1',
+        orderNo: 'HY1',
+        status: 'completed',
+        paymentMethod: 'online',
+        paymentStatus: 'settled',
+        paymentChannel: 'wechat',
+        paymentOrderStatus: 'settled',
+        amountCents: 100,
+        occurredAtIso: '2026-07-15T08:00:00.000Z',
+        paidAtIso: '2026-07-15T07:50:00.000Z',
+        settledAtIso: '2026-07-15T08:00:00.000Z',
+        routeText: 'A → B',
+      },
+    ],
+  };
+  expect(isValidPlatformSpendingSnapshot(validSnapshot as never)).toBe(true);
+  expect(
+    isValidPlatformSpendingSnapshot({
+      ...validSnapshot,
+      items: [{ ...validSnapshot.items[0], paymentStatus: 'invented' }],
+    } as never),
+  ).toBe(false);
+  expect(
+    isValidPlatformSpendingSnapshot({
+      ...validSnapshot,
+      items: [{ ...validSnapshot.items[0], refundAmountCents: -1 }],
+    } as never),
+  ).toBe(false);
 });
 
 test('builds only the differing address conflict field items', () => {

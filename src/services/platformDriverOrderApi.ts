@@ -45,11 +45,17 @@ export type PlatformDriverQuoteOrderRequest = {
   noteText?: string;
 };
 
-export type PlatformDriverAcceptOrderRequest = {
+type PlatformDriverOrderMutationRequest = {
+  baseUpdatedAtIso: string;
+};
+
+export type PlatformDriverAcceptOrderRequest =
+  PlatformDriverOrderMutationRequest & {
   noteText?: string;
 };
 
-export type PlatformDriverAdvanceOrderStatusRequest = {
+export type PlatformDriverAdvanceOrderStatusRequest =
+  PlatformDriverOrderMutationRequest & {
   nextStatus: Extract<
     PlatformDriverExecutingOrderStatus,
     'transporting' | 'confirming'
@@ -94,6 +100,7 @@ export type PlatformDriverIncomeSummary = {
   pendingSettlementCents: number;
   availableWithdrawalCents: number;
   reviewingWithdrawalCents: number;
+  withdrawnCents: number;
   completedOrderCount: number;
 };
 
@@ -155,6 +162,10 @@ const DRIVER_ADVANCE_ORDER_STATUSES: PlatformDriverAdvanceOrderStatusRequest['ne
   'transporting',
   'confirming',
 ];
+const PLATFORM_DRIVER_ORDER_IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PLATFORM_DRIVER_ORDER_DATE_TIME_WITH_OFFSET_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
   return {
@@ -179,14 +190,23 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         createWithdrawalsPath(query),
       );
     },
-    async createWithdrawal(request: PlatformCreateDriverWithdrawalRequest) {
+    async createWithdrawal(
+      request: PlatformCreateDriverWithdrawalRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedRequest = normalizeDriverWithdrawalRequest(request);
+      const normalizedIdempotencyKey = normalizeDriverOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
+      );
       return platformPost<
         PlatformCreateDriverWithdrawalRequest,
         PlatformDriverWithdrawalRecord
       >(
         config,
         '/driver/withdrawals',
-        normalizeDriverWithdrawalRequest(request),
+        normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
     getAcceptanceSettings() {
@@ -238,10 +258,16 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
     },
     async acceptOrder(
       orderId: string,
-      request: PlatformDriverAcceptOrderRequest = {},
+      request: PlatformDriverAcceptOrderRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedRequest = normalizeDriverAcceptOrderRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
+        );
 
       return platformPost<
         PlatformDriverAcceptOrderRequest,
@@ -250,14 +276,21 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         config,
         `/driver/orders/${normalizedOrderId}/accept`,
         normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
     async advanceOrderStatus(
       orderId: string,
       request: PlatformDriverAdvanceOrderStatusRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedRequest = normalizeDriverAdvanceOrderStatusRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
+        );
 
       return platformPost<
         PlatformDriverAdvanceOrderStatusRequest,
@@ -266,6 +299,7 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         config,
         `/driver/orders/${normalizedOrderId}/status`,
         normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
     async replyToEvaluation(
@@ -491,6 +525,10 @@ function normalizeDriverAcceptOrderRequest(
     );
   }
 
+  const baseUpdatedAtIso = normalizeDriverOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
+  );
   const noteText = normalizeOptionalDriverString(
     request.noteText,
     'noteText',
@@ -498,7 +536,9 @@ function normalizeDriverAcceptOrderRequest(
     200,
   );
 
-  return noteText === undefined ? {} : { noteText };
+  return noteText === undefined
+    ? { baseUpdatedAtIso }
+    : { baseUpdatedAtIso, noteText };
 }
 
 function normalizeDriverAdvanceOrderStatusRequest(
@@ -518,6 +558,10 @@ function normalizeDriverAdvanceOrderStatusRequest(
     throwInvalidStatusRequest('Platform driver nextStatus is invalid');
   }
 
+  const baseUpdatedAtIso = normalizeDriverOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
+  );
   const receiptPhotoFileIds = normalizeOptionalDriverFileIds(
     request.receiptPhotoFileIds,
     'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
@@ -525,6 +569,7 @@ function normalizeDriverAdvanceOrderStatusRequest(
 
   return {
     nextStatus: request.nextStatus,
+    baseUpdatedAtIso,
     ...(receiptPhotoFileIds === undefined ? {} : { receiptPhotoFileIds }),
   };
 }
@@ -877,6 +922,77 @@ function normalizeOptionalExceptionPhotoFileIds(value: unknown) {
       }),
     ),
   );
+}
+
+function createDriverOrderMutationRequestOptions(idempotencyKey: string) {
+  return {
+    headers: {
+      'Idempotency-Key': idempotencyKey,
+    },
+  };
+}
+
+function normalizeDriverOrderMutationIdempotencyKey(
+  value: unknown,
+  errorCode:
+    | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
+    | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
+    | 'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
+) {
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(
+      'Platform driver Idempotency-Key is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (
+    !normalizedValue ||
+    normalizedValue.length > 64 ||
+    !PLATFORM_DRIVER_ORDER_IDEMPOTENCY_KEY_PATTERN.test(normalizedValue)
+  ) {
+    throw new PlatformApiError(
+      'Platform driver Idempotency-Key is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  return normalizedValue;
+}
+
+function normalizeDriverOrderMutationBaseUpdatedAtIso(
+  value: unknown,
+  errorCode:
+    | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
+    | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
+) {
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(
+      'Platform driver baseUpdatedAtIso is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  const normalizedValue = value.trim();
+
+  if (
+    !normalizedValue ||
+    !PLATFORM_DRIVER_ORDER_DATE_TIME_WITH_OFFSET_PATTERN.test(normalizedValue) ||
+    Number.isNaN(Date.parse(normalizedValue))
+  ) {
+    throw new PlatformApiError(
+      'Platform driver baseUpdatedAtIso is invalid',
+      errorCode,
+      0,
+    );
+  }
+
+  return normalizedValue;
 }
 
 function assertValidDriverExecutingStatuses(value: unknown) {

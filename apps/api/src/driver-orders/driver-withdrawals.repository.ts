@@ -10,10 +10,6 @@ export interface DriverWithdrawalsRepository {
     query: DriverWithdrawalsQuery,
   ): Promise<{ items: DriverWithdrawalRecord[]; total: number }>;
   listAllWithdrawals(driverId: string): Promise<DriverWithdrawalRecord[]>;
-  createWithdrawal(
-    driverId: string,
-    input: CreateDriverWithdrawalRequest,
-  ): Promise<DriverWithdrawalRecord>;
 }
 
 type StoredDriverWithdrawalRecord = DriverWithdrawalRecord & {
@@ -91,16 +87,6 @@ export type PrismaDriverWithdrawalsClient = {
       take?: number;
     }): Promise<PrismaDriverWithdrawalRecord[]>;
     count(args: { where: { driverId: string } }): Promise<number>;
-    create(args: {
-      data: {
-        driverId: string;
-        amountCents: number;
-        bankAccountName: string;
-        bankName: string;
-        bankAccountMasked: string;
-        status: DriverWithdrawalRecord['status'];
-      };
-    }): Promise<PrismaDriverWithdrawalRecord>;
   };
 };
 
@@ -137,23 +123,6 @@ export class PrismaDriverWithdrawalsRepository
     return items.map(mapPrismaDriverWithdrawal);
   }
 
-  async createWithdrawal(
-    driverId: string,
-    input: CreateDriverWithdrawalRequest,
-  ) {
-    const withdrawal = await this.prisma.driverWithdrawal.create({
-      data: {
-        driverId,
-        amountCents: input.amountCents,
-        bankAccountName: input.bankAccountName,
-        bankName: input.bankName,
-        bankAccountMasked: maskBankAccountNo(input.bankAccountNo),
-        status: 'reviewing',
-      },
-    });
-
-    return mapPrismaDriverWithdrawal(withdrawal);
-  }
 }
 
 function mapPrismaDriverWithdrawal(

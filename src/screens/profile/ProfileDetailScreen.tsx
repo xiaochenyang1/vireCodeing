@@ -247,6 +247,7 @@ export function ProfileDetailScreen({
           selectedInvoiceOrderIds={selectedInvoiceOrderIds}
           account={account}
           platformProfileApi={platformProfileApi}
+          platformSpendingSnapshot={platformSpendingSnapshot}
           onUpdateInvoices={onUpdateInvoices}
           onUpdateInvoiceDetails={onUpdateInvoiceDetails}
           onUpdateInvoiceRejectionReasons={onUpdateInvoiceRejectionReasons}

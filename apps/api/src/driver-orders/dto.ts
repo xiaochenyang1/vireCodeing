@@ -20,6 +20,7 @@ export type DriverQuoteOrderRequest = {
 };
 
 export type DriverAcceptOrderRequest = {
+  baseUpdatedAtIso: string;
   noteText?: string;
 };
 
@@ -37,12 +38,14 @@ export type DriverQuoteOrderEventPayload = DriverQuoteOrderRequest & {
   driverSnapshot?: DriverOrderEventSnapshot;
 };
 
-export type DriverAcceptOrderEventPayload = DriverAcceptOrderRequest & {
+export type DriverAcceptOrderEventPayload = {
+  noteText?: string;
   driverSnapshot?: DriverOrderEventSnapshot;
 };
 
 export type DriverAdvanceOrderStatusRequest = {
   nextStatus: Extract<DriverExecutingOrderStatus, 'transporting' | 'confirming'>;
+  baseUpdatedAtIso: string;
   receiptPhotoFileIds?: string[];
 };
 
@@ -83,6 +86,7 @@ export type DriverIncomeSummary = {
   pendingSettlementCents: number;
   availableWithdrawalCents: number;
   reviewingWithdrawalCents: number;
+  withdrawnCents: number;
   completedOrderCount: number;
 };
 

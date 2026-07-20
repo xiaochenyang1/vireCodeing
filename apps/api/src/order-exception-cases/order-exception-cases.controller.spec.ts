@@ -51,7 +51,6 @@ describe('order exception case controllers', () => {
 
   it.each([
     ['processCase', 'processCase', 'processing'],
-    ['resolveCase', 'resolveCase', 'resolved'],
     ['closeCase', 'closeCase', 'closed'],
   ] as const)('calls %s with normalized mutation input', async (method, serviceMethod, status) => {
     const controller = new AdminOrderExceptionCasesController(service as never);
@@ -69,6 +68,30 @@ describe('order exception case controllers', () => {
       content: '客服已经联系双方核实情况。',
     });
     expect(result.data).toMatchObject({ status });
+  });
+
+  it('calls resolveCase with compensation tracking input', async () => {
+    const controller = new AdminOrderExceptionCasesController(service as never);
+    const result = await controller.resolveCase(
+      createRequest('admin-1', 'admin'),
+      ' case-1 ',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: '  客服确认需要后续赔付。  ',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      },
+    );
+
+    expect(service.resolveCase).toHaveBeenCalledWith('admin-1', 'case-1', {
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      content: '客服确认需要后续赔付。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 3600,
+    });
+    expect(result.data).toMatchObject({ status: 'resolved' });
   });
 });
 

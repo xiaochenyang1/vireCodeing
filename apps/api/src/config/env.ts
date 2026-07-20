@@ -37,6 +37,38 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(300),
+  ORDER_IDEMPOTENCY_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(86400),
+  PAYMENT_PROVIDER_MODE: z
+    .enum(['disabled', 'sandbox', 'wechat', 'alipay', 'wechat-alipay'])
+    .default('disabled'),
+  PAYMENT_PLATFORM_FEE_BPS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(10000)
+    .default(500),
+  PAYMENT_ORDER_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(900),
+  PAYMENT_CALLBACK_BASE_URL: z.string().url().optional(),
+  PAYMENT_SANDBOX_SECRET: z.string().optional(),
+  WECHAT_PAY_APP_ID: z.string().min(1).optional(),
+  WECHAT_PAY_MCH_ID: z.string().min(1).optional(),
+  WECHAT_PAY_MERCHANT_SERIAL_NO: z.string().min(1).optional(),
+  WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM: z.string().min(1).optional(),
+  WECHAT_PAY_PLATFORM_SERIAL_NO: z.string().min(1).optional(),
+  WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM: z.string().min(1).optional(),
+  WECHAT_PAY_API_V3_KEY: z.string().optional(),
+  ALIPAY_APP_ID: z.string().min(1).optional(),
+  ALIPAY_SELLER_ID: z.string().min(1).optional(),
+  ALIPAY_MERCHANT_PRIVATE_KEY_PEM: z.string().min(1).optional(),
+  ALIPAY_PUBLIC_KEY_PEM: z.string().min(1).optional(),
   SMS_PROVIDER: z.enum(['webhook']).optional(),
   SMS_WEBHOOK_URL: z.string().url().optional(),
   SMS_WEBHOOK_TOKEN: z.string().optional(),
@@ -90,12 +122,85 @@ export function parseEnv(input: NodeJS.ProcessEnv): ApiEnv {
     validateProductionSmsConfig(parsed.data);
     validateProductionFilePreviewConfig(parsed.data);
     validateProductionFileStorageCallbackConfig(parsed.data);
+    validateProductionPaymentConfig(parsed.data);
   }
 
   validateWebhookSmsConfig(parsed.data);
   validateS3CompatibleFileStorageConfig(parsed.data);
+  validatePaymentConfig(parsed.data);
 
   return parsed.data;
+}
+
+function validateProductionPaymentConfig(env: ApiEnv): void {
+  if (env.PAYMENT_PROVIDER_MODE === 'disabled') {
+    throw new Error('Production payment provider is required');
+  }
+
+  if (env.PAYMENT_PROVIDER_MODE === 'sandbox') {
+    throw new Error('Production payment provider must not use sandbox');
+  }
+
+  if (!env.PAYMENT_CALLBACK_BASE_URL?.startsWith('https://')) {
+    throw new Error('Production payment callback base URL must use https://');
+  }
+}
+
+function validatePaymentConfig(env: ApiEnv): void {
+  if (env.PAYMENT_PROVIDER_MODE === 'disabled') {
+    return;
+  }
+
+  if (env.PAYMENT_PROVIDER_MODE === 'sandbox') {
+    if ((env.PAYMENT_SANDBOX_SECRET?.length ?? 0) < 32) {
+      throw new Error('Sandbox payment secret must be at least 32 characters');
+    }
+
+    return;
+  }
+
+  if (!env.PAYMENT_CALLBACK_BASE_URL) {
+    throw new Error('Payment callback base URL is required');
+  }
+
+  if (
+    env.PAYMENT_PROVIDER_MODE === 'wechat' ||
+    env.PAYMENT_PROVIDER_MODE === 'wechat-alipay'
+  ) {
+    validateWechatPaymentConfig(env);
+  }
+
+  if (
+    env.PAYMENT_PROVIDER_MODE === 'alipay' ||
+    env.PAYMENT_PROVIDER_MODE === 'wechat-alipay'
+  ) {
+    validateAlipayPaymentConfig(env);
+  }
+}
+
+function validateWechatPaymentConfig(env: ApiEnv): void {
+  if (
+    !env.WECHAT_PAY_APP_ID ||
+    !env.WECHAT_PAY_MCH_ID ||
+    !env.WECHAT_PAY_MERCHANT_SERIAL_NO ||
+    !env.WECHAT_PAY_MERCHANT_PRIVATE_KEY_PEM ||
+    !env.WECHAT_PAY_PLATFORM_SERIAL_NO ||
+    !env.WECHAT_PAY_PLATFORM_PUBLIC_KEY_PEM ||
+    Buffer.byteLength(env.WECHAT_PAY_API_V3_KEY ?? '') !== 32
+  ) {
+    throw new Error('WeChat Pay config is incomplete');
+  }
+}
+
+function validateAlipayPaymentConfig(env: ApiEnv): void {
+  if (
+    !env.ALIPAY_APP_ID ||
+    !env.ALIPAY_SELLER_ID ||
+    !env.ALIPAY_MERCHANT_PRIVATE_KEY_PEM ||
+    !env.ALIPAY_PUBLIC_KEY_PEM
+  ) {
+    throw new Error('Alipay payment config is incomplete');
+  }
 }
 
 function validateS3CompatibleFileStorageConfig(env: ApiEnv): void {

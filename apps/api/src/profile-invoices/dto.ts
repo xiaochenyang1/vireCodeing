@@ -40,11 +40,16 @@ export type ShipperInvoiceOrderRecord = {
   shipperId: string;
   orderNo: string;
   status: ShipperInvoiceOrderStatus;
+  paymentStatus: OrderPaymentStatus;
   priceCents?: number;
   payablePriceCents?: number;
+  settlementAmountCents?: number;
+  paymentAmountCents?: number;
+  succeededRefundAmountCents?: number;
 };
 
 export type ShipperEnterpriseVerificationSnapshot = {
   status: 'reviewing' | 'approved' | 'rejected';
   rejectionReason?: string;
 };
+import type { OrderPaymentStatus } from '../payments/payment-domain';

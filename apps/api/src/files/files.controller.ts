@@ -23,15 +23,22 @@ import type {
   ConfirmFileUploadedRequest,
   ConfirmStorageCallbackRequest,
   CreateFileUploadIntentRequest,
+  RunFileMaintenanceBatchGovernanceRequest,
 } from './dto';
 import { FilesService } from './files.service';
 import {
+  fileMaintenanceReportQuerySchema,
   confirmFileUploadedSchema,
   confirmStorageCallbackSchema,
   createFileUploadIntentSchema,
+  listMaintenanceFilesQuerySchema,
+  parseFileMaintenanceReportQuery,
   parseConfirmFileUploadedRequest,
   parseConfirmStorageCallbackRequest,
   parseCreateFileUploadIntentRequest,
+  parseListMaintenanceFilesQuery,
+  parseRunFileMaintenanceBatchGovernanceRequest,
+  runMaintenanceBatchGovernanceRequestSchema,
 } from './files.validation';
 
 @Controller('files')
@@ -102,6 +109,51 @@ export class FilesController {
   async getMaintenanceSummary(@Req() request: AuthenticatedRequest) {
     return ok(
       await this.filesService.getMaintenanceSummary(),
+      getRequestId(request),
+    );
+  }
+
+  @Get('maintenance/report')
+  @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+  async getMaintenanceReport(
+    @Req() request: AuthenticatedRequest,
+    @Query(new ZodValidationPipe(fileMaintenanceReportQuerySchema))
+    query: unknown,
+  ) {
+    return ok(
+      await this.filesService.getMaintenanceReport(
+        parseFileMaintenanceReportQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get('maintenance/files')
+  @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+  async listMaintenanceFiles(
+    @Req() request: AuthenticatedRequest,
+    @Query(new ZodValidationPipe(listMaintenanceFilesQuerySchema)) query: unknown,
+  ) {
+    return ok(
+      await this.filesService.listMaintenanceFiles(
+        parseListMaintenanceFilesQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('maintenance/batch-governance')
+  @HttpCode(200)
+  @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+  async runMaintenanceBatchGovernance(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(runMaintenanceBatchGovernanceRequestSchema))
+    body: RunFileMaintenanceBatchGovernanceRequest,
+  ) {
+    return ok(
+      await this.filesService.runMaintenanceBatchGovernance(
+        parseRunFileMaintenanceBatchGovernanceRequest(body),
+      ),
       getRequestId(request),
     );
   }

@@ -16,14 +16,19 @@ import { AdminOnlyGuard, DriverOnlyGuard, ShipperOnlyGuard } from '../auth/role.
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import type { UpdateOrderExceptionCaseRequest } from './dto';
+import type {
+  ResolveOrderExceptionCaseRequest,
+  UpdateOrderExceptionCaseRequest,
+} from './dto';
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 import {
   orderExceptionCaseListQuerySchema,
   parseOrderExceptionCaseId,
   parseOrderExceptionCaseListQuery,
   parseOrderExceptionOrderId,
+  parseResolveOrderExceptionCaseRequest,
   parseUpdateOrderExceptionCaseRequest,
+  resolveOrderExceptionCaseSchema,
   updateOrderExceptionCaseSchema,
 } from './order-exception-cases.validation';
 
@@ -114,10 +119,17 @@ export class AdminOrderExceptionCasesController {
   async resolveCase(
     @Req() request: AuthenticatedRequest,
     @Param('caseId') caseId: string,
-    @Body(new ZodValidationPipe(updateOrderExceptionCaseSchema))
-    body: UpdateOrderExceptionCaseRequest,
+    @Body(new ZodValidationPipe(resolveOrderExceptionCaseSchema))
+    body: ResolveOrderExceptionCaseRequest,
   ) {
-    return this.mutate(request, caseId, body, 'resolveCase');
+    const adminUserId = getCurrentUserId(request, 'admin');
+    const result = await this.service.resolveCase(
+      adminUserId,
+      parseOrderExceptionCaseId(caseId),
+      parseResolveOrderExceptionCaseRequest(body),
+    );
+
+    return ok(result, getRequestId(request));
   }
 
   @Post(':caseId/close')
@@ -134,7 +146,7 @@ export class AdminOrderExceptionCasesController {
     request: AuthenticatedRequest,
     caseId: string,
     body: UpdateOrderExceptionCaseRequest,
-    method: 'processCase' | 'resolveCase' | 'closeCase',
+    method: 'processCase' | 'closeCase',
   ) {
     const adminUserId = getCurrentUserId(request, 'admin');
     const result = await this.service[method](

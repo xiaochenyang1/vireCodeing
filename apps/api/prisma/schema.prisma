@@ -63,6 +63,12 @@ enum OrderExceptionCaseStatus {
   closed
 }
 
+enum OrderExceptionCaseCompensationStatus {
+  not_required
+  pending
+  offline_completed
+}
+
 model User {
   id                          String                       @id @default(uuid())
   phone                       String                       @unique
@@ -85,9 +91,19 @@ model User {
   driverIdentityCertification DriverIdentityCertification? @relation("DriverIdentityCertification")
   driverVehicleCertification  DriverVehicleCertification?  @relation("DriverVehicleCertification")
   driverAcceptanceSettings    DriverAcceptanceSettings?
-  driverWithdrawals           DriverWithdrawal[]
+  driverWithdrawals           DriverWithdrawal[]            @relation("DriverWithdrawals")
+  processedDriverWithdrawals  DriverWithdrawal[]            @relation("DriverWithdrawalProcessor")
+  assignedDriverOrders        Order[]                       @relation("AssignedDriverOrders")
+  paymentOrders               PaymentOrder[]
+  refunds                     Refund[]
+  driverSettlements           Settlement[]
+  driverWallet                DriverWallet?
+  financialLedgerEntries      FinancialLedgerEntry[]
+  financialAuditLogs          FinancialAuditLog[]
+  adminAuthSessionGovernanceAuditEvents AdminAuthSessionGovernanceAuditEvent[] @relation("AdminAuthSessionGovernanceAuditActorEvents")
   driverCertificationReviewEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewEvents")
   driverCertificationReviewerEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewerEvents")
+  orderIdempotencyRecords     OrderIdempotencyRecord[]   @relation("OrderIdempotencyActor")
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
 }
@@ -162,6 +178,84 @@ enum PaymentMethod {
   online
 }
 
+enum OrderPaymentStatus {
+  not_required
+  pending
+  escrowed
+  settled
+  failed
+  cancelled
+  refund_pending
+  refunded
+  refund_failed
+  legacy_unverified
+}
+
+enum PaymentChannel {
+  sandbox
+  wechat
+  alipay
+}
+
+enum PaymentOrderStatus {
+  pending
+  processing
+  escrowed
+  settled
+  failed
+  expired
+  cancelled
+  refund_pending
+  refunded
+  refund_failed
+}
+
+enum RefundStatus {
+  pending
+  processing
+  succeeded
+  failed
+}
+
+enum FinancialTransactionType {
+  online_payment_escrow
+  online_order_settlement
+  offline_order_settlement
+  online_refund
+  driver_withdrawal
+}
+
+enum FinancialAccountType {
+  gateway_clearing
+  platform_escrow
+  driver_payable
+  platform_revenue
+  offline_clearing
+}
+
+enum LedgerDirection {
+  debit
+  credit
+}
+
+enum FinancialOutboxStatus {
+  pending
+  processing
+  completed
+  dead
+}
+
+enum AdminAuthSessionGovernanceAuditAction {
+  revoke_session
+  revoke_other_sessions
+  revoke_account_sessions
+}
+
+enum AdminAuthSessionGovernanceAuditResult {
+  revoked
+  noop
+}
+
 model Order {
   id                   String             @id @default(uuid())
   orderNo              String             @unique
@@ -171,6 +265,10 @@ model Order {
   priceCents           Int?
   payablePriceCents    Int?
   paymentMethod        PaymentMethod
+  paymentStatus        OrderPaymentStatus @default(legacy_unverified)
+  assignedDriverId     String?
+  paymentSettledAt     DateTime?
+  refundedAt           DateTime?
   couponId             String?
   couponTitle          String?
   couponDiscountCents  Int?
@@ -179,14 +277,22 @@ model Order {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   shipper              User               @relation("ShipperOrders", fields: [shipperId], references: [id])
+  assignedDriver       User?              @relation("AssignedDriverOrders", fields: [assignedDriverId], references: [id])
   cargo                OrderCargo?
   locations            OrderLocation[]
   requirement          OrderRequirement?
   events               OrderEvent[]
+  idempotencyRecords   OrderIdempotencyRecord[]
   exceptionCases       OrderExceptionCase[]
+  paymentOrders        PaymentOrder[]
+  refunds              Refund[]
+  settlement           Settlement?
+  financialTransactions FinancialTransaction[]
 
   @@index([shipperId, status, createdAt], name: "Order_shipper_status_created_idx")
   @@index([shipperId, createdAt], name: "Order_shipper_created_idx")
+  @@index([assignedDriverId, status, createdAt], name: "Order_driver_status_created_idx")
+  @@index([paymentStatus, status, createdAt], name: "Order_payment_business_status_created_idx")
 }
 
 model OrderCargo {
@@ -238,6 +344,24 @@ model OrderEvent {
   @@index([orderId, createdAt], name: "OrderEvent_order_created_idx")
 }
 
+model OrderIdempotencyRecord {
+  id                 String   @id @default(uuid())
+  actorUserId        String
+  orderId            String
+  operation          String
+  idempotencyKey     String
+  requestFingerprint String
+  responseSnapshot   Json
+  createdAt          DateTime @default(now())
+  expiresAt          DateTime
+  actor              User     @relation("OrderIdempotencyActor", fields: [actorUserId], references: [id])
+  order              Order    @relation(fields: [orderId], references: [id])
+
+  @@unique([actorUserId, operation, idempotencyKey], name: "OrderIdempotencyRecord_actor_operation_key_unique")
+  @@index([orderId, createdAt], name: "OrderIdempotencyRecord_order_created_idx")
+  @@index([expiresAt], name: "OrderIdempotencyRecord_expires_idx")
+}
+
 model OrderExceptionCase {
   id                String                       @id @default(uuid())
   caseNo            String                       @unique
@@ -250,6 +374,10 @@ model OrderExceptionCase {
   attachmentFileIds Json                         @default("[]")
   status            OrderExceptionCaseStatus     @default(pending)
   resolutionText    String?
+  compensationStatus OrderExceptionCaseCompensationStatus?
+  compensationTargetRole OrderExceptionCaseSourceRole?
+  compensationAmountCents Int?
+  compensationUpdatedAt DateTime?
   resolvedAt        DateTime?
   closedAt          DateTime?
   createdAt         DateTime                     @default(now())
@@ -426,19 +554,245 @@ enum DriverWithdrawalStatus {
 }
 
 model DriverWithdrawal {
-  id                String                 @id @default(uuid())
-  driverId          String
-  amountCents       Int
-  bankAccountName   String
-  bankName          String
-  bankAccountMasked String
-  status            DriverWithdrawalStatus @default(reviewing)
-  rejectionReason   String?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-  driver            User                   @relation(fields: [driverId], references: [id])
+  id                     String                 @id @default(uuid())
+  driverId               String
+  amountCents            Int
+  bankAccountName        String
+  bankName               String
+  bankAccountMasked      String
+  status                 DriverWithdrawalStatus @default(reviewing)
+  idempotencyKey         String?
+  requestFingerprint     String?
+  version                Int                    @default(0)
+  rejectionReason        String?
+  processedByAdminId     String?
+  processedAt            DateTime?
+  financialTransactionId String?                @unique
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  driver                 User                   @relation("DriverWithdrawals", fields: [driverId], references: [id])
+  processedByAdmin       User?                  @relation("DriverWithdrawalProcessor", fields: [processedByAdminId], references: [id])
+  financialTransaction   FinancialTransaction?  @relation(fields: [financialTransactionId], references: [id])
 
   @@index([driverId, createdAt], name: "DriverWithdrawal_driver_created_idx")
+  @@unique([driverId, idempotencyKey], name: "DriverWithdrawal_driver_idempotency_key_unique")
+  @@index([status, createdAt], name: "DriverWithdrawal_status_created_idx")
+}
+
+model PaymentOrder {
+  id                    String             @id @default(uuid())
+  paymentNo             String             @unique
+  orderId               String
+  shipperId             String
+  channel               PaymentChannel
+  amountCents           Int
+  status                PaymentOrderStatus @default(pending)
+  idempotencyKey        String
+  requestFingerprint    String
+  clientPayload         Json?
+  providerTradeNo       String?
+  failureCode           String?
+  failureMessage        String?
+  expiresAt             DateTime
+  paidAt                DateTime?
+  settledAt             DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  order                 Order              @relation(fields: [orderId], references: [id])
+  shipper               User               @relation(fields: [shipperId], references: [id])
+  callbackEvents        PaymentCallbackEvent[]
+  refund                Refund?
+  settlement            Settlement?
+  financialTransactions FinancialTransaction[]
+
+  @@unique([shipperId, idempotencyKey], name: "PaymentOrder_shipper_idempotency_key_unique")
+  @@unique([channel, providerTradeNo], name: "PaymentOrder_channel_provider_trade_no_unique")
+  @@index([orderId, createdAt], name: "PaymentOrder_order_created_idx")
+  @@index([shipperId, status, createdAt], name: "PaymentOrder_shipper_status_created_idx")
+}
+
+model PaymentCallbackEvent {
+  id               String         @id @default(uuid())
+  channel          PaymentChannel
+  eventId          String
+  eventType        String
+  paymentOrderId   String?
+  refundId         String?
+  rawPayloadHash   String
+  processingResult String
+  occurredAt       DateTime
+  processedAt      DateTime       @default(now())
+  createdAt        DateTime       @default(now())
+  paymentOrder     PaymentOrder?  @relation(fields: [paymentOrderId], references: [id])
+  refund           Refund?        @relation(fields: [refundId], references: [id])
+
+  @@unique([channel, eventId], name: "PaymentCallbackEvent_channel_event_unique")
+  @@index([paymentOrderId, createdAt], name: "PaymentCallbackEvent_payment_created_idx")
+  @@index([refundId, createdAt], name: "PaymentCallbackEvent_refund_created_idx")
+}
+
+model Refund {
+  id                     String               @id @default(uuid())
+  refundNo               String               @unique
+  paymentOrderId         String               @unique
+  orderId                String
+  shipperId              String
+  channel                PaymentChannel
+  amountCents            Int
+  reason                 String
+  status                 RefundStatus         @default(pending)
+  providerRefundNo       String?
+  failureCode            String?
+  failureMessage         String?
+  processingStartedAt    DateTime?
+  succeededAt            DateTime?
+  failedAt               DateTime?
+  financialTransactionId String?              @unique
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  paymentOrder           PaymentOrder         @relation(fields: [paymentOrderId], references: [id])
+  order                  Order                @relation(fields: [orderId], references: [id])
+  shipper                User                 @relation(fields: [shipperId], references: [id])
+  callbackEvents         PaymentCallbackEvent[]
+  outboxEvents           FinancialOutboxEvent[]
+  financialTransaction   FinancialTransaction? @relation(fields: [financialTransactionId], references: [id])
+
+  @@unique([channel, providerRefundNo], name: "Refund_channel_provider_refund_no_unique")
+  @@index([orderId, createdAt], name: "Refund_order_created_idx")
+  @@index([shipperId, status, createdAt], name: "Refund_shipper_status_created_idx")
+}
+
+model Settlement {
+  id                     String               @id @default(uuid())
+  orderId                String               @unique
+  paymentOrderId         String?              @unique
+  driverId               String
+  grossAmountCents       Int
+  platformFeeRateBps     Int
+  platformFeeCents       Int
+  driverNetAmountCents   Int
+  financialTransactionId String               @unique
+  settledAt              DateTime             @default(now())
+  createdAt              DateTime             @default(now())
+  order                  Order                @relation(fields: [orderId], references: [id])
+  paymentOrder           PaymentOrder?        @relation(fields: [paymentOrderId], references: [id])
+  driver                 User                 @relation(fields: [driverId], references: [id])
+  financialTransaction   FinancialTransaction @relation(fields: [financialTransactionId], references: [id])
+
+  @@index([driverId, settledAt], name: "Settlement_driver_settled_idx")
+}
+
+model FinancialTransaction {
+  id                 String                   @id @default(uuid())
+  transactionNo      String                   @unique
+  type               FinancialTransactionType
+  referenceId        String
+  orderId            String?
+  paymentOrderId     String?
+  amountCents        Int
+  occurredAt         DateTime
+  createdAt          DateTime                 @default(now())
+  order              Order?                   @relation(fields: [orderId], references: [id])
+  paymentOrder       PaymentOrder?            @relation(fields: [paymentOrderId], references: [id])
+  entries            FinancialLedgerEntry[]
+  refund             Refund?
+  settlement         Settlement?
+  driverWithdrawal   DriverWithdrawal?
+
+  @@unique([type, referenceId], name: "FinancialTransaction_type_reference_unique")
+  @@index([orderId, occurredAt], name: "FinancialTransaction_order_occurred_idx")
+  @@index([paymentOrderId, occurredAt], name: "FinancialTransaction_payment_occurred_idx")
+  @@index([type, occurredAt], name: "FinancialTransaction_type_occurred_idx")
+}
+
+model FinancialLedgerEntry {
+  id            String               @id @default(uuid())
+  transactionId String
+  sequence      Int
+  accountType   FinancialAccountType
+  accountUserId String?
+  direction     LedgerDirection
+  amountCents   Int
+  createdAt     DateTime             @default(now())
+  transaction   FinancialTransaction @relation(fields: [transactionId], references: [id])
+  accountUser   User?                @relation(fields: [accountUserId], references: [id])
+
+  @@unique([transactionId, sequence], name: "FinancialLedgerEntry_transaction_sequence_unique")
+  @@index([accountType, accountUserId, createdAt], name: "FinancialLedgerEntry_account_created_idx")
+}
+
+model DriverWallet {
+  driverId       String   @id
+  availableCents Int      @default(0)
+  reservedCents  Int      @default(0)
+  withdrawnCents Int      @default(0)
+  version        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  driver         User     @relation(fields: [driverId], references: [id])
+}
+
+model FinancialOutboxEvent {
+  id             String                @id @default(uuid())
+  eventType      String
+  aggregateType  String
+  aggregateId    String
+  refundId       String?
+  payload        Json
+  status         FinancialOutboxStatus @default(pending)
+  attemptCount   Int                   @default(0)
+  maxAttempts    Int                   @default(10)
+  availableAt    DateTime              @default(now())
+  claimedAt      DateTime?
+  leaseExpiresAt DateTime?
+  claimedBy      String?
+  processedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  refund         Refund?               @relation(fields: [refundId], references: [id])
+
+  @@unique([eventType, aggregateType, aggregateId], name: "FinancialOutboxEvent_aggregate_event_unique")
+  @@index([status, availableAt, createdAt], name: "FinancialOutboxEvent_claim_idx")
+  @@index([leaseExpiresAt], name: "FinancialOutboxEvent_lease_expires_idx")
+}
+
+model FinancialAuditLog {
+  id                 String   @id @default(uuid())
+  actorAdminId       String
+  action             String
+  entityType         String
+  entityId           String
+  idempotencyKey     String
+  requestFingerprint String
+  requestId          String
+  reason             String
+  beforeState        Json?
+  afterState         Json?
+  createdAt          DateTime @default(now())
+  actorAdmin         User     @relation(fields: [actorAdminId], references: [id])
+
+  @@unique([actorAdminId, action, idempotencyKey], name: "FinancialAuditLog_actor_action_key_unique")
+  @@index([entityType, entityId, createdAt], name: "FinancialAuditLog_entity_created_idx")
+  @@index([actorAdminId, createdAt], name: "FinancialAuditLog_actor_created_idx")
+}
+
+model AdminAuthSessionGovernanceAuditEvent {
+  id                 String                                @id @default(uuid())
+  actorAdminId       String
+  actorAdminPhone    String
+  action             AdminAuthSessionGovernanceAuditAction
+  result             AdminAuthSessionGovernanceAuditResult
+  requestedSessionId String?
+  currentDeviceId    String?
+  revokedCount       Int                                   @default(0)
+  subjects           Json                                  @default("[]")
+  createdAt          DateTime                              @default(now())
+  actorAdmin         User                                  @relation("AdminAuthSessionGovernanceAuditActorEvents", fields: [actorAdminId], references: [id])
+
+  @@index([actorAdminId, createdAt], name: "AdminAuthSessionGovernanceAuditEvent_actor_created_idx")
+  @@index([action, createdAt], name: "AdminAuthSessionGovernanceAuditEvent_action_created_idx")
 }
 
 model DriverCertificationReviewEvent {

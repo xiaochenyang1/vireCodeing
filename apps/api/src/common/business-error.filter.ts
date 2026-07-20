@@ -29,8 +29,14 @@ const RATE_LIMIT_ERROR_CODES = new Set<string>([
 ]);
 const UPSTREAM_ERROR_CODES = new Set<string>([
   ApiErrorCode.AUTH_CODE_DELIVERY_FAILED,
+  ApiErrorCode.PAYMENT_CHANNEL_UNAVAILABLE,
+  ApiErrorCode.REFUND_PROVIDER_FAILED,
+]);
+const INTERNAL_ERROR_CODES = new Set<string>([
+  ApiErrorCode.FINANCIAL_LEDGER_UNBALANCED,
 ]);
 const NOT_FOUND_ERROR_CODES = new Set<string>([
+  ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
   ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
   ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
   ApiErrorCode.FILE_NOT_FOUND,
@@ -45,10 +51,21 @@ const CONFLICT_ERROR_CODES = new Set<string>([
   ApiErrorCode.FILE_STATE_INVALID,
   ApiErrorCode.EXCEPTION_CASE_CONFLICT,
   ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+  ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+  ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+  ApiErrorCode.ORDER_CONFLICT,
   ApiErrorCode.ORDER_DRAFT_CONFLICT,
   ApiErrorCode.ORDER_STATE_INVALID,
+  ApiErrorCode.PAYMENT_ALREADY_ESCROWED,
+  ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+  ApiErrorCode.PAYMENT_REQUIRED,
   ApiErrorCode.PROFILE_ADDRESS_BOOK_CONFLICT,
+  ApiErrorCode.PROFILE_COUPON_NOT_AVAILABLE,
+  ApiErrorCode.PROFILE_COUPON_PRICE_MISMATCH,
   ApiErrorCode.PROFILE_FREQUENT_ROUTES_CONFLICT,
+  ApiErrorCode.REFUND_NOT_AVAILABLE,
+  ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
+  ApiErrorCode.SETTLEMENT_DRIVER_MISSING,
 ]);
 
 @Catch(BusinessError)
@@ -73,6 +90,10 @@ export class BusinessErrorFilter implements ExceptionFilter<BusinessError> {
   }
 
   private getStatusCode(code: ApiErrorCode): number {
+    if (INTERNAL_ERROR_CODES.has(code)) {
+      return HttpStatus.INTERNAL_SERVER_ERROR;
+    }
+
     if (RATE_LIMIT_ERROR_CODES.has(code)) {
       return HttpStatus.TOO_MANY_REQUESTS;
     }

@@ -10,8 +10,11 @@ import { PrismaService } from '../prisma/prisma.service';
 type FakeUserRecord = {
   id: string;
   phone: string;
-  userType: 'shipper' | 'driver';
+  userType: 'shipper' | 'driver' | 'admin';
   status: 'active' | 'disabled';
+  passwordHash?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
 };
 
 type FakeAuthSessionRecord = {
@@ -46,13 +49,23 @@ class FakePrismaService {
       update,
     }: {
       where: { phone: string };
-      create: { phone: string; userType: 'shipper' | 'driver' };
-      update: { userType: 'shipper' | 'driver' };
+      create: {
+        phone: string;
+        userType: 'shipper' | 'driver';
+        passwordHash?: string;
+      };
+      update: {
+        userType: 'shipper' | 'driver';
+        passwordHash?: string;
+      };
     }) => {
       const existingUser = this.users.find(user => user.phone === where.phone);
 
       if (existingUser) {
         existingUser.userType = update.userType;
+        if (update.passwordHash) {
+          existingUser.passwordHash = update.passwordHash;
+        }
         return existingUser;
       }
 
@@ -61,12 +74,39 @@ class FakePrismaService {
         phone: create.phone,
         userType: create.userType,
         status: 'active' as const,
+        passwordHash: create.passwordHash,
       };
       this.users.push(user);
       return user;
     },
-    findUnique: async ({ where }: { where: { id: string } }) =>
-      this.users.find(user => user.id === where.id) ?? null,
+    findUnique: async ({ where }: { where: { id?: string; phone?: string } }) =>
+      this.users.find(
+        user =>
+          (where.id && user.id === where.id) ||
+          (where.phone && user.phone === where.phone),
+      ) ?? null,
+    update: async ({
+      where,
+      data,
+    }: {
+      where: { id: string };
+      data: { status: 'active' | 'disabled' };
+    }) => {
+      const user = this.users.find(item => item.id === where.id);
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      user.status = data.status;
+      user.updatedAt = new Date('2026-06-26T06:00:00.000Z');
+
+      return {
+        ...user,
+        createdAt: user.createdAt ?? new Date('2026-06-26T06:00:00.000Z'),
+        updatedAt: user.updatedAt ?? new Date('2026-06-26T06:00:00.000Z'),
+      };
+    },
   };
 
   readonly authSession = {
@@ -80,15 +120,19 @@ class FakePrismaService {
         expiresAt: Date;
       };
     }) => {
-      this.sessions.push({
+      const session = {
         id: `session-${this.sessions.length + 1}`,
         ...data,
         revokedAt: null,
         createdAt: new Date('2026-06-26T06:00:00.000Z'),
-      });
+      };
+      this.sessions.push(session);
+
+      return session;
     },
     findFirst: async ({
       where,
+      orderBy,
     }: {
       where: {
         refreshTokenHash: string;
@@ -96,9 +140,14 @@ class FakePrismaService {
         revokedAt: null;
         expiresAt: { gt: Date };
       };
+      orderBy: { createdAt: 'desc' };
     }) =>
       [...this.sessions]
-        .reverse()
+        .sort((left, right) =>
+          orderBy.createdAt === 'desc'
+            ? right.createdAt.getTime() - left.createdAt.getTime()
+            : left.createdAt.getTime() - right.createdAt.getTime(),
+        )
         .find(
           session =>
             session.refreshTokenHash === where.refreshTokenHash &&
@@ -106,30 +155,60 @@ class FakePrismaService {
             !session.revokedAt &&
             session.expiresAt.getTime() > where.expiresAt.gt.getTime(),
         ) ?? null,
+    findMany: async ({
+      where,
+      orderBy,
+    }: {
+      where: {
+        userId?: string;
+        revokedAt: null;
+        expiresAt: { gt: Date };
+      };
+      orderBy: { createdAt: 'desc' };
+    }) =>
+      this.sessions
+        .filter(
+          session =>
+            (!where.userId || session.userId === where.userId) &&
+            !session.revokedAt &&
+            session.expiresAt.getTime() > where.expiresAt.gt.getTime(),
+        )
+        .sort((left, right) =>
+          orderBy.createdAt === 'desc'
+            ? right.createdAt.getTime() - left.createdAt.getTime()
+            : left.createdAt.getTime() - right.createdAt.getTime(),
+        ),
     updateMany: async ({
       where,
       data,
     }: {
       where: {
+        id?: string;
         refreshTokenHash?: string;
         userId?: string;
-        deviceId: string;
+        deviceId?: string;
         revokedAt: null;
       };
       data: { revokedAt: Date };
     }) => {
-      this.sessions
+      const sessions = this.sessions
         .filter(
           session =>
+            (!where.id || session.id === where.id) &&
             (!where.refreshTokenHash ||
               session.refreshTokenHash === where.refreshTokenHash) &&
             (!where.userId || session.userId === where.userId) &&
-            session.deviceId === where.deviceId &&
+            (!where.deviceId || session.deviceId === where.deviceId) &&
             !session.revokedAt,
-        )
-        .forEach(session => {
-          session.revokedAt = data.revokedAt;
-        });
+        );
+
+      sessions.forEach(session => {
+        session.revokedAt = data.revokedAt;
+      });
+
+      return {
+        count: sessions.length,
+      };
     },
   };
 

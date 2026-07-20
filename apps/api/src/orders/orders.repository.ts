@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type {
   AdvanceShipperOrderStatusRequest,
   CancelShipperOrderRequest,
@@ -22,18 +23,150 @@ import type {
 } from '../driver-orders/dto';
 import type {
   OrderExceptionCaseListQuery,
+  ResolveOrderExceptionCaseRequest,
   OrderExceptionCaseRecord,
   OrderExceptionCaseStatus,
   UpdateOrderExceptionCaseRequest,
 } from '../order-exception-cases/dto';
+import type { OrderMutationOperation } from './order-mutation-idempotency';
+import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { ShipperCouponRecord } from '../profile-coupons/dto';
+import {
+  InMemoryProfileCouponsStore,
+  mapPrismaCoupon,
+  type PrismaShipperCouponRecord,
+} from '../profile-coupons/profile-coupons.repository';
+import {
+  assertCurrentOrderCouponOwnership,
+  resolveCurrentOrderCouponPricing,
+  resolveReservableCouponPricing,
+  type CanonicalOrderCouponPricing,
+} from './order-coupon-transition';
+import {
+  assertLedgerBalanced,
+  assertOrderCanEnterDriverHall,
+  assertOrderCanCompleteFinancially,
+  createOfflineSettlementEntries,
+  createInitialOrderPaymentStatus,
+  createOnlineSettlementEntries,
+  createSettlementBreakdown,
+  resolveCancellationPaymentStatus,
+} from '../payments/payment-domain';
+import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
+import type {
+  FinancialTransactionRecord,
+  PaymentOrderRecord,
+  SettlementRecord,
+} from '../payments/dto';
+
+const DEFAULT_PLATFORM_FEE_RATE_BPS = 500;
+
+export type ExecuteOrderCreateInput = {
+  actorUserId: string;
+  operation: 'shipper_create';
+  idempotencyKey: string;
+  requestFingerprint: string;
+  expiresAtIso: string;
+  input: CreateShipperOrderRequest;
+};
+
+export type ResolveExistingOrderCreateInput = Pick<
+  ExecuteOrderCreateInput,
+  'actorUserId' | 'operation' | 'idempotencyKey' | 'requestFingerprint'
+>;
+
+export type ExecuteOrderCreateResult =
+  | {
+      kind: 'success';
+      order: ShipperOrderRecord;
+      replayed: boolean;
+    }
+  | {
+      kind: 'key-reused';
+    }
+  | {
+      kind: 'key-expired';
+    };
+
+export type OrderMutationCommand =
+  | {
+      type: 'shipper_update';
+      input: CreateShipperOrderRequest;
+    }
+  | {
+      type: 'shipper_cancel';
+      input: Omit<CancelShipperOrderRequest, 'baseUpdatedAtIso'>;
+    }
+  | {
+      type: 'shipper_status';
+      input: Pick<AdvanceShipperOrderStatusRequest, 'nextStatus'>;
+    }
+  | {
+      type: 'shipper_complete';
+    }
+  | {
+      type: 'driver_accept';
+      input: DriverAcceptOrderEventPayload;
+    }
+  | {
+      type: 'driver_status';
+      input: Omit<DriverAdvanceOrderStatusRequest, 'baseUpdatedAtIso'>;
+    };
+
+export type ExecuteOrderMutationInput = {
+  actorUserId: string;
+  orderId: string;
+  operation: OrderMutationOperation;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  baseUpdatedAtIso: string;
+  expiresAtIso: string;
+  mutation: OrderMutationCommand;
+};
+
+export type ResolveExistingOrderMutationInput = Pick<
+  ExecuteOrderMutationInput,
+  | 'actorUserId'
+  | 'orderId'
+  | 'operation'
+  | 'idempotencyKey'
+  | 'requestFingerprint'
+>;
+
+export type ExecuteOrderMutationResult =
+  | {
+      kind: 'success';
+      order: ShipperOrderRecord;
+      replayed: boolean;
+    }
+  | {
+      kind: 'conflict';
+    }
+  | {
+      kind: 'key-reused';
+    }
+  | {
+      kind: 'key-expired';
+    }
+  | {
+      kind: 'state-invalid';
+    }
+  | {
+      kind: 'not-found';
+    };
 
 export interface OrdersRepository {
-  createOrder(
-    shipperId: string,
-    input: CreateShipperOrderRequest,
-  ): Promise<ShipperOrderRecord>;
+  executeIdempotentOrderCreate(
+    input: ExecuteOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult>;
+  resolveExistingOrderCreate(
+    input: ResolveExistingOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult | undefined>;
   listOrders(
     shipperId: string,
+    query: ListShipperOrdersQuery,
+  ): Promise<{ items: ShipperOrderRecord[]; total: number }>;
+  listAdminOrders(
     query: ListShipperOrdersQuery,
   ): Promise<{ items: ShipperOrderRecord[]; total: number }>;
   listAdminOrdersForAttachmentAudit(
@@ -54,10 +187,16 @@ export interface OrdersRepository {
     adminUserId: string,
     expectedStatus: OrderExceptionCaseStatus,
     nextStatus: OrderExceptionCaseStatus,
-    input: UpdateOrderExceptionCaseRequest,
+    input: UpdateOrderExceptionCaseRequest | ResolveOrderExceptionCaseRequest,
   ): Promise<
     OrderExceptionCaseRecord | 'conflict' | 'state-invalid' | undefined
   >;
+  executeIdempotentOrderMutation(
+    input: ExecuteOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult>;
+  resolveExistingOrderMutation(
+    input: ResolveExistingOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult | undefined>;
   updateOrder(
     orderId: string,
     actorUserId: string,
@@ -66,7 +205,7 @@ export interface OrdersRepository {
   cancelOrder(
     orderId: string,
     actorUserId: string,
-    input: CancelShipperOrderRequest,
+    input: Omit<CancelShipperOrderRequest, 'baseUpdatedAtIso'>,
   ): Promise<ShipperOrderRecord>;
   completeOrder(
     orderId: string,
@@ -75,7 +214,7 @@ export interface OrdersRepository {
   advanceOrderStatus(
     orderId: string,
     actorUserId: string,
-    input: AdvanceShipperOrderStatusRequest,
+    input: Omit<AdvanceShipperOrderStatusRequest, 'baseUpdatedAtIso'>,
   ): Promise<ShipperOrderRecord>;
   reportOrderException(
     orderId: string,
@@ -120,7 +259,7 @@ export interface OrdersRepository {
   advanceDriverOrderStatus(
     orderId: string,
     driverId: string,
-    input: DriverAdvanceOrderStatusRequest,
+    input: Omit<DriverAdvanceOrderStatusRequest, 'baseUpdatedAtIso'>,
   ): Promise<ShipperOrderRecord>;
   replyToOrderEvaluation(
     orderId: string,
@@ -139,47 +278,154 @@ export interface OrdersRepository {
   ): Promise<ShipperOrderRecord>;
 }
 
+type InMemoryOrderIdempotencyRecord = {
+  actorUserId: string;
+  orderId: string;
+  operation: 'shipper_create' | OrderMutationOperation;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  responseSnapshot: ShipperOrderRecord;
+  createdAtIso: string;
+  expiresAtIso: string;
+};
+
 export class InMemoryOrdersRepository implements OrdersRepository {
   private readonly orders: ShipperOrderRecord[] = [];
   private readonly exceptionCases: OrderExceptionCaseRecord[] = [];
+  private readonly orderIdempotencyRecords: InMemoryOrderIdempotencyRecord[] =
+    [];
+  private nextOrderSequence = 1;
 
-  constructor(private readonly now: () => Date = () => new Date()) {}
+  constructor(
+    private readonly now: () => Date = () => new Date(),
+    private readonly couponStore = new InMemoryProfileCouponsStore(),
+    private readonly financialStore = new InMemoryFinancialStore(),
+    private readonly platformFeeRateBps = DEFAULT_PLATFORM_FEE_RATE_BPS,
+  ) {}
 
-  async createOrder(
+  async executeIdempotentOrderCreate(
+    input: ExecuteOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult> {
+    const existingRecord = this.findInMemoryIdempotencyRecord(input);
+    const now = this.now();
+
+    if (existingRecord) {
+      return mapExistingInMemoryOrderCreateRecord(existingRecord, input, now);
+    }
+
+    const stagedOrders = structuredClone(this.orders);
+    const stagedRecords = structuredClone(this.orderIdempotencyRecords);
+    const stagedCoupons = this.couponStore.clone();
+    const sequence = this.allocateNextOrderSequence();
+    const order = createInMemoryOrderRecord(
+      input.actorUserId,
+      input.input,
+      now,
+      sequence,
+    );
+
+    reserveInMemoryOrderCoupon(
+      stagedCoupons,
+      input.actorUserId,
+      input.input,
+      order.orderNo,
+      now,
+    );
+    stagedOrders.push(order);
+    stagedRecords.push({
+      actorUserId: input.actorUserId,
+      orderId: order.id,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot: cloneOrderRecord(order),
+      createdAtIso: now.toISOString(),
+      expiresAtIso: input.expiresAtIso,
+    });
+
+    this.orders.splice(0, this.orders.length, ...stagedOrders);
+    this.orderIdempotencyRecords.splice(
+      0,
+      this.orderIdempotencyRecords.length,
+      ...stagedRecords,
+    );
+    this.couponStore.replace(stagedCoupons);
+
+    return {
+      kind: 'success',
+      order: cloneOrderRecord(order),
+      replayed: false,
+    };
+  }
+
+  async resolveExistingOrderCreate(
+    input: ResolveExistingOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult | undefined> {
+    const existingRecord = this.findInMemoryIdempotencyRecord(input);
+
+    return existingRecord
+      ? mapExistingInMemoryOrderCreateRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
+  }
+
+  async seedOrderForTest(
     shipperId: string,
     input: CreateShipperOrderRequest,
   ): Promise<ShipperOrderRecord> {
-    const sequence = this.orders.length + 1;
-    const nowIso = this.now().toISOString();
-    const order: ShipperOrderRecord = {
-      ...input,
-      cargoPhotoCount: getOrderCargoPhotoCount(input),
-      id: `order-${sequence}`,
-      orderNo: `HY${formatOrderDate(this.now())}${String(sequence).padStart(4, '0')}`,
+    const order = createInMemoryOrderRecord(
       shipperId,
-      status: 'waiting',
-      createdAtIso: nowIso,
-      updatedAtIso: nowIso,
-      events: [
-        {
-          id: `event-${sequence}`,
-          eventType: 'created',
-          noteText: '货主发布订单',
-          attachmentFileIds: input.cargoPhotoFileIds,
-          createdAtIso: nowIso,
-        },
-      ],
-    };
+      input,
+      this.now(),
+      this.allocateNextOrderSequence(),
+    );
 
     this.orders.push(order);
 
     return order;
   }
 
+  private allocateNextOrderSequence() {
+    return this.nextOrderSequence++;
+  }
+
+  private findInMemoryIdempotencyRecord(
+    input: Pick<
+      ExecuteOrderCreateInput,
+      'actorUserId' | 'operation' | 'idempotencyKey'
+    >,
+  ) {
+    return this.orderIdempotencyRecords.find(
+      record =>
+        record.actorUserId === input.actorUserId &&
+        record.operation === input.operation &&
+        record.idempotencyKey === input.idempotencyKey,
+    );
+  }
+
   async listOrders(shipperId: string, query: ListShipperOrdersQuery) {
     const matchedOrders = this.orders.filter(order => {
       return (
         order.shipperId === shipperId &&
+        isOrderMatchedByStatus(order, query) &&
+        isOrderInCreatedRange(order, query) &&
+        isOrderMatchedByKeyword(order, query.keyword)
+      );
+    });
+    const startIndex = (query.page - 1) * query.pageSize;
+
+    return {
+      items: matchedOrders.slice(startIndex, startIndex + query.pageSize),
+      total: matchedOrders.length,
+    };
+  }
+
+  async listAdminOrders(query: ListShipperOrdersQuery) {
+    const matchedOrders = this.orders.filter(order => {
+      return (
         isOrderMatchedByStatus(order, query) &&
         isOrderInCreatedRange(order, query) &&
         isOrderMatchedByKeyword(order, query.keyword)
@@ -246,7 +492,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     adminUserId: string,
     expectedStatus: OrderExceptionCaseStatus,
     nextStatus: OrderExceptionCaseStatus,
-    input: UpdateOrderExceptionCaseRequest,
+    input: UpdateOrderExceptionCaseRequest | ResolveOrderExceptionCaseRequest,
   ) {
     const exceptionCase = this.exceptionCases.find(item => item.id === caseId);
 
@@ -280,13 +526,146 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (nextStatus === 'resolved') {
       exceptionCase.resolutionText = input.content;
       exceptionCase.resolvedAtIso = updatedAtIso;
+      if ('compensationStatus' in input) {
+        exceptionCase.compensationStatus = input.compensationStatus;
+        exceptionCase.compensationTargetRole = input.compensationTargetRole;
+        exceptionCase.compensationAmountCents = input.compensationAmountCents;
+        exceptionCase.compensationUpdatedAtIso = updatedAtIso;
+      }
     }
 
     if (nextStatus === 'closed') {
       exceptionCase.closedAtIso = updatedAtIso;
     }
 
+    const order = this.orders.find(currentOrder => currentOrder.id === exceptionCase.orderId);
+    if (order) {
+      order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
+    }
+
     return exceptionCase;
+  }
+
+  async executeIdempotentOrderMutation(
+    input: ExecuteOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult> {
+    const now = this.now();
+    const existingRecord = this.orderIdempotencyRecords.find(
+      record =>
+        record.actorUserId === input.actorUserId &&
+        record.operation === input.operation &&
+        record.idempotencyKey === input.idempotencyKey,
+    );
+
+    if (existingRecord) {
+      return mapExistingInMemoryOrderIdempotencyRecord(
+        existingRecord,
+        input,
+        now,
+      );
+    }
+
+    const stagedOrders = structuredClone(this.orders);
+    const stagedRecords = structuredClone(this.orderIdempotencyRecords);
+    const stagedCoupons = this.couponStore.clone();
+    const stagedFinancialStore = this.financialStore.clone();
+    const orderIndex = stagedOrders.findIndex(
+      order => order.id === input.orderId,
+    );
+
+    if (orderIndex < 0) {
+      return { kind: 'not-found' };
+    }
+
+    const currentOrder = stagedOrders[orderIndex];
+
+    if (currentOrder.updatedAtIso !== input.baseUpdatedAtIso) {
+      return { kind: 'conflict' };
+    }
+
+    if (input.mutation.type === 'driver_accept') {
+      assertOrderCanEnterDriverHall(currentOrder);
+    }
+
+    if (!isOrderMutationAllowed(currentOrder, input)) {
+      return { kind: 'state-invalid' };
+    }
+
+    const updatedAtIso = createNextUpdatedAtIso(
+      currentOrder.updatedAtIso,
+      now,
+    );
+    const nextOrder = cloneOrderRecord(currentOrder);
+    const couponPricing = applyInMemoryOrderCouponMutation(
+      stagedCoupons,
+      stagedOrders,
+      currentOrder,
+      input,
+      now,
+    );
+
+    applyInMemoryOrderFinancialMutation(
+      stagedFinancialStore,
+      currentOrder,
+      nextOrder,
+      input,
+      now,
+      this.platformFeeRateBps,
+    );
+
+    applyInMemoryOrderMutation(
+      nextOrder,
+      input,
+      updatedAtIso,
+      stagedOrders.length,
+      couponPricing,
+    );
+
+    stagedOrders[orderIndex] = nextOrder;
+    stagedRecords.push({
+      actorUserId: input.actorUserId,
+      orderId: input.orderId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot: cloneOrderRecord(nextOrder),
+      createdAtIso: now.toISOString(),
+      expiresAtIso: input.expiresAtIso,
+    });
+
+    this.orders.splice(0, this.orders.length, ...stagedOrders);
+    this.orderIdempotencyRecords.splice(
+      0,
+      this.orderIdempotencyRecords.length,
+      ...stagedRecords,
+    );
+    this.couponStore.replace(stagedCoupons);
+    this.financialStore.replace(stagedFinancialStore);
+
+    return {
+      kind: 'success',
+      order: cloneOrderRecord(nextOrder),
+      replayed: false,
+    };
+  }
+
+  async resolveExistingOrderMutation(
+    input: ResolveExistingOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult | undefined> {
+    const existingRecord = this.orderIdempotencyRecords.find(
+      record =>
+        record.actorUserId === input.actorUserId &&
+        record.operation === input.operation &&
+        record.idempotencyKey === input.idempotencyKey,
+    );
+
+    return existingRecord
+      ? mapExistingInMemoryOrderIdempotencyRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
   }
 
   async updateOrder(
@@ -303,6 +682,10 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const nowIso = this.now().toISOString();
     Object.assign(order, input, {
       cargoPhotoCount: getOrderCargoPhotoCount(input),
+      paymentStatus: createInitialOrderPaymentStatus(
+        input.paymentMethod,
+        input.pricingMode,
+      ),
       updatedAtIso: nowIso,
     });
     order.events.push({
@@ -319,7 +702,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async cancelOrder(
     orderId: string,
     _actorUserId: string,
-    input: CancelShipperOrderRequest,
+    input: Omit<CancelShipperOrderRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
@@ -363,7 +746,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async advanceOrderStatus(
     orderId: string,
     _actorUserId: string,
-    input: AdvanceShipperOrderStatusRequest,
+    input: Omit<AdvanceShipperOrderStatusRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
@@ -470,7 +853,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   }
 
   async listDriverOrderHall(query: DriverOrderHallQuery) {
-    const matchedOrders = this.orders.filter(order => order.status === 'waiting');
+    const matchedOrders = this.orders.filter(
+      order => order.status === 'waiting' && isOrderReadyForDriverHall(order),
+    );
     const startIndex = (query.page - 1) * query.pageSize;
 
     return {
@@ -489,6 +874,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (!order) {
       throw new Error(`Order not found: ${orderId}`);
     }
+
+    assertOrderCanEnterDriverHall(order);
 
     const nowIso = this.now().toISOString();
     order.updatedAtIso = nowIso;
@@ -514,8 +901,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       throw new Error(`Order not found: ${orderId}`);
     }
 
+    assertOrderCanEnterDriverHall(order);
+
     const nowIso = this.now().toISOString();
     order.status = 'loading';
+    order.assignedDriverId = driverId;
     order.updatedAtIso = nowIso;
     order.events.push({
       id: `event-${this.orders.length}-${order.events.length + 1}`,
@@ -570,7 +960,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async advanceDriverOrderStatus(
     orderId: string,
     driverId: string,
-    input: DriverAdvanceOrderStatusRequest,
+    input: Omit<DriverAdvanceOrderStatusRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
@@ -680,6 +1070,1669 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   }
 }
 
+function createInMemoryOrderRecord(
+  shipperId: string,
+  input: CreateShipperOrderRequest,
+  now: Date,
+  sequence: number,
+): ShipperOrderRecord {
+  const nowIso = now.toISOString();
+
+  return {
+    ...input,
+    cargoPhotoCount: getOrderCargoPhotoCount(input),
+    id: `order-${sequence}`,
+    orderNo: `HY${formatOrderDate(now)}${String(sequence).padStart(10, '0')}`,
+    shipperId,
+    status: 'waiting',
+    paymentStatus: createInitialOrderPaymentStatus(
+      input.paymentMethod,
+      input.pricingMode,
+    ),
+    createdAtIso: nowIso,
+    updatedAtIso: nowIso,
+    events: [
+      {
+        id: `event-${sequence}`,
+        actorUserId: shipperId,
+        eventType: 'created',
+        noteText: '货主发布订单',
+        attachmentFileIds: input.cargoPhotoFileIds,
+        createdAtIso: nowIso,
+      },
+    ],
+  };
+}
+
+function reserveInMemoryOrderCoupon(
+  coupons: ShipperCouponRecord[],
+  shipperId: string,
+  input: CreateShipperOrderRequest,
+  orderNo: string,
+  now: Date,
+) {
+  if (!input.couponId) {
+    return;
+  }
+
+  const coupon = coupons.find(
+    item => item.id === input.couponId && item.shipperId === shipperId,
+  );
+
+  if (!coupon) {
+    throw new BusinessError(
+      ApiErrorCode.PROFILE_COUPON_NOT_AVAILABLE,
+      '优惠券不可用',
+    );
+  }
+
+  const pricing = resolveReservableCouponPricing(
+    coupon,
+    createCouponPricingInput(shipperId, input),
+    now,
+  );
+
+  coupon.status = 'locked';
+  coupon.lockedOrderNo = orderNo;
+  coupon.lockedAtIso = now.toISOString();
+  delete coupon.usedOrderNo;
+  delete coupon.usedAtIso;
+
+  return pricing;
+}
+
+function createCouponPricingInput(
+  shipperId: string,
+  input: CreateShipperOrderRequest,
+) {
+  return {
+    shipperId,
+    priceCents: input.priceCents,
+    couponTitle: input.couponTitle,
+    couponDiscountCents: input.couponDiscountCents,
+    payablePriceCents: input.payablePriceCents,
+  };
+}
+
+const optionalOrderInputKeys = [
+  'volumeText',
+  'cargoDescription',
+  'cargoPhotoFileIds',
+  'pickupNoteText',
+  'deliveryNoteText',
+  'vehicleLengthText',
+  'expectedDeliveryTimeText',
+  'valueAddedServicesText',
+  'priceCents',
+  'couponId',
+  'couponTitle',
+  'couponDiscountCents',
+  'payablePriceCents',
+] as const satisfies ReadonlyArray<keyof CreateShipperOrderRequest>;
+
+function applyOrderInputToInMemoryOrder(
+  order: ShipperOrderRecord,
+  input: CreateShipperOrderRequest,
+  couponPricing?: CanonicalOrderCouponPricing,
+) {
+  Object.assign(order, input, {
+    cargoPhotoCount: getOrderCargoPhotoCount(input),
+    paymentStatus: createInitialOrderPaymentStatus(
+      input.paymentMethod,
+      input.pricingMode,
+    ),
+  });
+
+  for (const key of optionalOrderInputKeys) {
+    if (input[key] === undefined) {
+      delete order[key];
+    }
+  }
+
+  if (couponPricing) {
+    Object.assign(order, couponPricing);
+  }
+}
+
+function mapExistingInMemoryOrderCreateRecord(
+  record: InMemoryOrderIdempotencyRecord,
+  input: ResolveExistingOrderCreateInput,
+  now: Date,
+): ExecuteOrderCreateResult {
+  if (record.requestFingerprint !== input.requestFingerprint) {
+    return { kind: 'key-reused' };
+  }
+
+  if (Date.parse(record.expiresAtIso) <= now.getTime()) {
+    return { kind: 'key-expired' };
+  }
+
+  return {
+    kind: 'success',
+    order: cloneOrderRecord(record.responseSnapshot),
+    replayed: true,
+  };
+}
+
+function mapExistingInMemoryOrderIdempotencyRecord(
+  record: InMemoryOrderIdempotencyRecord,
+  input: ResolveExistingOrderMutationInput,
+  now: Date,
+): ExecuteOrderMutationResult {
+  return mapExistingOrderIdempotencyRecord(
+    {
+      requestFingerprint: record.requestFingerprint,
+      responseSnapshot: record.responseSnapshot,
+      expiresAtIso: record.expiresAtIso,
+    },
+    input,
+    now,
+  );
+}
+
+function isOrderMutationAllowed(
+  order: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+) {
+  switch (input.mutation.type) {
+    case 'shipper_update':
+      return order.status === 'waiting';
+    case 'shipper_cancel':
+      return order.status !== 'completed' && order.status !== 'cancelled';
+    case 'shipper_status':
+      return canAdvanceOrderStatus(order.status, input.mutation.input.nextStatus);
+    case 'shipper_complete':
+      return order.status === 'confirming';
+    case 'driver_accept':
+      return order.status === 'waiting';
+    case 'driver_status':
+      return canDriverAdvanceOrderStatus(
+        order.status,
+        input.mutation.input.nextStatus,
+      );
+    default:
+      return false;
+  }
+}
+
+function isOrderReadyForDriverHall(order: ShipperOrderRecord) {
+  try {
+    assertOrderCanEnterDriverHall(order);
+    return true;
+  } catch (error) {
+    if (error instanceof BusinessError) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+function applyInMemoryOrderCouponMutation(
+  coupons: ShipperCouponRecord[],
+  orders: ShipperOrderRecord[],
+  currentOrder: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+  now: Date,
+): CanonicalOrderCouponPricing | undefined {
+  switch (input.mutation.type) {
+    case 'shipper_update': {
+      const currentCouponId = currentOrder.couponId;
+      const nextCouponId = input.mutation.input.couponId;
+
+      if (currentCouponId === nextCouponId) {
+        if (!currentCouponId) {
+          return undefined;
+        }
+
+        const currentCoupon = findRequiredInMemoryOrderCoupon(
+          coupons,
+          currentOrder.shipperId,
+          currentCouponId,
+        );
+        assertCurrentOrderCouponOwnership(currentCoupon, currentOrder, {
+          kind: 'keep-locked',
+        });
+        const pricing = resolveCurrentOrderCouponPricing(
+          currentCoupon,
+          createCouponPricingInput(
+            currentOrder.shipperId,
+            input.mutation.input,
+          ),
+        );
+
+        if (currentCoupon.lockedOrderNo == null) {
+          currentCoupon.lockedOrderNo = currentOrder.orderNo;
+        }
+
+        return pricing;
+      }
+
+      let nextPricing: CanonicalOrderCouponPricing | undefined;
+
+      if (nextCouponId) {
+        nextPricing = reserveInMemoryOrderCoupon(
+          coupons,
+          currentOrder.shipperId,
+          input.mutation.input,
+          currentOrder.orderNo,
+          now,
+        );
+      }
+
+      if (currentCouponId) {
+        releaseInMemoryOrderCoupon(
+          findRequiredInMemoryOrderCoupon(
+            coupons,
+            currentOrder.shipperId,
+            currentCouponId,
+          ),
+          currentOrder,
+        );
+      }
+
+      return nextPricing;
+    }
+
+    case 'shipper_cancel':
+      if (currentOrder.couponId) {
+        releaseInMemoryOrderCoupon(
+          findRequiredInMemoryOrderCoupon(
+            coupons,
+            currentOrder.shipperId,
+            currentOrder.couponId,
+          ),
+          currentOrder,
+        );
+      }
+      return undefined;
+
+    case 'shipper_complete':
+      if (currentOrder.couponId) {
+        redeemInMemoryOrderCoupon(
+          findRequiredInMemoryOrderCoupon(
+            coupons,
+            currentOrder.shipperId,
+            currentOrder.couponId,
+          ),
+          orders,
+          currentOrder,
+          now,
+        );
+      }
+      return undefined;
+
+    case 'shipper_status':
+    case 'driver_accept':
+    case 'driver_status':
+      return undefined;
+  }
+}
+
+function applyInMemoryOrderFinancialMutation(
+  financialStore: InMemoryFinancialStore,
+  currentOrder: ShipperOrderRecord,
+  nextOrder: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+  now: Date,
+  platformFeeRateBps: number,
+) {
+  if (input.mutation.type === 'shipper_complete') {
+    applyInMemoryOrderSettlement(
+      financialStore,
+      currentOrder,
+      nextOrder,
+      now,
+      platformFeeRateBps,
+    );
+    return;
+  }
+
+  if (input.mutation.type !== 'shipper_cancel') {
+    return;
+  }
+
+  const nextPaymentStatus = resolveCancellationPaymentStatus(
+    currentOrder.paymentStatus,
+  );
+  nextOrder.paymentStatus = nextPaymentStatus;
+
+  if (currentOrder.paymentMethod !== 'online') {
+    return;
+  }
+
+  const payment = financialStore.findLatestPaymentByOrderId(currentOrder.id);
+
+  if (nextPaymentStatus === 'refund_pending') {
+    if (!payment || payment.status !== 'escrowed') {
+      throw new BusinessError(
+        ApiErrorCode.REFUND_NOT_AVAILABLE,
+        '已托管订单缺少可退款支付单',
+      );
+    }
+
+    const refundPendingPayment = financialStore.updatePaymentOrder(
+      payment.id,
+      {
+        status: 'refund_pending',
+        updatedAtIso: now.toISOString(),
+      },
+    );
+
+    if (!refundPendingPayment) {
+      throw new BusinessError(
+        ApiErrorCode.REFUND_NOT_AVAILABLE,
+        '退款支付单状态更新失败',
+      );
+    }
+
+    const refund = financialStore.createRefundForPayment(
+      refundPendingPayment,
+      'order_cancelled',
+      now,
+    );
+    financialStore.createRefundOutboxEvent(refund, now);
+    return;
+  }
+
+  if (!payment) {
+    return;
+  }
+
+  if (payment.status === 'escrowed' || payment.status === 'refund_pending') {
+    throw new BusinessError(
+      ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+      '订单与支付单资金状态冲突',
+    );
+  }
+
+  if (payment.status === 'pending' || payment.status === 'processing') {
+    financialStore.updatePaymentOrder(payment.id, {
+      status: 'cancelled',
+      cancelledAtIso: now.toISOString(),
+      updatedAtIso: now.toISOString(),
+    });
+  }
+}
+
+function resolveOrderSettlementAmountCents(order: ShipperOrderRecord) {
+  const fixedAmountCents = order.payablePriceCents ?? order.priceCents;
+
+  if (fixedAmountCents !== undefined) {
+    return fixedAmountCents;
+  }
+
+  if (order.pricingMode !== 'negotiable' || !order.assignedDriverId) {
+    return undefined;
+  }
+
+  const acceptedDriverQuote = [...order.events]
+    .reverse()
+    .find(
+      event =>
+        event.eventType === 'driver_quote_submitted' &&
+        event.actorUserId === order.assignedDriverId,
+    );
+
+  if (!acceptedDriverQuote?.noteText) {
+    return undefined;
+  }
+
+  try {
+    const payload = JSON.parse(acceptedDriverQuote.noteText) as {
+      quoteCents?: unknown;
+    };
+
+    return Number.isSafeInteger(payload.quoteCents) &&
+      (payload.quoteCents as number) > 0
+      ? (payload.quoteCents as number)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function applyInMemoryOrderSettlement(
+  financialStore: InMemoryFinancialStore,
+  currentOrder: ShipperOrderRecord,
+  nextOrder: ShipperOrderRecord,
+  now: Date,
+  platformFeeRateBps: number,
+) {
+  assertOrderCanCompleteFinancially(currentOrder);
+
+  if (!currentOrder.assignedDriverId) {
+    throw new BusinessError(
+      ApiErrorCode.SETTLEMENT_DRIVER_MISSING,
+      '订单缺少已接单司机，不能结算',
+    );
+  }
+
+  const orderAmountCents = resolveOrderSettlementAmountCents(currentOrder);
+  let grossAmountCents = orderAmountCents;
+  let paymentOrderId: string | undefined;
+
+  if (currentOrder.paymentMethod === 'online') {
+    const payment = financialStore.findLatestPaymentByOrderId(currentOrder.id);
+
+    if (!payment || payment.status !== 'escrowed') {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_REQUIRED,
+        '在线订单缺少已托管支付单',
+      );
+    }
+
+    if (
+      orderAmountCents !== undefined &&
+      orderAmountCents !== payment.amountCents
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '订单金额与支付托管金额不一致',
+      );
+    }
+
+    grossAmountCents = payment.amountCents;
+    paymentOrderId = payment.id;
+  }
+
+  const breakdown = createSettlementBreakdown(
+    grossAmountCents ?? 0,
+    platformFeeRateBps,
+  );
+  const entryDrafts =
+    currentOrder.paymentMethod === 'online'
+      ? createOnlineSettlementEntries(
+          breakdown,
+          currentOrder.assignedDriverId,
+        )
+      : createOfflineSettlementEntries(
+          breakdown,
+          currentOrder.assignedDriverId,
+        );
+  assertLedgerBalanced(entryDrafts);
+  const nowIso = now.toISOString();
+  const transactionId = randomUUID();
+  const transaction: FinancialTransactionRecord = {
+    id: transactionId,
+    transactionNo: `FT-${transactionId}`,
+    type:
+      currentOrder.paymentMethod === 'online'
+        ? 'online_order_settlement'
+        : 'offline_order_settlement',
+    referenceId: currentOrder.id,
+    orderId: currentOrder.id,
+    ...(paymentOrderId ? { paymentOrderId } : {}),
+    amountCents: breakdown.grossAmountCents,
+    occurredAtIso: nowIso,
+    createdAtIso: nowIso,
+    entries: entryDrafts.map((entry, sequence) => ({
+      id: randomUUID(),
+      transactionId,
+      sequence,
+      accountType: entry.accountType,
+      ...(entry.accountUserId
+        ? { accountUserId: entry.accountUserId }
+        : {}),
+      direction: entry.direction,
+      amountCents: entry.amountCents,
+      createdAtIso: nowIso,
+    })),
+  };
+  financialStore.createFinancialTransaction(transaction);
+  const settlement: SettlementRecord = {
+    id: randomUUID(),
+    orderId: currentOrder.id,
+    ...(paymentOrderId ? { paymentOrderId } : {}),
+    driverId: currentOrder.assignedDriverId,
+    ...breakdown,
+    financialTransactionId: transactionId,
+    settledAtIso: nowIso,
+    createdAtIso: nowIso,
+  };
+  financialStore.createSettlement(settlement);
+  financialStore.creditDriverWallet(
+    currentOrder.assignedDriverId,
+    breakdown.driverNetAmountCents,
+    now,
+  );
+
+  if (paymentOrderId) {
+    const payment = financialStore.updatePaymentOrder(paymentOrderId, {
+      status: 'settled',
+      settledAtIso: nowIso,
+      updatedAtIso: nowIso,
+    });
+
+    if (!payment) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '支付单结算状态更新失败',
+      );
+    }
+  }
+
+  nextOrder.paymentStatus = 'settled';
+  nextOrder.paymentSettledAtIso = nowIso;
+}
+
+function findRequiredInMemoryOrderCoupon(
+  coupons: ShipperCouponRecord[],
+  shipperId: string,
+  couponId: string,
+) {
+  const coupon = coupons.find(
+    item => item.id === couponId && item.shipperId === shipperId,
+  );
+
+  if (!coupon) {
+    throwCouponNotAvailable();
+  }
+
+  return coupon;
+}
+
+function releaseInMemoryOrderCoupon(
+  coupon: ShipperCouponRecord,
+  currentOrder: ShipperOrderRecord,
+) {
+  assertCurrentOrderCouponOwnership(coupon, currentOrder, {
+    kind: 'release-to-usable',
+  });
+
+  if (coupon.status === 'usable') {
+    return;
+  }
+
+  coupon.status = 'usable';
+  delete coupon.lockedOrderNo;
+  delete coupon.lockedAtIso;
+  delete coupon.usedOrderNo;
+  delete coupon.usedAtIso;
+}
+
+function redeemInMemoryOrderCoupon(
+  coupon: ShipperCouponRecord,
+  orders: ShipperOrderRecord[],
+  currentOrder: ShipperOrderRecord,
+  now: Date,
+) {
+  const nonCancelledOwners =
+    coupon.status === 'usable'
+      ? orders.filter(
+          order =>
+            order.couponId === coupon.id && order.status !== 'cancelled',
+        )
+      : [];
+  const uniqueNonCancelledOwnerOrderId =
+    nonCancelledOwners.length === 1
+      ? nonCancelledOwners[0].id
+      : undefined;
+
+  assertCurrentOrderCouponOwnership(coupon, currentOrder, {
+    kind: 'redeem-to-used',
+    uniqueNonCancelledOwnerOrderId,
+  });
+
+  if (coupon.status === 'used') {
+    return;
+  }
+
+  coupon.status = 'used';
+  delete coupon.lockedOrderNo;
+  delete coupon.lockedAtIso;
+  coupon.usedOrderNo = currentOrder.orderNo;
+  coupon.usedAtIso = now.toISOString();
+}
+
+function applyInMemoryOrderMutation(
+  order: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+  updatedAtIso: string,
+  orderCount: number,
+  couponPricing?: CanonicalOrderCouponPricing,
+) {
+  order.updatedAtIso = updatedAtIso;
+
+  switch (input.mutation.type) {
+    case 'shipper_update':
+      applyOrderInputToInMemoryOrder(
+        order,
+        input.mutation.input,
+        couponPricing,
+      );
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'updated',
+        noteText: '货主修改订单',
+        attachmentFileIds: input.mutation.input.cargoPhotoFileIds,
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'shipper_cancel':
+      order.status = 'cancelled';
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'cancelled',
+        noteText: createOrderCancellationNote(input.mutation.input),
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'shipper_status':
+      order.status = input.mutation.input.nextStatus;
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'status_changed',
+        noteText: createOrderStatusAdvanceNote(input.mutation.input.nextStatus),
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'shipper_complete':
+      order.status = 'completed';
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'completed',
+        noteText: '货主确认送达',
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'driver_accept':
+      order.status = 'loading';
+      order.assignedDriverId = input.actorUserId;
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'driver_accepted',
+        noteText: serializeDriverAcceptOrderEventPayload(input.mutation.input),
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'driver_status':
+      order.status = input.mutation.input.nextStatus;
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'driver_status_changed',
+        noteText: createDriverStatusAdvanceNote(input.mutation.input.nextStatus),
+        attachmentFileIds: input.mutation.input.receiptPhotoFileIds ?? [],
+        createdAtIso: updatedAtIso,
+      });
+      return;
+  }
+}
+
+function cloneOrderRecord(order: ShipperOrderRecord): ShipperOrderRecord {
+  return JSON.parse(JSON.stringify(order)) as ShipperOrderRecord;
+}
+
+function mapExistingOrderIdempotencyRecord(
+  record: {
+    requestFingerprint: string;
+    responseSnapshot: ShipperOrderRecord;
+    expiresAtIso: string;
+  },
+  input: ResolveExistingOrderMutationInput,
+  now: Date,
+): ExecuteOrderMutationResult {
+  if (record.requestFingerprint !== input.requestFingerprint) {
+    return { kind: 'key-reused' };
+  }
+
+  if (Date.parse(record.expiresAtIso) <= now.getTime()) {
+    return { kind: 'key-expired' };
+  }
+
+  return {
+    kind: 'success',
+    order: cloneOrderRecord(record.responseSnapshot),
+    replayed: true,
+  };
+}
+
+function mapExistingPrismaOrderIdempotencyRecord(
+  record: PrismaOrderIdempotencyRecord,
+  input: ResolveExistingOrderMutationInput,
+  now: Date,
+): ExecuteOrderMutationResult {
+  return mapExistingOrderIdempotencyRecord(
+    {
+      requestFingerprint: record.requestFingerprint,
+      responseSnapshot: cloneOrderRecord(
+        record.responseSnapshot as ShipperOrderRecord,
+      ),
+      expiresAtIso: record.expiresAt.toISOString(),
+    },
+    input,
+    now,
+  );
+}
+
+function mapExistingPrismaOrderCreateRecord(
+  record: PrismaOrderIdempotencyRecord,
+  input: ResolveExistingOrderCreateInput,
+  now: Date,
+): ExecuteOrderCreateResult {
+  return mapExistingInMemoryOrderCreateRecord(
+    {
+      actorUserId: record.actorUserId,
+      orderId: record.orderId,
+      operation: 'shipper_create',
+      idempotencyKey: record.idempotencyKey,
+      requestFingerprint: record.requestFingerprint,
+      responseSnapshot: cloneOrderRecord(
+        record.responseSnapshot as ShipperOrderRecord,
+      ),
+      createdAtIso: record.createdAt.toISOString(),
+      expiresAtIso: record.expiresAt.toISOString(),
+    },
+    input,
+    now,
+  );
+}
+
+function createOrderIdempotencyRecordWhereUnique(
+  input: {
+    actorUserId: string;
+    operation: 'shipper_create' | OrderMutationOperation;
+    idempotencyKey: string;
+  },
+) {
+  return {
+    OrderIdempotencyRecord_actor_operation_key_unique: {
+      actorUserId: input.actorUserId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+    },
+  };
+}
+
+async function createNextOrderNo(
+  transaction: PrismaOrdersTransactionClient,
+  now: Date,
+) {
+  const rows = await transaction.$queryRaw<Array<{ value: bigint }>>`
+    SELECT nextval('"Order_order_no_seq"') AS value
+  `;
+  const sequence = rows[0]?.value;
+
+  if (sequence === undefined) {
+    throw new Error('Order sequence did not return a value');
+  }
+
+  return `HY${formatOrderDate(now)}${String(sequence).padStart(10, '0')}`;
+}
+
+function createPrismaOrderCreateData(
+  shipperId: string,
+  input: CreateShipperOrderRequest,
+  orderNo: string,
+  couponPricing?: ReturnType<typeof resolveReservableCouponPricing>,
+) {
+  return {
+    orderNo,
+    shipperId,
+    status: 'waiting',
+    pricingMode: input.pricingMode,
+    priceCents: input.priceCents,
+    payablePriceCents:
+      couponPricing?.payablePriceCents ?? input.payablePriceCents,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: createInitialOrderPaymentStatus(
+      input.paymentMethod,
+      input.pricingMode,
+    ),
+    couponId: couponPricing?.couponId ?? input.couponId,
+    couponTitle: couponPricing?.couponTitle ?? input.couponTitle,
+    couponDiscountCents:
+      couponPricing?.couponDiscountCents ?? input.couponDiscountCents,
+    pickupTime: new Date(input.pickupTimeIso),
+    expectedDeliveryText: input.expectedDeliveryTimeText,
+    cargo: {
+      create: {
+        cargoType: input.cargoType,
+        weightText: input.weightText,
+        volumeText: input.volumeText,
+        quantityText: input.quantityText,
+        description: input.cargoDescription,
+        cargoPhotoCount: getOrderCargoPhotoCount(input),
+        cargoPhotoFileIds: input.cargoPhotoFileIds ?? [],
+      },
+    },
+    locations: {
+      create: [
+        {
+          type: 'pickup',
+          address: input.pickupAddress,
+          contactName: input.pickupContact,
+          contactPhone: input.pickupPhone,
+          noteText: input.pickupNoteText,
+        },
+        {
+          type: 'delivery',
+          address: input.deliveryAddress,
+          contactName: input.deliveryContact,
+          contactPhone: input.deliveryPhone,
+          noteText: input.deliveryNoteText,
+        },
+      ],
+    },
+    requirement: {
+      create: {
+        vehicleType: input.vehicleRequirement,
+        vehicleLengthText: input.vehicleLengthText,
+        needTailboard: input.needTailboard,
+        needTarp: input.needTarp,
+        valueAddedServicesText: input.valueAddedServicesText,
+      },
+    },
+    events: {
+      create: {
+        actorUserId: shipperId,
+        eventType: 'created',
+        noteText: '货主发布订单',
+        attachmentFileIds: input.cargoPhotoFileIds ?? [],
+      },
+    },
+  };
+}
+
+function throwCouponNotAvailable(): never {
+  throw new BusinessError(
+    ApiErrorCode.PROFILE_COUPON_NOT_AVAILABLE,
+    '优惠券不可用',
+  );
+}
+
+function mapPrismaOrderCoupon(coupon: PrismaShipperCouponRecord) {
+  if (
+    coupon.status !== 'usable' &&
+    coupon.status !== 'locked' &&
+    coupon.status !== 'used' &&
+    coupon.status !== 'expired'
+  ) {
+    throwCouponNotAvailable();
+  }
+
+  return mapPrismaCoupon(coupon);
+}
+
+async function applyPrismaOrderCouponMutation(
+  transaction: PrismaOrdersTransactionClient,
+  currentOrder: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+  now: Date,
+): Promise<CanonicalOrderCouponPricing | undefined> {
+  switch (input.mutation.type) {
+    case 'shipper_update': {
+      const currentCouponId = currentOrder.couponId;
+      const nextCouponId = input.mutation.input.couponId;
+
+      if (currentCouponId === nextCouponId) {
+        if (!currentCouponId) {
+          return undefined;
+        }
+
+        const currentCoupon = await findRequiredPrismaOrderCoupon(
+          transaction,
+          currentOrder.shipperId,
+          currentCouponId,
+        );
+        const mappedCoupon = mapPrismaOrderCoupon(currentCoupon);
+        assertCurrentOrderCouponOwnership(mappedCoupon, currentOrder, {
+          kind: 'keep-locked',
+        });
+        const pricing = resolveCurrentOrderCouponPricing(
+          mappedCoupon,
+          createCouponPricingInput(
+            currentOrder.shipperId,
+            input.mutation.input,
+          ),
+        );
+
+        if (currentCoupon.lockedOrderNo === null) {
+          await assertPrismaCouponUpdateCount(
+            transaction.shipperCoupon.updateMany({
+              where: {
+                id: currentCoupon.id,
+                shipperId: currentOrder.shipperId,
+                status: 'locked',
+                lockedOrderNo: null,
+              },
+              data: {
+                lockedOrderNo: currentOrder.orderNo,
+              },
+            }),
+          );
+        }
+
+        return pricing;
+      }
+
+      let nextPricing: CanonicalOrderCouponPricing | undefined;
+
+      if (nextCouponId) {
+        nextPricing = await reservePrismaOrderCoupon(
+          transaction,
+          currentOrder.shipperId,
+          input.mutation.input,
+          currentOrder.orderNo,
+          now,
+        );
+      }
+
+      if (currentCouponId) {
+        await releasePrismaOrderCoupon(
+          transaction,
+          currentOrder,
+          currentCouponId,
+        );
+      }
+
+      return nextPricing;
+    }
+
+    case 'shipper_cancel':
+      if (currentOrder.couponId) {
+        await releasePrismaOrderCoupon(
+          transaction,
+          currentOrder,
+          currentOrder.couponId,
+        );
+      }
+      return undefined;
+
+    case 'shipper_complete':
+      if (currentOrder.couponId) {
+        await redeemPrismaOrderCoupon(
+          transaction,
+          currentOrder,
+          currentOrder.couponId,
+          now,
+        );
+      }
+      return undefined;
+
+    case 'shipper_status':
+    case 'driver_accept':
+    case 'driver_status':
+      return undefined;
+  }
+}
+
+async function findRequiredPrismaOrderCoupon(
+  transaction: PrismaOrdersTransactionClient,
+  shipperId: string,
+  couponId: string,
+) {
+  const coupon = await transaction.shipperCoupon.findFirst({
+    where: { id: couponId, shipperId },
+  });
+
+  if (!coupon) {
+    throwCouponNotAvailable();
+  }
+
+  return coupon;
+}
+
+async function reservePrismaOrderCoupon(
+  transaction: PrismaOrdersTransactionClient,
+  shipperId: string,
+  input: CreateShipperOrderRequest,
+  orderNo: string,
+  now: Date,
+) {
+  if (!input.couponId) {
+    throwCouponNotAvailable();
+  }
+
+  const coupon = await findRequiredPrismaOrderCoupon(
+    transaction,
+    shipperId,
+    input.couponId,
+  );
+  const pricing = resolveReservableCouponPricing(
+    mapPrismaOrderCoupon(coupon),
+    createCouponPricingInput(shipperId, input),
+    now,
+  );
+
+  await assertPrismaCouponUpdateCount(
+    transaction.shipperCoupon.updateMany({
+      where: {
+        id: coupon.id,
+        shipperId,
+        status: 'usable',
+      },
+      data: {
+        status: 'locked',
+        lockedOrderNo: orderNo,
+        lockedAt: now,
+        usedOrderNo: null,
+        usedAt: null,
+      },
+    }),
+  );
+
+  return pricing;
+}
+
+async function releasePrismaOrderCoupon(
+  transaction: PrismaOrdersTransactionClient,
+  currentOrder: ShipperOrderRecord,
+  couponId: string,
+) {
+  const coupon = await findRequiredPrismaOrderCoupon(
+    transaction,
+    currentOrder.shipperId,
+    couponId,
+  );
+  assertCurrentOrderCouponOwnership(
+    mapPrismaOrderCoupon(coupon),
+    currentOrder,
+    { kind: 'release-to-usable' },
+  );
+
+  if (coupon.status === 'usable') {
+    return;
+  }
+
+  await assertPrismaCouponUpdateCount(
+    transaction.shipperCoupon.updateMany({
+      where: {
+        id: coupon.id,
+        shipperId: currentOrder.shipperId,
+        status: 'locked',
+        OR: [
+          { lockedOrderNo: currentOrder.orderNo },
+          { lockedOrderNo: null },
+        ],
+      },
+      data: {
+        status: 'usable',
+        lockedOrderNo: null,
+        lockedAt: null,
+        usedOrderNo: null,
+        usedAt: null,
+      },
+    }),
+  );
+}
+
+async function redeemPrismaOrderCoupon(
+  transaction: PrismaOrdersTransactionClient,
+  currentOrder: ShipperOrderRecord,
+  couponId: string,
+  now: Date,
+) {
+  const coupon = await findRequiredPrismaOrderCoupon(
+    transaction,
+    currentOrder.shipperId,
+    couponId,
+  );
+  let uniqueNonCancelledOwnerOrderId: string | undefined;
+
+  if (coupon.status === 'usable') {
+    const owners = await transaction.order.findMany({
+      where: {
+        couponId: coupon.id,
+        status: { not: 'cancelled' },
+      },
+      select: { id: true },
+    });
+    uniqueNonCancelledOwnerOrderId =
+      owners.length === 1 ? owners[0].id : undefined;
+  }
+
+  assertCurrentOrderCouponOwnership(mapPrismaOrderCoupon(coupon), currentOrder, {
+    kind: 'redeem-to-used',
+    uniqueNonCancelledOwnerOrderId,
+  });
+
+  if (coupon.status === 'used') {
+    return;
+  }
+
+  await assertPrismaCouponUpdateCount(
+    transaction.shipperCoupon.updateMany({
+      where:
+        coupon.status === 'usable'
+          ? {
+              id: coupon.id,
+              shipperId: currentOrder.shipperId,
+              status: 'usable',
+            }
+          : {
+              id: coupon.id,
+              shipperId: currentOrder.shipperId,
+              status: 'locked',
+              OR: [
+                { lockedOrderNo: currentOrder.orderNo },
+                { lockedOrderNo: null },
+              ],
+            },
+      data: {
+        status: 'used',
+        lockedOrderNo: null,
+        lockedAt: null,
+        usedOrderNo: currentOrder.orderNo,
+        usedAt: now,
+      },
+    }),
+  );
+}
+
+async function assertPrismaCouponUpdateCount(
+  resultPromise: Promise<{ count: number }>,
+) {
+  const result = await resultPromise;
+
+  if (result.count !== 1) {
+    throwCouponNotAvailable();
+  }
+}
+
+async function applyPrismaOrderFinancialMutation(
+  transaction: PrismaOrdersTransactionClient,
+  currentOrder: ShipperOrderRecord,
+  input: ExecuteOrderMutationInput,
+  now: Date,
+  platformFeeRateBps: number,
+) {
+  if (input.mutation.type === 'shipper_complete') {
+    return applyPrismaOrderSettlement(
+      transaction,
+      currentOrder,
+      now,
+      platformFeeRateBps,
+    );
+  }
+
+  if (input.mutation.type !== 'shipper_cancel') {
+    return {} as const;
+  }
+
+  const paymentStatus = resolveCancellationPaymentStatus(
+    currentOrder.paymentStatus,
+  );
+
+  if (currentOrder.paymentMethod !== 'online') {
+    return { paymentStatus };
+  }
+
+  const payment = await transaction.paymentOrder.findFirst({
+    where: { orderId: currentOrder.id },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (paymentStatus === 'refund_pending') {
+    if (!payment || payment.status !== 'escrowed') {
+      throw new BusinessError(
+        ApiErrorCode.REFUND_NOT_AVAILABLE,
+        '已托管订单缺少可退款支付单',
+      );
+    }
+
+    const paymentUpdate = await transaction.paymentOrder.updateMany({
+      where: { id: payment.id, status: 'escrowed' },
+      data: { status: 'refund_pending', updatedAt: now },
+    });
+
+    if (paymentUpdate.count !== 1) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '支付单资金状态已变化',
+      );
+    }
+
+    const refundId = randomUUID();
+    const refundNo = `RF-${payment.paymentNo}`;
+    await transaction.refund.create({
+      data: {
+        id: refundId,
+        refundNo,
+        paymentOrderId: payment.id,
+        orderId: currentOrder.id,
+        shipperId: currentOrder.shipperId,
+        channel: payment.channel,
+        amountCents: payment.amountCents,
+        reason: 'order_cancelled',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    await transaction.financialOutboxEvent.create({
+      data: {
+        id: randomUUID(),
+        eventType: 'refund.requested',
+        aggregateType: 'refund',
+        aggregateId: refundId,
+        refundId,
+        payload: {
+          refundId,
+          paymentOrderId: payment.id,
+        },
+        status: 'pending',
+        attemptCount: 0,
+        maxAttempts: 10,
+        availableAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    return { paymentStatus };
+  }
+
+  if (!payment) {
+    return { paymentStatus };
+  }
+
+  if (payment.status === 'escrowed' || payment.status === 'refund_pending') {
+    throw new BusinessError(
+      ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+      '订单与支付单资金状态冲突',
+    );
+  }
+
+  if (payment.status === 'pending' || payment.status === 'processing') {
+    const paymentUpdate = await transaction.paymentOrder.updateMany({
+      where: {
+        id: payment.id,
+        status: { in: ['pending', 'processing'] },
+      },
+      data: {
+        status: 'cancelled',
+        cancelledAt: now,
+        updatedAt: now,
+      },
+    });
+
+    if (paymentUpdate.count !== 1) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '支付单资金状态已变化',
+      );
+    }
+  }
+
+  return { paymentStatus };
+}
+
+async function applyPrismaOrderSettlement(
+  transaction: PrismaOrdersTransactionClient,
+  currentOrder: ShipperOrderRecord,
+  now: Date,
+  platformFeeRateBps: number,
+) {
+  assertOrderCanCompleteFinancially(currentOrder);
+
+  if (!currentOrder.assignedDriverId) {
+    throw new BusinessError(
+      ApiErrorCode.SETTLEMENT_DRIVER_MISSING,
+      '订单缺少已接单司机，不能结算',
+    );
+  }
+
+  const orderAmountCents = resolveOrderSettlementAmountCents(currentOrder);
+  let grossAmountCents = orderAmountCents;
+  let payment: PrismaOrderPaymentRecord | null = null;
+
+  if (currentOrder.paymentMethod === 'online') {
+    payment = await transaction.paymentOrder.findFirst({
+      where: { orderId: currentOrder.id, status: 'escrowed' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!payment) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_REQUIRED,
+        '在线订单缺少已托管支付单',
+      );
+    }
+
+    if (
+      orderAmountCents !== undefined &&
+      orderAmountCents !== payment.amountCents
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '订单金额与支付托管金额不一致',
+      );
+    }
+
+    grossAmountCents = payment.amountCents;
+  }
+
+  const breakdown = createSettlementBreakdown(
+    grossAmountCents ?? 0,
+    platformFeeRateBps,
+  );
+  const entryDrafts =
+    currentOrder.paymentMethod === 'online'
+      ? createOnlineSettlementEntries(
+          breakdown,
+          currentOrder.assignedDriverId,
+        )
+      : createOfflineSettlementEntries(
+          breakdown,
+          currentOrder.assignedDriverId,
+        );
+  assertLedgerBalanced(entryDrafts);
+  const transactionId = randomUUID();
+  const transactionType =
+    currentOrder.paymentMethod === 'online'
+      ? 'online_order_settlement'
+      : 'offline_order_settlement';
+  await transaction.financialTransaction.create({
+    data: {
+      id: transactionId,
+      transactionNo: `FT-${transactionId}`,
+      type: transactionType,
+      referenceId: currentOrder.id,
+      orderId: currentOrder.id,
+      paymentOrderId: payment?.id ?? null,
+      amountCents: breakdown.grossAmountCents,
+      occurredAt: now,
+      entries: {
+        create: entryDrafts.map((entry, sequence) => ({
+          id: randomUUID(),
+          sequence,
+          accountType: entry.accountType,
+          accountUserId: entry.accountUserId ?? null,
+          direction: entry.direction,
+          amountCents: entry.amountCents,
+        })),
+      },
+    },
+  });
+  await transaction.settlement.create({
+    data: {
+      id: randomUUID(),
+      orderId: currentOrder.id,
+      paymentOrderId: payment?.id ?? null,
+      driverId: currentOrder.assignedDriverId,
+      ...breakdown,
+      financialTransactionId: transactionId,
+      settledAt: now,
+      createdAt: now,
+    },
+  });
+  await transaction.driverWallet.upsert({
+    where: { driverId: currentOrder.assignedDriverId },
+    create: {
+      driverId: currentOrder.assignedDriverId,
+      availableCents: breakdown.driverNetAmountCents,
+      reservedCents: 0,
+      withdrawnCents: 0,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    update: {
+      availableCents: { increment: breakdown.driverNetAmountCents },
+      version: { increment: 1 },
+      updatedAt: now,
+    },
+  });
+
+  if (payment) {
+    const paymentUpdate = await transaction.paymentOrder.updateMany({
+      where: { id: payment.id, status: 'escrowed' },
+      data: { status: 'settled', settledAt: now, updatedAt: now },
+    });
+
+    if (paymentUpdate.count !== 1) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+        '支付单结算状态已变化',
+      );
+    }
+  }
+
+  return {
+    paymentStatus: 'settled' as const,
+    paymentSettledAt: now,
+  };
+}
+
+function createPrismaOrderMutationOrderData(
+  input: ExecuteOrderMutationInput,
+  updatedAt: Date,
+  couponPricing?: CanonicalOrderCouponPricing,
+  financialMutation: {
+    paymentStatus?: ShipperOrderRecord['paymentStatus'];
+    paymentSettledAt?: Date;
+  } = {},
+) {
+  switch (input.mutation.type) {
+    case 'shipper_update':
+      return {
+        pricingMode: input.mutation.input.pricingMode,
+        priceCents: input.mutation.input.priceCents ?? null,
+        payablePriceCents:
+          couponPricing?.payablePriceCents ??
+          input.mutation.input.payablePriceCents ??
+          null,
+        paymentMethod: input.mutation.input.paymentMethod,
+        paymentStatus: createInitialOrderPaymentStatus(
+          input.mutation.input.paymentMethod,
+          input.mutation.input.pricingMode,
+        ),
+        couponId: couponPricing?.couponId ?? input.mutation.input.couponId ?? null,
+        couponTitle:
+          couponPricing?.couponTitle ?? input.mutation.input.couponTitle ?? null,
+        couponDiscountCents:
+          couponPricing?.couponDiscountCents ??
+          input.mutation.input.couponDiscountCents ??
+          null,
+        pickupTime: new Date(input.mutation.input.pickupTimeIso),
+        expectedDeliveryText:
+          input.mutation.input.expectedDeliveryTimeText ?? null,
+        updatedAt,
+      };
+    case 'shipper_cancel':
+      return {
+        status: 'cancelled',
+        paymentStatus: financialMutation.paymentStatus,
+        updatedAt,
+      };
+    case 'shipper_status':
+      return {
+        status: input.mutation.input.nextStatus,
+        updatedAt,
+      };
+    case 'shipper_complete':
+      return {
+        status: 'completed',
+        paymentStatus: financialMutation.paymentStatus,
+        paymentSettledAt: financialMutation.paymentSettledAt,
+        updatedAt,
+      };
+    case 'driver_accept':
+      return {
+        status: 'loading',
+        assignedDriverId: input.actorUserId,
+        updatedAt,
+      };
+    case 'driver_status':
+      return {
+        status: input.mutation.input.nextStatus,
+        updatedAt,
+      };
+  }
+}
+
+async function applyPrismaOrderMutation(
+  transaction: PrismaOrdersTransactionClient,
+  input: ExecuteOrderMutationInput,
+  updatedAt: Date,
+) {
+  switch (input.mutation.type) {
+    case 'shipper_update':
+      await transaction.orderCargo.upsert({
+        where: {
+          orderId: input.orderId,
+        },
+        create: {
+          orderId: input.orderId,
+          cargoType: input.mutation.input.cargoType,
+          weightText: input.mutation.input.weightText,
+          volumeText: input.mutation.input.volumeText ?? null,
+          quantityText: input.mutation.input.quantityText,
+          description: input.mutation.input.cargoDescription ?? null,
+          cargoPhotoCount: getOrderCargoPhotoCount(input.mutation.input),
+          cargoPhotoFileIds: input.mutation.input.cargoPhotoFileIds ?? [],
+        },
+        update: {
+          cargoType: input.mutation.input.cargoType,
+          weightText: input.mutation.input.weightText,
+          volumeText: input.mutation.input.volumeText ?? null,
+          quantityText: input.mutation.input.quantityText,
+          description: input.mutation.input.cargoDescription ?? null,
+          cargoPhotoCount: getOrderCargoPhotoCount(input.mutation.input),
+          cargoPhotoFileIds: input.mutation.input.cargoPhotoFileIds ?? [],
+        },
+      });
+      await transaction.orderLocation.updateMany({
+        where: {
+          orderId: input.orderId,
+          type: 'pickup',
+        },
+        data: {
+          address: input.mutation.input.pickupAddress,
+          contactName: input.mutation.input.pickupContact,
+          contactPhone: input.mutation.input.pickupPhone,
+          noteText: input.mutation.input.pickupNoteText ?? null,
+        },
+      });
+      await transaction.orderLocation.updateMany({
+        where: {
+          orderId: input.orderId,
+          type: 'delivery',
+        },
+        data: {
+          address: input.mutation.input.deliveryAddress,
+          contactName: input.mutation.input.deliveryContact,
+          contactPhone: input.mutation.input.deliveryPhone,
+          noteText: input.mutation.input.deliveryNoteText ?? null,
+        },
+      });
+      await transaction.orderRequirement.upsert({
+        where: {
+          orderId: input.orderId,
+        },
+        create: {
+          orderId: input.orderId,
+          vehicleType: input.mutation.input.vehicleRequirement,
+          vehicleLengthText: input.mutation.input.vehicleLengthText ?? null,
+          needTailboard: input.mutation.input.needTailboard,
+          needTarp: input.mutation.input.needTarp,
+          valueAddedServicesText:
+            input.mutation.input.valueAddedServicesText ?? null,
+        },
+        update: {
+          vehicleType: input.mutation.input.vehicleRequirement,
+          vehicleLengthText: input.mutation.input.vehicleLengthText ?? null,
+          needTailboard: input.mutation.input.needTailboard,
+          needTarp: input.mutation.input.needTarp,
+          valueAddedServicesText:
+            input.mutation.input.valueAddedServicesText ?? null,
+        },
+      });
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'updated',
+          noteText: '货主修改订单',
+          attachmentFileIds: input.mutation.input.cargoPhotoFileIds ?? [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'shipper_cancel':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'cancelled',
+          noteText: createOrderCancellationNote(input.mutation.input),
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'shipper_status':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'status_changed',
+          noteText: createOrderStatusAdvanceNote(input.mutation.input.nextStatus),
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'shipper_complete':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'completed',
+          noteText: '货主确认送达',
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'driver_accept':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'driver_accepted',
+          noteText: serializeDriverAcceptOrderEventPayload(input.mutation.input),
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'driver_status':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'driver_status_changed',
+          noteText: createDriverStatusAdvanceNote(
+            input.mutation.input.nextStatus,
+          ),
+          attachmentFileIds: input.mutation.input.receiptPhotoFileIds ?? [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
+  }
+}
+
+class OrderMutationTransactionAbortError extends Error {
+  constructor(public readonly result: Exclude<ExecuteOrderMutationResult, {
+    kind: 'success';
+  }>) {
+    super(`Order mutation aborted: ${result.kind}`);
+  }
+}
+
+function isPrismaErrorCode(error: unknown, code: string) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === code
+  );
+}
+
 export type PrismaOrderRecord = {
   id: string;
   orderNo: string;
@@ -689,6 +2742,10 @@ export type PrismaOrderRecord = {
   priceCents: number | null;
   payablePriceCents: number | null;
   paymentMethod: ShipperOrderRecord['paymentMethod'];
+  paymentStatus?: ShipperOrderRecord['paymentStatus'];
+  assignedDriverId?: string | null;
+  paymentSettledAt?: Date | null;
+  refundedAt?: Date | null;
   couponId: string | null;
   couponTitle: string | null;
   couponDiscountCents: number | null;
@@ -737,10 +2794,6 @@ export type PrismaOrdersClient = {
     count(args: {
       where: PrismaOrderWhere;
     }): Promise<number>;
-    create(args: {
-      data: unknown;
-      include: typeof orderInclude;
-    }): Promise<PrismaOrderRecord>;
     findMany(args: {
       where: PrismaOrderWhere;
       include: typeof orderInclude;
@@ -758,6 +2811,9 @@ export type PrismaOrdersClient = {
       include: typeof orderInclude;
     }): Promise<PrismaOrderRecord>;
   };
+  orderIdempotencyRecord?: {
+    findUnique(args: unknown): Promise<PrismaOrderIdempotencyRecord | null>;
+  };
   orderExceptionCase?: {
     findMany(args: unknown): Promise<PrismaOrderExceptionCaseRecord[]>;
     findUnique(args: unknown): Promise<PrismaOrderExceptionCaseRecord | null>;
@@ -771,9 +2827,26 @@ export type PrismaOrdersClient = {
 };
 
 type PrismaOrdersTransactionClient = {
+  $queryRaw<T = unknown>(
+    query: TemplateStringsArray,
+    ...values: unknown[]
+  ): Promise<T>;
   order: {
+    create(args: unknown): Promise<PrismaOrderRecord>;
+    count(args: unknown): Promise<number>;
+    findMany(args: unknown): Promise<Array<{ id: string }>>;
+    updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<PrismaOrderRecord>;
     findUnique(args: unknown): Promise<PrismaOrderRecord | null>;
+  };
+  orderCargo: {
+    upsert(args: unknown): Promise<unknown>;
+  };
+  orderLocation: {
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
+  orderRequirement: {
+    upsert(args: unknown): Promise<unknown>;
   };
   orderEvent: {
     create(args: unknown): Promise<{
@@ -785,6 +2858,15 @@ type PrismaOrdersTransactionClient = {
       createdAt: Date;
     }>;
   };
+  orderIdempotencyRecord: {
+    findUnique(args: unknown): Promise<PrismaOrderIdempotencyRecord | null>;
+    create(args: unknown): Promise<{ id: string }>;
+    update(args: unknown): Promise<PrismaOrderIdempotencyRecord>;
+  };
+  shipperCoupon: {
+    findFirst(args: unknown): Promise<PrismaShipperCouponRecord | null>;
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
   orderExceptionCase: {
     count(args: unknown): Promise<number>;
     create(args: unknown): Promise<{ id: string; caseNo: string }>;
@@ -793,6 +2875,35 @@ type PrismaOrdersTransactionClient = {
   orderExceptionCaseAction: {
     create(args: unknown): Promise<unknown>;
   };
+  paymentOrder: {
+    findFirst(args: unknown): Promise<PrismaOrderPaymentRecord | null>;
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
+  refund: {
+    create(args: unknown): Promise<unknown>;
+  };
+  financialOutboxEvent: {
+    create(args: unknown): Promise<unknown>;
+  };
+  financialTransaction: {
+    create(args: unknown): Promise<unknown>;
+  };
+  settlement: {
+    create(args: unknown): Promise<unknown>;
+  };
+  driverWallet: {
+    upsert(args: unknown): Promise<unknown>;
+  };
+};
+
+type PrismaOrderPaymentRecord = {
+  id: string;
+  paymentNo: string;
+  orderId: string;
+  shipperId: string;
+  channel: PaymentOrderRecord['channel'];
+  amountCents: number;
+  status: PaymentOrderRecord['status'];
 };
 
 type PrismaOrderExceptionCaseRecord = {
@@ -807,6 +2918,14 @@ type PrismaOrderExceptionCaseRecord = {
   attachmentFileIds: unknown;
   status: 'pending' | 'processing' | 'resolved' | 'closed';
   resolutionText: string | null;
+  compensationStatus:
+    | 'not_required'
+    | 'pending'
+    | 'offline_completed'
+    | null;
+  compensationTargetRole: 'shipper' | 'driver' | null;
+  compensationAmountCents: number | null;
+  compensationUpdatedAt: Date | null;
   resolvedAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
@@ -822,11 +2941,25 @@ type PrismaOrderExceptionCaseRecord = {
   }>;
 };
 
+type PrismaOrderIdempotencyRecord = {
+  id: string;
+  actorUserId: string;
+  orderId: string;
+  operation: string;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  responseSnapshot: unknown;
+  createdAt: Date;
+  expiresAt: Date;
+};
+
 type PrismaOrderWhere = {
   shipperId?: string;
   status?:
     | ShipperOrderRecord['status']
     | { in: ShipperOrderRecord['status'][] };
+  paymentMethod?: ShipperOrderRecord['paymentMethod'];
+  paymentStatus?: ShipperOrderRecord['paymentStatus'];
   createdAt?: {
     gte?: Date;
     lt?: Date;
@@ -855,79 +2988,168 @@ export class PrismaOrdersRepository implements OrdersRepository {
   constructor(
     private readonly prisma: PrismaOrdersClient,
     private readonly now: () => Date = () => new Date(),
+    private readonly platformFeeRateBps = DEFAULT_PLATFORM_FEE_RATE_BPS,
   ) {}
 
-  async createOrder(
-    shipperId: string,
-    input: CreateShipperOrderRequest,
-  ): Promise<ShipperOrderRecord> {
-    const now = this.now();
-    const orderNo = await this.createOrderNo(shipperId, now);
-    const order = await this.prisma.order.create({
-      data: {
-        orderNo,
-        shipperId,
-        status: 'waiting',
-        pricingMode: input.pricingMode,
-        priceCents: input.priceCents,
-        payablePriceCents: input.payablePriceCents,
-        paymentMethod: input.paymentMethod,
-        couponId: input.couponId,
-        couponTitle: input.couponTitle,
-        couponDiscountCents: input.couponDiscountCents,
-        pickupTime: new Date(input.pickupTimeIso),
-        expectedDeliveryText: input.expectedDeliveryTimeText,
-        cargo: {
-          create: {
-            cargoType: input.cargoType,
-            weightText: input.weightText,
-            volumeText: input.volumeText,
-            quantityText: input.quantityText,
-            description: input.cargoDescription,
-            cargoPhotoCount: getOrderCargoPhotoCount(input),
-            cargoPhotoFileIds: input.cargoPhotoFileIds ?? [],
-          },
-        },
-        locations: {
-          create: [
-            {
-              type: 'pickup',
-              address: input.pickupAddress,
-              contactName: input.pickupContact,
-              contactPhone: input.pickupPhone,
-              noteText: input.pickupNoteText,
+  async executeIdempotentOrderCreate(
+    input: ExecuteOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult> {
+    if (!this.prisma.$transaction || !this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order create idempotency client is required');
+    }
+
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const now = this.now();
+        const existingRecord =
+          await transaction.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (existingRecord) {
+          return mapExistingPrismaOrderCreateRecord(
+            existingRecord,
+            input,
+            now,
+          );
+        }
+
+        let couponPricing:
+          | ReturnType<typeof resolveReservableCouponPricing>
+          | undefined;
+
+        if (input.input.couponId) {
+          const coupon = await transaction.shipperCoupon.findFirst({
+            where: {
+              id: input.input.couponId,
+              shipperId: input.actorUserId,
             },
+          });
+
+          if (!coupon) {
+            throwCouponNotAvailable();
+          }
+
+          couponPricing = resolveReservableCouponPricing(
+            mapPrismaOrderCoupon(coupon),
             {
-              type: 'delivery',
-              address: input.deliveryAddress,
-              contactName: input.deliveryContact,
-              contactPhone: input.deliveryPhone,
-              noteText: input.deliveryNoteText,
+              shipperId: input.actorUserId,
+              priceCents: input.input.priceCents,
+              couponTitle: input.input.couponTitle,
+              couponDiscountCents: input.input.couponDiscountCents,
+              payablePriceCents: input.input.payablePriceCents,
             },
-          ],
-        },
-        requirement: {
-          create: {
-            vehicleType: input.vehicleRequirement,
-            vehicleLengthText: input.vehicleLengthText,
-            needTailboard: input.needTailboard,
-            needTarp: input.needTarp,
-            valueAddedServicesText: input.valueAddedServicesText,
-          },
-        },
-        events: {
-          create: {
-            actorUserId: shipperId,
-            eventType: 'created',
-            noteText: '货主发布订单',
-            attachmentFileIds: input.cargoPhotoFileIds ?? [],
-          },
-        },
-      },
-      include: orderInclude,
+            now,
+          );
+        }
+
+        const orderNo = await createNextOrderNo(transaction, now);
+        const created = await transaction.order.create({
+          data: createPrismaOrderCreateData(
+            input.actorUserId,
+            input.input,
+            orderNo,
+            couponPricing,
+          ),
+          include: orderInclude,
+        });
+        const reservation =
+          await transaction.orderIdempotencyRecord.create({
+            data: {
+              actorUserId: input.actorUserId,
+              orderId: created.id,
+              operation: input.operation,
+              idempotencyKey: input.idempotencyKey,
+              requestFingerprint: input.requestFingerprint,
+              responseSnapshot: {},
+              createdAt: now,
+              expiresAt: new Date(input.expiresAtIso),
+            },
+          });
+
+        if (couponPricing) {
+          const couponUpdateResult =
+            await transaction.shipperCoupon.updateMany({
+              where: {
+                id: couponPricing.couponId,
+                shipperId: input.actorUserId,
+                status: 'usable',
+              },
+              data: {
+                status: 'locked',
+                lockedOrderNo: orderNo,
+                lockedAt: now,
+                usedOrderNo: null,
+                usedAt: null,
+              },
+            });
+
+          if (couponUpdateResult.count !== 1) {
+            throwCouponNotAvailable();
+          }
+        }
+
+        const completeOrder = await transaction.order.findUnique({
+          where: { id: created.id },
+          include: orderInclude,
+        });
+
+        if (!completeOrder) {
+          throw new Error(`Order not found after create: ${created.id}`);
+        }
+
+        const responseSnapshot = cloneOrderRecord(
+          mapPrismaOrder(completeOrder),
+        );
+        await transaction.orderIdempotencyRecord.update({
+          where: { id: reservation.id },
+          data: { responseSnapshot },
+        });
+
+        return {
+          kind: 'success' as const,
+          order: responseSnapshot,
+          replayed: false,
+        };
+      });
+    } catch (error) {
+      if (isPrismaErrorCode(error, 'P2002')) {
+        const existingRecord =
+          await this.prisma.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (existingRecord) {
+          return mapExistingPrismaOrderCreateRecord(
+            existingRecord,
+            input,
+            this.now(),
+          );
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  async resolveExistingOrderCreate(
+    input: ResolveExistingOrderCreateInput,
+  ): Promise<ExecuteOrderCreateResult | undefined> {
+    if (!this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order create idempotency client is required');
+    }
+
+    const existingRecord = await this.prisma.orderIdempotencyRecord.findUnique({
+      where: createOrderIdempotencyRecordWhereUnique(input),
     });
 
-    return mapPrismaOrder(order);
+    return existingRecord
+      ? mapExistingPrismaOrderCreateRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
   }
 
   async listOrders(shipperId: string, query: ListShipperOrdersQuery) {
@@ -946,9 +3168,34 @@ export class PrismaOrdersRepository implements OrdersRepository {
         where,
       }),
     ]);
-
     return {
-      items: items.map(mapPrismaOrder),
+      items: await this.attachLatestExceptionCaseSummaries(
+        items.map(mapPrismaOrder),
+      ),
+      total,
+    };
+  }
+
+  async listAdminOrders(query: ListShipperOrdersQuery) {
+    const where = createPrismaAdminOrderListWhere(query);
+    const [items, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: orderInclude,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.order.count({
+        where,
+      }),
+    ]);
+    return {
+      items: await this.attachLatestExceptionCaseSummaries(
+        items.map(mapPrismaOrder),
+      ),
       total,
     };
   }
@@ -961,7 +3208,53 @@ export class PrismaOrdersRepository implements OrdersRepository {
       include: orderInclude,
     });
 
-    return order ? mapPrismaOrder(order) : undefined;
+    return order
+      ? this.attachLatestExceptionCaseSummary(mapPrismaOrder(order))
+      : undefined;
+  }
+
+  private async attachLatestExceptionCaseSummaries(
+    orders: ShipperOrderRecord[],
+  ) {
+    if (!orders.length || !this.prisma.orderExceptionCase) {
+      return orders;
+    }
+
+    const records = await this.prisma.orderExceptionCase.findMany({
+      where: {
+        orderId: {
+          in: orders.map(order => order.id),
+        },
+      },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const latestByOrderId = new Map<string, OrderExceptionCaseRecord>();
+
+    records.forEach(record => {
+      if (!latestByOrderId.has(record.orderId)) {
+        latestByOrderId.set(record.orderId, mapPrismaExceptionCase(record));
+      }
+    });
+
+    return orders.map(order => {
+      const latest = latestByOrderId.get(order.id);
+      return latest
+        ? {
+            ...order,
+            latestExceptionCase: createExceptionCaseSummary(latest),
+          }
+        : order;
+    });
+  }
+
+  private async attachLatestExceptionCaseSummary(order: ShipperOrderRecord) {
+    const [withSummary] = await this.attachLatestExceptionCaseSummaries([order]);
+
+    return withSummary;
   }
 
   async listOrderExceptionCases(orderId: string) {
@@ -1037,7 +3330,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
     adminUserId: string,
     expectedStatus: OrderExceptionCaseStatus,
     nextStatus: OrderExceptionCaseStatus,
-    input: UpdateOrderExceptionCaseRequest,
+    input: UpdateOrderExceptionCaseRequest | ResolveOrderExceptionCaseRequest,
   ) {
     if (!this.prisma.orderExceptionCase || !this.prisma.$transaction) {
       return undefined;
@@ -1081,7 +3374,18 @@ export class PrismaOrdersRepository implements OrdersRepository {
         data: {
           status: nextStatus,
           ...(nextStatus === 'resolved'
-            ? { resolutionText: input.content, resolvedAt: now }
+            ? {
+                resolutionText: input.content,
+                resolvedAt: now,
+                ...('compensationStatus' in input
+                  ? {
+                      compensationStatus: input.compensationStatus,
+                      compensationTargetRole: input.compensationTargetRole,
+                      compensationAmountCents: input.compensationAmountCents,
+                      compensationUpdatedAt: now,
+                    }
+                  : {}),
+              }
             : {}),
           ...(nextStatus === 'closed' ? { closedAt: now } : {}),
         },
@@ -1112,6 +3416,178 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return orders.map(mapPrismaOrder);
   }
 
+  async executeIdempotentOrderMutation(
+    input: ExecuteOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult> {
+    if (!this.prisma.$transaction || !this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order mutation idempotency client is required');
+    }
+
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const now = this.now();
+        const existingRecord =
+          await transaction.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (existingRecord) {
+          return mapExistingPrismaOrderIdempotencyRecord(
+            existingRecord,
+            input,
+            now,
+          );
+        }
+
+        const current = await transaction.order.findUnique({
+          where: {
+            id: input.orderId,
+          },
+          include: orderInclude,
+        });
+
+        if (!current) {
+          return { kind: 'not-found' } as const;
+        }
+
+        const reservation = await transaction.orderIdempotencyRecord.create({
+          data: {
+            actorUserId: input.actorUserId,
+            orderId: input.orderId,
+            operation: input.operation,
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint: input.requestFingerprint,
+            responseSnapshot: {},
+            createdAt: now,
+            expiresAt: new Date(input.expiresAtIso),
+          },
+        });
+        const currentOrder = mapPrismaOrder(current);
+
+        if (input.mutation.type === 'driver_accept') {
+          assertOrderCanEnterDriverHall(currentOrder);
+        }
+
+        if (currentOrder.updatedAtIso !== input.baseUpdatedAtIso) {
+          throw new OrderMutationTransactionAbortError({ kind: 'conflict' });
+        }
+
+        if (!isOrderMutationAllowed(currentOrder, input)) {
+          throw new OrderMutationTransactionAbortError({
+            kind: 'state-invalid',
+          });
+        }
+
+        const updatedAt = new Date(
+          createNextUpdatedAtIso(currentOrder.updatedAtIso, now),
+        );
+        const couponPricing = await applyPrismaOrderCouponMutation(
+          transaction,
+          currentOrder,
+          input,
+          now,
+        );
+        const financialMutation = await applyPrismaOrderFinancialMutation(
+          transaction,
+          currentOrder,
+          input,
+          now,
+          this.platformFeeRateBps,
+        );
+        const orderUpdateResult = await transaction.order.updateMany({
+          where: {
+            id: input.orderId,
+            updatedAt: current.updatedAt,
+            status: current.status,
+            paymentStatus: currentOrder.paymentStatus,
+          },
+          data: createPrismaOrderMutationOrderData(
+            input,
+            updatedAt,
+            couponPricing,
+            financialMutation,
+          ),
+        });
+
+        if (orderUpdateResult.count !== 1) {
+          throw new OrderMutationTransactionAbortError({ kind: 'conflict' });
+        }
+
+        await applyPrismaOrderMutation(transaction, input, updatedAt);
+
+        const updated = await transaction.order.findUnique({
+          where: {
+            id: input.orderId,
+          },
+          include: orderInclude,
+        });
+
+        if (!updated) {
+          throw new Error(`Order not found after mutation: ${input.orderId}`);
+        }
+
+        const responseSnapshot = cloneOrderRecord(mapPrismaOrder(updated));
+        await transaction.orderIdempotencyRecord.update({
+          where: {
+            id: reservation.id,
+          },
+          data: {
+            responseSnapshot,
+          },
+        });
+
+        return {
+          kind: 'success' as const,
+          order: responseSnapshot,
+          replayed: false,
+        };
+      });
+    } catch (error) {
+      if (error instanceof OrderMutationTransactionAbortError) {
+        return error.result;
+      }
+
+      if (isPrismaErrorCode(error, 'P2002')) {
+        const existingRecord =
+          await this.prisma.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (!existingRecord) {
+          throw error;
+        }
+
+        return mapExistingPrismaOrderIdempotencyRecord(
+          existingRecord,
+          input,
+          this.now(),
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async resolveExistingOrderMutation(
+    input: ResolveExistingOrderMutationInput,
+  ): Promise<ExecuteOrderMutationResult | undefined> {
+    if (!this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order mutation idempotency client is required');
+    }
+
+    const existingRecord = await this.prisma.orderIdempotencyRecord.findUnique({
+      where: createOrderIdempotencyRecordWhereUnique(input),
+    });
+
+    return existingRecord
+      ? mapExistingPrismaOrderIdempotencyRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
+  }
+
   async updateOrder(
     orderId: string,
     actorUserId: string,
@@ -1126,6 +3602,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
         priceCents: input.priceCents ?? null,
         payablePriceCents: input.payablePriceCents ?? null,
         paymentMethod: input.paymentMethod,
+        paymentStatus: createInitialOrderPaymentStatus(
+          input.paymentMethod,
+          input.pricingMode,
+        ),
         couponId: input.couponId ?? null,
         couponTitle: input.couponTitle ?? null,
         couponDiscountCents: input.couponDiscountCents ?? null,
@@ -1215,7 +3695,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async cancelOrder(
     orderId: string,
     actorUserId: string,
-    input: CancelShipperOrderRequest,
+    input: Omit<CancelShipperOrderRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = await this.prisma.order.update({
       where: {
@@ -1261,7 +3741,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async advanceOrderStatus(
     orderId: string,
     actorUserId: string,
-    input: AdvanceShipperOrderStatusRequest,
+    input: Omit<AdvanceShipperOrderStatusRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = await this.prisma.order.update({
       where: {
@@ -1349,6 +3829,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async listDriverOrderHall(query: DriverOrderHallQuery) {
     const where: PrismaOrderWhere = {
       status: 'waiting',
+      OR: [
+        { paymentMethod: 'cod', paymentStatus: 'not_required' },
+        { paymentMethod: 'online', paymentStatus: 'escrowed' },
+      ],
     };
 
     const [items, total] = await Promise.all([
@@ -1407,6 +3891,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
       },
       data: {
         status: 'loading',
+        assignedDriverId: driverId,
         events: {
           create: {
             actorUserId: driverId,
@@ -1519,7 +4004,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
   async advanceDriverOrderStatus(
     orderId: string,
     driverId: string,
-    input: DriverAdvanceOrderStatusRequest,
+    input: Omit<DriverAdvanceOrderStatusRequest, 'baseUpdatedAtIso'>,
   ) {
     const order = await this.prisma.order.update({
       where: {
@@ -1686,25 +4171,6 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return order;
   }
 
-  private async createOrderNo(shipperId: string, now: Date) {
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-    const dailyCount = await this.prisma.order.count({
-      where: {
-        shipperId,
-        createdAt: {
-          gte: startOfDay,
-          lt: endOfDay,
-        },
-      },
-    });
-
-    return `HY${formatOrderDate(now)}${String(dailyCount + 1).padStart(4, '0')}`;
-  }
 }
 
 function createPrismaOrderListWhere(
@@ -1713,6 +4179,16 @@ function createPrismaOrderListWhere(
 ): PrismaOrderWhere {
   return {
     shipperId,
+    ...createPrismaStatusFilter(query),
+    ...createPrismaCreatedAtFilter(query),
+    ...createPrismaKeywordFilter(query.keyword),
+  };
+}
+
+function createPrismaAdminOrderListWhere(
+  query: ListShipperOrdersQuery,
+): PrismaOrderWhere {
+  return {
     ...createPrismaStatusFilter(query),
     ...createPrismaCreatedAtFilter(query),
     ...createPrismaKeywordFilter(query.keyword),
@@ -1916,6 +4392,18 @@ function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {
     pricingMode: order.pricingMode,
     priceCents: isFixedPrice ? (order.priceCents ?? undefined) : undefined,
     paymentMethod: order.paymentMethod,
+    paymentStatus:
+      order.paymentStatus ??
+      createInitialOrderPaymentStatus(order.paymentMethod, order.pricingMode),
+    ...(order.assignedDriverId
+      ? { assignedDriverId: order.assignedDriverId }
+      : {}),
+    ...(order.paymentSettledAt
+      ? { paymentSettledAtIso: order.paymentSettledAt.toISOString() }
+      : {}),
+    ...(order.refundedAt
+      ? { refundedAtIso: order.refundedAt.toISOString() }
+      : {}),
     couponId: isFixedPrice ? (order.couponId ?? undefined) : undefined,
     couponTitle: isFixedPrice ? (order.couponTitle ?? undefined) : undefined,
     couponDiscountCents: isFixedPrice
@@ -1959,6 +4447,11 @@ function mapPrismaExceptionCase(
     attachmentFileIds: parseAttachmentFileIds(record.attachmentFileIds) ?? [],
     status: record.status,
     resolutionText: record.resolutionText ?? undefined,
+    compensationStatus: record.compensationStatus ?? undefined,
+    compensationTargetRole: record.compensationTargetRole ?? undefined,
+    compensationAmountCents: record.compensationAmountCents ?? undefined,
+    compensationUpdatedAtIso:
+      record.compensationUpdatedAt?.toISOString(),
     resolvedAtIso: record.resolvedAt?.toISOString(),
     closedAtIso: record.closedAt?.toISOString(),
     createdAtIso: record.createdAt.toISOString(),
@@ -1984,10 +4477,32 @@ function getOrderCargoPhotoCount(input: CreateShipperOrderRequest) {
   return input.cargoPhotoFileIds?.length ?? input.cargoPhotoCount ?? 0;
 }
 
-function createOrderCancellationNote(input: CancelShipperOrderRequest) {
+function createOrderCancellationNote(input: {
+  reasonText: string;
+  description?: string;
+}) {
   return input.description
     ? `${input.reasonText}：${input.description}`
     : input.reasonText;
+}
+
+function canAdvanceOrderStatus(
+  currentStatus: ShipperOrderRecord['status'],
+  nextStatus: AdvanceShipperOrderStatusRequest['nextStatus'],
+) {
+  const allowedNextStatusByCurrentStatus: Record<
+    ShipperOrderRecord['status'],
+    AdvanceShipperOrderStatusRequest['nextStatus'] | undefined
+  > = {
+    waiting: 'loading',
+    loading: 'transporting',
+    transporting: 'confirming',
+    confirming: undefined,
+    completed: undefined,
+    cancelled: undefined,
+  };
+
+  return allowedNextStatusByCurrentStatus[currentStatus] === nextStatus;
 }
 
 function createOrderStatusAdvanceNote(
@@ -2000,6 +4515,25 @@ function createOrderStatusAdvanceNote(
   };
 
   return noteTextByStatus[nextStatus];
+}
+
+function canDriverAdvanceOrderStatus(
+  currentStatus: ShipperOrderRecord['status'],
+  nextStatus: DriverAdvanceOrderStatusRequest['nextStatus'],
+) {
+  const allowedNextStatusByCurrentStatus: Record<
+    ShipperOrderRecord['status'],
+    DriverAdvanceOrderStatusRequest['nextStatus'] | undefined
+  > = {
+    waiting: undefined,
+    loading: 'transporting',
+    transporting: 'confirming',
+    confirming: undefined,
+    completed: undefined,
+    cancelled: undefined,
+  };
+
+  return allowedNextStatusByCurrentStatus[currentStatus] === nextStatus;
 }
 
 function createDriverStatusAdvanceNote(
@@ -2044,14 +4578,14 @@ function createOrderExceptionNote(input: ReportShipperOrderExceptionRequest) {
 }
 
 function createOrderEvaluationNote(input: SubmitShipperOrderEvaluationRequest) {
-  const anonymousText = input.anonymous ? '；匿名评价' : '';
+  const evaluationInfo = input.anonymous ? '匿名' : '实名';
   const photoCount = getOrderEventPhotoCount(input);
   const photoText =
     photoCount > 0
       ? `；图片凭证 ${photoCount} 张`
       : '';
 
-  return `${input.rating} 星：${input.tags.join('、')}${anonymousText}${photoText}；${input.content}`;
+  return `${input.rating} 星：${input.tags.join('、')}；评价信息：${evaluationInfo}${photoText}；评价正文：${input.content}`;
 }
 
 function getOrderEventPhotoCount(input: {
@@ -2103,6 +4637,12 @@ function createExceptionCaseSummary(exceptionCase: OrderExceptionCaseRecord) {
     sourceEventId: exceptionCase.sourceEventId,
     sourceRole: exceptionCase.sourceRole,
     status: exceptionCase.status,
+    resolutionText: exceptionCase.resolutionText,
+    resolvedAtIso: exceptionCase.resolvedAtIso,
+    compensationStatus: exceptionCase.compensationStatus,
+    compensationTargetRole: exceptionCase.compensationTargetRole,
+    compensationAmountCents: exceptionCase.compensationAmountCents,
+    compensationUpdatedAtIso: exceptionCase.compensationUpdatedAtIso,
     createdAtIso: exceptionCase.createdAtIso,
     updatedAtIso: exceptionCase.updatedAtIso,
   };

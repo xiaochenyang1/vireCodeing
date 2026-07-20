@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 describe('Prisma initial migration', () => {
@@ -31,6 +31,20 @@ describe('Prisma initial migration', () => {
         readFileSync(join(migrationsRoot, directory, 'migration.sql'), 'utf8'),
       )
       .join('\n');
+  }
+
+  function readTargetMigration() {
+    const targetPath = join(
+      __dirname,
+      '..',
+      '..',
+      'prisma',
+      'migrations',
+      '20260714010000_shipper_order_create_idempotency_coupon_atomicity',
+      'migration.sql',
+    );
+
+    return existsSync(targetPath) ? readFileSync(targetPath, 'utf8') : '';
   }
 
   it('creates the stage 1 auth and profile schema objects', () => {
@@ -241,6 +255,49 @@ describe('Prisma initial migration', () => {
     );
   });
 
+  it('contains payment settlement and financial ledger storage', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TYPE "OrderPaymentStatus"');
+    expect(sql).toContain('CREATE TYPE "PaymentOrderStatus"');
+    expect(sql).toContain('CREATE TYPE "RefundStatus"');
+    expect(sql).toContain('CREATE TYPE "FinancialTransactionType"');
+    expect(sql).toContain('CREATE TYPE "FinancialAccountType"');
+    expect(sql).toContain('CREATE TYPE "LedgerDirection"');
+    expect(sql).toContain('CREATE TABLE "PaymentOrder"');
+    expect(sql).toContain('CREATE TABLE "PaymentCallbackEvent"');
+    expect(sql).toContain('CREATE TABLE "Refund"');
+    expect(sql).toContain('CREATE TABLE "Settlement"');
+    expect(sql).toContain('CREATE TABLE "FinancialTransaction"');
+    expect(sql).toContain('CREATE TABLE "FinancialLedgerEntry"');
+    expect(sql).toContain('CREATE TABLE "DriverWallet"');
+    expect(sql).toContain('CREATE TABLE "FinancialOutboxEvent"');
+    expect(sql).toContain('CREATE TABLE "FinancialAuditLog"');
+  });
+
+  it('contains admin auth session governance audit storage', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TYPE "AdminAuthSessionGovernanceAuditAction"');
+    expect(sql).toContain("'revoke_account_sessions'");
+    expect(sql).toContain('CREATE TYPE "AdminAuthSessionGovernanceAuditResult"');
+    expect(sql).toContain('CREATE TABLE "AdminAuthSessionGovernanceAuditEvent"');
+    expect(sql).toContain('"actorAdminPhone" TEXT NOT NULL');
+    expect(sql).toContain('"requestedSessionId" TEXT');
+    expect(sql).toContain('"currentDeviceId" TEXT');
+    expect(sql).toContain('"revokedCount" INTEGER NOT NULL DEFAULT 0');
+    expect(sql).toContain('"subjects" JSONB NOT NULL DEFAULT \'[]\'');
+    expect(sql).toContain(
+      'CREATE INDEX "AdminAuthSessionGovernanceAuditEvent_actor_created_idx"',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX "AdminAuthSessionGovernanceAuditEvent_action_created_idx"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "AdminAuthSessionGovernanceAuditEvent_actorAdminId_fkey"',
+    );
+  });
+
   it('stores shipper coupon lock metadata', () => {
     const sql = readAllMigrations();
 
@@ -287,8 +344,12 @@ describe('Prisma initial migration', () => {
 
     expect(sql).toContain('CREATE TYPE "OrderExceptionCaseSourceRole"');
     expect(sql).toContain('CREATE TYPE "OrderExceptionCaseStatus"');
+    expect(sql).toContain('CREATE TYPE "OrderExceptionCaseCompensationStatus"');
     expect(sql).toContain('CREATE TABLE "OrderExceptionCase"');
     expect(sql).toContain('CREATE TABLE "OrderExceptionCaseAction"');
+    expect(sql).toContain('"compensationStatus" "OrderExceptionCaseCompensationStatus"');
+    expect(sql).toContain('"compensationTargetRole" "OrderExceptionCaseSourceRole"');
+    expect(sql).toContain('"compensationAmountCents" INTEGER');
     expect(sql).toContain(
       'CREATE UNIQUE INDEX "OrderExceptionCase_sourceEventId_key"',
     );
@@ -297,5 +358,168 @@ describe('Prisma initial migration', () => {
     );
     expect(sql).toContain('OrderExceptionCase_status_created_idx');
     expect(sql).toContain('OrderExceptionCaseAction_case_created_idx');
+  });
+
+  it('contains order mutation idempotency persistence', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TABLE "OrderIdempotencyRecord"');
+    expect(sql).toContain('"requestFingerprint" TEXT NOT NULL');
+    expect(sql).toContain('"responseSnapshot" JSONB NOT NULL');
+    expect(sql).toContain(
+      'OrderIdempotencyRecord_actor_operation_key_unique',
+    );
+    expect(sql).toContain('OrderIdempotencyRecord_expires_idx');
+    expect(sql).toContain('REFERENCES "User"("id")');
+    expect(sql).toContain('REFERENCES "Order"("id")');
+  });
+
+  it('wraps sequence allocation and canonical coupon repair in one transaction', () => {
+    const sql = readTargetMigration();
+    const beginIndex = sql.indexOf('BEGIN;');
+    const sequenceIndex = sql.indexOf('CREATE SEQUENCE "Order_order_no_seq"');
+    const canonicalIndex = sql.indexOf(
+      'CREATE TEMP TABLE "_CouponCanonicalOwner"',
+    );
+    const preflightIndex = sql.indexOf('DO $$');
+    const preflightEndIndex = sql.indexOf('END $$;', preflightIndex);
+    const firstUpdateIndex = sql.indexOf('UPDATE "ShipperCoupon"');
+    const commitIndex = sql.lastIndexOf('COMMIT;');
+
+    expect(sql.trimStart().startsWith('BEGIN;')).toBe(true);
+    expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
+    expect(sql).toMatch(
+      /CREATE SEQUENCE "Order_order_no_seq"\s+AS BIGINT\s+START WITH 1\s+INCREMENT BY 1\s+NO CYCLE;/,
+    );
+    expect(sequenceIndex).toBeGreaterThan(beginIndex);
+    expect(canonicalIndex).toBeGreaterThan(sequenceIndex);
+    expect(preflightIndex).toBeGreaterThan(canonicalIndex);
+    expect(preflightEndIndex).toBeGreaterThan(preflightIndex);
+    expect(firstUpdateIndex).toBeGreaterThan(preflightEndIndex);
+    expect(commitIndex).toBeGreaterThan(firstUpdateIndex);
+  });
+
+  it('blocks coupon and order writes before taking the canonical snapshot', () => {
+    const sql = readTargetMigration();
+    const couponLockIndex = sql.indexOf(
+      'LOCK TABLE "ShipperCoupon" IN SHARE MODE;',
+    );
+    const orderLockIndex = sql.indexOf('LOCK TABLE "Order" IN SHARE MODE;');
+    const canonicalIndex = sql.indexOf(
+      'CREATE TEMP TABLE "_CouponCanonicalOwner"',
+    );
+
+    expect(couponLockIndex).toBeGreaterThan(sql.indexOf('BEGIN;'));
+    expect(orderLockIndex).toBeGreaterThan(couponLockIndex);
+    expect(canonicalIndex).toBeGreaterThan(orderLockIndex);
+  });
+
+  it('fails closed when an order references a missing coupon row', () => {
+    const sql = readTargetMigration();
+
+    expect(sql).toMatch(
+      /FROM "Order" o\s+LEFT JOIN "ShipperCoupon" c ON c\."id" = o\."couponId"\s+WHERE o\."couponId" IS NOT NULL\s+AND c\."id" IS NULL/,
+    );
+    expect(sql).toContain("o.\"id\" || ':' || o.\"orderNo\"");
+    expect(sql).toContain('order coupon reference conflict: couponId=%s');
+  });
+
+  it('captures canonical owners and fails closed before repairing coupon rows', () => {
+    const sql = readTargetMigration();
+
+    expect(sql).toContain('AS "nonCancelledCount"');
+    expect(sql).toContain('AS "canonicalOrderId"');
+    expect(sql).toContain('AS "canonicalOrderNo"');
+    expect(sql).toContain('AS "canonicalStatus"');
+    expect(sql).toContain('AS "canonicalOrderIds"');
+    expect(sql).toContain('AS "referenceCount"');
+    expect(sql).toContain('o."status" <> \'cancelled\'');
+    expect(sql).toContain(
+      'o."shipperId" IS DISTINCT FROM c."shipperId"',
+    );
+    expect(sql).toContain('owner."nonCancelledCount" > 1');
+    expect(sql).toContain(
+      'metadata_order."couponId" IS DISTINCT FROM c."id"',
+    );
+    expect(sql).toContain('c."status" = \'used\'');
+    expect(sql).toContain('owner."canonicalStatus" <> \'completed\'');
+    expect(sql).toContain('RAISE EXCEPTION USING MESSAGE = format(');
+    expect(sql).toContain('couponId=%s');
+    expect(sql).toContain('orderIds=%s');
+    expect(sql).toContain('metadataOrderNo=%s');
+  });
+
+  it('rejects used coupons without one completed canonical owner', () => {
+    const sql = readTargetMigration();
+    const preflight = sql.slice(sql.indexOf('DO $$'), sql.indexOf('END $$;'));
+    const updates = sql.match(/UPDATE "ShipperCoupon"[\s\S]*?;/g) ?? [];
+    const usableUpdate =
+      updates.find(update => update.includes('SET "status" = \'usable\'')) ?? '';
+
+    expect(preflight).toMatch(
+      /c\."status" = 'used'\s+AND NOT \(\s*owner\."nonCancelledCount" = 1\s+AND owner\."canonicalStatus" = 'completed'\s*\)/,
+    );
+    expect(preflight).toContain(
+      'c."status" NOT IN (\'usable\', \'locked\', \'used\', \'expired\')',
+    );
+    expect(usableUpdate).toContain(
+      'c."status" IN (\'usable\', \'locked\')',
+    );
+  });
+
+  it('uses the canonical completion time and only rejects real metadata owners', () => {
+    const sql = readTargetMigration();
+
+    expect(sql).toContain('AS "canonicalOrderUpdatedAt"');
+    expect(sql).toContain(
+      '"usedAt" = COALESCE(c."usedAt", owner."canonicalOrderUpdatedAt")',
+    );
+    expect(sql).toContain(
+      'LEFT JOIN "Order" metadata_order ON metadata_order."orderNo" = metadata."orderNo"',
+    );
+    expect(sql).toContain('metadata_order."id" IS NOT NULL');
+    expect(sql).toContain(
+      'metadata_order."couponId" IS DISTINCT FROM c."id"',
+    );
+  });
+
+  it('repairs active completed expired and usable coupons with disjoint updates', () => {
+    const sql = readTargetMigration();
+    const updates = sql.match(/UPDATE "ShipperCoupon"[\s\S]*?;/g) ?? [];
+    const transactionStartUtc = "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
+    const completedUpdate =
+      updates.find(update => update.includes('SET "status" = \'used\'')) ?? '';
+    const expiredUpdate =
+      updates.find(update => update.includes('SET "status" = \'expired\'')) ?? '';
+    const usableUpdate =
+      updates.find(update => update.includes('SET "status" = \'usable\'')) ?? '';
+
+    expect(updates).toHaveLength(4);
+    expect(updates[0]).toContain('SET "status" = \'locked\'');
+    expect(updates[0]).toContain('owner."canonicalStatus" <> \'completed\'');
+    expect(updates[0]).toContain(
+      `"lockedAt" = COALESCE(c."lockedAt", ${transactionStartUtc})`,
+    );
+    expect(completedUpdate).toContain(
+      'owner."canonicalStatus" = \'completed\'',
+    );
+    expect(completedUpdate).not.toContain('c."status"');
+    expect(expiredUpdate).toContain('c."status" = \'expired\'');
+    expect(expiredUpdate).toContain(
+      `c."validUntil" <= ${transactionStartUtc}`,
+    );
+    expect(usableUpdate).toContain(
+      'c."status" IN (\'usable\', \'locked\')',
+    );
+    expect(usableUpdate).toContain(
+      `c."validUntil" > ${transactionStartUtc}`,
+    );
+
+    for (const update of updates) {
+      expect(update).toContain('"lockedOrderNo"');
+      expect(update).toContain('"lockedAt"');
+      expect(update).toContain('"usedOrderNo"');
+      expect(update).toContain('"usedAt"');
+    }
   });
 });

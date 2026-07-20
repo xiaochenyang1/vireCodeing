@@ -4,6 +4,10 @@ import { recentOrderStatusCopy } from '../data/mockData';
 import { styles } from '../styles';
 import type { RecentOrder } from '../types';
 import { formatVehicleRequirementText } from '../utils/order';
+import {
+  getOrderExceptionCaseSummaryHeadline,
+  getOrderExceptionCaseSummaryText,
+} from '../utils/orderExceptionCases';
 
 export function RecentOrderCard({
   order,
@@ -14,6 +18,12 @@ export function RecentOrderCard({
 }) {
   const status = recentOrderStatusCopy[order.status];
   const vehicleRequirementText = formatVehicleRequirementText(order);
+  const latestExceptionCaseHeadline = order.latestExceptionCase
+    ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
+    : undefined;
+  const latestExceptionCaseDetail = order.latestExceptionCase
+    ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
+    : undefined;
 
   return (
     <Pressable
@@ -31,6 +41,19 @@ export function RecentOrderCard({
       <Text style={styles.orderRoute} numberOfLines={2}>
         {order.from} → {order.to}
       </Text>
+
+      {latestExceptionCaseHeadline ? (
+        <View style={styles.orderExceptionSummary}>
+          <Text style={styles.orderExceptionSummaryTitle} numberOfLines={1}>
+            {latestExceptionCaseHeadline}
+          </Text>
+          {latestExceptionCaseDetail ? (
+            <Text style={styles.orderExceptionSummaryText} numberOfLines={2}>
+              {latestExceptionCaseDetail}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.orderMetaRow}>
         <Text style={styles.orderMetaText}>{order.cargoType}</Text>

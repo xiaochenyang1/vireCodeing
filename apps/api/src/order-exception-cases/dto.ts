@@ -5,6 +5,12 @@ export type OrderExceptionCaseStatus =
   | 'closed';
 
 export type OrderExceptionCaseSourceRole = 'shipper' | 'driver';
+export type OrderExceptionCaseCompensationStatus =
+  | 'not_required'
+  | 'pending'
+  | 'offline_completed';
+export type OrderExceptionCaseCompensationTargetRole =
+  OrderExceptionCaseSourceRole;
 
 export type OrderExceptionCaseActionRecord = {
   id: string;
@@ -28,6 +34,10 @@ export type OrderExceptionCaseRecord = {
   attachmentFileIds: string[];
   status: OrderExceptionCaseStatus;
   resolutionText?: string;
+  compensationStatus?: OrderExceptionCaseCompensationStatus;
+  compensationTargetRole?: OrderExceptionCaseCompensationTargetRole;
+  compensationAmountCents?: number;
+  compensationUpdatedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   createdAtIso: string;
@@ -55,4 +65,10 @@ export type OrderExceptionCaseListResult = {
 export type UpdateOrderExceptionCaseRequest = {
   baseUpdatedAtIso: string;
   content: string;
+};
+
+export type ResolveOrderExceptionCaseRequest = UpdateOrderExceptionCaseRequest & {
+  compensationStatus: OrderExceptionCaseCompensationStatus;
+  compensationTargetRole?: OrderExceptionCaseCompensationTargetRole;
+  compensationAmountCents?: number;
 };

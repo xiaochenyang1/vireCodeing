@@ -16,6 +16,7 @@ import { ProfileFrequentRoutesModule } from './profile-frequent-routes/profile-f
 import { ProfileInvoicesModule } from './profile-invoices/profile-invoices.module';
 import { ProfileSpendingModule } from './profile-spending/profile-spending.module';
 import { ProfileVerificationModule } from './profile-verification/profile-verification.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { ProfileVerificationModule } from './profile-verification/profile-verifi
     DriverOrdersModule,
     FilesModule,
     OrdersModule,
+    PaymentsModule,
     OrderExceptionCasesModule,
     OrderDraftsModule,
     ProfileAccountModule,

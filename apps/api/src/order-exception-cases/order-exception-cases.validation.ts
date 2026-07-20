@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   OrderExceptionCaseListQuery,
+  ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 
@@ -58,6 +59,49 @@ export const updateOrderExceptionCaseSchema = z.object({
     .max(500, '处理说明最多 500 字'),
 });
 
+export const resolveOrderExceptionCaseSchema = updateOrderExceptionCaseSchema
+  .extend({
+    compensationStatus: z.enum(['not_required', 'pending', 'offline_completed']),
+    compensationTargetRole: z.enum(['shipper', 'driver']).optional(),
+    compensationAmountCents: z
+      .number()
+      .int('赔付金额必须是大于 0 的整数分')
+      .positive('赔付金额必须是大于 0 的整数分')
+      .max(100000000, '赔付金额不能超过 100000000 分')
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.compensationStatus === 'not_required') {
+      if (
+        value.compensationTargetRole !== undefined ||
+        value.compensationAmountCents !== undefined
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: '无需赔付时不能再填赔付对象或金额',
+          path: ['compensationStatus'],
+        });
+      }
+      return;
+    }
+
+    if (!value.compensationTargetRole) {
+      context.addIssue({
+        code: 'custom',
+        message: '待赔付或线下已赔付必须指定赔付对象',
+        path: ['compensationTargetRole'],
+      });
+    }
+
+    if (value.compensationAmountCents === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: '待赔付或线下已赔付必须填写赔付金额',
+        path: ['compensationAmountCents'],
+      });
+    }
+  });
+
 const orderIdSchema = z.string().trim().min(1, '订单 ID 不能为空').max(120);
 const caseIdSchema = z.string().trim().min(1, '工单 ID 不能为空').max(120);
 
@@ -71,6 +115,12 @@ export function parseUpdateOrderExceptionCaseRequest(
   input: unknown,
 ): UpdateOrderExceptionCaseRequest {
   return updateOrderExceptionCaseSchema.parse(input);
+}
+
+export function parseResolveOrderExceptionCaseRequest(
+  input: unknown,
+): ResolveOrderExceptionCaseRequest {
+  return resolveOrderExceptionCaseSchema.parse(input);
 }
 
 export function parseOrderExceptionOrderId(input: unknown) {

@@ -391,7 +391,7 @@ export function ProfileCenterScreen({
   }, [activeSection, platformProfileApi]);
   useEffect(() => {
     if (
-      activeSection !== 'spending' ||
+      (activeSection !== 'spending' && activeSection !== 'invoices') ||
       !platformProfileApi ||
       !getAuthSessionSnapshot()?.accessToken
     ) {
@@ -408,9 +408,7 @@ export function ProfileCenterScreen({
         }
 
         setPlatformSpendingSnapshot(spendingSnapshot);
-        setSpendingNotice(
-          '消费记录已按平台订单快照同步，真实支付/退款流水尚未接通。',
-        );
+        setSpendingNotice('消费记录已按平台资金流水同步。');
       })
       .catch(() => {
         if (cancelled) {

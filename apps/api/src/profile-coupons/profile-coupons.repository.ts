@@ -5,10 +5,15 @@ import type {
 
 export interface ProfileCouponsRepository {
   listCoupons(shipperId: string): Promise<ShipperCouponRecord[]>;
+  listAllCoupons(): Promise<ShipperCouponRecord[]>;
   createCoupon(
     input: IssueShipperCouponRequest,
     issuedAt: Date,
   ): Promise<ShipperCouponRecord>;
+  createCoupons(
+    inputs: IssueShipperCouponRequest[],
+    issuedAt: Date,
+  ): Promise<ShipperCouponRecord[]>;
   lockCoupon(
     shipperId: string,
     couponId: string,
@@ -33,24 +38,52 @@ export interface ProfileCouponsRepository {
   ): Promise<ShipperCouponRecord | undefined>;
 }
 
+export class InMemoryProfileCouponsStore {
+  coupons: ShipperCouponRecord[];
+
+  constructor(seed: { coupons?: ShipperCouponRecord[] } = {}) {
+    this.coupons = structuredClone(seed.coupons ?? []);
+  }
+
+  clone() {
+    return structuredClone(this.coupons);
+  }
+
+  replace(coupons: ShipperCouponRecord[]) {
+    this.coupons = structuredClone(coupons);
+  }
+}
+
 export class InMemoryProfileCouponsRepository
   implements ProfileCouponsRepository
 {
-  private readonly coupons: ShipperCouponRecord[];
+  private readonly store: InMemoryProfileCouponsStore;
 
-  constructor(seed: { coupons?: ShipperCouponRecord[] } = {}) {
-    this.coupons = [...(seed.coupons ?? [])];
+  constructor(
+    seed: {
+      coupons?: ShipperCouponRecord[];
+      store?: InMemoryProfileCouponsStore;
+    } = {},
+  ) {
+    this.store =
+      seed.store ?? new InMemoryProfileCouponsStore({ coupons: seed.coupons });
   }
 
   async listCoupons(shipperId: string) {
-    return this.coupons
+    return (await this.listAllCoupons())
       .filter(coupon => coupon.shipperId === shipperId)
       .sort((left, right) => right.issuedAtIso.localeCompare(left.issuedAtIso));
   }
 
+  async listAllCoupons() {
+    return [...this.store.coupons].sort((left, right) =>
+      right.issuedAtIso.localeCompare(left.issuedAtIso),
+    );
+  }
+
   async createCoupon(input: IssueShipperCouponRequest, issuedAt: Date) {
     const coupon: ShipperCouponRecord = {
-      id: `coupon-${this.coupons.length + 1}`,
+      id: `coupon-${this.store.coupons.length + 1}`,
       shipperId: input.shipperId,
       title: input.title,
       status: 'usable',
@@ -63,9 +96,19 @@ export class InMemoryProfileCouponsRepository
       issuedAtIso: issuedAt.toISOString(),
     };
 
-    this.coupons.push(coupon);
+    this.store.coupons.push(coupon);
 
     return coupon;
+  }
+
+  async createCoupons(inputs: IssueShipperCouponRequest[], issuedAt: Date) {
+    const created: ShipperCouponRecord[] = [];
+
+    for (const input of inputs) {
+      created.push(await this.createCoupon(input, issuedAt));
+    }
+
+    return created;
   }
 
   async lockCoupon(
@@ -74,7 +117,7 @@ export class InMemoryProfileCouponsRepository
     lockedAt: Date,
     orderNo?: string,
   ) {
-    const coupon = this.coupons.find(
+    const coupon = this.store.coupons.find(
       item => item.shipperId === shipperId && item.id === couponId,
     );
 
@@ -100,7 +143,7 @@ export class InMemoryProfileCouponsRepository
     couponId: string,
     orderNo: string,
   ) {
-    const coupon = this.coupons.find(
+    const coupon = this.store.coupons.find(
       item => item.shipperId === shipperId && item.id === couponId,
     );
 
@@ -118,7 +161,7 @@ export class InMemoryProfileCouponsRepository
   }
 
   async releaseCoupon(shipperId: string, couponId: string, orderNo?: string) {
-    const coupon = this.coupons.find(
+    const coupon = this.store.coupons.find(
       item => item.shipperId === shipperId && item.id === couponId,
     );
 
@@ -145,7 +188,7 @@ export class InMemoryProfileCouponsRepository
     orderNo: string,
     usedAt: Date,
   ) {
-    const coupon = this.coupons.find(
+    const coupon = this.store.coupons.find(
       item => item.shipperId === shipperId && item.id === couponId,
     );
 
@@ -186,10 +229,13 @@ export type PrismaShipperCouponRecord = {
 };
 
 export type PrismaProfileCouponsClient = {
+  $transaction<T>(
+    callback: (prisma: PrismaProfileCouponsClient) => Promise<T>,
+  ): Promise<T>;
   shipperCoupon: {
     findMany(args: {
-      where: { shipperId: string };
-      orderBy: { issuedAt: 'desc' };
+      where?: { shipperId?: string };
+      orderBy?: { issuedAt: 'desc' | 'asc' };
     }): Promise<PrismaShipperCouponRecord[]>;
     create(args: {
       data: {
@@ -244,6 +290,14 @@ export class PrismaProfileCouponsRepository
     return coupons.map(mapPrismaCoupon);
   }
 
+  async listAllCoupons() {
+    const coupons = await this.prisma.shipperCoupon.findMany({
+      orderBy: { issuedAt: 'desc' },
+    });
+
+    return coupons.map(mapPrismaCoupon);
+  }
+
   async createCoupon(input: IssueShipperCouponRequest, issuedAt: Date) {
     const coupon = await this.prisma.shipperCoupon.create({
       data: {
@@ -261,6 +315,33 @@ export class PrismaProfileCouponsRepository
     });
 
     return mapPrismaCoupon(coupon);
+  }
+
+  async createCoupons(inputs: IssueShipperCouponRequest[], issuedAt: Date) {
+    return this.prisma.$transaction(async prisma => {
+      const created = [];
+
+      for (const input of inputs) {
+        created.push(
+          await prisma.shipperCoupon.create({
+            data: {
+              shipperId: input.shipperId,
+              title: input.title,
+              status: 'usable',
+              conditionText: input.conditionText,
+              discountCents: input.discountCents,
+              minOrderAmountCents: input.minOrderAmountCents,
+              validFrom: new Date(input.validFromIso),
+              validUntil: new Date(input.validUntilIso),
+              sourceText: input.sourceText ?? '后台手工发放',
+              issuedAt,
+            },
+          }),
+        );
+      }
+
+      return created.map(mapPrismaCoupon);
+    });
   }
 
   async lockCoupon(
@@ -367,7 +448,9 @@ export class PrismaProfileCouponsRepository
   }
 }
 
-function mapPrismaCoupon(coupon: PrismaShipperCouponRecord): ShipperCouponRecord {
+export function mapPrismaCoupon(
+  coupon: PrismaShipperCouponRecord,
+): ShipperCouponRecord {
   return {
     id: coupon.id,
     shipperId: coupon.shipperId,

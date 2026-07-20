@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react';
 import { AuthField } from '../../components/AuthField';
 import { shipperSummary } from '../../data/mockData';
 import { PlatformApiError } from '../../services/platformApiClient';
-import type { createPlatformProfileApi } from '../../services/platformProfileApi';
+import type {
+  createPlatformProfileApi,
+  PlatformProfileSpendingSnapshot,
+} from '../../services/platformProfileApi';
 import { styles } from '../../styles';
 import type { RecentOrder } from '../../types';
 import type {
@@ -61,6 +64,7 @@ export function InvoiceRecords({
   selectedInvoiceOrderIds,
   account,
   platformProfileApi,
+  platformSpendingSnapshot,
   onUpdateInvoices,
   onUpdateInvoiceDetails,
   onUpdateInvoiceRejectionReasons,
@@ -79,6 +83,7 @@ export function InvoiceRecords({
   selectedInvoiceOrderIds: string[];
   account: SavedAccountSettings;
   platformProfileApi?: InvoicePlatformProfileApi;
+  platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
   onUpdateInvoices: (invoices: InvoiceItem[]) => void;
   onUpdateInvoiceDetails: (
     invoiceDetails: Record<string, InvoiceApplicationDetails>,
@@ -108,6 +113,7 @@ export function InvoiceRecords({
   const invoiceableOrders = getAvailableInvoiceableOrders(
     createInvoiceableOrders(orders, {
       platformOnly: isPlatformMode,
+      platformRecords: platformSpendingSnapshot?.items ?? [],
     }),
     getOccupiedInvoiceOrderIds(visibleInvoices, invoiceDetails),
   );
@@ -500,9 +506,7 @@ export function InvoiceRecords({
             styles.detailPrimaryButton,
             pressed && !isSubmittingPlatformInvoice && styles.pressedButton,
           ]}
-          onPress={() => {
-            void submitPlatformInvoice();
-          }}
+          onPress={submitPlatformInvoice}
         >
           <Text style={styles.detailPrimaryButtonText}>
             {isSubmittingPlatformInvoice ? '提交中...' : '提交平台发票申请'}

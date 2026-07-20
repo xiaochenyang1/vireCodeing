@@ -87,6 +87,57 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('maps server payment facts without deriving them from the order status', () => {
+    const platformOrder = {
+      ...baseOrder({ paymentMethod: 'online', status: 'completed' }),
+      paymentStatus: 'refunded' as const,
+      assignedDriverId: 'driver-1',
+      paymentSettledAtIso: '2026-07-03T08:00:00.000Z',
+      refundedAtIso: '2026-07-04T08:00:00.000Z',
+    };
+
+    expect(mapPlatformOrderToRecentOrder(platformOrder)).toMatchObject({
+      paymentMethod: 'online',
+      paymentStatus: 'refunded',
+      assignedDriverId: 'driver-1',
+      paymentSettledAtIso: '2026-07-03T08:00:00.000Z',
+      refundedAtIso: '2026-07-04T08:00:00.000Z',
+    });
+  });
+
+  it('maps latest exception case snapshots with compensation decisions', () => {
+    const platformOrder = {
+      ...baseOrder({ status: 'transporting' }),
+      latestExceptionCase: {
+        id: 'case-1',
+        caseNo: 'YC202607180003',
+        sourceEventId: 'event-1',
+        sourceRole: 'driver' as const,
+        status: 'resolved' as const,
+        resolutionText: '客服判定货主线下赔付司机。',
+        resolvedAtIso: '2026-07-18T08:20:00.000Z',
+        compensationStatus: 'offline_completed' as const,
+        compensationTargetRole: 'driver' as const,
+        compensationAmountCents: 8800,
+        compensationUpdatedAtIso: '2026-07-18T08:25:00.000Z',
+        createdAtIso: '2026-07-18T08:00:00.000Z',
+        updatedAtIso: '2026-07-18T08:25:00.000Z',
+      },
+    };
+
+    expect(mapPlatformOrderToRecentOrder(platformOrder)).toMatchObject({
+      latestExceptionCase: {
+        caseNo: 'YC202607180003',
+        status: 'resolved',
+        resolutionText: '客服判定货主线下赔付司机。',
+        compensationStatus: 'offline_completed',
+        compensationTargetRole: 'driver',
+        compensationAmountCents: 8800,
+        compensationUpdatedAtIso: '2026-07-18T08:25:00.000Z',
+      },
+    });
+  });
+
   it('maps platform coupon pricing to payable and original price display fields', () => {
     expect(
       mapPlatformOrderToRecentOrder({

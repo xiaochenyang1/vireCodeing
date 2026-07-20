@@ -815,6 +815,388 @@ describe('FilesService', () => {
     });
   });
 
+  it('lists maintenance files with admin filters, pagination and expired pending flags', async () => {
+    let currentTime = new Date('2026-07-06T03:00:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+    );
+    const rejectedIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'old-rejected-cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    currentTime = new Date('2026-07-06T03:04:00.000Z');
+    const expiredPendingIntent = await service.createUploadIntent('user-1', {
+      purpose: 'identity',
+      fileName: 'front.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+
+    currentTime = new Date('2026-07-06T03:10:00.000Z');
+    const currentPendingIntent = await service.createUploadIntent('user-1', {
+      purpose: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      byteSize: 4096,
+    });
+    const uploadedIntent = await service.createUploadIntent('user-2', {
+      purpose: 'evaluation',
+      fileName: 'evaluation.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    await service.confirmUploaded('user-2', uploadedIntent.id, {});
+    await repository.rejectPendingFilesCreatedBefore(
+      new Date('2026-07-06T03:01:00.000Z'),
+    );
+
+    currentTime = new Date('2026-07-06T03:20:01.000Z');
+
+    await expect(
+      service.listMaintenanceFiles({
+        ownerUserId: 'user-1',
+        status: 'pending',
+        keyword: 'user-1',
+        page: 2,
+        pageSize: 1,
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: expiredPendingIntent.id,
+          ownerUserId: 'user-1',
+          purpose: 'identity',
+          status: 'pending',
+          isExpiredPending: true,
+        }),
+      ],
+      page: 2,
+      pageSize: 1,
+      total: 2,
+    });
+
+    await expect(
+      service.listMaintenanceFiles({
+        purpose: 'receipt',
+        page: 1,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: currentPendingIntent.id,
+          purpose: 'receipt',
+          status: 'pending',
+          isExpiredPending: false,
+        }),
+      ],
+      page: 1,
+      pageSize: 10,
+      total: 1,
+    });
+
+    await expect(
+      service.listMaintenanceFiles({
+        status: 'rejected',
+        page: 1,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: rejectedIntent.id,
+          status: 'rejected',
+          isExpiredPending: false,
+        }),
+      ],
+      page: 1,
+      pageSize: 10,
+      total: 1,
+    });
+  });
+
+  it('builds a maintenance report with purpose breakdown and top owner hotspots', async () => {
+    let currentTime = new Date('2026-07-18T08:30:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+    );
+
+    await service.createUploadIntent('user-1', {
+      purpose: 'identity',
+      fileName: 'expired-pending.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+
+    currentTime = new Date('2026-07-18T08:40:00.000Z');
+    const rejectedIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'rejected.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    currentTime = new Date('2026-07-18T08:50:00.000Z');
+    const uploadedIntent = await service.createUploadIntent('user-2', {
+      purpose: 'receipt',
+      fileName: 'receipt.pdf',
+      contentType: 'application/pdf',
+      byteSize: 4096,
+    });
+    await service.confirmUploaded('user-2', uploadedIntent.id, {});
+
+    currentTime = new Date('2026-07-18T08:55:00.000Z');
+    await repository.rejectPendingFilesByIds([rejectedIntent.id]);
+
+    currentTime = new Date('2026-07-18T09:00:00.000Z');
+
+    await expect(
+      service.getMaintenanceReport({
+        topOwnersLimit: 1,
+      }),
+    ).resolves.toEqual({
+      generatedAtIso: '2026-07-18T09:00:00.000Z',
+      cutoffIso: '2026-07-18T08:45:00.000Z',
+      purposeBreakdown: [
+        {
+          purpose: 'cargo',
+          totalCount: 1,
+          pendingCount: 0,
+          uploadedCount: 0,
+          rejectedCount: 1,
+          expiredPendingCount: 0,
+        },
+        {
+          purpose: 'identity',
+          totalCount: 1,
+          pendingCount: 1,
+          uploadedCount: 0,
+          rejectedCount: 0,
+          expiredPendingCount: 1,
+        },
+        {
+          purpose: 'receipt',
+          totalCount: 1,
+          pendingCount: 0,
+          uploadedCount: 1,
+          rejectedCount: 0,
+          expiredPendingCount: 0,
+        },
+      ],
+      topOwners: [
+        {
+          ownerUserId: 'user-1',
+          totalCount: 2,
+          pendingCount: 1,
+          uploadedCount: 0,
+          rejectedCount: 1,
+          expiredPendingCount: 1,
+          latestCreatedAtIso: '2026-07-18T08:40:00.000Z',
+        },
+      ],
+    });
+  });
+
+  it('rejects selected pending maintenance files in batch and best-effort deletes their objects', async () => {
+    const repository = new InMemoryFilesRepository(() => now);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => now,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const storageProvider = {
+      createPublicUrl: jest.fn(() => 'https://storage.example.com/object'),
+      createUploadTarget: jest.fn((file, expiresAtIso) => ({
+        uploadUrl: `https://upload.example.com/${file.id}`,
+        publicUrl: file.publicUrl,
+        expiresAtIso,
+      })),
+      verifyUploadedFile: jest.fn().mockResolvedValue(undefined),
+      saveUploadedFile: jest.fn(),
+      readUploadedFile: jest.fn(),
+      deleteObject: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => now,
+      },
+      previewUrlSigner,
+      storageProvider,
+    );
+    const pendingIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'pending.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    const uploadedIntent = await service.createUploadIntent('user-1', {
+      purpose: 'identity',
+      fileName: 'uploaded.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+    await service.confirmUploaded('user-1', uploadedIntent.id, {});
+
+    await expect(
+      service.runMaintenanceBatchGovernance({
+        action: 'reject_pending',
+        fileIds: [pendingIntent.id, uploadedIntent.id, 'missing-file'],
+      }),
+    ).resolves.toEqual({
+      action: 'reject_pending',
+      requestedCount: 3,
+      matchedCount: 2,
+      processedCount: 1,
+      skippedFileIds: [uploadedIntent.id],
+      deletedObjectCount: 1,
+      failedObjectDeletionCount: 0,
+    });
+    expect(storageProvider.deleteObject).toHaveBeenCalledTimes(1);
+    expect(storageProvider.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: pendingIntent.id,
+        status: 'rejected',
+      }),
+    );
+    await expect(repository.findFileById(pendingIntent.id)).resolves.toMatchObject(
+      {
+        id: pendingIntent.id,
+        status: 'rejected',
+      },
+    );
+    await expect(
+      repository.findFileById(uploadedIntent.id),
+    ).resolves.toMatchObject({
+      id: uploadedIntent.id,
+      status: 'uploaded',
+    });
+  });
+
+  it('deletes selected rejected maintenance objects in batch and skips non-rejected records', async () => {
+    let currentTime = new Date('2026-07-06T03:00:00.000Z');
+    const repository = new InMemoryFilesRepository(() => currentTime);
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      now: () => currentTime,
+      previewExpiresInSeconds: 600,
+      signingSecret: 'unit-test-file-preview-secret',
+    });
+    const deleteObject = jest
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('provider down'));
+    const storageProvider = {
+      createPublicUrl: jest.fn(() => 'https://storage.example.com/object'),
+      createUploadTarget: jest.fn((file, expiresAtIso) => ({
+        uploadUrl: `https://upload.example.com/${file.id}`,
+        publicUrl: file.publicUrl,
+        expiresAtIso,
+      })),
+      verifyUploadedFile: jest.fn().mockResolvedValue(undefined),
+      saveUploadedFile: jest.fn(),
+      readUploadedFile: jest.fn(),
+      deleteObject,
+    };
+    const service = new FilesService(
+      repository,
+      {
+        uploadUrlBase: 'http://localhost:3000/api/files/uploads',
+        publicUrlBase: 'https://cdn.example.com',
+        uploadExpiresInSeconds: 900,
+        now: () => currentTime,
+      },
+      previewUrlSigner,
+      storageProvider,
+    );
+    const firstRejectedIntent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'rejected-a.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+
+    currentTime = new Date('2026-07-06T03:10:00.000Z');
+    const secondRejectedIntent = await service.createUploadIntent('user-1', {
+      purpose: 'identity',
+      fileName: 'rejected-b.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+
+    currentTime = new Date('2026-07-06T03:20:00.000Z');
+    const pendingIntent = await service.createUploadIntent('user-1', {
+      purpose: 'receipt',
+      fileName: 'pending.pdf',
+      contentType: 'application/pdf',
+      byteSize: 4096,
+    });
+    await repository.rejectPendingFilesCreatedBefore(
+      new Date('2026-07-06T03:19:59.000Z'),
+    );
+
+    await expect(
+      service.runMaintenanceBatchGovernance({
+        action: 'delete_rejected_objects',
+        fileIds: [firstRejectedIntent.id, secondRejectedIntent.id, pendingIntent.id],
+      }),
+    ).resolves.toEqual({
+      action: 'delete_rejected_objects',
+      requestedCount: 3,
+      matchedCount: 3,
+      processedCount: 2,
+      skippedFileIds: [pendingIntent.id],
+      deletedObjectCount: 1,
+      failedObjectDeletionCount: 1,
+    });
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+    expect(deleteObject).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: firstRejectedIntent.id,
+        status: 'rejected',
+      }),
+    );
+    expect(deleteObject).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: secondRejectedIntent.id,
+        status: 'rejected',
+      }),
+    );
+  });
+
   it('rejects confirming a file owned by another user', async () => {
     const { service } = createService();
     const intent = await service.createUploadIntent('user-1', {

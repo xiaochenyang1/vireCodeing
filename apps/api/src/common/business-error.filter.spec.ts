@@ -135,6 +135,90 @@ describe('BusinessErrorFilter', () => {
     });
   });
 
+  it.each([
+    ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+    ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+    ApiErrorCode.ORDER_CONFLICT,
+    'PAYMENT_ALREADY_ESCROWED' as ApiErrorCode,
+    'PAYMENT_CALLBACK_CONFLICT' as ApiErrorCode,
+    'PAYMENT_REQUIRED' as ApiErrorCode,
+    'REFUND_NOT_AVAILABLE' as ApiErrorCode,
+    'DRIVER_WITHDRAWAL_CONFLICT' as ApiErrorCode,
+  ])('maps %s to conflict', code => {
+    const filter = new BusinessErrorFilter(
+      () => new Date('2026-06-26T06:00:00.000Z'),
+    );
+    const { host, status } = createHost();
+
+    filter.catch(new BusinessError(code, '订单变更冲突'), host);
+
+    expect(status).toHaveBeenCalledWith(409);
+  });
+
+  it.each([
+    'PAYMENT_CHANNEL_UNAVAILABLE' as ApiErrorCode,
+    'REFUND_PROVIDER_FAILED' as ApiErrorCode,
+  ])('maps %s to bad gateway', code => {
+    const filter = new BusinessErrorFilter();
+    const { host, status } = createHost();
+
+    filter.catch(new BusinessError(code, '资金渠道暂不可用'), host);
+
+    expect(status).toHaveBeenCalledWith(502);
+  });
+
+  it('maps an unbalanced financial ledger to internal server error', () => {
+    const filter = new BusinessErrorFilter();
+    const { host, status } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        'FINANCIAL_LEDGER_UNBALANCED' as ApiErrorCode,
+        '资金流水不平衡',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(500);
+  });
+
+  it.each([
+    ApiErrorCode.PROFILE_COUPON_NOT_AVAILABLE,
+    ApiErrorCode.PROFILE_COUPON_PRICE_MISMATCH,
+  ])('maps %s to conflict for order coupon validation', code => {
+    const filter = new BusinessErrorFilter(
+      () => new Date('2026-06-26T06:00:00.000Z'),
+    );
+    const { host, status } = createHost();
+
+    filter.catch(new BusinessError(code, '优惠券不可用'), host);
+
+    expect(status).toHaveBeenCalledWith(409);
+  });
+
+  it('maps invalid idempotency keys to bad request', () => {
+    const filter = new BusinessErrorFilter(
+      () => new Date('2026-06-26T06:00:00.000Z'),
+    );
+    const { host, status, json } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        'Idempotency-Key 无效',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      code: 'IDEMPOTENCY_KEY_INVALID',
+      message: 'Idempotency-Key 无效',
+      requestId: 'req_test',
+      timestamp: '2026-06-26T06:00:00.000Z',
+    });
+  });
+
   it('maps profile address book version conflicts to conflict', () => {
     const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
     const { host, status, json } = createHost();
@@ -294,6 +378,27 @@ describe('BusinessErrorFilter', () => {
     expect(json).toHaveBeenCalledWith({
       code: 'FILE_NOT_FOUND',
       message: '文件不存在',
+      requestId: 'req_test',
+      timestamp: '2026-06-26T06:00:00.000Z',
+    });
+  });
+
+  it('maps missing auth accounts to not found', () => {
+    const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
+    const { host, status, json } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        'AUTH_ACCOUNT_NOT_FOUND' as ApiErrorCode,
+        '账号不存在',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(404);
+    expect(json).toHaveBeenCalledWith({
+      code: 'AUTH_ACCOUNT_NOT_FOUND',
+      message: '账号不存在',
       requestId: 'req_test',
       timestamp: '2026-06-26T06:00:00.000Z',
     });

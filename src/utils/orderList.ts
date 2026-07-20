@@ -1,5 +1,9 @@
 import type { OrderListFilter, RecentOrder } from '../types';
 import { formatVehicleRequirementText } from './order';
+import {
+  getOrderExceptionCaseCompensationSummary,
+  getOrderExceptionCaseStatusText,
+} from './orderExceptionCases';
 
 export type OrderTimeFilter = 'all' | 'today' | 'week' | 'history' | 'custom';
 
@@ -75,19 +79,31 @@ export function filterOrdersBySearchKeyword(
     return orders;
   }
 
-  return orders.filter(order =>
-    [
+  return orders.filter(order => {
+    const latestExceptionCaseSearchText = order.latestExceptionCase
+      ? [
+          order.latestExceptionCase.caseNo,
+          getOrderExceptionCaseStatusText(order.latestExceptionCase.status),
+          order.latestExceptionCase.resolutionText ?? '',
+          getOrderExceptionCaseCompensationSummary(order.latestExceptionCase, {
+            includeUpdatedAt: false,
+          }) ?? '',
+        ].join(' ')
+      : '';
+
+    return [
       order.id,
       order.from,
       order.to,
       order.cargoType,
       formatVehicleRequirementText(order),
       order.driverInfo?.driverName ?? '',
+      latestExceptionCaseSearchText,
     ]
       .join(' ')
       .toLowerCase()
-      .includes(normalizedSearchKeyword),
-  );
+      .includes(normalizedSearchKeyword);
+  });
 }
 
 export function matchesOrderTimeFilter(

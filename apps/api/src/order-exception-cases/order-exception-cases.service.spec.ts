@@ -7,7 +7,7 @@ describe('OrderExceptionCasesService', () => {
 
   async function createCase() {
     const repository = new InMemoryOrdersRepository(() => now);
-    const order = await repository.createOrder('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
     await repository.acceptDriverOrder(order.id, 'driver-1', {});
     await repository.reportDriverOrderException(order.id, 'driver-1', {
       typeLabel: '货物损坏',
@@ -57,6 +57,9 @@ describe('OrderExceptionCasesService', () => {
     const resolved = await service.resolveCase('admin-1', exceptionCase.id, {
       baseUpdatedAtIso: processing.updatedAtIso,
       content: '双方确认外包装破损但货物完好。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 3600,
     });
     const closed = await service.closeCase('admin-1', exceptionCase.id, {
       baseUpdatedAtIso: resolved.updatedAtIso,
@@ -66,6 +69,9 @@ describe('OrderExceptionCasesService', () => {
     expect(closed).toMatchObject({
       status: 'closed',
       resolutionText: '双方确认外包装破损但货物完好。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 3600,
       actions: [
         expect.objectContaining({ fromStatus: 'pending', toStatus: 'processing' }),
         expect.objectContaining({ fromStatus: 'processing', toStatus: 'resolved' }),
@@ -82,6 +88,7 @@ describe('OrderExceptionCasesService', () => {
       service.resolveCase('admin-1', exceptionCase.id, {
         baseUpdatedAtIso: exceptionCase.updatedAtIso,
         content: '试图跳过受理阶段直接解决工单。',
+        compensationStatus: 'not_required',
       }),
     ).rejects.toEqual(
       new BusinessError(
@@ -99,6 +106,7 @@ describe('OrderExceptionCasesService', () => {
       service.resolveCase('admin-2', exceptionCase.id, {
         baseUpdatedAtIso: staleUpdatedAtIso,
         content: '使用过期页面提交解决结果。',
+        compensationStatus: 'not_required',
       }),
     ).rejects.toEqual(
       new BusinessError(

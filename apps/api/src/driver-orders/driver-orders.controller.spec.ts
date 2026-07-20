@@ -3,6 +3,8 @@ import { ApiErrorCode } from '../common/errors';
 import { DriverOrdersController } from './driver-orders.controller';
 import type { DriverOrdersService } from './driver-orders.service';
 
+const IDEMPOTENCY_KEY = '550e8400-e29b-41d4-a716-446655440000';
+
 describe('DriverOrdersController', () => {
   it('lists the driver order hall for the authenticated driver', async () => {
     const service = {
@@ -169,18 +171,23 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.createWithdrawal(createRequest('driver-1'), {
-        amountCents: 12000,
-        bankAccountName: '  李师傅  ',
-        bankName: '  招商银行深圳宝安支行  ',
-        bankAccountNo: '  6225 8888 0000 1234  ',
-      }),
+      controller.createWithdrawal(
+        createRequest('driver-1'),
+        IDEMPOTENCY_KEY,
+        {
+          amountCents: 12000,
+          bankAccountName: '  李师傅  ',
+          bankName: '  招商银行深圳宝安支行  ',
+          bankAccountNo: '  6225 8888 0000 1234  ',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'withdrawal-1', amountCents: 12000 },
     });
     expect(service.createWithdrawal).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
+      IDEMPOTENCY_KEY,
       {
         amountCents: 12000,
         bankAccountName: '李师傅',
@@ -188,6 +195,23 @@ describe('DriverOrdersController', () => {
         bankAccountNo: '6225888800001234',
       },
     );
+  });
+
+  it('rejects a missing withdrawal idempotency key before service I/O', async () => {
+    const service = {
+      createWithdrawal: jest.fn(),
+    } as unknown as DriverOrdersService;
+    const controller = new DriverOrdersController(service);
+
+    await expect(
+      controller.createWithdrawal(createRequest('driver-1'), undefined, {
+        amountCents: 12000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225888800001234',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID });
+    expect(service.createWithdrawal).not.toHaveBeenCalled();
   });
 
   it('quotes an order for the authenticated driver', async () => {
@@ -255,9 +279,15 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.acceptOrder(createRequest('driver-1'), 'order-1', {
-        noteText: '马上联系货主',
-      }),
+      controller.acceptOrder(
+        createRequest('driver-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          noteText: '马上联系货主',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1' },
@@ -265,7 +295,11 @@ describe('DriverOrdersController', () => {
     expect(service.acceptOrder).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
-      { noteText: '马上联系货主' },
+      IDEMPOTENCY_KEY,
+      {
+        noteText: '马上联系货主',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
     );
   });
 
@@ -320,9 +354,15 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.advanceOrderStatus(createRequest('driver-1'), 'order-1', {
-        nextStatus: 'transporting',
-      }),
+      controller.advanceOrderStatus(
+        createRequest('driver-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          nextStatus: 'transporting',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', status: 'transporting' },
@@ -330,7 +370,11 @@ describe('DriverOrdersController', () => {
     expect(service.advanceOrderStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
-      { nextStatus: 'transporting' },
+      IDEMPOTENCY_KEY,
+      {
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
     );
   });
 
@@ -343,19 +387,45 @@ describe('DriverOrdersController', () => {
     } as unknown as DriverOrdersService;
     const controller = new DriverOrdersController(service);
 
-    await controller.advanceOrderStatus(createRequest('driver-1'), 'order-1', {
-      nextStatus: 'transporting',
-      receiptPhotoFileIds: ['file-receipt-1'],
-    });
+    await controller.advanceOrderStatus(
+      createRequest('driver-1'),
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        receiptPhotoFileIds: ['file-receipt-1'],
+      },
+    );
 
     expect(service.advanceOrderStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
+      IDEMPOTENCY_KEY,
       {
         nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         receiptPhotoFileIds: ['file-receipt-1'],
       },
     );
+  });
+
+  it('rejects missing idempotency keys before mutating driver orders', async () => {
+    const service = {
+      acceptOrder: jest.fn(),
+    } as unknown as DriverOrdersService;
+    const controller = new DriverOrdersController(service);
+
+    await expect(
+      controller.acceptOrder(createRequest('driver-1'), 'order-1', undefined, {
+        noteText: '马上联系货主',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+      message: 'Idempotency-Key 无效',
+    });
+    expect(service.acceptOrder).not.toHaveBeenCalled();
   });
 
   it('reports an exception for the authenticated driver', async () => {

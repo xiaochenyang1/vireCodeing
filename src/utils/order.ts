@@ -10,6 +10,8 @@ import type {
   CargoTypeOption,
   DraftOrderInput,
   DraftOrderPrefill,
+  OrderCreateIdempotencyContext,
+  OrderMutationContext,
   OrderSyncOperation,
   OrderSyncState,
   PaymentMethod,
@@ -18,6 +20,12 @@ import type {
   VehicleLengthRequirementOption,
   VehicleRequirementOption,
 } from '../types';
+
+type OrderSyncStateOptions = {
+  createContext?: OrderCreateIdempotencyContext;
+  mutationContext?: OrderMutationContext;
+  retryBlocked?: boolean;
+};
 
 export const MAX_LOCAL_FIXED_PRICE = 50000;
 export const MIN_LOCAL_CARGO_WEIGHT = 0.1;
@@ -34,6 +42,7 @@ export function createPendingOrderSyncState(
   message = '本地订单已保存，等待真实后端 API 接入后同步。',
   operation: OrderSyncOperation = 'local',
   now = Date.now(),
+  options: OrderSyncStateOptions = {},
 ): OrderSyncState {
   const updatedAtIso = new Date(now).toISOString();
 
@@ -50,6 +59,10 @@ export function createPendingOrderSyncState(
         updatedAtIso,
       ),
     ],
+    ...(options.createContext ? { createContext: options.createContext } : {}),
+    ...(options.mutationContext
+      ? { mutationContext: options.mutationContext }
+      : {}),
   };
 }
 
@@ -57,6 +70,7 @@ export function createSyncedOrderSyncState(
   message = '本地状态已记录，等待真实 API 接入。',
   operation: OrderSyncOperation = 'local',
   now = Date.now(),
+  options: OrderSyncStateOptions = {},
 ): OrderSyncState {
   const updatedAtIso = new Date(now).toISOString();
 
@@ -67,6 +81,10 @@ export function createSyncedOrderSyncState(
     updatedAtText: '刚刚',
     updatedAtIso,
     queueItems: [],
+    ...(options.createContext ? { createContext: options.createContext } : {}),
+    ...(options.mutationContext
+      ? { mutationContext: options.mutationContext }
+      : {}),
   };
 }
 
@@ -74,6 +92,7 @@ export function createFailedOrderSyncState(
   message = '订单同步失败，等待本地重试。',
   operation: OrderSyncOperation = 'local',
   now = Date.now(),
+  options: OrderSyncStateOptions = {},
 ): OrderSyncState {
   const updatedAtIso = new Date(now).toISOString();
 
@@ -90,6 +109,11 @@ export function createFailedOrderSyncState(
         updatedAtIso,
       ),
     ],
+    ...(options.createContext ? { createContext: options.createContext } : {}),
+    ...(options.mutationContext
+      ? { mutationContext: options.mutationContext }
+      : {}),
+    ...(options.retryBlocked ? { retryBlocked: true } : {}),
   };
 }
 
@@ -137,6 +161,7 @@ export function createLocalOrder(
   draftOrder: DraftOrderInput,
   currentOrders: RecentOrder[],
   now = Date.now(),
+  syncStateOptions: OrderSyncStateOptions = {},
 ): RecentOrder {
   const fixedPriceText = formatDraftOrderPriceText(draftOrder);
   const couponFields = createOrderCouponFields(draftOrder);
@@ -192,6 +217,7 @@ export function createLocalOrder(
       '本地订单已保存，等待真实后端 API 接入后同步。',
       'create',
       now,
+      syncStateOptions,
     ),
   };
 }
@@ -199,6 +225,7 @@ export function createLocalOrder(
 export function createOrderUpdateFromDraft(
   draftOrder: DraftOrderInput,
   now = Date.now(),
+  syncStateOptions: OrderSyncStateOptions = {},
 ): Partial<RecentOrder> {
   const fixedPriceText = formatDraftOrderPriceText(draftOrder);
   const couponFields = createOrderCouponFields(draftOrder);
@@ -239,6 +266,7 @@ export function createOrderUpdateFromDraft(
       '订单修改已保存在本地，等待真实后端 API 接入后同步。',
       'update',
       now,
+      syncStateOptions,
     ),
   };
 }

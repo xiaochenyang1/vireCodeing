@@ -72,6 +72,7 @@ export function SpendingRecords({
     filter,
     timeFilter,
   );
+  const refundTotalLabel = isPlatformMode ? '已退款金额' : '退款中金额';
 
   return (
     <View style={styles.detailCard}>
@@ -87,7 +88,7 @@ export function SpendingRecords({
           value={formatLocalCurrency(activeTotal)}
         />
         <SpendingMetricItem
-          label="退款中金额"
+          label={refundTotalLabel}
           value={formatLocalCurrency(refundTotal)}
         />
       </View>
@@ -98,7 +99,7 @@ export function SpendingRecords({
         {`托管中金额：${formatLocalCurrency(activeTotal)}`}
       </Text>
       <Text style={styles.routeMeta}>
-        {`退款中金额：${formatLocalCurrency(refundTotal)}`}
+        {`${refundTotalLabel}：${formatLocalCurrency(refundTotal)}`}
       </Text>
 
       <Text style={styles.draftSectionTitle}>记录筛选</Text>

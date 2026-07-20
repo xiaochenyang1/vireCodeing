@@ -1,8 +1,11 @@
 import { ZodError } from 'zod';
 import {
+  parseFileMaintenanceReportQuery,
   parseConfirmFileUploadedRequest,
   parseConfirmStorageCallbackRequest,
   parseCreateFileUploadIntentRequest,
+  parseListMaintenanceFilesQuery,
+  parseRunFileMaintenanceBatchGovernanceRequest,
 } from './files.validation';
 
 describe('files validation', () => {
@@ -123,6 +126,103 @@ describe('files validation', () => {
       expect(() => parseConfirmStorageCallbackRequest(request)).toThrow(
         ZodError,
       );
+    }
+  });
+
+  it('normalizes a file maintenance list query and defaults paging', () => {
+    expect(
+      parseListMaintenanceFilesQuery({
+        status: 'pending',
+        purpose: 'identity',
+        ownerUserId: ' user-1 ',
+        keyword: ' front ',
+        page: '2',
+        pageSize: '10',
+      }),
+    ).toEqual({
+      status: 'pending',
+      purpose: 'identity',
+      ownerUserId: 'user-1',
+      keyword: 'front',
+      page: 2,
+      pageSize: 10,
+    });
+
+    expect(parseListMaintenanceFilesQuery({})).toEqual({
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('rejects invalid file maintenance list queries', () => {
+    for (const query of [
+      { page: 0 },
+      { pageSize: 0 },
+      { pageSize: 51 },
+      { status: 'archived' },
+      { purpose: 'avatar' },
+      { ownerUserId: 'u'.repeat(121) },
+      { keyword: 'k'.repeat(121) },
+    ]) {
+      expect(() => parseListMaintenanceFilesQuery(query)).toThrow(ZodError);
+    }
+  });
+
+  it('normalizes a file maintenance batch governance request and deduplicates file ids', () => {
+    expect(
+      parseRunFileMaintenanceBatchGovernanceRequest({
+        action: 'reject_pending',
+        fileIds: [' file-1 ', 'file-2', 'file-1'],
+      }),
+    ).toEqual({
+      action: 'reject_pending',
+      fileIds: ['file-1', 'file-2'],
+    });
+  });
+
+  it('rejects invalid file maintenance batch governance requests', () => {
+    for (const request of [
+      {},
+      { action: 'reject_pending', fileIds: [] },
+      { action: 'delete_all', fileIds: ['file-1'] },
+      { action: 'delete_rejected_objects', fileIds: [''] },
+      {
+        action: 'delete_rejected_objects',
+        fileIds: Array.from({ length: 51 }, (_, index) => `file-${index + 1}`),
+      },
+      {
+        action: 'delete_rejected_objects',
+        fileIds: ['f'.repeat(121)],
+      },
+    ]) {
+      expect(() => parseRunFileMaintenanceBatchGovernanceRequest(request)).toThrow(
+        ZodError,
+      );
+    }
+  });
+
+  it('normalizes a file maintenance report query and defaults top owner limit', () => {
+    expect(
+      parseFileMaintenanceReportQuery({
+        topOwnersLimit: '8',
+      }),
+    ).toEqual({
+      topOwnersLimit: 8,
+    });
+
+    expect(parseFileMaintenanceReportQuery({})).toEqual({
+      topOwnersLimit: 5,
+    });
+  });
+
+  it('rejects invalid file maintenance report queries', () => {
+    for (const query of [
+      { topOwnersLimit: 0 },
+      { topOwnersLimit: 21 },
+      { topOwnersLimit: '1.2' },
+      { topOwnersLimit: 'nope' },
+    ]) {
+      expect(() => parseFileMaintenanceReportQuery(query)).toThrow(ZodError);
     }
   });
 });

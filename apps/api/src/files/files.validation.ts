@@ -3,6 +3,9 @@ import type {
   ConfirmFileUploadedRequest,
   ConfirmStorageCallbackRequest,
   CreateFileUploadIntentRequest,
+  FileMaintenanceReportQuery,
+  ListFileMaintenanceFilesQuery,
+  RunFileMaintenanceBatchGovernanceRequest,
 } from './dto';
 
 const allowedPurposes = [
@@ -18,6 +21,11 @@ const allowedContentTypes = [
   'image/png',
   'image/webp',
   'application/pdf',
+] as const;
+const allowedStatuses = ['pending', 'uploaded', 'rejected'] as const;
+const allowedMaintenanceBatchGovernanceActions = [
+  'reject_pending',
+  'delete_rejected_objects',
 ] as const;
 const maxUploadBytes = 10 * 1024 * 1024;
 
@@ -72,6 +80,38 @@ export const confirmStorageCallbackSchema = z.object({
   signature: z.string().trim().min(1).max(128),
 });
 
+export const listMaintenanceFilesQuerySchema = z.object({
+  status: z.enum(allowedStatuses).optional(),
+  purpose: z.enum(allowedPurposes).optional(),
+  ownerUserId: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+  keyword: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const fileMaintenanceReportQuerySchema = z.object({
+  topOwnersLimit: z.coerce.number().int().min(1).max(20).default(5),
+});
+
+export const runMaintenanceBatchGovernanceRequestSchema = z.object({
+  action: z.enum(allowedMaintenanceBatchGovernanceActions),
+  fileIds: z
+    .array(z.string().trim().min(1).max(120))
+    .min(1)
+    .max(50)
+    .transform(fileIds => Array.from(new Set(fileIds))),
+});
+
 export function parseCreateFileUploadIntentRequest(
   input: unknown,
 ): CreateFileUploadIntentRequest {
@@ -88,4 +128,35 @@ export function parseConfirmStorageCallbackRequest(
   input: unknown,
 ): ConfirmStorageCallbackRequest {
   return confirmStorageCallbackSchema.parse(input);
+}
+
+export function parseListMaintenanceFilesQuery(
+  input: unknown,
+): ListFileMaintenanceFilesQuery {
+  const parsed = listMaintenanceFilesQuerySchema.parse(input);
+
+  return {
+    status: parsed.status,
+    purpose: parsed.purpose,
+    ownerUserId: parsed.ownerUserId,
+    keyword: parsed.keyword,
+    page: parsed.page,
+    pageSize: parsed.pageSize,
+  };
+}
+
+export function parseFileMaintenanceReportQuery(
+  input: unknown,
+): FileMaintenanceReportQuery {
+  const parsed = fileMaintenanceReportQuerySchema.parse(input);
+
+  return {
+    topOwnersLimit: parsed.topOwnersLimit,
+  };
+}
+
+export function parseRunFileMaintenanceBatchGovernanceRequest(
+  input: unknown,
+): RunFileMaintenanceBatchGovernanceRequest {
+  return runMaintenanceBatchGovernanceRequestSchema.parse(input);
 }

@@ -1,5 +1,11 @@
 import type {
   ConfirmFileUploadedRequest,
+  FileMaintenanceReportData,
+  FileMaintenanceListItem,
+  FileMaintenancePurposeBreakdownItem,
+  FileMaintenanceTopOwnerItem,
+  ListFileMaintenanceFilesQuery,
+  ListFileMaintenanceFilesResult,
   CreateFileUploadIntentRequest,
   FileUploadRecord,
 } from './dto';
@@ -13,6 +19,7 @@ export interface FilesRepository {
     },
   ): Promise<FileUploadRecord>;
   findFileById(fileId: string): Promise<FileUploadRecord | undefined>;
+  findFilesByIds(fileIds: string[]): Promise<FileUploadRecord[]>;
   findFileByIdAndOwner(
     fileId: string,
     ownerUserId: string,
@@ -25,8 +32,17 @@ export interface FilesRepository {
   ): Promise<FileUploadRecord>;
   findPendingFilesCreatedBefore(cutoff: Date): Promise<FileUploadRecord[]>;
   findRejectedFiles(): Promise<FileUploadRecord[]>;
+  listMaintenanceFiles(
+    query: ListFileMaintenanceFilesQuery,
+    cutoff: Date,
+  ): Promise<ListFileMaintenanceFilesResult>;
+  getMaintenanceReport(
+    cutoff: Date,
+    topOwnersLimit: number,
+  ): Promise<FileMaintenanceReportData>;
   getMaintenanceSummary(cutoff: Date): Promise<FileMaintenanceSummaryCounts>;
   rejectPendingFilesCreatedBefore(cutoff: Date): Promise<number>;
+  rejectPendingFilesByIds(fileIds: string[]): Promise<number>;
 }
 
 export type FileMaintenanceSummaryCounts = {
@@ -77,6 +93,12 @@ export class InMemoryFilesRepository implements FilesRepository {
     return this.files.get(fileId);
   }
 
+  async findFilesByIds(fileIds: string[]) {
+    return fileIds
+      .map(fileId => this.files.get(fileId))
+      .filter((file): file is FileUploadRecord => Boolean(file));
+  }
+
   async findFileByObjectKey(objectKey: string) {
     return Array.from(this.files.values()).find(
       (file) => file.objectKey === objectKey,
@@ -121,6 +143,35 @@ export class InMemoryFilesRepository implements FilesRepository {
     );
   }
 
+  async listMaintenanceFiles(
+    query: ListFileMaintenanceFilesQuery,
+    cutoff: Date,
+  ): Promise<ListFileMaintenanceFilesResult> {
+    const matchedFiles = Array.from(this.files.values())
+      .filter(file => matchesMaintenanceFileQuery(file, query))
+      .sort(compareMaintenanceFilesByCreatedAtDesc);
+    const start = (query.page - 1) * query.pageSize;
+    const items = matchedFiles
+      .slice(start, start + query.pageSize)
+      .map(file => mapMaintenanceListItem(file, cutoff));
+
+    return {
+      items,
+      page: query.page,
+      pageSize: query.pageSize,
+      total: matchedFiles.length,
+    };
+  }
+
+  async getMaintenanceReport(
+    cutoff: Date,
+    topOwnersLimit: number,
+  ): Promise<FileMaintenanceReportData> {
+    return createMaintenanceReport(Array.from(this.files.values()), cutoff, {
+      topOwnersLimit,
+    });
+  }
+
   async getMaintenanceSummary(
     cutoff: Date,
   ): Promise<FileMaintenanceSummaryCounts> {
@@ -153,6 +204,26 @@ export class InMemoryFilesRepository implements FilesRepository {
         });
         rejectedCount += 1;
       }
+    }
+
+    return rejectedCount;
+  }
+
+  async rejectPendingFilesByIds(fileIds: string[]): Promise<number> {
+    let rejectedCount = 0;
+
+    for (const fileId of fileIds) {
+      const file = this.files.get(fileId);
+
+      if (!file || file.status !== 'pending') {
+        continue;
+      }
+
+      this.files.set(fileId, {
+        ...file,
+        status: 'rejected',
+      });
+      rejectedCount += 1;
     }
 
     return rejectedCount;
@@ -193,10 +264,12 @@ export type PrismaFilesClient = {
       where: { objectKey: string };
     }): Promise<PrismaFileObjectRecord | null>;
     findMany(args: {
-      where: {
-        status: 'pending' | 'rejected';
-        createdAt?: { lt: Date };
+      where?: unknown;
+      orderBy?: {
+        createdAt: 'desc';
       };
+      skip?: number;
+      take?: number;
     }): Promise<PrismaFileObjectRecord[]>;
     update(args: {
       where: { id: string };
@@ -208,19 +281,13 @@ export type PrismaFilesClient = {
       };
     }): Promise<PrismaFileObjectRecord>;
     updateMany(args: {
-      where: {
-        status: 'pending';
-        createdAt: { lt: Date };
-      };
+      where: unknown;
       data: {
         status: 'rejected';
       };
     }): Promise<{ count: number }>;
     count(args?: {
-      where?: {
-        status?: 'pending' | 'uploaded' | 'rejected';
-        createdAt?: { lt: Date };
-      };
+      where?: unknown;
     }): Promise<number>;
   };
 };
@@ -266,6 +333,22 @@ export class PrismaFilesRepository implements FilesRepository {
     });
 
     return file ? mapPrismaFile(file) : undefined;
+  }
+
+  async findFilesByIds(fileIds: string[]) {
+    if (fileIds.length === 0) {
+      return [];
+    }
+
+    const files = await this.prisma.fileObject.findMany({
+      where: {
+        id: {
+          in: fileIds,
+        },
+      },
+    });
+
+    return sortFilesByInputOrder(files.map(mapPrismaFile), fileIds);
   }
 
   async findFileByObjectKey(objectKey: string) {
@@ -321,6 +404,44 @@ export class PrismaFilesRepository implements FilesRepository {
     return files.map(mapPrismaFile);
   }
 
+  async listMaintenanceFiles(
+    query: ListFileMaintenanceFilesQuery,
+    cutoff: Date,
+  ): Promise<ListFileMaintenanceFilesResult> {
+    const where = createPrismaMaintenanceFilesWhereInput(query);
+    const [total, files] = await Promise.all([
+      this.prisma.fileObject.count({ where }),
+      this.prisma.fileObject.findMany({
+        where,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+    ]);
+
+    return {
+      items: files
+        .map(mapPrismaFile)
+        .map(file => mapMaintenanceListItem(file, cutoff)),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+    };
+  }
+
+  async getMaintenanceReport(
+    cutoff: Date,
+    topOwnersLimit: number,
+  ): Promise<FileMaintenanceReportData> {
+    const files = (await this.prisma.fileObject.findMany({})).map(mapPrismaFile);
+
+    return createMaintenanceReport(files, cutoff, {
+      topOwnersLimit,
+    });
+  }
+
   async getMaintenanceSummary(
     cutoff: Date,
   ): Promise<FileMaintenanceSummaryCounts> {
@@ -365,6 +486,26 @@ export class PrismaFilesRepository implements FilesRepository {
 
     return result.count;
   }
+
+  async rejectPendingFilesByIds(fileIds: string[]): Promise<number> {
+    if (fileIds.length === 0) {
+      return 0;
+    }
+
+    const result = await this.prisma.fileObject.updateMany({
+      where: {
+        id: {
+          in: fileIds,
+        },
+        status: 'pending',
+      },
+      data: {
+        status: 'rejected',
+      },
+    });
+
+    return result.count;
+  }
 }
 
 function mapPrismaFile(file: PrismaFileObjectRecord): FileUploadRecord {
@@ -381,4 +522,251 @@ function mapPrismaFile(file: PrismaFileObjectRecord): FileUploadRecord {
     status: file.status as FileUploadRecord['status'],
     createdAtIso: file.createdAt.toISOString(),
   };
+}
+
+function mapMaintenanceListItem(
+  file: FileUploadRecord,
+  cutoff: Date,
+): FileMaintenanceListItem {
+  return {
+    ...file,
+    isExpiredPending: isExpiredPendingFile(file, cutoff),
+  };
+}
+
+function isExpiredPendingFile(file: FileUploadRecord, cutoff: Date) {
+  return (
+    file.status === 'pending' &&
+    new Date(file.createdAtIso).getTime() < cutoff.getTime()
+  );
+}
+
+function matchesMaintenanceFileQuery(
+  file: FileUploadRecord,
+  query: ListFileMaintenanceFilesQuery,
+) {
+  if (query.status && file.status !== query.status) {
+    return false;
+  }
+
+  if (query.purpose && file.purpose !== query.purpose) {
+    return false;
+  }
+
+  if (query.ownerUserId && file.ownerUserId !== query.ownerUserId) {
+    return false;
+  }
+
+  if (!query.keyword) {
+    return true;
+  }
+
+  const keyword = query.keyword.toLowerCase();
+
+  return [
+    file.id,
+    file.ownerUserId,
+    file.objectKey,
+    file.publicUrl,
+    file.contentType,
+    file.etag,
+    file.versionId,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .some(value => value.toLowerCase().includes(keyword));
+}
+
+function compareMaintenanceFilesByCreatedAtDesc(
+  left: FileUploadRecord,
+  right: FileUploadRecord,
+) {
+  const createdAtDelta =
+    new Date(right.createdAtIso).getTime() -
+    new Date(left.createdAtIso).getTime();
+
+  if (createdAtDelta !== 0) {
+    return createdAtDelta;
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
+function createMaintenanceReport(
+  files: FileUploadRecord[],
+  cutoff: Date,
+  input: {
+    topOwnersLimit: number;
+  },
+): FileMaintenanceReportData {
+  const purposeBreakdown = aggregatePurposeBreakdown(files, cutoff);
+  const topOwners = aggregateTopOwners(files, cutoff).slice(
+    0,
+    input.topOwnersLimit,
+  );
+
+  return {
+    purposeBreakdown,
+    topOwners,
+  };
+}
+
+function aggregatePurposeBreakdown(
+  files: FileUploadRecord[],
+  cutoff: Date,
+): FileMaintenancePurposeBreakdownItem[] {
+  const purposeMap = new Map<string, FileMaintenancePurposeBreakdownItem>();
+
+  for (const file of files) {
+    const current =
+      purposeMap.get(file.purpose) ??
+      {
+        purpose: file.purpose,
+        totalCount: 0,
+        pendingCount: 0,
+        uploadedCount: 0,
+        rejectedCount: 0,
+        expiredPendingCount: 0,
+      };
+
+    current.totalCount += 1;
+    if (file.status === 'pending') {
+      current.pendingCount += 1;
+    }
+    if (file.status === 'uploaded') {
+      current.uploadedCount += 1;
+    }
+    if (file.status === 'rejected') {
+      current.rejectedCount += 1;
+    }
+    if (isExpiredPendingFile(file, cutoff)) {
+      current.expiredPendingCount += 1;
+    }
+
+    purposeMap.set(file.purpose, current);
+  }
+
+  return Array.from(purposeMap.values()).sort((left, right) =>
+    left.purpose.localeCompare(right.purpose),
+  );
+}
+
+function aggregateTopOwners(
+  files: FileUploadRecord[],
+  cutoff: Date,
+): FileMaintenanceTopOwnerItem[] {
+  const ownerMap = new Map<string, FileMaintenanceTopOwnerItem>();
+
+  for (const file of files) {
+    const current =
+      ownerMap.get(file.ownerUserId) ??
+      {
+        ownerUserId: file.ownerUserId,
+        totalCount: 0,
+        pendingCount: 0,
+        uploadedCount: 0,
+        rejectedCount: 0,
+        expiredPendingCount: 0,
+        latestCreatedAtIso: file.createdAtIso,
+      };
+
+    current.totalCount += 1;
+    if (file.status === 'pending') {
+      current.pendingCount += 1;
+    }
+    if (file.status === 'uploaded') {
+      current.uploadedCount += 1;
+    }
+    if (file.status === 'rejected') {
+      current.rejectedCount += 1;
+    }
+    if (isExpiredPendingFile(file, cutoff)) {
+      current.expiredPendingCount += 1;
+    }
+    if (
+      new Date(file.createdAtIso).getTime() >
+      new Date(current.latestCreatedAtIso).getTime()
+    ) {
+      current.latestCreatedAtIso = file.createdAtIso;
+    }
+
+    ownerMap.set(file.ownerUserId, current);
+  }
+
+  return Array.from(ownerMap.values()).sort(compareMaintenanceTopOwners);
+}
+
+function compareMaintenanceTopOwners(
+  left: FileMaintenanceTopOwnerItem,
+  right: FileMaintenanceTopOwnerItem,
+) {
+  if (right.expiredPendingCount !== left.expiredPendingCount) {
+    return right.expiredPendingCount - left.expiredPendingCount;
+  }
+
+  if (right.rejectedCount !== left.rejectedCount) {
+    return right.rejectedCount - left.rejectedCount;
+  }
+
+  if (right.pendingCount !== left.pendingCount) {
+    return right.pendingCount - left.pendingCount;
+  }
+
+  if (right.totalCount !== left.totalCount) {
+    return right.totalCount - left.totalCount;
+  }
+
+  const latestCreatedAtDelta =
+    new Date(right.latestCreatedAtIso).getTime() -
+    new Date(left.latestCreatedAtIso).getTime();
+
+  if (latestCreatedAtDelta !== 0) {
+    return latestCreatedAtDelta;
+  }
+
+  return left.ownerUserId.localeCompare(right.ownerUserId);
+}
+
+function sortFilesByInputOrder(
+  files: FileUploadRecord[],
+  fileIds: string[],
+): FileUploadRecord[] {
+  const fileOrder = new Map(fileIds.map((fileId, index) => [fileId, index]));
+
+  return [...files].sort(
+    (left, right) =>
+      (fileOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (fileOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function createPrismaMaintenanceFilesWhereInput(
+  query: ListFileMaintenanceFilesQuery,
+) {
+  const where: Record<string, unknown> = {};
+
+  if (query.status) {
+    where.status = query.status;
+  }
+
+  if (query.purpose) {
+    where.purpose = query.purpose;
+  }
+
+  if (query.ownerUserId) {
+    where.ownerUserId = query.ownerUserId;
+  }
+
+  if (query.keyword) {
+    where.OR = [
+      { id: { contains: query.keyword, mode: 'insensitive' } },
+      { ownerUserId: { contains: query.keyword, mode: 'insensitive' } },
+      { objectKey: { contains: query.keyword, mode: 'insensitive' } },
+      { publicUrl: { contains: query.keyword, mode: 'insensitive' } },
+      { contentType: { contains: query.keyword, mode: 'insensitive' } },
+      { etag: { contains: query.keyword, mode: 'insensitive' } },
+      { versionId: { contains: query.keyword, mode: 'insensitive' } },
+    ];
+  }
+
+  return where;
 }

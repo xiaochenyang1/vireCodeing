@@ -1,22 +1,23 @@
 import type {
-  ShipperSpendingOrderRecord,
+  ShipperSpendingFinancialRecord,
   ShipperSpendingRecord,
   ShipperSpendingSnapshot,
   ShipperSpendingSummary,
 } from './dto';
 import type { ProfileSpendingRepository } from './profile-spending.repository';
 
-const ACTIVE_ORDER_STATUSES = new Set(['loading', 'transporting', 'confirming']);
-
 export class ProfileSpendingService {
   constructor(private readonly repository: ProfileSpendingRepository) {}
 
   async listRecords(shipperId: string): Promise<ShipperSpendingSnapshot> {
-    const items = (await this.repository.listOrders(shipperId))
+    const items = (await this.repository.listFinancialRecords(shipperId))
       .map(createSpendingRecord)
       .filter(
         (item): item is ShipperSpendingRecord =>
           item !== undefined,
+      )
+      .sort((left, right) =>
+        right.occurredAtIso.localeCompare(left.occurredAtIso),
       );
 
     return {
@@ -28,11 +29,29 @@ export class ProfileSpendingService {
 }
 
 function createSpendingRecord(
-  order: ShipperSpendingOrderRecord,
+  order: ShipperSpendingFinancialRecord,
 ): ShipperSpendingRecord | undefined {
-  const amountCents = order.payablePriceCents ?? order.priceCents;
+  const amountCents =
+    order.paymentStatus === 'settled'
+      ? order.settlement?.grossAmountCents
+      : order.payment?.amountCents;
 
-  if (!amountCents || amountCents <= 0) {
+  if (
+    !amountCents ||
+    amountCents <= 0 ||
+    !isRecordedFinancialStatus(order.paymentStatus)
+  ) {
+    return undefined;
+  }
+
+  const occurredAtIso =
+    order.refund?.succeededAtIso ??
+    order.refund?.failedAtIso ??
+    order.refund?.updatedAtIso ??
+    order.settlement?.settledAtIso ??
+    order.payment?.paidAtIso ??
+    order.payment?.createdAtIso;
+  if (!occurredAtIso) {
     return undefined;
   }
 
@@ -41,6 +60,28 @@ function createSpendingRecord(
     orderNo: order.orderNo,
     status: order.status,
     paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    ...(order.payment
+      ? {
+          paymentChannel: order.payment.channel,
+          paymentOrderStatus: order.payment.status,
+          ...(order.payment.paidAtIso
+            ? { paidAtIso: order.payment.paidAtIso }
+            : {}),
+        }
+      : {}),
+    ...(order.settlement
+      ? { settledAtIso: order.settlement.settledAtIso }
+      : {}),
+    ...(order.refund
+      ? {
+          refundStatus: order.refund.status,
+          refundAmountCents: order.refund.amountCents,
+          ...(order.refund.succeededAtIso
+            ? { refundedAtIso: order.refund.succeededAtIso }
+            : {}),
+        }
+      : {}),
     amountCents,
     ...(order.priceCents !== undefined ? { priceCents: order.priceCents } : {}),
     ...(order.payablePriceCents !== undefined
@@ -50,7 +91,7 @@ function createSpendingRecord(
     ...(order.couponDiscountCents !== undefined
       ? { couponDiscountCents: order.couponDiscountCents }
       : {}),
-    occurredAtIso: order.updatedAtIso,
+    occurredAtIso,
     routeText: createRouteText(order),
   };
 }
@@ -60,24 +101,25 @@ function createSpendingSummary(
 ): ShipperSpendingSummary {
   return items.reduce<ShipperSpendingSummary>(
     (summary, item) => {
-      if (item.status === 'completed') {
+      if (item.paymentStatus === 'settled') {
         return {
           ...summary,
           completedTotalCents: summary.completedTotalCents + item.amountCents,
         };
       }
 
-      if (ACTIVE_ORDER_STATUSES.has(item.status)) {
+      if (item.paymentStatus === 'escrowed') {
         return {
           ...summary,
           activeTotalCents: summary.activeTotalCents + item.amountCents,
         };
       }
 
-      if (item.status === 'cancelled') {
+      if (item.refundStatus === 'succeeded') {
         return {
           ...summary,
-          refundTotalCents: summary.refundTotalCents + item.amountCents,
+          refundTotalCents:
+            summary.refundTotalCents + (item.refundAmountCents ?? 0),
         };
       }
 
@@ -93,7 +135,7 @@ function createSpendingSummary(
 
 function createRouteText(
   order: Pick<
-    ShipperSpendingOrderRecord,
+    ShipperSpendingFinancialRecord,
     'pickupAddress' | 'deliveryAddress' | 'orderNo'
   >,
 ) {
@@ -102,4 +144,16 @@ function createRouteText(
   }
 
   return order.orderNo;
+}
+
+function isRecordedFinancialStatus(
+  status: ShipperSpendingFinancialRecord['paymentStatus'],
+) {
+  return (
+    status === 'escrowed' ||
+    status === 'settled' ||
+    status === 'refund_pending' ||
+    status === 'refunded' ||
+    status === 'refund_failed'
+  );
 }

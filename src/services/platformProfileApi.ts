@@ -5,6 +5,8 @@ import {
   platformPut,
   type PlatformApiConfig,
 } from './platformApiClient';
+import type { PlatformPaymentStatus } from './platformPaymentApi';
+import type { OrderPaymentStatus, PaymentChannel } from '../types';
 
 export type PlatformProfileAddressBookAddress = {
   id: string;
@@ -105,6 +107,12 @@ export type PlatformProfileSpendingStatus =
 
 export type PlatformProfileSpendingPaymentMethod = 'cod' | 'online';
 
+export type PlatformProfileSpendingRefundStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed';
+
 export type PlatformProfileSpendingSummary = {
   completedTotalCents: number;
   activeTotalCents: number;
@@ -116,12 +124,20 @@ export type PlatformProfileSpendingRecord = {
   orderNo: string;
   status: PlatformProfileSpendingStatus;
   paymentMethod: PlatformProfileSpendingPaymentMethod;
+  paymentStatus: OrderPaymentStatus;
+  paymentChannel?: PaymentChannel;
+  paymentOrderStatus?: PlatformPaymentStatus;
+  refundStatus?: PlatformProfileSpendingRefundStatus;
   amountCents: number;
+  refundAmountCents?: number;
   priceCents?: number;
   payablePriceCents?: number;
   couponTitle?: string;
   couponDiscountCents?: number;
   occurredAtIso: string;
+  paidAtIso?: string;
+  settledAtIso?: string;
+  refundedAtIso?: string;
   routeText: string;
 };
 

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   Put,
@@ -29,6 +30,7 @@ import type {
   SaveDriverAcceptanceSettingsRequest,
 } from './dto';
 import { DriverOrdersService } from './driver-orders.service';
+import { parseOrderIdempotencyKey } from '../orders/order-mutation-idempotency';
 import {
   driverAcceptOrderSchema,
   driverAdvanceOrderStatusSchema,
@@ -123,12 +125,14 @@ export class DriverOrdersController {
   @Post('driver/withdrawals')
   async createWithdrawal(
     @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(createDriverWithdrawalSchema))
     body: CreateDriverWithdrawalRequest,
   ) {
     return ok(
       await this.driverOrdersService.createWithdrawal(
         getCurrentDriver(request),
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseCreateDriverWithdrawalRequest(body),
       ),
       getRequestId(request),
@@ -156,6 +160,7 @@ export class DriverOrdersController {
   async acceptOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(driverAcceptOrderSchema))
     body: DriverAcceptOrderRequest,
   ) {
@@ -163,6 +168,7 @@ export class DriverOrdersController {
       await this.driverOrdersService.acceptOrder(
         getCurrentDriver(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseDriverAcceptOrderRequest(body),
       ),
       getRequestId(request),
@@ -198,6 +204,7 @@ export class DriverOrdersController {
   async advanceOrderStatus(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(driverAdvanceOrderStatusSchema))
     body: DriverAdvanceOrderStatusRequest,
   ) {
@@ -205,6 +212,7 @@ export class DriverOrdersController {
       await this.driverOrdersService.advanceOrderStatus(
         getCurrentDriver(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseDriverAdvanceOrderStatusRequest(body),
       ),
       getRequestId(request),
@@ -288,4 +296,8 @@ function getRequestId(request?: AuthenticatedRequest) {
   const requestIdHeader = request?.headers?.['x-request-id'];
 
   return Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
+}
+
+function parseRequiredOrderIdempotencyKey(value: unknown) {
+  return parseOrderIdempotencyKey(value);
 }

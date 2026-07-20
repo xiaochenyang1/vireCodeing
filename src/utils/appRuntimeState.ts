@@ -76,13 +76,24 @@ export function getAppRuntimeState() {
 }
 
 export function saveAppRuntimeState(state: AppRuntimeState) {
-  appRuntimeStateSnapshot = {
-    version: APP_RUNTIME_STATE_VERSION,
-    state: cloneData(state),
-  };
+  appRuntimeStateSnapshot = createAppRuntimeStateSnapshot(state);
   fireAndForget(
     writeJsonStorage(APP_RUNTIME_STATE_STORAGE_KEY, appRuntimeStateSnapshot),
   );
+}
+
+export async function saveAppRuntimeStateDurably(state: AppRuntimeState) {
+  appRuntimeStateSnapshot = createAppRuntimeStateSnapshot(state);
+  await writeJsonStorage(APP_RUNTIME_STATE_STORAGE_KEY, appRuntimeStateSnapshot);
+}
+
+function createAppRuntimeStateSnapshot(
+  state: AppRuntimeState,
+): AppRuntimeStateSnapshot {
+  return {
+    version: APP_RUNTIME_STATE_VERSION,
+    state: cloneData(state),
+  };
 }
 
 export function clearAppRuntimeState() {

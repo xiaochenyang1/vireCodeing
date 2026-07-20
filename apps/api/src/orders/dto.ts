@@ -1,5 +1,6 @@
 import type { FileUploadRecord } from '../files/dto';
 import type { OrderExceptionCaseRecord } from '../order-exception-cases/dto';
+import type { OrderPaymentStatus } from '../payments/payment-domain';
 
 export type ShipperOrderStatus =
   | 'waiting'
@@ -44,14 +45,24 @@ export type CreateShipperOrderRequest = {
   payablePriceCents?: number;
 };
 
-export type CancelShipperOrderRequest = {
+export type OrderMutationConcurrencyRequest = {
+  baseUpdatedAtIso: string;
+};
+
+export type UpdateShipperOrderRequest = CreateShipperOrderRequest &
+  OrderMutationConcurrencyRequest;
+
+export type CancelShipperOrderRequest = OrderMutationConcurrencyRequest & {
   reasonText: string;
   description?: string;
 };
 
-export type AdvanceShipperOrderStatusRequest = {
+export type AdvanceShipperOrderStatusRequest =
+  OrderMutationConcurrencyRequest & {
   nextStatus: Extract<ShipperOrderStatus, 'loading' | 'transporting' | 'confirming'>;
 };
+
+export type CompleteShipperOrderRequest = OrderMutationConcurrencyRequest;
 
 export type ReportShipperOrderExceptionRequest = {
   typeLabel: string;
@@ -73,12 +84,15 @@ export type SubmitShipperOrderEvaluationRequest = {
   photoFileIds?: string[];
 };
 
-export type ListShipperOrdersQuery = {
+export type AdminOrderFilters = {
   status?: ShipperOrderStatus;
   statuses?: ShipperOrderStatus[];
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;
+};
+
+export type ListShipperOrdersQuery = AdminOrderFilters & {
   page: number;
   pageSize: number;
 };
@@ -97,6 +111,10 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
   orderNo: string;
   shipperId: string;
   status: ShipperOrderStatus;
+  paymentStatus: OrderPaymentStatus;
+  assignedDriverId?: string;
+  paymentSettledAtIso?: string;
+  refundedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
   events: ShipperOrderEventRecord[];
@@ -107,6 +125,12 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
     | 'sourceEventId'
     | 'sourceRole'
     | 'status'
+    | 'resolutionText'
+    | 'resolvedAtIso'
+    | 'compensationStatus'
+    | 'compensationTargetRole'
+    | 'compensationAmountCents'
+    | 'compensationUpdatedAtIso'
     | 'createdAtIso'
     | 'updatedAtIso'
   >;
@@ -117,6 +141,65 @@ export type ListShipperOrdersResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type AdminOrderReportQuery = AdminOrderFilters & {
+  topShippersLimit: number;
+};
+
+export type AdminOrderSummary = {
+  totalOrderCount: number;
+  waitingOrderCount: number;
+  activeOrderCount: number;
+  completedOrderCount: number;
+  cancelledOrderCount: number;
+  exceptionOrderCount: number;
+};
+
+export type AdminOrderReportStatusBreakdownItem = {
+  status: ShipperOrderStatus;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type AdminOrderReportPaymentStatusBreakdownItem = {
+  paymentStatus: OrderPaymentStatus;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type AdminOrderReportPricingModeBreakdownItem = {
+  pricingMode: ShipperOrderPricingMode;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type AdminOrderReportPaymentMethodBreakdownItem = {
+  paymentMethod: ShipperOrderPaymentMethod;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type AdminOrderReportTopShipperItem = {
+  shipperId: string;
+  orderCount: number;
+  waitingOrderCount: number;
+  activeOrderCount: number;
+  completedOrderCount: number;
+  cancelledOrderCount: number;
+  payablePriceTotalCents: number;
+  latestOrderCreatedAtIso?: string;
+};
+
+export type AdminOrderReport = {
+  generatedAtIso: string;
+  filters: AdminOrderFilters;
+  summary: AdminOrderSummary;
+  statusBreakdown: AdminOrderReportStatusBreakdownItem[];
+  paymentStatusBreakdown: AdminOrderReportPaymentStatusBreakdownItem[];
+  pricingModeBreakdown: AdminOrderReportPricingModeBreakdownItem[];
+  paymentMethodBreakdown: AdminOrderReportPaymentMethodBreakdownItem[];
+  topShippers: AdminOrderReportTopShipperItem[];
 };
 
 export type AdminOrderAttachmentAuditListQuery = {

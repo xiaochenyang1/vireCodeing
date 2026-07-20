@@ -217,6 +217,23 @@ test('filters orders by keyword across id, address, cargo, vehicle and driver', 
         completedOrdersText: '320 单',
       },
     }),
+    createOrder({
+      id: 'HY-D',
+      latestExceptionCase: {
+        id: 'case-1',
+        caseNo: 'YC202607180001',
+        sourceEventId: 'event-1',
+        sourceRole: 'driver',
+        status: 'resolved',
+        resolutionText: '客服判定货主线下赔付司机。',
+        compensationStatus: 'offline_completed',
+        compensationTargetRole: 'driver',
+        compensationAmountCents: 6600,
+        compensationUpdatedAtIso: '2026-07-18T08:15:00.000Z',
+        createdAtIso: '2026-07-18T08:00:00.000Z',
+        updatedAtIso: '2026-07-18T08:15:00.000Z',
+      },
+    }),
   ];
 
   expect(filterOrdersBySearchKeyword(orders, '尾板').map(order => order.id)).toEqual([
@@ -228,6 +245,12 @@ test('filters orders by keyword across id, address, cargo, vehicle and driver', 
   expect(
     filterOrdersBySearchKeyword(orders, '王师傅').map(order => order.id),
   ).toEqual(['HY-C']);
+  expect(
+    filterOrdersBySearchKeyword(orders, 'YC202607180001').map(order => order.id),
+  ).toEqual(['HY-D']);
+  expect(
+    filterOrdersBySearchKeyword(orders, '线下已赔付').map(order => order.id),
+  ).toEqual(['HY-D']);
 });
 
 test('combines status, time and keyword filters for the order list', () => {

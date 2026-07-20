@@ -8,6 +8,10 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 
 const driverEvaluationReplyQueueStorageKey =
   '@vireCodeing/driver-evaluation-reply-queue';
+const driverOrderMutationQueueStorageKey =
+  '@vireCodeing/driver-order-mutation-queue:local-driver';
+const uuidV4Pattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function createDriverCertificationSnapshot() {
   return {
@@ -57,6 +61,7 @@ function createDriverIncomeOverviewSnapshot() {
       pendingSettlementCents: 12000,
       availableWithdrawalCents: 24100,
       reviewingWithdrawalCents: 12000,
+      withdrawnCents: 8000,
       completedOrderCount: 1,
     },
     records: [
@@ -272,6 +277,361 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('shows latest exception summaries in the hall and executing order cards', async () => {
+    const hallOrder = {
+      id: 'order-hall-1',
+      orderNo: 'HY202607180001',
+      status: 'waiting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: '建材',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-18T08:00:00.000Z',
+      updatedAtIso: '2026-07-18T08:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-18T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      latestExceptionCase: {
+        id: 'case-hall-1',
+        caseNo: 'YC202607180003',
+        sourceEventId: 'event-hall-1',
+        sourceRole: 'driver' as const,
+        status: 'resolved' as const,
+        resolutionText: '客服判定货主线下赔付司机。',
+        compensationStatus: 'offline_completed' as const,
+        compensationTargetRole: 'driver' as const,
+        compensationAmountCents: 8800,
+        compensationUpdatedAtIso: '2026-07-18T09:15:00.000Z',
+        createdAtIso: '2026-07-18T09:00:00.000Z',
+        updatedAtIso: '2026-07-18T09:10:00.000Z',
+      },
+      events: [],
+    };
+    const myOrder = {
+      id: 'order-my-1',
+      orderNo: 'HY202607180002',
+      status: 'loading' as const,
+      pickupAddress: '南山区西丽仓',
+      deliveryAddress: '龙华区民治门店',
+      cargoType: '百货',
+      weightText: '1.2 吨',
+      quantityText: '8 箱',
+      pickupContact: '孙主管',
+      pickupPhone: '13900139003',
+      deliveryContact: '周店长',
+      deliveryPhone: '13900139004',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-18T08:30:00.000Z',
+      updatedAtIso: '2026-07-18T08:30:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-18T10:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 58000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-2',
+      latestExceptionCase: {
+        id: 'case-my-1',
+        caseNo: 'YC202607180004',
+        sourceEventId: 'event-my-1',
+        sourceRole: 'shipper' as const,
+        status: 'processing' as const,
+        resolutionText: '客服已要求双方补充装卸现场凭证。',
+        compensationStatus: 'pending' as const,
+        compensationTargetRole: 'shipper' as const,
+        compensationAmountCents: 12000,
+        compensationUpdatedAtIso: '2026-07-18T10:05:00.000Z',
+        createdAtIso: '2026-07-18T09:40:00.000Z',
+        updatedAtIso: '2026-07-18T09:55:00.000Z',
+      },
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall.mockResolvedValue({
+      items: [hallOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [myOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+    expect(renderedText).toContain('最新异常：YC202607180003 · 已解决');
+    expect(renderedText).toContain(
+      '赔付决议：线下已赔付 · 对象：司机 · 金额：￥88.00',
+    );
+    expect(renderedText).toContain('最新异常：YC202607180004 · 处理中');
+    expect(renderedText).toContain(
+      '赔付决议：待赔付跟进 · 对象：货主 · 金额：￥120.00',
+    );
+    expect(renderedText).not.toContain(
+      '更新时间：2026-07-18T09:15:00.000Z',
+    );
+    expect(renderedText).not.toContain(
+      '更新时间：2026-07-18T10:05:00.000Z',
+    );
+  });
+
+  it('passes mutation context when accepting an order from the hall', async () => {
+    const hallOrder = {
+      id: 'order-1',
+      orderNo: 'HY202607090001',
+      status: 'waiting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const acceptedOrder = {
+      ...hallOrder,
+      status: 'loading' as const,
+      events: [
+        {
+          id: 'event-driver-accepted',
+          eventType: 'driver_accepted',
+          noteText: '马上联系货主',
+          createdAtIso: '2026-07-09T02:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall.mockResolvedValue({
+      items: [hallOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.acceptOrder.mockResolvedValue(acceptedOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-quote-note-HY202607090001' })
+        .props.onChangeText('马上联系货主');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-accept-HY202607090001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.acceptOrder).toHaveBeenCalledWith(
+      'order-1',
+      {
+        noteText: '马上联系货主',
+        baseUpdatedAtIso: '2026-07-09T02:00:00.000Z',
+      },
+      expect.stringMatching(uuidV4Pattern),
+    );
+    expect(getRenderedText(renderer)).toContain('接单成功，订单已进入待装货。');
+  });
+
+  it('persists a failed driver accept and retries with the original mutation context', async () => {
+    const hallOrder = {
+      id: 'order-1',
+      orderNo: 'HY202607090001',
+      status: 'waiting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const acceptedOrder = {
+      ...hallOrder,
+      status: 'loading' as const,
+      updatedAtIso: '2026-07-09T02:05:00.000Z',
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall.mockResolvedValue({
+      items: [hallOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.acceptOrder
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockResolvedValueOnce(acceptedOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-quote-note-HY202607090001' })
+        .props.onChangeText('马上联系货主');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-accept-HY202607090001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const firstCall = platformDriverOrderApi.acceptOrder.mock.calls[0];
+    expect(getRenderedText(renderer)).toContain('司机订单同步队列');
+    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toContain(
+      firstCall[2],
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-accept-HY202607090001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.acceptOrder).toHaveBeenNthCalledWith(
+      2,
+      firstCall[0],
+      firstCall[1],
+      firstCall[2],
+    );
+    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
+    expect(getRenderedText(renderer)).toContain('接单成功，订单已进入待装货。');
+  });
+
+  it('refreshes the driver hall without queueing when accept hits a conflict', async () => {
+    const hallOrder = {
+      id: 'order-1',
+      orderNo: 'HY202607090001',
+      status: 'waiting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall
+      .mockResolvedValueOnce({ items: [hallOrder], page: 1, pageSize: 20, total: 1 })
+      .mockResolvedValueOnce({ items: [], page: 1, pageSize: 20, total: 0 });
+    platformDriverOrderApi.acceptOrder.mockRejectedValue(
+      new PlatformApiError('订单已被其他操作更新', 'ORDER_CONFLICT', 409),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-accept-HY202607090001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listOrderHall).toHaveBeenCalledTimes(2);
+    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
+    expect(getRenderedText(renderer)).toContain(
+      '订单已被其他操作更新，请确认最新状态。',
+    );
+  });
+
   it('loads driver income overview and submits a withdrawal request', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.createWithdrawal.mockResolvedValue({
@@ -300,6 +660,7 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(getRenderedText(renderer)).toContain('今日收入：￥361.00');
     expect(getRenderedText(renderer)).toContain('可提现：￥241.00');
+    expect(getRenderedText(renderer)).toContain('已提现：￥80.00');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -321,13 +682,69 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    expect(platformDriverOrderApi.createWithdrawal).toHaveBeenCalledWith({
-      amountCents: 12000,
-      bankAccountName: '李师傅',
-      bankName: '招商银行',
-      bankAccountNo: '6225888800001234',
-    });
+    expect(platformDriverOrderApi.createWithdrawal).toHaveBeenCalledWith(
+      {
+        amountCents: 12000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225888800001234',
+      },
+      expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      ),
+    );
     expect(getRenderedText(renderer)).toContain('提现申请已提交审核。');
+  });
+
+  it('reuses the same withdrawal idempotency key after a transient failure', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.createWithdrawal
+      .mockRejectedValueOnce(new Error('NETWORK_ERROR'))
+      .mockResolvedValueOnce({ id: 'withdrawal-replayed' });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-name' })
+        .props.onChangeText('招商银行');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.onChangeText('李师傅');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 8888 0000 1234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const firstKey = platformDriverOrderApi.createWithdrawal.mock.calls[0][1];
+    const secondKey = platformDriverOrderApi.createWithdrawal.mock.calls[1][1];
+    expect(firstKey).toEqual(expect.stringMatching(uuidV4Pattern));
+    expect(secondKey).toBe(firstKey);
   });
 
   it('uploads identity certification attachments through the platform file api before submit', async () => {
@@ -829,10 +1246,118 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(platformDriverOrderApi.advanceOrderStatus).toHaveBeenCalledWith(
       'order-1',
       {
+        baseUpdatedAtIso: '2026-07-07T08:00:00.000Z',
         nextStatus: 'transporting',
         receiptPhotoFileIds: ['file-receipt-1'],
       },
+      expect.stringMatching(uuidV4Pattern),
     );
+  });
+
+  it('restores a failed driver status mutation and retries with the original context', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607070001',
+      status: 'transporting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-07T08:00:00.000Z',
+      updatedAtIso: '2026-07-07T08:05:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-07T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const advancedOrder = {
+      ...order,
+      status: 'confirming' as const,
+      updatedAtIso: '2026-07-07T08:10:00.000Z',
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.advanceOrderStatus
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockResolvedValueOnce(advancedOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607070001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-advance-status-HY202607070001' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const firstCall = platformDriverOrderApi.advanceOrderStatus.mock.calls[0];
+    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toContain(
+      firstCall[2],
+    );
+
+    ReactTestRenderer.act(() => {
+      renderer.unmount();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('司机订单同步队列');
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-order-mutation-retry-status-order-1' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.advanceOrderStatus).toHaveBeenNthCalledWith(
+      2,
+      firstCall[0],
+      firstCall[1],
+      firstCall[2],
+    );
+    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
+    expect(getRenderedText(renderer)).toContain('司机已确认到达，等待货主确认。');
   });
 
   it('uploads proof and reports a driver exception from an executing order', async () => {
@@ -897,7 +1422,12 @@ describe('DriverHomeScreen certification uploads', () => {
           typeLabel: '货物损坏',
           description: '装货时发现外包装已经破损。',
           attachmentFileIds: [],
-          status: 'processing',
+          status: 'resolved',
+          resolutionText: '客服判定货主线下赔付司机。',
+          compensationStatus: 'offline_completed',
+          compensationTargetRole: 'driver',
+          compensationAmountCents: 6600,
+          compensationUpdatedAtIso: '2026-07-12T08:15:00.000Z',
           createdAtIso: '2026-07-12T08:00:00.000Z',
           updatedAtIso: '2026-07-12T08:10:00.000Z',
           actions: [],
@@ -953,7 +1483,10 @@ describe('DriverHomeScreen certification uploads', () => {
     );
     expect(getRenderedText(renderer)).toContain('异常处理进度');
     expect(getRenderedText(renderer)).toContain('YC202607120002');
-    expect(getRenderedText(renderer)).toContain('处理中');
+    expect(getRenderedText(renderer)).toContain('已解决');
+    expect(getRenderedText(renderer)).toContain(
+      '赔付决议：线下已赔付 · 对象：司机 · 金额：￥66.00 · 更新时间：2026-07-12T08:15:00.000Z',
+    );
 
     ReactTestRenderer.act(() => {
       renderer.root

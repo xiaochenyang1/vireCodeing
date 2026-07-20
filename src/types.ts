@@ -31,6 +31,29 @@ export type OrderSyncOperation =
   | 'refresh'
   | 'local';
 
+export type OrderMutationContext = {
+  idempotencyKey: string;
+  baseUpdatedAtIso: string;
+};
+
+export type OrderPaymentStatus =
+  | 'not_required'
+  | 'pending'
+  | 'escrowed'
+  | 'settled'
+  | 'failed'
+  | 'cancelled'
+  | 'refund_pending'
+  | 'refunded'
+  | 'refund_failed'
+  | 'legacy_unverified';
+
+export type PaymentChannel = 'sandbox' | 'wechat' | 'alipay';
+
+export type OrderCreateIdempotencyContext = {
+  idempotencyKey: string;
+};
+
 export type OrderSyncQueueItem = {
   id: string;
   titleText: string;
@@ -46,6 +69,9 @@ export type OrderSyncState = {
   message: string;
   updatedAtText: string;
   updatedAtIso?: string;
+  retryBlocked?: boolean;
+  createContext?: OrderCreateIdempotencyContext;
+  mutationContext?: OrderMutationContext;
   queueItems?: OrderSyncQueueItem[];
 };
 
@@ -91,6 +117,35 @@ export type DriverQuote = DriverInfo & {
   noteText: string;
 };
 
+export type RecentOrderExceptionCaseStatus =
+  | 'pending'
+  | 'processing'
+  | 'resolved'
+  | 'closed';
+export type RecentOrderExceptionCaseSourceRole = 'shipper' | 'driver';
+export type RecentOrderExceptionCaseCompensationStatus =
+  | 'not_required'
+  | 'pending'
+  | 'offline_completed';
+export type RecentOrderExceptionCaseCompensationTargetRole =
+  RecentOrderExceptionCaseSourceRole;
+
+export type RecentOrderLatestExceptionCase = {
+  id: string;
+  caseNo: string;
+  sourceEventId: string;
+  sourceRole: RecentOrderExceptionCaseSourceRole;
+  status: RecentOrderExceptionCaseStatus;
+  resolutionText?: string;
+  resolvedAtIso?: string;
+  compensationStatus?: RecentOrderExceptionCaseCompensationStatus;
+  compensationTargetRole?: RecentOrderExceptionCaseCompensationTargetRole;
+  compensationAmountCents?: number;
+  compensationUpdatedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
 export type RecentOrder = {
   id: string;
   platformOrderId?: string;
@@ -114,7 +169,13 @@ export type RecentOrder = {
   couponDiscountText?: string;
   payablePriceText?: string;
   bonusText?: string;
+  paymentMethod?: PaymentMethod;
   paymentMethodText?: string;
+  paymentStatus?: OrderPaymentStatus;
+  paymentChannel?: PaymentChannel;
+  assignedDriverId?: string;
+  paymentSettledAtIso?: string;
+  refundedAtIso?: string;
   createdAtIso?: string;
   updatedAtIso?: string;
   updatedAtText: string;
@@ -163,6 +224,7 @@ export type RecentOrder = {
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   };
+  latestExceptionCase?: RecentOrderLatestExceptionCase;
   reorderSource?: {
     orderId: string;
     copiedAtText: string;

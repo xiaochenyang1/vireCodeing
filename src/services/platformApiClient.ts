@@ -21,6 +21,7 @@ export type PlatformApiErrorBody = {
 
 export type PlatformApiRequestOptions = {
   includeAuth?: boolean;
+  headers?: Record<string, string>;
 };
 
 export class PlatformApiError extends Error {
@@ -94,6 +95,7 @@ async function platformRequest<TResponse>(
         'Content-Type': 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         ...(requestId ? { 'x-request-id': requestId } : {}),
+        ...(options.headers ?? {}),
         ...init.headers,
       },
     });

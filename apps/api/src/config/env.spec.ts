@@ -22,6 +22,10 @@ describe('parseEnv', () => {
       ACCESS_TOKEN_TTL_SECONDS: 900,
       REFRESH_TOKEN_TTL_SECONDS: 604800,
       VERIFICATION_CODE_TTL_SECONDS: 300,
+      ORDER_IDEMPOTENCY_TTL_SECONDS: 86400,
+      PAYMENT_PROVIDER_MODE: 'disabled',
+      PAYMENT_PLATFORM_FEE_BPS: 500,
+      PAYMENT_ORDER_TTL_SECONDS: 900,
       FILE_STORAGE_PROVIDER: 'local',
       FILE_STORAGE_ROOT: 'var/uploads',
       FILE_PENDING_CLEANUP_INTERVAL_SECONDS: 3600,
@@ -40,6 +44,93 @@ describe('parseEnv', () => {
         VERIFICATION_CODE_TTL_SECONDS: '0',
       }),
     ).toThrow('Invalid API environment');
+  });
+
+  it('parses custom order idempotency ttl values', () => {
+    expect(
+      parseEnv({
+        NODE_ENV: 'development',
+        PORT: '3000',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        ACCESS_TOKEN_TTL_SECONDS: '900',
+        REFRESH_TOKEN_TTL_SECONDS: '604800',
+        ORDER_IDEMPOTENCY_TTL_SECONDS: '172800',
+      }),
+    ).toMatchObject({
+      ORDER_IDEMPOTENCY_TTL_SECONDS: 172800,
+    });
+  });
+
+  it('rejects invalid order idempotency ttl values', () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: 'development',
+        PORT: '3000',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        ACCESS_TOKEN_TTL_SECONDS: '900',
+        REFRESH_TOKEN_TTL_SECONDS: '604800',
+        ORDER_IDEMPOTENCY_TTL_SECONDS: '0',
+      }),
+    ).toThrow('Invalid API environment');
+  });
+
+  it('parses sandbox payment configuration outside production', () => {
+    expect(
+      parseEnv({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        PAYMENT_PROVIDER_MODE: 'sandbox',
+        PAYMENT_SANDBOX_SECRET: 'sandbox-payment-secret-32-characters',
+        PAYMENT_PLATFORM_FEE_BPS: '650',
+        PAYMENT_ORDER_TTL_SECONDS: '1200',
+      }),
+    ).toMatchObject({
+      PAYMENT_PROVIDER_MODE: 'sandbox',
+      PAYMENT_SANDBOX_SECRET: 'sandbox-payment-secret-32-characters',
+      PAYMENT_PLATFORM_FEE_BPS: 650,
+      PAYMENT_ORDER_TTL_SECONDS: 1200,
+    });
+  });
+
+  it('rejects sandbox payment configuration in production', () => {
+    expect(() =>
+      parseEnv(createProductionEnv({
+        PAYMENT_PROVIDER_MODE: 'sandbox',
+        PAYMENT_SANDBOX_SECRET: 'sandbox-payment-secret-32-characters',
+      })),
+    ).toThrow('Production payment provider must not use sandbox');
+  });
+
+  it('rejects incomplete live Alipay configuration', () => {
+    expect(() =>
+      parseEnv(
+        createProductionEnv({
+          PAYMENT_PROVIDER_MODE: 'alipay',
+          PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
+        }),
+      ),
+    ).toThrow('Alipay payment config is incomplete');
+  });
+
+  it('accepts complete live Alipay configuration', () => {
+    expect(
+      parseEnv(
+        createProductionEnv({
+          PAYMENT_PROVIDER_MODE: 'alipay',
+          PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
+          ALIPAY_APP_ID: 'alipay-app-id',
+          ALIPAY_SELLER_ID: 'seller-id',
+          ALIPAY_MERCHANT_PRIVATE_KEY_PEM: rsaPrivateKeyFixture,
+          ALIPAY_PUBLIC_KEY_PEM: rsaPublicKeyFixture,
+        }),
+      ),
+    ).toMatchObject({
+      PAYMENT_PROVIDER_MODE: 'alipay',
+      ALIPAY_APP_ID: 'alipay-app-id',
+    });
   });
 
   it('parses webhook SMS environment values', () => {
@@ -62,6 +153,12 @@ describe('parseEnv', () => {
           'production-file-preview-secret-32-chars',
         FILE_STORAGE_CALLBACK_SIGNING_SECRET:
           'production-file-callback-secret-32-chars',
+        PAYMENT_PROVIDER_MODE: 'alipay',
+        PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
+        ALIPAY_APP_ID: 'alipay-app-id',
+        ALIPAY_SELLER_ID: 'seller-id',
+        ALIPAY_MERCHANT_PRIVATE_KEY_PEM: rsaPrivateKeyFixture,
+        ALIPAY_PUBLIC_KEY_PEM: rsaPublicKeyFixture,
       }),
     ).toMatchObject({
       SMS_PROVIDER: 'webhook',
@@ -326,3 +423,24 @@ describe('parseEnv', () => {
     ).toThrow('Production JWT access secret must be at least 32 characters');
   });
 });
+
+const rsaPrivateKeyFixture = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
+const rsaPublicKeyFixture = '-----BEGIN PUBLIC KEY-----\nfixture\n-----END PUBLIC KEY-----';
+
+function createProductionEnv(
+  overrides: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  return {
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+    JWT_ACCESS_SECRET: 'production-access-secret-with-32-chars',
+    SMS_PROVIDER: 'webhook',
+    SMS_WEBHOOK_URL: 'https://sms.example.com/send',
+    SMS_WEBHOOK_TOKEN: 'production-webhook-token',
+    FILE_PREVIEW_SIGNING_SECRET:
+      'production-file-preview-secret-32-chars',
+    FILE_STORAGE_CALLBACK_SIGNING_SECRET:
+      'production-file-callback-secret-32-chars',
+    ...overrides,
+  };
+}

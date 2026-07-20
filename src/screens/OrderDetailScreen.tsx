@@ -26,6 +26,7 @@ import {
   ModificationRequestRecordCard,
 } from './order-detail/OrderRecordCards';
 import { OrderSyncStatusCard } from './order-detail/OrderSyncStatusCard';
+import { PaymentStatusCard } from './order-detail/PaymentStatusCard';
 import { TrackingCard } from './order-detail/TrackingCard';
 import { useOrderDetailPanels } from './order-detail/useOrderDetailPanels';
 import type {
@@ -35,6 +36,12 @@ import type {
   RecentOrder,
 } from '../types';
 import type { createPlatformFileApi } from '../services/platformFileApi';
+import type {
+  createPlatformPaymentApi,
+  PlatformPaymentChannel,
+  PlatformPaymentRecord,
+  PlatformPaymentSdk,
+} from '../services/platformPaymentApi';
 import { PlatformApiError } from '../services/platformApiClient';
 import type {
   createPlatformOrderApi,
@@ -59,6 +66,11 @@ import {
   getOrderSecondaryActionLabel,
   type OrderProgressAction,
 } from '../utils/orderDetail';
+import {
+  continuePlatformPayment,
+  createPaymentIdempotencyKey,
+  executePlatformPayment,
+} from '../utils/payment';
 
 export function OrderDetailScreen({
   orderId,
@@ -77,6 +89,8 @@ export function OrderDetailScreen({
   onSubmitEvaluation,
   platformFileApi,
   platformOrderApi,
+  platformPaymentApi,
+  platformPaymentSdk,
 }: {
   orderId: string;
   now: number;
@@ -115,6 +129,11 @@ export function OrderDetailScreen({
     ReturnType<typeof createPlatformOrderApi>,
     'listExceptionCases'
   >;
+  platformPaymentApi?: Pick<
+    ReturnType<typeof createPlatformPaymentApi>,
+    'createPayment' | 'getLatestPayment'
+  >;
+  platformPaymentSdk?: PlatformPaymentSdk;
 }) {
   const order = orders.find(item => item.id === orderId) ?? orders[0];
   const status = recentOrderStatusCopy[order.status];
@@ -126,6 +145,11 @@ export function OrderDetailScreen({
   const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
     useState(false);
   const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
+  const [payment, setPayment] = useState<PlatformPaymentRecord>();
+  const [paymentChannel, setPaymentChannel] =
+    useState<PlatformPaymentChannel>('wechat');
+  const [isPaymentBusy, setIsPaymentBusy] = useState(false);
+  const [paymentNotice, setPaymentNotice] = useState<string>();
 
   useEffect(() => {
     if (!platformOrderApi || !order.platformOrderId) {
@@ -168,6 +192,58 @@ export function OrderDetailScreen({
       active = false;
     };
   }, [order.platformOrderId, platformOrderApi]);
+
+  useEffect(() => {
+    if (
+      order.paymentMethod !== 'online' ||
+      !order.platformOrderId ||
+      !platformPaymentApi
+    ) {
+      setPayment(undefined);
+      setPaymentNotice(undefined);
+      setIsPaymentBusy(false);
+      return;
+    }
+
+    let active = true;
+    setPayment(undefined);
+    setPaymentNotice(undefined);
+    setIsPaymentBusy(true);
+    platformPaymentApi
+      .getLatestPayment(order.platformOrderId)
+      .then(latestPayment => {
+        if (!active) {
+          return;
+        }
+        setPayment(latestPayment);
+        if (
+          latestPayment.channel === 'wechat' ||
+          latestPayment.channel === 'alipay'
+        ) {
+          setPaymentChannel(latestPayment.channel);
+        }
+      })
+      .catch(error => {
+        if (!active) {
+          return;
+        }
+        setPaymentNotice(
+          error instanceof PlatformApiError &&
+            error.code === 'PAYMENT_ORDER_NOT_AVAILABLE'
+            ? '暂未创建支付单，可选择渠道后支付。'
+            : '支付状态加载失败，可稍后刷新重试。',
+        );
+      })
+      .finally(() => {
+        if (active) {
+          setIsPaymentBusy(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [order.paymentMethod, order.platformOrderId, platformPaymentApi]);
   const { isPanelOpen, closeAllPanels, togglePanel } = useOrderDetailPanels();
   const [localNotice, setLocalNotice] = useState('');
   const driverQuotes = order.driverQuotes ?? [];
@@ -187,6 +263,83 @@ export function OrderDetailScreen({
       ...changes,
       updatedAtIso: new Date(now).toISOString(),
     });
+  };
+
+  const applyPaymentSnapshot = (latestPayment: PlatformPaymentRecord) => {
+    setPayment(latestPayment);
+    onUpdateOrder(order.id, {
+      paymentStatus: mapPaymentRecordToOrderStatus(latestPayment),
+      paymentChannel: latestPayment.channel,
+    });
+  };
+
+  const refreshPaymentStatus = async () => {
+    if (!platformPaymentApi || !order.platformOrderId) {
+      setPaymentNotice('当前订单尚未连接平台支付服务。');
+      return;
+    }
+
+    setIsPaymentBusy(true);
+    setPaymentNotice(undefined);
+    try {
+      applyPaymentSnapshot(
+        await platformPaymentApi.getLatestPayment(order.platformOrderId),
+      );
+    } catch {
+      setPaymentNotice('支付状态刷新失败，请稍后重试。');
+    } finally {
+      setIsPaymentBusy(false);
+    }
+  };
+
+  const submitPlatformPayment = async () => {
+    if (
+      !platformPaymentApi ||
+      !platformPaymentSdk ||
+      !order.platformOrderId
+    ) {
+      setPaymentNotice('当前客户端未配置可用的原生支付能力。');
+      return;
+    }
+
+    setIsPaymentBusy(true);
+    setPaymentNotice(undefined);
+    try {
+      const hasActivePayment =
+        payment?.status === 'pending' || payment?.status === 'processing';
+      const result = hasActivePayment
+        ? await continuePlatformPayment({
+            api: platformPaymentApi,
+            sdk: platformPaymentSdk,
+            payment,
+            channel: paymentChannel,
+          })
+        : await executePlatformPayment({
+            api: platformPaymentApi,
+            sdk: platformPaymentSdk,
+            orderId: order.platformOrderId,
+            channel: paymentChannel,
+            idempotencyKey: createPaymentIdempotencyKey(),
+          });
+
+      applyPaymentSnapshot(result.payment);
+      if (
+        (result.status === 'cancelled' ||
+          result.status === 'sdk-cancelled') &&
+        (result.payment.status === 'pending' ||
+          result.payment.status === 'processing')
+      ) {
+        setPaymentNotice('已取消支付，可稍后继续。');
+      } else if (result.status === 'sdk-failed') {
+        setPaymentNotice(result.message ?? '支付客户端调用失败，请稍后重试。');
+      } else if (result.status === 'pending') {
+        setPaymentNotice('支付结果仍在服务端确认，可稍后刷新状态。');
+      }
+    } catch (error) {
+      setPaymentNotice(getPaymentFailureNotice(error));
+    } finally {
+      setIsPaymentBusy(false);
+    }
   };
 
   const primaryAction = getOrderPrimaryActionLabel(order);
@@ -284,6 +437,15 @@ export function OrderDetailScreen({
   };
 
   const runSecondaryAction = () => {
+    if (
+      order.paymentStatus === 'refund_pending' ||
+      payment?.status === 'refund_pending'
+    ) {
+      closeAllPanels();
+      setLocalNotice('退款处理中，请勿重复取消订单。');
+      return;
+    }
+
     if (order.status === 'waiting' || order.status === 'loading') {
       togglePanel('cancellation');
       setLocalNotice('');
@@ -508,6 +670,19 @@ export function OrderDetailScreen({
         />
       ) : null}
 
+      {order.paymentMethod === 'online' ? (
+        <PaymentStatusCard
+          orderPaymentStatus={order.paymentStatus ?? 'pending'}
+          payment={payment}
+          selectedChannel={paymentChannel}
+          isBusy={isPaymentBusy}
+          notice={paymentNotice}
+          onSelectChannel={setPaymentChannel}
+          onPay={submitPlatformPayment}
+          onRefresh={refreshPaymentStatus}
+        />
+      ) : null}
+
       <ExceptionCaseProgressPanel
         cases={exceptionCases}
         isLoading={isLoadingExceptionCases}
@@ -648,4 +823,28 @@ export function OrderDetailScreen({
       ) : null}
     </ScrollView>
   );
+}
+
+function mapPaymentRecordToOrderStatus(
+  payment: PlatformPaymentRecord,
+): NonNullable<RecentOrder['paymentStatus']> {
+  if (payment.status === 'pending' || payment.status === 'processing') {
+    return 'pending';
+  }
+  if (payment.status === 'expired') {
+    return 'failed';
+  }
+  return payment.status;
+}
+
+function getPaymentFailureNotice(error: unknown) {
+  if (error instanceof PlatformApiError) {
+    if (error.code === 'AUTH_ACCESS_TOKEN_MISSING') {
+      return '登录状态已失效，请重新登录后支付。';
+    }
+    if (error.code === 'PAYMENT_ORDER_NOT_AVAILABLE') {
+      return '已有支付仍在处理中，请先刷新服务端状态。';
+    }
+  }
+  return '支付请求失败，请稍后重试。';
 }

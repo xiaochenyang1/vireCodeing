@@ -12,6 +12,7 @@ import {
   getAuthSessionSnapshot,
   hydrateAuthSession,
   refreshAuthSession,
+  saveAuthSession,
 } from '../src/utils/authSession';
 import {
   clearSavedDraft,
@@ -35,6 +36,7 @@ import {
   getAppRuntimeState,
 } from '../src/utils/appRuntimeState';
 import { isValidLocalPickupTimeText } from '../src/utils/order';
+import type { PlatformPaymentSdk } from '../src/services/platformPaymentApi';
 
 type AppRenderer = ReturnType<typeof ReactTestRenderer.create>;
 type PlatformRuntimeConfigGlobal = typeof globalThis & {
@@ -47,6 +49,8 @@ jest.setTimeout(20000);
 
 const mountedRenderers: AppRenderer[] = [];
 const originalGlobalFetch = globalThis.fetch;
+const uuidV4Pattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -83,6 +87,21 @@ function unmountMountedRenderers() {
     renderers.forEach(renderer => {
       renderer.unmount();
     });
+  });
+}
+
+function expectOrderMutationContext(
+  mutationContext:
+    | {
+        idempotencyKey?: string;
+        baseUpdatedAtIso?: string;
+      }
+    | undefined,
+  baseUpdatedAtIso: string,
+) {
+  expect(mutationContext).toMatchObject({
+    idempotencyKey: expect.stringMatching(uuidV4Pattern),
+    baseUpdatedAtIso,
   });
 }
 
@@ -260,6 +279,77 @@ test('restores persisted local app state from device storage on cold start', asy
   expect(renderedText).toContain('持久化货主');
   expect(renderedText).toContain('持久化装货地');
   expect(renderedText).toContain('持久化卸货地');
+});
+
+test('resumes a pending platform payment from the server on cold start', async () => {
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  await AsyncStorage.setMany({
+    '@vireCodeing/auth-session': JSON.stringify({
+      issuedAt: now - 1000,
+      expiresAt: now + 60 * 60 * 1000,
+      accessToken: 'access.pending-payment.3600',
+    }),
+    '@vireCodeing/pending-platform-payment': JSON.stringify({
+      orderId: 'order-platform-payment-1',
+      paymentId: 'payment-1',
+      channel: 'wechat',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+      createdAtIso: '2026-07-15T07:59:00.000Z',
+    }),
+  });
+  const terminalPayment = {
+    id: 'payment-1',
+    paymentNo: 'PAY-1',
+    orderId: 'order-platform-payment-1',
+    orderNo: 'HY202607150001',
+    shipperId: 'shipper-pending-payment',
+    channel: 'wechat',
+    amountCents: 31000,
+    status: 'escrowed',
+    clientPayload: { prepayId: 'prepay-1' },
+    expiresAtIso: '2026-07-15T08:15:00.000Z',
+    paidAtIso: '2026-07-15T08:00:30.000Z',
+    createdAtIso: '2026-07-15T07:59:00.000Z',
+    updatedAtIso: '2026-07-15T08:00:30.000Z',
+  };
+  const fetchMock = jest.fn((input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    if (requestUrl.endsWith('/me')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'shipper-pending-payment',
+          phone: '13800138000',
+          userType: 'shipper',
+        }),
+      );
+    }
+    if (
+      requestUrl.endsWith(
+        '/shipper/orders/order-platform-payment-1/payments',
+      )
+    ) {
+      return Promise.resolve(createPlatformApiResponse(terminalPayment));
+    }
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  const paymentSdk: PlatformPaymentSdk = {
+    openPayment: jest.fn(),
+  };
+
+  await renderApp(now, {
+    platformApiBaseUrl: 'http://localhost:3000/api',
+    paymentSdk,
+  });
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://localhost:3000/api/shipper/orders/order-platform-payment-1/payments',
+    expect.objectContaining({ method: 'GET' }),
+  );
+  await expect(
+    AsyncStorage.getItem('@vireCodeing/pending-platform-payment'),
+  ).resolves.toBeNull();
+  expect(paymentSdk.openPayment).not.toHaveBeenCalled();
 });
 
 test('restores persisted local draft from device storage on cold start', async () => {
@@ -506,13 +596,20 @@ function collectText(node: unknown): string[] {
 
 async function renderApp(
   now?: number,
-  options: { platformApiBaseUrl?: string } = {},
+  options: {
+    platformApiBaseUrl?: string;
+    paymentSdk?: PlatformPaymentSdk;
+  } = {},
 ): Promise<AppRenderer> {
   let renderer: AppRenderer | undefined;
 
   await ReactTestRenderer.act(async () => {
     renderer = ReactTestRenderer.create(
-      <App now={now} platformApiBaseUrl={options.platformApiBaseUrl} />,
+      <App
+        now={now}
+        platformApiBaseUrl={options.platformApiBaseUrl}
+        paymentSdk={options.paymentSdk}
+      />,
     );
     await flushMicrotasks();
     await flushMacrotask();
@@ -534,6 +631,17 @@ async function flushMicrotasks() {
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function flushMacrotask() {
   await new Promise<void>(resolve => {
     setTimeout(() => resolve(), 0);
@@ -552,6 +660,21 @@ function createPlatformApiResponse<T>(data: T) {
       timestamp: '2026-06-26T00:00:00.000Z',
     }),
   };
+}
+
+async function publishDigitalPlatformOrderFromHome(app: AppRenderer) {
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+    await flushMicrotasks();
+  });
+  fillDigitalDraft(app);
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+  });
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+    await flushMicrotasks();
+  });
 }
 
 function installPlatformFetchMock(fetchMock: jest.Mock) {
@@ -918,6 +1041,56 @@ test('opens the recent order detail from the home screen', async () => {
   expect(renderedText).toContain('订单详情');
   expect(renderedText).toContain('HY20260622001');
   expect(renderedText).toContain('查看报价');
+});
+
+test('shows latest exception compensation snapshots on recent order cards', async () => {
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: {
+        orders: [
+          {
+            id: 'HYCASE001',
+            status: 'transporting',
+            from: '深圳南山仓',
+            to: '东莞松山湖仓',
+            cargoType: '建材',
+            weightText: '3 吨',
+            vehicleRequirement: '中型货车',
+            priceText: '￥880',
+            updatedAtText: '刚刚更新',
+            latestExceptionCase: {
+              id: 'case-1',
+              caseNo: 'YC202607180003',
+              sourceEventId: 'event-1',
+              sourceRole: 'driver',
+              status: 'resolved',
+              resolutionText: '客服判定货主线下赔付司机。',
+              compensationStatus: 'offline_completed',
+              compensationTargetRole: 'driver',
+              compensationAmountCents: 8800,
+              compensationUpdatedAtIso: '2026-07-18T08:25:00.000Z',
+              createdAtIso: '2026-07-18T08:00:00.000Z',
+              updatedAtIso: '2026-07-18T08:25:00.000Z',
+            },
+          },
+        ],
+        messages: [],
+      },
+    }),
+  );
+
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  const renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('最新异常：YC202607180003 · 已解决');
+  expect(renderedText).toContain(
+    '赔付决议：线下已赔付 · 对象：司机 · 金额：￥88.00',
+  );
 });
 
 test('advances a waiting order through the local status flow', async () => {
@@ -9008,12 +9181,16 @@ test('shows platform spending snapshot when opening spending in platform mode', 
         orderNo: 'HY202607090003',
         status: 'loading' as const,
         paymentMethod: 'online' as const,
+        paymentStatus: 'escrowed' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'escrowed' as const,
         amountCents: 52000,
         priceCents: 54000,
         payablePriceCents: 52000,
         couponTitle: '满 500 减 20',
         couponDiscountCents: 2000,
         occurredAtIso: '2026-07-09T09:20:00.000Z',
+        paidAtIso: '2026-07-09T09:10:00.000Z',
         routeText: '龙华仓库 → 福田门店',
       },
       {
@@ -9021,8 +9198,10 @@ test('shows platform spending snapshot when opening spending in platform mode', 
         orderNo: 'HY202607090002',
         status: 'completed' as const,
         paymentMethod: 'cod' as const,
+        paymentStatus: 'settled' as const,
         amountCents: 31000,
         occurredAtIso: '2026-07-09T08:30:00.000Z',
+        settledAtIso: '2026-07-09T08:30:00.000Z',
         routeText: '宝安仓库 → 南山门店',
       },
       {
@@ -9030,8 +9209,15 @@ test('shows platform spending snapshot when opening spending in platform mode', 
         orderNo: 'HY202607090001',
         status: 'cancelled' as const,
         paymentMethod: 'online' as const,
+        paymentStatus: 'refunded' as const,
+        paymentChannel: 'alipay' as const,
+        paymentOrderStatus: 'refunded' as const,
+        refundStatus: 'succeeded' as const,
         amountCents: 26000,
+        refundAmountCents: 26000,
         occurredAtIso: '2026-07-08T18:30:00.000Z',
+        paidAtIso: '2026-07-08T18:00:00.000Z',
+        refundedAtIso: '2026-07-08T18:30:00.000Z',
         routeText: '光明仓库 → 前海门店',
       },
     ],
@@ -9104,16 +9290,20 @@ test('shows platform spending snapshot when opening spending in platform mode', 
 
     const renderedText = getRenderedText(app);
 
-    expect(renderedText).toContain('消费记录已按平台订单快照同步');
+    expect(renderedText).toContain('消费记录已按平台资金流水同步');
     expect(renderedText).toContain('HY202607090003');
     expect(renderedText).toContain('HY202607090002');
     expect(renderedText).toContain('HY202607090001');
     expect(renderedText).toContain('龙华仓库 → 福田门店');
-    expect(renderedText).toContain('待装货');
+    expect(renderedText).toContain('在线支付 · 微信支付');
+    expect(renderedText).toContain('资金状态：已托管');
+    expect(renderedText).toContain('退款状态：已退款');
     expect(renderedText).toContain('已完成消费：￥310');
     expect(renderedText).toContain('托管中金额：￥520');
-    expect(renderedText).toContain('退款中金额：￥260');
+    expect(renderedText).toContain('已退款金额：￥260');
+    expect(renderedText).not.toContain('退款中金额');
     expect(renderedText).not.toContain('HY20260620003');
+    expect(renderedText).not.toContain('真实支付/退款流水尚未接通');
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/profile/spending-records',
@@ -9607,17 +9797,40 @@ test('submits a platform invoice request and refreshes platform invoice records'
   const platformCompletedOrder = {
     id: 'HY202607080001',
     platformOrderId: 'platform-order-invoice-1',
-    status: 'completed' as const,
+    status: 'transporting' as const,
     from: '平台南山仓',
     to: '平台福田店',
     cargoType: '食品',
     weightText: '3 吨',
     vehicleRequirement: '中型货车',
-    priceText: '￥880',
-    payablePriceText: '￥850',
+    priceText: '￥9999',
     paymentMethodText: '在线支付',
     updatedAtText: '订单已完成 · 今天 10:00',
     updatedAtIso: '2026-07-08T02:00:00.000Z',
+  };
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice',
+    summary: {
+      completedTotalCents: 85000,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [
+      {
+        orderId: 'platform-order-invoice-1',
+        orderNo: 'HY202607080001',
+        status: 'completed' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'settled' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'settled' as const,
+        amountCents: 85000,
+        occurredAtIso: '2026-07-08T02:00:00.000Z',
+        paidAtIso: '2026-07-08T01:30:00.000Z',
+        settledAtIso: '2026-07-08T02:00:00.000Z',
+        routeText: '平台南山仓 → 平台福田店',
+      },
+    ],
   };
   const createdPlatformInvoice = {
     id: 'invoice-platform-1',
@@ -9709,6 +9922,16 @@ test('submits a platform invoice request and refreshes platform invoice records'
     }
 
     if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
       requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
       init?.method === 'POST'
     ) {
@@ -9743,6 +9966,10 @@ test('submits a platform invoice request and refreshes platform invoice records'
   expect(renderedText).not.toContain('待提交');
   expect(renderedText).toContain('HY202607080001');
   expect(renderedText).toContain('可开票 ￥850');
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://localhost:3000/api/shipper/profile/spending-records',
+    expect.objectContaining({ method: 'GET' }),
+  );
 
   ReactTestRenderer.act(() => {
     app.root
@@ -14897,6 +15124,7 @@ test('uses platform order api when publishing and keeps local fallback on failur
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-user.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
       }),
     );
@@ -14938,10 +15166,587 @@ test('uses platform order api when publishing and keeps local fallback on failur
       message: expect.stringContaining(
         '平台订单接口不可用，已保留本地待同步订单。',
       ),
+      createContext: {
+        idempotencyKey: expect.stringMatching(uuidV4Pattern),
+      },
     });
     expect(getRenderedText(app)).toContain(
       '平台订单接口不可用，已保留本地待同步订单。',
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('persists the create key before sending a platform order request', async () => {
+  const originalFetch = globalThis.fetch;
+  const setItemMock = AsyncStorage.setItem as jest.Mock;
+  const originalSetItemImplementation = setItemMock.getMockImplementation();
+  const durableWrite = createDeferred<void>();
+  const createResponse = createDeferred<unknown>();
+  let durableWriteStarted = false;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({ expireSeconds: 300, devCode: '999999' }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-durable-create',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-durable-create.900',
+          refreshToken: 'refresh.platform-durable-create.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockImplementationOnce(() => createResponse.promise);
+
+  if (!originalSetItemImplementation) {
+    throw new Error('AsyncStorage.setItem mock implementation is required');
+  }
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+    fillDigitalDraft(app);
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+
+    setItemMock.mockImplementation((key: string, value: string) => {
+      if (
+        key === '@vireCodeing/app-runtime-state' &&
+        !durableWriteStarted &&
+        JSON.parse(value).state.orders[0]?.syncState?.createContext
+      ) {
+        durableWriteStarted = true;
+        return durableWrite.promise.then(() =>
+          originalSetItemImplementation(key, value),
+        );
+      }
+
+      return originalSetItemImplementation(key, value);
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(durableWriteStarted).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith('/shipper/orders'),
+      ),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      durableWrite.resolve(undefined);
+      await flushMicrotasks();
+    });
+
+    const createCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith('/shipper/orders'),
+    );
+    const storedSnapshot = JSON.parse(
+      String(await AsyncStorage.getItem('@vireCodeing/app-runtime-state')),
+    );
+    const storedKey =
+      storedSnapshot.state.orders[0].syncState.createContext.idempotencyKey;
+    const requestHeaders = createCall?.[1]?.headers as Record<string, string>;
+
+    expect(storedKey).toMatch(uuidV4Pattern);
+    expect(requestHeaders['Idempotency-Key']).toBe(storedKey);
+
+    await ReactTestRenderer.act(async () => {
+      createResponse.resolve(
+        createPlatformApiResponse(
+          createPlatformOrderFixture({
+            id: 'order-platform-durable-create',
+            orderNo: 'HY202607010990',
+            shipperId: 'user-platform-durable-create',
+          }),
+        ),
+      );
+      await flushMicrotasks();
+    });
+  } finally {
+    durableWrite.resolve(undefined);
+    createResponse.resolve(createPlatformApiResponse(null));
+    setItemMock.mockImplementation(originalSetItemImplementation);
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('does not send a platform create when durable runtime storage fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const setItemMock = AsyncStorage.setItem as jest.Mock;
+  const originalSetItemImplementation = setItemMock.getMockImplementation();
+  let rejectedDurableWrite = false;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({ expireSeconds: 300, devCode: '999999' }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-storage-failure',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-storage-failure.900',
+          refreshToken: 'refresh.platform-storage-failure.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null));
+
+  if (!originalSetItemImplementation) {
+    throw new Error('AsyncStorage.setItem mock implementation is required');
+  }
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+    fillDigitalDraft(app);
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+
+    setItemMock.mockImplementation((key: string, value: string) => {
+      if (
+        key === '@vireCodeing/app-runtime-state' &&
+        !rejectedDurableWrite &&
+        JSON.parse(value).state.orders[0]?.syncState?.createContext
+      ) {
+        rejectedDurableWrite = true;
+        return Promise.reject(new Error('storage failed'));
+      }
+
+      return originalSetItemImplementation(key, value);
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(rejectedDurableWrite).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith('/shipper/orders'),
+      ),
+    ).toHaveLength(0);
+    expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+      status: 'failed',
+      operation: 'create',
+      message: '本地订单安全保存失败，未发送平台发布请求。',
+      createContext: {
+        idempotencyKey: expect.stringMatching(uuidV4Pattern),
+      },
+    });
+    expect(getRenderedText(app)).toContain(
+      '本地订单安全保存失败，未发送平台发布请求。',
+    );
+  } finally {
+    setItemMock.mockImplementation(originalSetItemImplementation);
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test.each([
+  [
+    'IDEMPOTENCY_KEY_REUSED',
+    '平台发布凭证与原请求不一致，已刷新平台订单；自动重试已停止，请确认后重新发布。',
+  ],
+  [
+    'IDEMPOTENCY_KEY_EXPIRED',
+    '平台发布凭证已过期，已刷新平台订单；自动重试已停止，请确认后重新发布。',
+  ],
+])(
+  'refreshes platform orders and blocks create retry when initial create returns %s',
+  async (errorCode, expectedMessage) => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      )
+      .mockResolvedValueOnce(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-create-key-invalid',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-create-key-invalid.900',
+            refreshToken: 'refresh.platform-create-key-invalid.604800',
+            expiresIn: 900,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(createPlatformApiResponse(null))
+      .mockResolvedValueOnce(
+        createPlatformApiErrorResponse(409, errorCode, errorCode),
+      )
+      .mockResolvedValueOnce(
+        createPlatformApiResponse({
+          items: [],
+          page: 1,
+          pageSize: 20,
+          total: 0,
+        }),
+      );
+
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      const app = await renderApp(
+        new Date('2026-07-14T08:00:00.000Z').getTime(),
+        { platformApiBaseUrl: 'http://localhost:3000/api' },
+      );
+
+      await loginToHomeWithPlatformAuth(app);
+      await publishDigitalPlatformOrderFromHome(app);
+
+      const createCalls = fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith('/shipper/orders') && init?.method === 'POST',
+      );
+      const originalCreateKey = createCalls[0]?.[1]?.headers?.[
+        'Idempotency-Key'
+      ] as string;
+
+      expect(createCalls).toHaveLength(1);
+      expect(originalCreateKey).toMatch(uuidV4Pattern);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        5,
+        'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+        status: 'failed',
+        operation: 'create',
+        message: expectedMessage,
+        retryBlocked: true,
+        createContext: { idempotencyKey: originalCreateKey },
+      });
+      expect(
+        app.root.findAllByProps({ testID: 'order-sync-retry' }),
+      ).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  },
+);
+
+test('blocks create retry without mutation refresh when create returns ORDER_CONFLICT', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-create-contract-error',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-create-contract-error.900',
+          refreshToken: 'refresh.platform-create-contract-error.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockResolvedValueOnce(
+      createPlatformApiErrorResponse(
+        409,
+        'ORDER_CONFLICT',
+        'ORDER_CONFLICT',
+      ),
+    );
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(
+      new Date('2026-07-14T08:00:00.000Z').getTime(),
+      { platformApiBaseUrl: 'http://localhost:3000/api' },
+    );
+
+    await loginToHomeWithPlatformAuth(app);
+    await publishDigitalPlatformOrderFromHome(app);
+
+    const createCall = fetchMock.mock.calls[3];
+    const originalCreateKey = createCall?.[1]?.headers?.[
+      'Idempotency-Key'
+    ] as string;
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes('/shipper/orders?') && init?.method === 'GET',
+      ),
+    ).toHaveLength(0);
+    expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+      status: 'failed',
+      operation: 'create',
+      message:
+        '平台创建接口返回契约异常（ORDER_CONFLICT），已停止自动重试并保留本地订单。',
+      retryBlocked: true,
+      createContext: { idempotencyKey: originalCreateKey },
+    });
+    expect(
+      app.root.findAllByProps({ testID: 'order-sync-retry' }),
+    ).toHaveLength(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refreshes and blocks create retry when a replayed create key expires', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-create-retry-expired',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-create-retry-expired.900',
+          refreshToken: 'refresh.platform-create-retry-expired.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockRejectedValueOnce(new Error('NETWORK_ERROR'))
+    .mockResolvedValueOnce(
+      createPlatformApiErrorResponse(
+        409,
+        'IDEMPOTENCY_KEY_EXPIRED',
+        'IDEMPOTENCY_KEY_EXPIRED',
+      ),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      }),
+    );
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(
+      new Date('2026-07-14T08:00:00.000Z').getTime(),
+      { platformApiBaseUrl: 'http://localhost:3000/api' },
+    );
+
+    await loginToHomeWithPlatformAuth(app);
+    await publishDigitalPlatformOrderFromHome(app);
+
+    const originalCreateKey = fetchMock.mock.calls[3]?.[1]?.headers?.[
+      'Idempotency-Key'
+    ] as string;
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const retryCreateKey = fetchMock.mock.calls[4]?.[1]?.headers?.[
+      'Idempotency-Key'
+    ] as string;
+
+    expect(retryCreateKey).toBe(originalCreateKey);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+      status: 'failed',
+      operation: 'create',
+      message:
+        '平台发布凭证已过期，已刷新平台订单；自动重试已停止，请确认后重新发布。',
+      retryBlocked: true,
+      createContext: { idempotencyKey: originalCreateKey },
+    });
+    expect(
+      app.root.findAllByProps({ testID: 'order-sync-retry' }),
+    ).toHaveLength(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('reuses a persisted create key when retrying after a cold start', async () => {
+  const persistedCreateKey = '550e8400-e29b-41d4-a716-446655440000';
+  const originalFetch = globalThis.fetch;
+  const syncedPlatformOrder = createPlatformOrderFixture({
+    id: 'order-platform-cold-retry',
+    orderNo: 'HY202607140901',
+    shipperId: 'user-platform-cold-retry',
+    cargoType: 'digital',
+    weightText: '1.8 吨',
+    quantityText: '18 箱',
+    pickupAddress: '宝安临时仓',
+    deliveryAddress: '南山门店新址',
+    priceCents: 76000,
+  });
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-cold-retry',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-cold-retry.900',
+          refreshToken: 'refresh.platform-cold-retry.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(syncedPlatformOrder));
+
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: {
+        orders: [
+          {
+            id: 'HYLOCAL-COLD-RETRY',
+            status: 'waiting',
+            from: '宝安临时仓',
+            to: '南山门店新址',
+            cargoType: '数码',
+            weightText: '1.8 吨',
+            quantityText: '18 箱',
+            cargoDescription: '高价值设备，轻拿轻放',
+            vehicleRequirement: '中型货车',
+            priceText: '￥760',
+            paymentMethodText: '货到付款',
+            updatedAtText: '同步失败',
+            createdAtIso: '2026-07-14T08:00:00.000Z',
+            updatedAtIso: '2026-07-14T08:00:00.000Z',
+            pickupContact: '赵经理',
+            pickupPhone: '13800138001',
+            deliveryContact: '钱店长',
+            deliveryPhone: '13800138002',
+            pickupTimeIso: '2026-07-15T01:30:00.000Z',
+            pickupTimeText: '明天 09:30',
+            syncState: {
+              status: 'failed',
+              operation: 'create',
+              message: '平台订单接口不可用，已保留本地待同步订单。',
+              updatedAtText: '刚刚',
+              updatedAtIso: '2026-07-14T08:00:00.000Z',
+              createContext: { idempotencyKey: persistedCreateKey },
+              queueItems: [],
+            },
+          },
+        ],
+        messages: [],
+      },
+    }),
+  );
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(
+      new Date('2026-07-14T08:00:00.000Z').getTime(),
+      { platformApiBaseUrl: 'http://localhost:3000/api' },
+    );
+
+    await loginToHomeWithPlatformAuth(app);
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'home-recent-order-HYLOCAL-COLD-RETRY' })
+        .props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/shipper/orders',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': persistedCreateKey,
+        }),
+      }),
+    );
+    expect(getAppRuntimeState().orders[0]).toMatchObject({
+      id: 'HY202607140901',
+      platformOrderId: 'order-platform-cold-retry',
+      syncState: { status: 'synced' },
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -15336,6 +16141,9 @@ test('replays a failed platform order creation from the order sync queue', async
 
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
       status: 'failed',
+      createContext: {
+        idempotencyKey: expect.stringMatching(uuidV4Pattern),
+      },
     });
 
     await ReactTestRenderer.act(async () => {
@@ -15350,6 +16158,7 @@ test('replays a failed platform order creation from the order sync queue', async
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-retry-user.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
       }),
     );
@@ -15370,27 +16179,25 @@ test('replays a failed platform order creation from the order sync queue', async
       platformOrderId: 'order-platform-retry-888',
       syncState: { status: 'synced' },
     });
+    const firstCreateHeaders = fetchMock.mock.calls[3][1]?.headers as Record<
+      string,
+      string
+    >;
+    const retryCreateHeaders = fetchMock.mock.calls[4][1]?.headers as Record<
+      string,
+      string
+    >;
+
+    expect(firstCreateHeaders['Idempotency-Key']).toBe(
+      retryCreateHeaders['Idempotency-Key'],
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test('retries stale negotiable platform order creations without price or coupon fields', async () => {
+test('fails closed for legacy platform order creations without a create key', async () => {
   const originalFetch = globalThis.fetch;
-  const createdPlatformOrder = {
-    ...createPlatformOrderFixture({
-      id: 'order-platform-negotiable-retry-1',
-      orderNo: 'HY202607010889',
-      shipperId: 'user-platform-negotiable-retry',
-      cargoType: 'digital',
-      weightText: '1.8 吨',
-      quantityText: '18 箱',
-      pickupAddress: '宝安临时仓',
-      deliveryAddress: '南山门店新址',
-    }),
-    pricingMode: 'negotiable',
-    priceCents: undefined,
-  };
   const fetchMock = jest
     .fn()
     .mockResolvedValueOnce(
@@ -15414,7 +16221,14 @@ test('retries stale negotiable platform order creations without price or coupon 
       }),
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null))
-    .mockResolvedValueOnce(createPlatformApiResponse(createdPlatformOrder));
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      }),
+    );
 
   await AsyncStorage.setItem(
     '@vireCodeing/app-runtime-state',
@@ -15481,26 +16295,33 @@ test('retries stale negotiable platform order creations without price or coupon 
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      'http://localhost:3000/api/shipper/orders',
+      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
       expect.objectContaining({
-        method: 'POST',
+        method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-negotiable-retry-user.900',
         }),
       }),
     );
-
-    const requestBody = JSON.parse(String(fetchMock.mock.calls[2][1]?.body));
-
-    expect(requestBody).toMatchObject({
-      pricingMode: 'negotiable',
-      paymentMethod: 'cod',
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith('/shipper/orders') && init?.method === 'POST',
+      ),
+    ).toHaveLength(0);
+    expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+      status: 'failed',
+      operation: 'create',
+      retryBlocked: true,
+      message:
+        '旧创建记录缺少安全重试凭证，已刷新平台订单，请人工确认后作为新订单发布。',
     });
-    expect(requestBody).not.toHaveProperty('priceCents');
-    expect(requestBody).not.toHaveProperty('couponId');
-    expect(requestBody).not.toHaveProperty('couponTitle');
-    expect(requestBody).not.toHaveProperty('couponDiscountCents');
-    expect(requestBody).not.toHaveProperty('payablePriceCents');
+    expect(
+      getAppRuntimeState().orders[0].syncState?.createContext,
+    ).toBeUndefined();
+    expect(
+      app.root.findAllByProps({ testID: 'order-sync-retry' }),
+    ).toHaveLength(0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -15508,6 +16329,17 @@ test('retries stale negotiable platform order creations without price or coupon 
 
 test('keeps a failed platform order creation queued when retry has no auth token', async () => {
   const originalFetch = globalThis.fetch;
+  const retriedPlatformOrder = createPlatformOrderFixture({
+    id: 'order-platform-order-retry-after-login',
+    orderNo: 'HY202607010889',
+    shipperId: 'user-platform-order-retry-missing-token',
+    cargoType: 'digital',
+    weightText: '1.8 吨',
+    quantityText: '18 箱',
+    pickupAddress: '宝安临时仓',
+    deliveryAddress: '南山门店新址',
+    priceCents: 76000,
+  });
   const fetchMock = jest
     .fn()
     .mockResolvedValueOnce(
@@ -15531,7 +16363,8 @@ test('keeps a failed platform order creation queued when retry has no auth token
       }),
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null))
-    .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
+    .mockRejectedValueOnce(new Error('NETWORK_ERROR'))
+    .mockResolvedValueOnce(createPlatformApiResponse(retriedPlatformOrder));
 
   globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -15559,6 +16392,9 @@ test('keeps a failed platform order creation queued when retry has no auth token
       status: 'failed',
       operation: 'create',
     });
+    const originalCreateKey = fetchMock.mock.calls[3]?.[1]?.headers?.[
+      'Idempotency-Key'
+    ] as string;
 
     clearAuthSession();
 
@@ -15574,6 +16410,34 @@ test('keeps a failed platform order creation queued when retry has no auth token
     });
     expect(getAppRuntimeState().orders[0].syncState?.queueItems).toHaveLength(1);
     expect(getRenderedText(app)).toContain('平台订单重试需要重新登录后再同步。');
+
+    saveAuthSession(new Date('2026-07-01T08:01:00.000Z').getTime(), {
+      accessToken: 'access.platform-order-retry-restored.900',
+      refreshToken: 'refresh.platform-order-retry-restored.604800',
+      expiresIn: 900,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      'http://localhost:3000/api/shipper/orders',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-order-retry-restored.900',
+          'Idempotency-Key': originalCreateKey,
+        }),
+      }),
+    );
+    expect(getAppRuntimeState().orders[0]).toMatchObject({
+      id: 'HY202607010889',
+      platformOrderId: 'order-platform-order-retry-after-login',
+      syncState: { status: 'synced' },
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -15680,6 +16544,8 @@ test('cancels a platform order through the shipper order api', async () => {
       await flushMicrotasks();
     });
 
+    const cancelRequest = fetchMock.mock.calls[4][1];
+
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
       'http://localhost:3000/api/shipper/orders/order-platform-cancel-777/cancel',
@@ -15687,10 +16553,12 @@ test('cancels a platform order through the shipper order api', async () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-cancel-user.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[4][1]?.body))).toEqual({
+    expect(JSON.parse(String(cancelRequest?.body))).toEqual({
+      baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
       reasonText: '计划有变',
       description: '客户临时调整发货计划',
     });
@@ -15805,6 +16673,10 @@ test('keeps a platform order cancellation queued when action has no auth token',
         message: '平台订单取消需要重新登录后再同步。',
       },
     });
+    expectOrderMutationContext(
+      getAppRuntimeState().orders[0].syncState?.mutationContext,
+      '2026-07-01T08:00:00.000Z',
+    );
     expect(getAppRuntimeState().orders[0].syncState?.queueItems).toHaveLength(1);
     expect(getRenderedText(app)).toContain('平台订单取消需要重新登录后再同步。');
   } finally {
@@ -15930,11 +16802,19 @@ test('retries a failed platform order cancellation through the cancel api', asyn
       },
       syncState: { status: 'failed' },
     });
+    const cancelRetryContext =
+      getAppRuntimeState().orders[0].syncState?.mutationContext;
+    expectOrderMutationContext(
+      cancelRetryContext,
+      '2026-07-01T08:00:00.000Z',
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
       await flushMicrotasks();
     });
+
+    const retryCancelRequest = fetchMock.mock.calls[5][1];
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
@@ -15943,10 +16823,12 @@ test('retries a failed platform order cancellation through the cancel api', asyn
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-cancel-retry-user.900',
+          'Idempotency-Key': cancelRetryContext?.idempotencyKey,
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[5][1]?.body))).toEqual({
+    expect(JSON.parse(String(retryCancelRequest?.body))).toEqual({
+      baseUpdatedAtIso: cancelRetryContext?.baseUpdatedAtIso,
       reasonText: '计划有变',
       description: '客户临时调整发货计划',
     });
@@ -16056,6 +16938,8 @@ test('completes a platform order through the shipper order api', async () => {
       await flushMicrotasks();
     });
 
+    const completeRequest = fetchMock.mock.calls[4][1];
+
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
       'http://localhost:3000/api/shipper/orders/order-platform-complete-777/complete',
@@ -16063,9 +16947,13 @@ test('completes a platform order through the shipper order api', async () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-complete-user.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
       }),
     );
+    expect(JSON.parse(String(completeRequest?.body))).toEqual({
+      baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
       platformOrderId: 'order-platform-complete-777',
@@ -16182,11 +17070,19 @@ test('retries a failed platform order completion through the complete api', asyn
       status: 'completed',
       syncState: { status: 'failed' },
     });
+    const completeRetryContext =
+      getAppRuntimeState().orders[0].syncState?.mutationContext;
+    expectOrderMutationContext(
+      completeRetryContext,
+      '2026-07-01T08:00:00.000Z',
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
       await flushMicrotasks();
     });
+
+    const retryCompleteRequest = fetchMock.mock.calls[5][1];
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
@@ -16195,9 +17091,13 @@ test('retries a failed platform order completion through the complete api', asyn
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-complete-retry-user.900',
+          'Idempotency-Key': completeRetryContext?.idempotencyKey,
         }),
       }),
     );
+    expect(JSON.parse(String(retryCompleteRequest?.body))).toEqual({
+      baseUpdatedAtIso: completeRetryContext?.baseUpdatedAtIso,
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
       platformOrderId: 'order-platform-complete-retry-777',
@@ -16309,6 +17209,8 @@ test('updates a waiting platform order through the shipper order api', async () 
       await flushMicrotasks();
     });
 
+    const updateRequest = fetchMock.mock.calls[4][1];
+
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
       'http://localhost:3000/api/shipper/orders/order-platform-update-777',
@@ -16316,16 +17218,18 @@ test('updates a waiting platform order through the shipper order api', async () 
         method: 'PUT',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-update-user.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[4][1]?.body))).toMatchObject({
+    expect(JSON.parse(String(updateRequest?.body))).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
       pickupAddress: '宝安平台新仓',
       deliveryAddress: '南山门店新址',
       pricingMode: 'fixed',
       priceCents: 76000,
+      baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
     });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
@@ -16433,6 +17337,10 @@ test('keeps a waiting platform order update queued when publish has no auth toke
         message: '平台订单修改需要重新登录后再同步。',
       },
     });
+    expectOrderMutationContext(
+      getAppRuntimeState().orders[0].syncState?.mutationContext,
+      '2026-07-01T08:00:00.000Z',
+    );
     expect(getAppRuntimeState().orders[0].syncState?.queueItems).toHaveLength(1);
     expect(getRenderedText(app)).toContain('平台订单修改需要重新登录后再同步。');
   } finally {
@@ -16553,11 +17461,19 @@ test('retries a failed platform order update through the update api', async () =
       from: '宝安重试新仓',
       syncState: { status: 'failed' },
     });
+    const updateRetryContext =
+      getAppRuntimeState().orders[0].syncState?.mutationContext;
+    expectOrderMutationContext(
+      updateRetryContext,
+      '2026-07-01T08:00:00.000Z',
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
       await flushMicrotasks();
     });
+
+    const retryUpdateRequest = fetchMock.mock.calls[5][1];
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
@@ -16566,16 +17482,18 @@ test('retries a failed platform order update through the update api', async () =
         method: 'PUT',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-update-retry-user.900',
+          'Idempotency-Key': updateRetryContext?.idempotencyKey,
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[5][1]?.body))).toMatchObject({
+    expect(JSON.parse(String(retryUpdateRequest?.body))).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
       pickupAddress: '宝安重试新仓',
       deliveryAddress: '南山门店新址',
       pricingMode: 'fixed',
       priceCents: 76000,
+      baseUpdatedAtIso: updateRetryContext?.baseUpdatedAtIso,
     });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
@@ -16583,6 +17501,306 @@ test('retries a failed platform order update through the update api', async () =
       from: '宝安重试新仓',
       syncState: { status: 'synced' },
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refreshes the latest platform order when an update mutation hits ORDER_CONFLICT', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-order-update-conflict',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-order-update-conflict-user.900',
+          refreshToken: 'refresh.platform-order-update-conflict-user.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(
+        createPlatformOrderFixture({
+          id: 'order-platform-update-conflict-777',
+          orderNo: 'HY202607010777',
+          shipperId: 'user-platform-order-update-conflict',
+          status: 'waiting',
+          cargoType: 'digital',
+          weightText: '1.8 吨',
+          quantityText: '18 箱',
+          pickupAddress: '宝安临时仓',
+          deliveryAddress: '南山门店新址',
+          priceCents: 76000,
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+          updatedAtIso: '2026-07-01T08:00:00.000Z',
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiErrorResponse(
+        409,
+        'ORDER_CONFLICT',
+        '订单已被其他操作更新',
+      ),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(
+        createPlatformOrderFixture({
+          id: 'order-platform-update-conflict-777',
+          orderNo: 'HY202607010777',
+          shipperId: 'user-platform-order-update-conflict',
+          status: 'waiting',
+          cargoType: 'digital',
+          weightText: '1.8 吨',
+          quantityText: '18 箱',
+          pickupAddress: '服务端冲突后新仓',
+          deliveryAddress: '南山门店新址',
+          priceCents: 76000,
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+          updatedAtIso: '2026-07-01T08:18:00.000Z',
+        }),
+      ),
+    );
+
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+    fillDigitalDraft(app);
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'order-detail-edit-action' }).props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'draft-pickup-address' })
+        .props.onChangeText('本地冲突新仓');
+    });
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      'http://localhost:3000/api/shipper/orders/order-platform-update-conflict-777',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-order-update-conflict-user.900',
+        }),
+      }),
+    );
+    expect(getAppRuntimeState().orders[0]).toMatchObject({
+      id: 'HY202607010777',
+      platformOrderId: 'order-platform-update-conflict-777',
+      from: '服务端冲突后新仓',
+      syncState: {
+        status: 'synced',
+        message: '平台订单已被其他操作更新，已刷新最新详情，请重新发起操作。',
+      },
+    });
+    expect(getAppRuntimeState().orders[0].syncState?.mutationContext).toBeUndefined();
+    expect(getRenderedText(app)).toContain(
+      '平台订单已被其他操作更新，已刷新最新详情，请重新发起操作。',
+    );
+    expect(getRenderedText(app)).toContain('服务端冲突后新仓');
+    expect(getRenderedText(app)).not.toContain('本地冲突新仓');
+    expect(app.root.findAllByProps({ testID: 'order-sync-retry' })).toHaveLength(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refreshes latest platform order and clears retry context when the retry key is expired', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-order-update-expired',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-order-update-expired-user.900',
+          refreshToken: 'refresh.platform-order-update-expired-user.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(
+        createPlatformOrderFixture({
+          id: 'order-platform-update-expired-777',
+          orderNo: 'HY202607010777',
+          shipperId: 'user-platform-order-update-expired',
+          status: 'waiting',
+          cargoType: 'digital',
+          weightText: '1.8 吨',
+          quantityText: '18 箱',
+          pickupAddress: '宝安临时仓',
+          deliveryAddress: '南山门店新址',
+          priceCents: 76000,
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+          updatedAtIso: '2026-07-01T08:00:00.000Z',
+        }),
+      ),
+    )
+    .mockRejectedValueOnce(new Error('NETWORK_ERROR'))
+    .mockResolvedValueOnce(
+      createPlatformApiErrorResponse(
+        409,
+        'IDEMPOTENCY_KEY_EXPIRED',
+        'Idempotency-Key 已过期',
+      ),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(
+        createPlatformOrderFixture({
+          id: 'order-platform-update-expired-777',
+          orderNo: 'HY202607010777',
+          shipperId: 'user-platform-order-update-expired',
+          status: 'waiting',
+          cargoType: 'digital',
+          weightText: '1.8 吨',
+          quantityText: '18 箱',
+          pickupAddress: '服务端过期后新仓',
+          deliveryAddress: '南山门店新址',
+          priceCents: 76000,
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+          updatedAtIso: '2026-07-01T08:22:00.000Z',
+        }),
+      ),
+    );
+
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+    fillDigitalDraft(app);
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'order-detail-edit-action' }).props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'draft-pickup-address' })
+        .props.onChangeText('本地过期重试仓');
+    });
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const expiredRetryContext =
+      getAppRuntimeState().orders[0].syncState?.mutationContext;
+    expectOrderMutationContext(
+      expiredRetryContext,
+      '2026-07-01T08:00:00.000Z',
+    );
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-order-update-expired-user.900',
+          'Idempotency-Key': expiredRetryContext?.idempotencyKey,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-order-update-expired-user.900',
+        }),
+      }),
+    );
+    expect(getAppRuntimeState().orders[0]).toMatchObject({
+      id: 'HY202607010777',
+      platformOrderId: 'order-platform-update-expired-777',
+      from: '服务端过期后新仓',
+      syncState: {
+        status: 'synced',
+        message: '当前重试凭证已失效，已刷新最新详情，请重新发起操作。',
+      },
+    });
+    expect(getAppRuntimeState().orders[0].syncState?.mutationContext).toBeUndefined();
+    expect(getRenderedText(app)).toContain(
+      '当前重试凭证已失效，已刷新最新详情，请重新发起操作。',
+    );
+    expect(app.root.findAllByProps({ testID: 'order-sync-retry' })).toHaveLength(0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -18076,8 +19294,10 @@ test('advances a platform order status through the status api', async () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-status.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
         body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-01T09:00:00.000Z',
           nextStatus: 'loading',
         }),
       }),
@@ -18175,6 +19395,12 @@ test('retries a failed platform order status advance through the status api', as
         operation: 'status',
       },
     });
+    const statusRetryContext =
+      getAppRuntimeState().orders[0].syncState?.mutationContext;
+    expectOrderMutationContext(
+      statusRetryContext,
+      '2026-07-01T09:00:00.000Z',
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
@@ -18188,8 +19414,10 @@ test('retries a failed platform order status advance through the status api', as
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-status-retry.900',
+          'Idempotency-Key': statusRetryContext?.idempotencyKey,
         }),
         body: JSON.stringify({
+          baseUpdatedAtIso: statusRetryContext?.baseUpdatedAtIso,
           nextStatus: 'loading',
         }),
       }),
@@ -18387,8 +19615,10 @@ test('reports a platform order exception through the exception api', async () =>
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-order-exception.900',
+          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
         }),
         body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-03T09:10:00.000Z',
           nextStatus: 'confirming',
         }),
       }),
@@ -20710,6 +21940,25 @@ test('quotes and accepts a platform driver order from the hall', async () => {
     await flushMicrotasks();
   });
 
+  const acceptOrderCall = fetchMock.mock.calls.find(([url]) => {
+    return url === 'http://localhost:3000/api/driver/orders/order-1/accept';
+  });
+
+  expect(acceptOrderCall?.[1]).toMatchObject(
+    expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer driver-access-token',
+        'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
+      }),
+    }),
+  );
+  expect(JSON.parse(String(acceptOrderCall?.[1]?.body))).toEqual(
+    expect.objectContaining({
+      noteText: '可带尾板',
+      baseUpdatedAtIso: '2026-07-06T08:00:00.000Z',
+    }),
+  );
   expect(app.root.findByProps({ testID: 'driver-notice' }).props.children).toBe(
     '接单成功，订单已进入待装货。',
   );
@@ -20898,13 +22147,21 @@ test('loads current driver orders and advances execution status', async () => {
     'http://localhost:3000/api/driver/orders/order-2/status',
     expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ nextStatus: 'transporting' }),
+      headers: expect.objectContaining({
+        Authorization: 'Bearer driver-access-token',
+        'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
+      }),
+      body: JSON.stringify({
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-06T08:00:00.000Z',
+      }),
     }),
   );
 });
 
 test('keeps current driver order detail visible when status advance fails', async () => {
   const loadingOrder = createPlatformDriverExecutingOrder('loading');
+  const transportingOrder = createPlatformDriverExecutingOrder('transporting');
   const fetchMock = jest
     .fn()
     .mockResolvedValueOnce(
@@ -20995,8 +22252,61 @@ test('keeps current driver order detail visible when status advance fails', asyn
 
   expect(app.root.findByProps({ testID: 'driver-order-detail-title' })).toBeTruthy();
   expect(app.root.findByProps({ testID: 'driver-notice' }).props.children).toBe(
-    '司机状态更新失败，请稍后重试。',
+    '司机状态更新失败，已加入本地重试队列。',
   );
+  expect(
+    app.root.findByProps({
+      testID: 'driver-order-mutation-retry-status-order-2',
+    }),
+  ).toBeTruthy();
+
+  const statusEndpoint =
+    'http://localhost:3000/api/driver/orders/order-2/status';
+  const firstStatusRequest = fetchMock.mock.calls.find(
+    ([requestUrl]) => requestUrl === statusEndpoint,
+  );
+  const originalIdempotencyKey = firstStatusRequest?.[1]?.headers?.[
+    'Idempotency-Key'
+  ] as string;
+
+  expect(originalIdempotencyKey).toMatch(uuidV4Pattern);
+
+  fetchMock
+    .mockResolvedValueOnce(createPlatformApiResponse(transportingOrder))
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(createPlatformDriverIncomeSnapshot()),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
+    );
+
+  await ReactTestRenderer.act(async () => {
+    app.root
+      .findByProps({ testID: 'driver-order-mutation-retry-status-order-2' })
+      .props.onPress();
+    await flushMicrotasks();
+  });
+
+  const statusRequests = fetchMock.mock.calls.filter(
+    ([requestUrl]) => requestUrl === statusEndpoint,
+  );
+
+  expect(statusRequests).toHaveLength(2);
+  expect(statusRequests[1]?.[1]).toEqual(
+    expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        Authorization: 'Bearer driver-access-token',
+        'Idempotency-Key': originalIdempotencyKey,
+      }),
+      body: firstStatusRequest?.[1]?.body,
+    }),
+  );
+  expect(
+    app.root.findAllByProps({
+      testID: 'driver-order-mutation-retry-status-order-2',
+    }),
+  ).toHaveLength(0);
 });
 
 function createPlatformDriverHallOrder() {

@@ -1,3 +1,12 @@
+import {
+  renderAdminConsoleNav,
+  renderAdminConsoleNavStyles,
+} from './admin-console-nav-snippet';
+import {
+  renderAdminSessionControls,
+  renderAdminSessionScript,
+} from './admin-session-snippet';
+
 export function renderShipperCouponAdminConsole() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -81,6 +90,14 @@ export function renderShipperCouponAdminConsole() {
       display: grid;
       gap: 10px;
     }
+    .session-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .session-link { color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .secondary-button { width: auto; background: #fff; color: var(--accent); border: 1px solid var(--line); }
     .amount-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -91,11 +108,18 @@ export function renderShipperCouponAdminConsole() {
       font-size: 13px;
       line-height: 1.55;
     }
+    .report-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+    }
     .error { color: var(--danger); }
     .result {
       border-color: var(--ok-line);
       background: var(--ok-bg);
     }
+    ${renderAdminConsoleNavStyles()}
     pre {
       margin: 0;
       white-space: pre-wrap;
@@ -119,13 +143,25 @@ export function renderShipperCouponAdminConsole() {
           admin access token
           <input id="adminToken" type="password" autocomplete="off" title="粘贴 admin access token" />
         </label>
-        <button id="issueCouponButton" type="button" onclick="issueCoupon()">发放优惠券</button>
+        <button id="issueCouponButton" type="button" onclick="issueCoupon()">单个发放</button>
+        <button id="batchIssueCouponButton" type="button" onclick="batchIssueCoupon()">批量发放</button>
         <div id="couponConsoleStatus" class="meta"></div>
+        ${renderAdminSessionControls({
+          currentRoute: '/api/admin/shipper-coupon-console',
+          hintClass: 'meta',
+        })}
+        ${renderAdminConsoleNav({
+          currentRoute: '/api/admin/shipper-coupon-console',
+        })}
       </div>
       <div class="card form-grid">
         <label>
           货主 ID
           <input id="shipperIdInput" placeholder="user-profile-coupon" />
+        </label>
+        <label>
+          批量货主 ID
+          <textarea id="batchShipperIdsInput" placeholder="shipper-1&#10;shipper-2&#10;shipper-3"></textarea>
         </label>
         <label>
           优惠券名称
@@ -162,15 +198,49 @@ export function renderShipperCouponAdminConsole() {
     <section class="result-panel">
       <div class="card">
         <h2>发放结果</h2>
-        <div class="meta">当前页面只做单张手工发放，不做批量活动、审批流、营销规则或退款返券。</div>
+        <div class="meta">当前页面已补单张手工发放、同模板批量发放和核销报表第一片；支付退款成功回调命中已核销原券时会自动补一张返券，但这里还不是活动编排、审批流、营销规则或退款返券策略后台。</div>
       </div>
       <div id="issuedCouponResult" class="card">
         <pre>暂无发放结果</pre>
+      </div>
+      <div id="batchIssuedCouponResult" class="card">
+        <pre>暂无批量发放结果</pre>
+      </div>
+      <div class="card">
+        <h2>核销报表</h2>
+        <div class="report-actions">
+          <label>
+            Top 货主数量
+            <input
+              id="couponReportTopShippersLimitInput"
+              type="number"
+              min="1"
+              max="20"
+              step="1"
+              value="5"
+            />
+          </label>
+          <button id="loadCouponReportButton" type="button" onclick="loadCouponReport()">刷新报表</button>
+        </div>
+        <div id="couponReportTimestamp" class="meta">暂无核销报表</div>
+      </div>
+      <div id="couponReportSummary" class="card">
+        <pre>暂无报表汇总</pre>
+      </div>
+      <div id="couponSourceReport" class="card">
+        <pre>暂无来源分布</pre>
+      </div>
+      <div id="couponTopShippersReport" class="card">
+        <pre>暂无货主排行</pre>
       </div>
     </section>
   </main>
   <script>
     const apiBase = '/api';
+    let latestCouponReportRequestId = 0;
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/shipper-coupon-console',
+    })}
 
     function readTrimmed(id) {
       return document.getElementById(id).value.trim();
@@ -184,7 +254,7 @@ export function renderShipperCouponAdminConsole() {
       return value;
     }
 
-    function buildIssueRequest() {
+    function buildCouponTemplate() {
       const validFromIso = readTrimmed('validFromIsoInput');
       const validUntilIso = readTrimmed('validUntilIsoInput');
 
@@ -192,8 +262,7 @@ export function renderShipperCouponAdminConsole() {
         throw new Error('优惠券失效时间必须晚于生效时间');
       }
 
-      const request = {
-        shipperId: readTrimmed('shipperIdInput'),
+      const template = {
         title: readTrimmed('couponTitleInput'),
         conditionText: readTrimmed('conditionTextInput'),
         discountCents: readAmount('discountCentsInput'),
@@ -202,8 +271,46 @@ export function renderShipperCouponAdminConsole() {
         validUntilIso,
       };
       const sourceText = readTrimmed('sourceTextInput');
-      if (sourceText) request.sourceText = sourceText;
-      return request;
+      if (sourceText) template.sourceText = sourceText;
+      return template;
+    }
+
+    function buildIssueRequest() {
+      return {
+        shipperId: readTrimmed('shipperIdInput'),
+        ...buildCouponTemplate(),
+      };
+    }
+
+    function readBatchShipperIds() {
+      const shipperIds = [...new Set(
+        readTrimmed('batchShipperIdsInput')
+          .split(/[\\s,，]+/)
+          .map(value => value.trim())
+          .filter(Boolean),
+      )];
+
+      if (shipperIds.length === 0) {
+        throw new Error('至少要填写一个批量货主 ID');
+      }
+
+      return shipperIds;
+    }
+
+    function buildBatchIssueRequest() {
+      return {
+        shipperIds: readBatchShipperIds(),
+        ...buildCouponTemplate(),
+      };
+    }
+
+    function readCouponReportTopShippersLimit() {
+      const raw = readTrimmed('couponReportTopShippersLimitInput');
+      const value = raw ? Number(raw) : 5;
+      if (!Number.isInteger(value) || value < 1 || value > 20) {
+        throw new Error('Top 货主数量必须是 1 到 20 的整数');
+      }
+      return value;
     }
 
     function setStatus(message, isError) {
@@ -212,10 +319,46 @@ export function renderShipperCouponAdminConsole() {
       status.className = isError ? 'meta error' : 'meta';
     }
 
-    function renderResult(payload, isError) {
-      const result = document.getElementById('issuedCouponResult');
+    function renderResult(targetId, payload, isError) {
+      const result = document.getElementById(targetId);
       result.className = isError ? 'card error' : 'card result';
       result.innerHTML = '<pre>' + escapeHtml(JSON.stringify(payload, null, 2)) + '</pre>';
+    }
+
+    function renderReportCard(targetId, title, payload, isError) {
+      const result = document.getElementById(targetId);
+      result.className = isError ? 'card error' : 'card result';
+      result.innerHTML =
+        '<h2>' +
+        escapeHtml(title) +
+        '</h2><pre>' +
+        escapeHtml(JSON.stringify(payload, null, 2)) +
+        '</pre>';
+    }
+
+    function renderCouponReport(report) {
+      document.getElementById('couponReportTimestamp').textContent =
+        '报表时间：' + escapeHtml(report.generatedAtIso || '');
+      renderReportCard('couponReportSummary', '报表汇总', report.summary, false);
+      renderReportCard('couponSourceReport', '来源分布', report.sourceBreakdown, false);
+      renderReportCard('couponTopShippersReport', '货主排行', report.topShippers, false);
+    }
+
+    function renderCouponReportError(message) {
+      document.getElementById('couponReportTimestamp').textContent = message;
+      renderReportCard('couponReportSummary', '报表汇总', { message }, true);
+      renderReportCard('couponSourceReport', '来源分布', { message }, true);
+      renderReportCard('couponTopShippersReport', '货主排行', { message }, true);
+    }
+
+    function setButtonsDisabled(disabled) {
+      document.getElementById('issueCouponButton').disabled = disabled;
+      document.getElementById('batchIssueCouponButton').disabled = disabled;
+    }
+
+    function setCouponReportControlsDisabled(disabled) {
+      document.getElementById('couponReportTopShippersLimitInput').disabled = disabled;
+      document.getElementById('loadCouponReportButton').disabled = disabled;
     }
 
     function escapeHtml(value) {
@@ -227,23 +370,71 @@ export function renderShipperCouponAdminConsole() {
         .replace(/'/g, '&#39;');
     }
 
+    async function loadCouponReport() {
+      const token = readTrimmed('adminToken');
+      if (!token) {
+        renderCouponReportError('请先填写 admin access token，再拉优惠券报表');
+        return;
+      }
+      persistAdminAccessToken();
+
+      let topShippersLimit;
+      try {
+        topShippersLimit = readCouponReportTopShippersLimit();
+      } catch (error) {
+        renderCouponReportError(error.message);
+        return;
+      }
+
+      const requestId = ++latestCouponReportRequestId;
+      setCouponReportControlsDisabled(true);
+      document.getElementById('couponReportTimestamp').textContent = '正在拉取优惠券报表...';
+
+      try {
+        const response = await fetch(
+          apiBase +
+            '/admin/shipper-coupons/report?topShippersLimit=' +
+            encodeURIComponent(String(topShippersLimit)),
+          {
+            method: 'GET',
+            headers: {
+              'authorization': 'Bearer ' + token,
+              'x-request-id': 'req_coupon_report_console_' + Date.now(),
+            },
+          },
+        );
+        const payload = await response.json();
+        if (requestId !== latestCouponReportRequestId) return;
+        if (!response.ok) {
+          throw new Error(payload.message || '优惠券报表拉取失败');
+        }
+        renderCouponReport(payload.data);
+      } catch (error) {
+        if (requestId !== latestCouponReportRequestId) return;
+        renderCouponReportError(error.message);
+      } finally {
+        if (requestId !== latestCouponReportRequestId) return;
+        setCouponReportControlsDisabled(false);
+      }
+    }
+
     async function issueCoupon() {
       const token = readTrimmed('adminToken');
       if (!token) {
         setStatus('请先填写 admin access token', true);
         return;
       }
+      persistAdminAccessToken();
 
       let request;
       try {
         request = buildIssueRequest();
       } catch (error) {
         setStatus(error.message, true);
-        return;
+          return;
       }
 
-      const button = document.getElementById('issueCouponButton');
-      button.disabled = true;
+      setButtonsDisabled(true);
       setStatus('正在发放优惠券...', false);
 
       try {
@@ -260,14 +451,78 @@ export function renderShipperCouponAdminConsole() {
         if (!response.ok) {
           throw new Error(payload.message || '优惠券发放失败');
         }
-        renderResult(payload.data, false);
+        renderResult('issuedCouponResult', payload.data, false);
+        const refreshTasks = [
+          loadCouponReport(),
+        ];
+        await Promise.all(
+          refreshTasks.map(task =>
+            Promise.resolve(task).catch(() => undefined),
+          ),
+        );
         setStatus('优惠券已发放', false);
       } catch (error) {
-        renderResult({ message: error.message }, true);
+        renderResult('issuedCouponResult', { message: error.message }, true);
         setStatus(error.message, true);
       } finally {
-        button.disabled = false;
+        setButtonsDisabled(false);
       }
+    }
+
+    async function batchIssueCoupon() {
+      const token = readTrimmed('adminToken');
+      if (!token) {
+        setStatus('请先填写 admin access token', true);
+        return;
+      }
+      persistAdminAccessToken();
+
+      let request;
+      try {
+        request = buildBatchIssueRequest();
+      } catch (error) {
+        setStatus(error.message, true);
+        return;
+      }
+
+      setButtonsDisabled(true);
+      setStatus('正在批量发放优惠券...', false);
+
+      try {
+        const response = await fetch(apiBase + '/admin/shipper-coupons/batch-issue', {
+          method: 'POST',
+          headers: {
+            'authorization': 'Bearer ' + token,
+            'content-type': 'application/json',
+            'x-request-id': 'req_coupon_batch_console_' + Date.now(),
+          },
+          body: JSON.stringify(request),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.message || '优惠券批量发放失败');
+        }
+        renderResult('batchIssuedCouponResult', payload.data, false);
+        const refreshTasks = [
+          loadCouponReport(),
+        ];
+        await Promise.all(
+          refreshTasks.map(task =>
+            Promise.resolve(task).catch(() => undefined),
+          ),
+        );
+        setStatus('优惠券批量发放完成', false);
+      } catch (error) {
+        renderResult('batchIssuedCouponResult', { message: error.message }, true);
+        setStatus(error.message, true);
+      } finally {
+        setButtonsDisabled(false);
+      }
+    }
+
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadCouponReport();
     }
   </script>
 </body>

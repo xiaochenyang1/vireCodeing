@@ -99,6 +99,390 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('手机号或密码错误');
   });
 
+  it('documents admin password login as a dedicated back-office auth route', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/auth/admin/password-login:');
+    expect(source).toContain('Login admin with phone and password');
+    expect(source).toContain('#/components/schemas/AdminPasswordLoginRequest');
+    expect(source).toContain('#/components/schemas/PasswordLoginResponse');
+    expect(source).toContain('required: [phone, password, deviceId]');
+    expect(source).toContain('AUTH_PASSWORD_INVALID');
+    expect(source).toContain('手机号或密码错误');
+  });
+
+  it('documents admin session governance endpoints', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/admin/auth/sessions:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions',
+      'List admin-managed active sessions',
+    );
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'bearerAuth: []');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: scope');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: userType');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: keyword');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: riskOnly');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: riskTag');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: page');
+    expectPathBlockToContain(source, '/admin/auth/sessions', 'name: pageSize');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions',
+      "$ref: '#/components/schemas/AdminAuthSessionListResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+
+    expect(source).toContain('/admin/auth/sessions/{sessionId}/revoke:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/{sessionId}/revoke',
+      'Revoke admin-managed session by id',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/{sessionId}/revoke',
+      'name: sessionId',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/{sessionId}/revoke',
+      "$ref: '#/components/schemas/AdminAuthSessionRevokeResponse'",
+    );
+
+    expect(source).toContain('/admin/auth/sessions/revoke-other-sessions:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/revoke-other-sessions',
+      "$ref: '#/components/schemas/RevokeOtherAdminAuthSessionsRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/revoke-other-sessions',
+      "$ref: '#/components/schemas/RevokeOtherAdminAuthSessionsResponse'",
+    );
+
+    expect(source).toContain('AdminAuthSessionRecord:');
+    expect(source).toContain('AdminAuthSessionListResponse:');
+    expect(source).toContain('AdminAuthSessionRevokeResponse:');
+    expect(source).toContain('userPhone');
+    expect(source).toContain('userType');
+    expect(source).toContain('isCurrentUser');
+    expect(source).toContain('riskTags');
+    expect(source).toContain('riskSummary');
+    expect(source).toContain('total');
+    expect(source).toContain('AdminAuthSessionRiskTag:');
+    expect(source).toContain('AdminAuthSessionRiskLevel:');
+    expect(source).toContain('AdminAuthSessionRiskContext:');
+    expect(source).toContain('AdminAuthSessionRiskSummary:');
+    expectSchemaBlockToContain(source, 'AdminAuthSessionRecord', "example: '139****9000'");
+    expectSchemaBlockToContain(source, 'AdminAuthSessionRecord', 'adm**************ice');
+    expect(source).toContain('shared_device');
+    expect(source).toContain('high_session_volume');
+    expect(source).toContain('admin_multi_device');
+
+    expect(source).toContain('/admin/auth/sessions/audit-events:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/audit-events',
+      'List admin session governance audit events',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/audit-events',
+      'name: action',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/audit-events',
+      'name: result',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/sessions/audit-events',
+      "$ref: '#/components/schemas/AdminAuthSessionGovernanceAuditListResponse'",
+    );
+    expect(source).toContain('AdminAuthSessionGovernanceAuditRecord:');
+    expect(source).toContain('AdminAuthSessionGovernanceAuditSubject:');
+    expect(source).toContain('AdminAuthSessionGovernanceAuditAction:');
+    expect(source).toContain('AdminAuthSessionGovernanceAuditResult:');
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthSessionGovernanceAuditSubject',
+      "example: '138****8001'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthSessionGovernanceAuditRecord',
+      "example: '139****9000'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthSessionGovernanceAuditRecord',
+      'adm**************ice',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'RevokeOtherAdminAuthSessionsData',
+      'adm**************ice',
+    );
+  });
+
+  it('documents admin auth account management endpoints and schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/admin/auth/accounts:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts',
+      'List admin-managed platform auth accounts',
+    );
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'bearerAuth: []');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: userType');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: status');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: keyword');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: riskOnly');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: riskTag');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: riskLevel');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: page');
+    expectPathBlockToContain(source, '/admin/auth/accounts', 'name: pageSize');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts',
+      "$ref: '#/components/schemas/AdminAuthAccountListResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+
+    expect(source).toContain('/admin/auth/accounts/report:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/report',
+      'Get admin auth account report',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/report',
+      'name: topAccountsLimit',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/report',
+      'name: auditEventLimit',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/report',
+      "$ref: '#/components/schemas/AdminAuthAccountReportResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/report',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+
+    expect(source).toContain('/admin/auth/accounts/export:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      'Export admin auth accounts as csv',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      'text/csv',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      'Content-Disposition',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      'admin-auth-accounts.csv',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      '138****8001',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      'sha*******ice|dri**********d-2|dri******b-1',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/export',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+
+    expect(source).toContain('/admin/auth/accounts/{userId}:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}',
+      'Get admin-managed auth account detail',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}',
+      'name: userId',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}',
+      "$ref: '#/components/schemas/AdminAuthAccountDetailResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}',
+      'AUTH_ACCOUNT_NOT_FOUND',
+    );
+
+    expect(source).toContain('/admin/auth/accounts/{userId}/status:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/status',
+      'Update admin-managed auth account status',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/status',
+      "$ref: '#/components/schemas/UpdateAdminAuthAccountStatusRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/status',
+      "$ref: '#/components/schemas/UpdateAdminAuthAccountStatusResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/status',
+      'AUTH_ACCOUNT_NOT_FOUND',
+    );
+
+    expect(source).toContain('/admin/auth/accounts/{userId}/revoke-sessions:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/revoke-sessions',
+      'Revoke admin-managed account sessions',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/revoke-sessions',
+      "$ref: '#/components/schemas/RevokeAdminAuthAccountSessionsRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/revoke-sessions',
+      "$ref: '#/components/schemas/RevokeAdminAuthAccountSessionsResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/{userId}/revoke-sessions',
+      'AUTH_ACCOUNT_NOT_FOUND',
+    );
+
+    expect(source).toContain('AdminAuthAccountRecord:');
+    expect(source).toContain('AdminAuthAccountFilters:');
+    expect(source).toContain('AdminAuthAccountSummary:');
+    expect(source).toContain('AdminAuthAccountListResponse:');
+    expect(source).toContain('AdminAuthAccountReportStatusBreakdownItem:');
+    expect(source).toContain('AdminAuthAccountReportUserTypeBreakdownItem:');
+    expect(source).toContain('AdminAuthAccountReportRiskTagBreakdownItem:');
+    expect(source).toContain('AdminAuthAccountReportAuditActionBreakdownItem:');
+    expect(source).toContain('AdminAuthAccountReportGovernanceAuditSummary:');
+    expect(source).toContain('AdminAuthAccountReport:');
+    expect(source).toContain('AdminAuthAccountReportResponse:');
+    expect(source).toContain('AdminAuthAccountDetail:');
+    expect(source).toContain('AdminAuthAccountDetailResponse:');
+    expect(source).toContain('UpdateAdminAuthAccountStatusRequest:');
+    expect(source).toContain('UpdateAdminAuthAccountStatusResponse:');
+    expect(source).toContain('RevokeAdminAuthAccountSessionsRequest:');
+    expect(source).toContain('RevokeAdminAuthAccountSessionsResponse:');
+    expect(source).toContain('activeSessionCount');
+    expect(source).toContain('activeDeviceCount');
+    expect(source).toContain('latestSessionCreatedAtIso');
+    expectSchemaBlockToContain(source, 'AdminAuthAccountRecord', "example: '138****8001'");
+    expect(source).toContain('disabledUserCount');
+    expect(source).toContain('highRiskUserCount');
+    expect(source).toContain('statusBreakdown');
+    expect(source).toContain('userTypeBreakdown');
+    expect(source).toContain('riskTagBreakdown');
+    expect(source).toContain('topRiskAccounts');
+    expect(source).toContain('governanceAuditSummary');
+    expect(source).toContain('recentAuditEvents');
+    expect(source).toContain('AUTH_ACCOUNT_NOT_FOUND');
+    expect(source).toContain('账号不存在');
+    expect(source).toContain('revoke_account_sessions');
+  });
+
+  it('documents file maintenance batch governance endpoint and schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/files/maintenance/batch-governance';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Run file maintenance batch governance');
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/FileMaintenanceBatchGovernanceRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/FileMaintenanceBatchGovernanceResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('FileMaintenanceBatchGovernanceRequest:');
+    expect(source).toContain('FileMaintenanceBatchGovernanceResponse:');
+    expect(source).toContain('FileMaintenanceBatchGovernanceAction:');
+    expect(source).toContain('reject_pending');
+    expect(source).toContain('delete_rejected_objects');
+    expect(source).toContain('skippedFileIds');
+  });
+
+  it('documents file maintenance report endpoint and schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/files/maintenance/report';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Get file maintenance audit report');
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(source, path, 'name: topOwnersLimit');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/FileMaintenanceReportResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('FileMaintenanceReportResponse:');
+    expect(source).toContain('FileMaintenanceReportResult:');
+    expect(source).toContain('FileMaintenancePurposeBreakdownItem:');
+    expect(source).toContain('FileMaintenanceTopOwnerItem:');
+    expect(source).toContain('topOwners');
+    expect(source).toContain('purposeBreakdown');
+  });
+
   it('documents platform password reset as a stage 1 auth route', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
@@ -147,6 +531,108 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/shipper/orders/{orderId}/evaluation:');
     expect(source).toContain('/admin/orders/attachments:');
     expect(source).toContain('List admin order attachment audit summaries');
+    expect(source).toContain('/admin/orders:');
+    expect(source).toContain('List admin orders');
+    expectPathBlockToContain(source, '/admin/orders', 'name: status');
+    expectPathBlockToContain(source, '/admin/orders', 'name: statuses');
+    expectPathBlockToContain(source, '/admin/orders', 'name: keyword');
+    expectPathBlockToContain(source, '/admin/orders', 'name: createdFromIso');
+    expectPathBlockToContain(source, '/admin/orders', 'name: createdToIso');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders',
+      "$ref: '#/components/schemas/ShipperOrderListResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('/admin/orders/report:');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/report',
+      'Get admin order report',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/report',
+      'name: topShippersLimit',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/report',
+      "$ref: '#/components/schemas/AdminOrderReportResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/report',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('/admin/orders/export:');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/export',
+      'Export admin orders as csv',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/export',
+      'text/csv',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/export',
+      'Content-Disposition',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/export',
+      'admin-orders.csv',
+    );
+    expect(source).toContain('/admin/orders/{orderId}:');
+    expect(source).toContain('Get admin order detail');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}',
+      "$ref: '#/components/schemas/ShipperOrderResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('/admin/orders/{orderId}/cancel:');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      'Cancel waiting admin order',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      "$ref: '#/components/schemas/CancelShipperOrderRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      'Only waiting orders can be cancelled from admin.',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      'ORDER_STATE_INVALID',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/{orderId}/cancel',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
     expectPathBlockToContain(source, '/admin/orders/attachments', 'name: status');
     expectPathBlockToContain(
       source,
@@ -164,13 +650,18 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('AdminOrderAttachmentAuditResponse');
     expect(source).toContain('AdminOrderAttachmentFileRecord');
     expect(source).toContain('AdminOrderAttachmentAuditEvent');
+    expect(source).toContain('AdminOrderReport');
+    expect(source).toContain('AdminOrderSummary');
+    expect(source).toContain('AdminOrderReportTopShipperItem');
     expect(source).toContain('missingFileIds');
     expect(source).toContain(
       'Signed short-lived preview URL for admin order attachment audit.',
     );
     expect(source).toContain('CreateShipperOrderRequest');
+    expect(source).toContain('UpdateShipperOrderRequest');
     expect(source).toContain('Update current shipper order');
     expect(source).toContain('CancelShipperOrderRequest');
+    expect(source).toContain('CompleteShipperOrderRequest');
     expect(source).toContain('Complete shipper order after delivery');
     expect(source).toContain('ReportShipperOrderExceptionRequest');
     expect(source).toContain('photoFileIds');
@@ -285,6 +776,139 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('AUTH_FORBIDDEN');
   });
 
+  it('documents order mutation idempotency and optimistic concurrency', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const protectedOrderMutationPaths = [
+      '/shipper/orders/{orderId}',
+      '/shipper/orders/{orderId}/cancel',
+      '/shipper/orders/{orderId}/status',
+      '/shipper/orders/{orderId}/complete',
+      '/driver/orders/{orderId}/accept',
+      '/driver/orders/{orderId}/status',
+    ];
+
+    expect(source).toContain('IdempotencyKeyHeader:');
+    expect(source).toContain('name: Idempotency-Key');
+    expect(source).toContain('format: uuid');
+    expect(source).toContain(
+      'Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.',
+    );
+
+    for (const path of protectedOrderMutationPaths) {
+      expectPathBlockToContain(
+        source,
+        path,
+        "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+      );
+      expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_INVALID');
+      expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+      expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_EXPIRED');
+      expectPathBlockToContain(source, path, 'ORDER_CONFLICT');
+    }
+
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders/{orderId}',
+      'UpdateShipperOrderRequest',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders/{orderId}/complete',
+      'CompleteShipperOrderRequest',
+    );
+
+    expectSchemaBlockToContain(
+      source,
+      'UpdateShipperOrderRequest',
+      'required: [baseUpdatedAtIso]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'CancelShipperOrderRequest',
+      'required: [baseUpdatedAtIso, reasonText]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdvanceShipperOrderStatusRequest',
+      'required: [baseUpdatedAtIso, nextStatus]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'CompleteShipperOrderRequest',
+      'required: [baseUpdatedAtIso]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverAcceptOrderRequest',
+      'required: [baseUpdatedAtIso]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverAdvanceOrderStatusRequest',
+      'required: [baseUpdatedAtIso, nextStatus]',
+    );
+    expect(source).toContain(
+      'Use this value as the baseUpdatedAtIso for the next protected order mutation.',
+    );
+  });
+
+  it('documents idempotent shipper order creation without a mutation baseline', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'The create request body does not contain baseUpdatedAtIso.',
+    );
+    expectPathBlockToContain(source, '/shipper/orders', "'400':");
+    expectPathBlockToContain(source, '/shipper/orders', "'409':");
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'IDEMPOTENCY_KEY_INVALID',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'IDEMPOTENCY_KEY_EXPIRED',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'PROFILE_COUPON_NOT_AVAILABLE',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'PROFILE_COUPON_PRICE_MISMATCH',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'does not create another order or another created event',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/orders',
+      'commit in one database transaction',
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'CreateShipperOrderRequest',
+      'baseUpdatedAtIso',
+    );
+  });
+
   it('documents order exception customer service case workflows', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
@@ -298,7 +922,12 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('OrderExceptionCaseRecord');
     expect(source).toContain('OrderExceptionCaseActionRecord');
     expect(source).toContain('OrderExceptionCaseStatus');
+    expect(source).toContain('OrderExceptionCaseCompensationStatus');
     expect(source).toContain('OrderExceptionCaseSourceRole');
+    expect(source).toContain('ResolveOrderExceptionCaseRequest');
+    expect(source).toContain('compensationStatus');
+    expect(source).toContain('compensationTargetRole');
+    expect(source).toContain('compensationAmountCents');
     expect(source).toContain('baseUpdatedAtIso');
     expect(source).toContain('EXCEPTION_CASE_NOT_FOUND');
     expect(source).toContain('EXCEPTION_CASE_STATE_INVALID');
@@ -432,15 +1061,20 @@ describe('stage 1 OpenAPI contract', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/files/maintenance/reject-expired-pending:');
+    expect(source).toContain('/files/maintenance/files:');
     expect(source).toContain('/files/maintenance/summary:');
     expect(source).toContain('/files/maintenance/delete-rejected-objects:');
     expect(source).toContain('Reject expired pending file upload intents');
+    expect(source).toContain('List file maintenance records');
     expect(source).toContain('Get file maintenance summary');
     expect(source).toContain('Retry rejected file object deletion');
     expect(source).toContain('RejectExpiredPendingFilesResponse');
     expect(source).toContain('RejectExpiredPendingFilesResult');
     expect(source).toContain('DeleteRejectedFileObjectsResponse');
     expect(source).toContain('DeleteRejectedFileObjectsResult');
+    expect(source).toContain('ListFileMaintenanceFilesResponse');
+    expect(source).toContain('ListFileMaintenanceFilesResult');
+    expect(source).toContain('FileMaintenanceListItem');
     expect(source).toContain('FileMaintenanceSummaryResponse');
     expect(source).toContain('FileMaintenanceSummaryResult');
     expect(source).toContain('attemptedObjectCount');
@@ -448,7 +1082,48 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('deletedObjectCount');
     expect(source).toContain('failedObjectDeletionCount');
     expect(source).toContain('expiredPendingCount');
+    expect(source).toContain('isExpiredPending');
     expect(source).toContain('cutoffIso');
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'bearerAuth: []',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: status',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: purpose',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: ownerUserId',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: keyword',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: page',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      'name: pageSize',
+    );
+    expectPathBlockToContain(
+      source,
+      '/files/maintenance/files',
+      "$ref: '#/components/schemas/ListFileMaintenanceFilesResponse'",
+    );
     expectPathBlockToContain(
       source,
       '/files/maintenance/summary',
@@ -621,6 +1296,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('refundTotalCents');
     expect(source).toContain('routeText');
     expect(source).toContain(
+      'Financial fields come from payment, settlement and refund records; cancelled unpaid orders and legacy_unverified orders are omitted.',
+    );
+    expect(source).not.toContain(
       'It is a spending snapshot derived from order payment fields and does not represent real payment, escrow, or refund ledger entries.',
     );
     expectPathBlockToContain(
@@ -670,6 +1348,9 @@ describe('stage 1 OpenAPI contract', () => {
 
     expect(source).toContain('/admin/evaluations:');
     expect(source).toContain('List admin evaluation audit records');
+    expectPathBlockToContain(source, '/admin/evaluations', 'name: direction');
+    expectPathBlockToContain(source, '/admin/evaluations', 'name: rating');
+    expectPathBlockToContain(source, '/admin/evaluations', 'name: keyword');
     expect(source).toContain('AdminEvaluationAuditListResponse');
     expect(source).toContain('AdminEvaluationAuditRecord');
     expect(source).toContain('AdminEvaluationDirection');
@@ -704,7 +1385,10 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('lockedAtIso');
     expect(source).toContain('usedOrderNo');
     expect(source).toContain(
-      'order creation/update/cancel/complete can lock, release and redeem existing coupons.',
+      'order creation/update/cancel/complete can lock, release and redeem existing coupons',
+    );
+    expect(source).toContain(
+      'a verified refund success callback can return a fresh usable coupon when the original coupon was already redeemed by that order.',
     );
     expectPathBlockToContain(
       source,
@@ -731,6 +1415,46 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not an admin');
   });
 
+  it('documents the admin batch shipper coupon issue endpoint', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/admin/shipper-coupons/batch-issue:');
+    expect(source).toContain('Issue shipper coupons in batch');
+    expect(source).toContain('BatchIssueShipperCouponsRequest');
+    expect(source).toContain('BatchIssueShipperCouponsResponse');
+    expect(source).toContain('requestedCount');
+    expect(source).toContain('shipperIds');
+    expectPathBlockToContain(
+      source,
+      '/admin/shipper-coupons/batch-issue',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+  });
+
+  it('documents the admin shipper coupon report endpoint and schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/admin/shipper-coupons/report';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Get admin shipper coupon report');
+    expectPathBlockToContain(source, path, 'name: topShippersLimit');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/AdminShipperCouponReportResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('AdminShipperCouponReportResponse:');
+    expect(source).toContain('AdminShipperCouponReportResult:');
+    expect(source).toContain('AdminShipperCouponReportSummary:');
+    expect(source).toContain('AdminShipperCouponReportSourceBreakdownItem:');
+    expect(source).toContain('AdminShipperCouponReportTopShipperItem:');
+  });
+
   it('documents the current shipper profile frequent routes endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
@@ -750,6 +1474,355 @@ describe('stage 1 OpenAPI contract', () => {
     );
     expect(source).toContain('Current authenticated user is not a shipper');
   });
+
+  it('documents shipper payment creation and latest server payment state', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/shipper/orders/{orderId}/payments';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Create an online payment order');
+    expectPathBlockToContain(source, path, 'Get latest online payment order');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/CreatePaymentRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/CreatePaymentResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/PaymentOrderResponse'",
+    );
+    for (const errorCode of [
+      'PAYMENT_AMOUNT_INVALID',
+      'PAYMENT_ALREADY_ESCROWED',
+      'PAYMENT_ORDER_NOT_AVAILABLE',
+      'PAYMENT_CHANNEL_UNAVAILABLE',
+      'IDEMPOTENCY_KEY_INVALID',
+      'IDEMPOTENCY_KEY_REUSED',
+    ]) {
+      expectPathBlockToContain(source, path, errorCode);
+    }
+    expectSchemaBlockToContain(
+      source,
+      'CreatePaymentRequest',
+      'enum: [wechat, alipay]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'PaymentOrderRecord',
+      'clientPayload:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'PaymentOrderRecord',
+      'providerTradeNo:',
+    );
+    expect(source).toContain('opaque provider payload');
+  });
+
+  it('documents six unauthenticated signed callback routes with provider-native acknowledgements', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const callbackPaths = [
+      '/callbacks/payment/wechat',
+      '/callbacks/payment/alipay',
+      '/callbacks/payment/sandbox',
+      '/callbacks/refund/wechat',
+      '/callbacks/refund/alipay',
+      '/callbacks/refund/sandbox',
+    ];
+
+    for (const path of callbackPaths) {
+      expect(source).toContain(`${path}:`);
+      expectPathBlockToContain(source, path, 'security: []');
+      expectPathBlockToContain(source, path, 'raw request body');
+      expectPathBlockNotToContain(source, path, 'ApiSuccessEnvelope');
+      expectPathBlockToContain(source, path, "'200':");
+      expectPathBlockToContain(source, path, "'400':");
+    }
+    expectPathBlockToContain(
+      source,
+      '/callbacks/payment/wechat',
+      "$ref: '#/components/schemas/WechatCallbackSuccessAck'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/callbacks/payment/alipay',
+      'text/plain',
+    );
+    expectPathBlockToContain(
+      source,
+      '/callbacks/payment/sandbox',
+      "$ref: '#/components/schemas/SandboxCallbackSuccessAck'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'WechatCallbackSuccessAck',
+      'enum: [SUCCESS]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'WechatCallbackFailureAck',
+      'enum: [FAIL]',
+    );
+    expect(source).toContain('example: success');
+    expect(source).toContain('example: failure');
+  });
+
+  it('documents admin finance pages, ledger detail and audited write operations', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const readPaths = [
+      '/admin/finance/report',
+      '/admin/finance/payments',
+      '/admin/finance/refunds',
+      '/admin/finance/settlements',
+      '/admin/finance/ledger-transactions/{transactionId}',
+      '/admin/finance/withdrawals',
+    ];
+    const writePaths = [
+      '/admin/finance/refunds/{refundId}/retry',
+      '/admin/finance/withdrawals/{withdrawalId}/approve',
+      '/admin/finance/withdrawals/{withdrawalId}/reject',
+    ];
+
+    for (const path of [...readPaths, ...writePaths]) {
+      expect(source).toContain(`${path}:`);
+      expectPathBlockToContain(source, path, 'bearerAuth: []');
+      expectPathBlockToContain(
+        source,
+        path,
+        "$ref: '#/components/responses/AdminOnlyError'",
+      );
+    }
+    for (const path of writePaths) {
+      expectPathBlockToContain(
+        source,
+        path,
+        "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+      );
+      expectPathBlockToContain(
+        source,
+        path,
+        "$ref: '#/components/schemas/AdminFinanceWriteRequest'",
+      );
+      expectPathBlockToContain(source, path, 'expectedVersion');
+      expectPathBlockToContain(source, path, 'reason');
+      expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+    }
+    expect(source).toContain('AdminPaymentPageResponse');
+    expect(source).toContain('AdminFinanceReportResponse');
+    expect(source).toContain('AdminRefundPageResponse');
+    expect(source).toContain('AdminSettlementPageResponse');
+    expect(source).toContain('AdminWithdrawalPageResponse');
+    expect(source).toContain('FinancialTransactionResponse');
+    expect(source).toContain('AdminRefundRetryResponse');
+    expect(source).toContain('AdminWithdrawalReviewResponse');
+    expect(source).toContain('FinancialLedgerEntryRecord');
+    expect(source).toContain('FinancialAuditLogRecord');
+    for (const path of [
+      '/admin/finance/payments',
+      '/admin/finance/refunds',
+      '/admin/finance/settlements',
+    ]) {
+      expectPathBlockToContain(source, path, 'name: orderId');
+    }
+    expectPathBlockNotToContain(
+      source,
+      '/admin/finance/withdrawals',
+      'name: orderId',
+    );
+  });
+
+  it('documents the admin console overview endpoint and live module schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/admin/console/overview';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Get admin console overview');
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/AdminConsoleOverviewResponse'",
+    );
+    expect(source).toContain('AdminConsoleOverview:');
+    expect(source).toContain('AdminConsoleOverviewModule:');
+    expect(source).toContain('AdminConsoleOverviewMetric:');
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverview',
+      'remainingPlatformGaps:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverviewModule',
+      'pendingGaps:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverviewModule',
+      'permission-matrix',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverview',
+      '多角色工作台 / 行级权限 / 报表 / 批量操作',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverviewMetric',
+      'enum: [neutral, warning, positive]',
+    );
+  });
+
+  it('documents the admin permission matrix endpoint and schemas', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/admin/permissions/matrix';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Get admin permission matrix');
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/AdminPermissionMatrixResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expect(source).toContain('AdminPermissionMatrix:');
+    expect(source).toContain('AdminPermissionMatrixProfile:');
+    expect(source).toContain('AdminPermissionMatrixModule:');
+    expect(source).toContain('AdminPermissionCapability:');
+    expect(source).toContain('AdminPermissionRiskLevel:');
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionMatrix',
+      'remainingGaps:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionMatrixProfile',
+      'platform_admin',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionCapability',
+      'apiPaths:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionCapability',
+      'session_governance_manage',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionCapability',
+      'order_management_manage',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionCapability',
+      '/admin/orders/{orderId}/cancel',
+    );
+  });
+
+  it('documents withdrawal idempotency and wallet facts', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expectPathBlockToContain(
+      source,
+      '/driver/withdrawals',
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/driver/withdrawals',
+      'IDEMPOTENCY_KEY_INVALID',
+    );
+    expectPathBlockToContain(
+      source,
+      '/driver/withdrawals',
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    expectPathBlockToContain(
+      source,
+      '/driver/withdrawals',
+      'Same key and same normalized body replay the original withdrawal.',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverIncomeSummary',
+      'withdrawnCents',
+    );
+    expectSchemaBlockToContain(source, 'AdminRefundRecord', 'outboxEvent:');
+    expectSchemaBlockToContain(
+      source,
+      'AdminRefundRecord',
+      "$ref: '#/components/schemas/FinancialOutboxEventRecord'",
+    );
+    expectSchemaBlockToContain(source, 'AdminWithdrawalRecord', 'version:');
+    expectSchemaBlockToContain(
+      source,
+      'DriverWithdrawalStatus',
+      'enum: [reviewing, paid, rejected]',
+    );
+  });
+
+  it('documents order and spending financial facts instead of derived placeholders', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expectSchemaBlockToContain(source, 'ShipperOrder', 'paymentStatus:');
+    expectSchemaBlockToContain(source, 'ShipperOrder', 'assignedDriverId:');
+    expectSchemaBlockToContain(source, 'ShipperOrder', 'paymentSettledAtIso:');
+    expectSchemaBlockToContain(source, 'ShipperOrder', 'refundedAtIso:');
+    expectSchemaBlockToContain(
+      source,
+      'ShipperSpendingRecord',
+      'paymentChannel:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperSpendingRecord',
+      'paymentOrderStatus:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperSpendingRecord',
+      'refundStatus:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperSpendingRecord',
+      'settledAtIso:',
+    );
+    expect(source).toContain(
+      'Financial fields come from payment, settlement and refund records; cancelled unpaid orders and legacy_unverified orders are omitted.',
+    );
+    expect(source).not.toContain(
+      'It is a spending snapshot derived from order payment fields and does not represent real payment, escrow, or refund ledger entries.',
+    );
+    expect(source).toContain(
+      'online payment requires fixed pricing with a final non-zero amount',
+    );
+  });
 });
 
 function expectPathBlockToContain(source: string, path: string, expected: string) {
@@ -764,4 +1837,68 @@ function expectPathBlockToContain(source: string, path: string, expected: string
       : source.slice(pathStart, nextPathStart);
 
   expect(pathBlock).toContain(expected);
+}
+
+function expectPathBlockNotToContain(
+  source: string,
+  path: string,
+  unexpected: string,
+) {
+  const pathStart = source.indexOf(`  ${path}:`);
+
+  expect(pathStart).toBeGreaterThanOrEqual(0);
+
+  const nextPathStart = source.indexOf('\n  /', pathStart + 1);
+  const pathBlock =
+    nextPathStart === -1
+      ? source.slice(pathStart)
+      : source.slice(pathStart, nextPathStart);
+
+  expect(pathBlock).not.toContain(unexpected);
+}
+
+function expectSchemaBlockToContain(
+  source: string,
+  schema: string,
+  expected: string,
+) {
+  const schemaStart = source.indexOf(`    ${schema}:`);
+
+  expect(schemaStart).toBeGreaterThanOrEqual(0);
+
+  const restSource = source.slice(schemaStart + 1);
+  const nextSchemaMatch = /\n {4}[^ ]/.exec(restSource);
+  const nextSchemaStart =
+    nextSchemaMatch == null
+      ? -1
+      : schemaStart + 1 + nextSchemaMatch.index + 1;
+  const schemaBlock =
+    nextSchemaStart === -1
+      ? source.slice(schemaStart)
+      : source.slice(schemaStart, nextSchemaStart);
+
+  expect(schemaBlock).toContain(expected);
+}
+
+function expectSchemaBlockNotToContain(
+  source: string,
+  schema: string,
+  unexpected: string,
+) {
+  const schemaStart = source.indexOf(`    ${schema}:`);
+
+  expect(schemaStart).toBeGreaterThanOrEqual(0);
+
+  const restSource = source.slice(schemaStart + 1);
+  const nextSchemaMatch = /\n {4}[^ ]/.exec(restSource);
+  const nextSchemaStart =
+    nextSchemaMatch == null
+      ? -1
+      : schemaStart + 1 + nextSchemaMatch.index + 1;
+  const schemaBlock =
+    nextSchemaStart === -1
+      ? source.slice(schemaStart)
+      : source.slice(schemaStart, nextSchemaStart);
+
+  expect(schemaBlock).not.toContain(unexpected);
 }

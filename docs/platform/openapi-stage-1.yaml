@@ -102,6 +102,37 @@ paths:
                 timestamp: '2026-06-26T06:00:00.000Z'
         '403':
           $ref: '#/components/responses/DisabledUserError'
+  /auth/admin/password-login:
+    post:
+      summary: Login admin with phone and password
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPasswordLoginRequest'
+      responses:
+        '200':
+          description: Admin password login success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordLoginResponse'
+        '401':
+          description: Phone or password is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_PASSWORD_INVALID
+                message: 手机号或密码错误
+                requestId: req_local
+                timestamp: '2026-06-26T06:00:00.000Z'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
   /auth/register:
     post:
       summary: Register with phone and verification code
@@ -459,6 +490,81 @@ paths:
                     message: 账号已禁用
                     requestId: req_file_cleanup
                     timestamp: '2026-07-07T06:00:00.000Z'
+  /files/maintenance/files:
+    get:
+      summary: List file maintenance records
+      description: Admin-only maintenance endpoint. Returns paged file records so operators can filter pending, uploaded or rejected files by purpose, owner and keyword before triggering cleanup. Keyword currently matches file id, ownerUserId, objectKey, publicUrl, contentType, etag and versionId.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, uploaded, rejected] } }
+        - { name: purpose, in: query, schema: { type: string, enum: [identity, cargo, exception, evaluation, receipt, invoice] } }
+        - { name: ownerUserId, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: keyword, in: query, schema: { type: string, maxLength: 120 } }
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: File maintenance page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListFileMaintenanceFilesResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin, or authenticated user is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: AUTH_FORBIDDEN
+                    message: 当前账号不是管理员
+                    requestId: req_file_list
+                    timestamp: '2026-07-18T03:00:00.000Z'
+                disabled:
+                  value:
+                    code: AUTH_USER_DISABLED
+                    message: 账号已禁用
+                    requestId: req_file_list
+                    timestamp: '2026-07-18T03:00:00.000Z'
+  /files/maintenance/batch-governance:
+    post:
+      summary: Run file maintenance batch governance
+      description: Admin-only maintenance endpoint. Runs a first-slice batch action against the selected file ids so operators can reject pending uploads or retry rejected object deletion directly from the filtered maintenance list.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FileMaintenanceBatchGovernanceRequest'
+      responses:
+        '200':
+          description: File maintenance batch governance executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMaintenanceBatchGovernanceResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
   /files/maintenance/summary:
     get:
       summary: Get file maintenance summary
@@ -499,6 +605,30 @@ paths:
                     message: 账号已禁用
                     requestId: req_file_summary
                     timestamp: '2026-07-07T06:00:00.000Z'
+  /files/maintenance/report:
+    get:
+      summary: Get file maintenance audit report
+      description: Admin-only maintenance endpoint. Returns a generated audit snapshot with per-purpose counts and top owner hotspots so operators can see where expired pending and rejected files are piling up before running cleanup.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: topOwnersLimit, in: query, schema: { type: integer, minimum: 1, maximum: 20, default: 5 } }
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: File maintenance audit report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMaintenanceReportResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
   /files/maintenance/delete-rejected-objects:
     post:
       summary: Retry rejected file object deletion
@@ -1070,7 +1200,7 @@ paths:
   /shipper/profile/spending-records:
     get:
       summary: List current shipper spending records
-      description: Returns the current shipper's spending snapshot ordered by latest occurredAt first. It is a spending snapshot derived from order payment fields and does not represent real payment, escrow, or refund ledger entries.
+      description: Returns the current shipper's spending snapshot ordered by latest occurredAt first. Financial fields come from payment, settlement and refund records; cancelled unpaid orders and legacy_unverified orders are omitted.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -1159,6 +1289,27 @@ paths:
             minimum: 1
             maximum: 50
           example: 20
+        - name: direction
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminEvaluationDirection'
+          example: driver_to_shipper
+        - name: rating
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+          example: 5
+        - name: keyword
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+          example: 李师傅
       security:
         - bearerAuth: []
       responses:
@@ -1179,7 +1330,7 @@ paths:
   /shipper/profile/coupons:
     get:
       summary: List current shipper coupon wallet
-      description: Returns the current shipper's coupon wallet snapshot ordered by latest issuedAt first. Coupon issue, marketing rules, payment settlement and refund return are still out of scope; order creation/update/cancel/complete can lock, release and redeem existing coupons.
+      description: Returns the current shipper's coupon wallet snapshot ordered by latest issuedAt first. Coupon issue campaign orchestration, marketing rules, pricing deduction and settlement reconciliation are still out of scope; order creation/update/cancel/complete can lock, release and redeem existing coupons, and a verified refund success callback can return a fresh usable coupon when the original coupon was already redeemed by that order.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -1202,7 +1353,7 @@ paths:
   /admin/shipper-coupons:
     post:
       summary: Issue a shipper coupon manually
-      description: Admin-only first slice for manually issuing a usable coupon to a shipper wallet. It does not include marketing rule engines, batch campaigns, approval workflow, payment settlement, or refund return.
+      description: Admin-only first slice for manually issuing a usable coupon to a shipper wallet. It does not include marketing rule engines, campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -1231,6 +1382,89 @@ paths:
                 message: 优惠券失效时间必须晚于生效时间
                 requestId: req_local
                 timestamp: '2026-07-09T10:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/shipper-coupons/batch-issue:
+    post:
+      summary: Issue shipper coupons in batch
+      description: Admin-only first slice for issuing the same usable coupon template to multiple shipper wallets in one batch. This slice only covers direct manual issuance, not campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchIssueShipperCouponsRequest'
+      responses:
+        '200':
+          description: Shipper coupons batch issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchIssueShipperCouponsResponse'
+        '400':
+          description: Batch coupon issue request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: VALIDATION_ERROR
+                message: 至少要指定一个货主
+                requestId: req_local
+                timestamp: '2026-07-20T10:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/shipper-coupons/report:
+    get:
+      summary: Get admin shipper coupon report
+      description: Admin-only first slice for reading coupon inventory, redemption summary, source breakdown and top-shipper distribution across manual issue, batch issue and refund-return coupons. This still does not include activity orchestration, approval workflow, pricing deduction or settlement reconciliation.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: topShippersLimit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+          example: 5
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin shipper coupon report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminShipperCouponReportResponse'
+        '400':
+          description: Coupon report query is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: VALIDATION_ERROR
+                message: topShippersLimit 只能是 1 到 20
+                requestId: req_local
+                timestamp: '2026-07-21T09:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1366,8 +1600,10 @@ paths:
   /shipper/orders:
     post:
       summary: Create shipper order
+      description: Requires Idempotency-Key and has no optimistic-concurrency baseline. The create request body does not contain baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot and does not create another order or another created event. The order, created event, coupon compare-and-set, idempotency reservation and response snapshot commit in one database transaction.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
       security:
         - bearerAuth: []
       requestBody:
@@ -1383,6 +1619,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid, or the create request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 必须是合法 UUID
+                requestId: req_local
+                timestamp: '2026-07-14T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1391,6 +1638,41 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/ShipperOnlyError'
+        '409':
+          description: Idempotency key is reused or expired, or coupon validation/compare-and-set failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotencyKeyReused:
+                  summary: The key was already used for a different normalized create request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求使用
+                    requestId: req_local
+                    timestamp: '2026-07-14T08:00:00.000Z'
+                idempotencyKeyExpired:
+                  summary: The stored replay snapshot has expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-14T08:00:00.000Z'
+                couponNotAvailable:
+                  summary: The coupon is not usable or lost the transaction compare-and-set race
+                  value:
+                    code: PROFILE_COUPON_NOT_AVAILABLE
+                    message: 优惠券当前不可用
+                    requestId: req_local
+                    timestamp: '2026-07-14T08:00:00.000Z'
+                couponPriceMismatch:
+                  summary: Client coupon pricing does not match the server coupon record
+                  value:
+                    code: PROFILE_COUPON_PRICE_MISMATCH
+                    message: 优惠券金额与服务端记录不一致
+                    requestId: req_local
+                    timestamp: '2026-07-14T08:00:00.000Z'
     get:
       summary: List current shipper orders
       parameters:
@@ -1505,8 +1787,10 @@ paths:
                 timestamp: '2026-07-01T08:00:00.000Z'
     put:
       summary: Update current shipper order
+      description: Only waiting orders can be updated. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -1520,7 +1804,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateShipperOrderRequest'
+              $ref: '#/components/schemas/UpdateShipperOrderRequest'
       responses:
         '200':
           description: Order updated
@@ -1528,6 +1812,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1548,21 +1843,47 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-01T08:00:00.000Z'
         '409':
-          description: Current order status does not allow update
+          description: Idempotency key was reused or expired, order base version is stale, or current order status does not allow update
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单状态不允许修改
-                requestId: req_local
-                timestamp: '2026-07-01T08:10:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current order state does not allow update
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许修改
+                    requestId: req_local
+                    timestamp: '2026-07-01T08:10:00.000Z'
   /shipper/orders/{orderId}/cancel:
     post:
       summary: Cancel current shipper order
+      description: Cancels a non-completed shipper order. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -1584,6 +1905,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1604,21 +1936,47 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-01T08:00:00.000Z'
         '409':
-          description: Current order status does not allow cancellation
+          description: Idempotency key was reused or expired, order base version is stale, or current order status does not allow cancellation
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单状态不允许取消
-                requestId: req_local
-                timestamp: '2026-07-01T08:10:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current order state does not allow cancellation
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许取消
+                    requestId: req_local
+                    timestamp: '2026-07-01T08:10:00.000Z'
   /shipper/orders/{orderId}/complete:
     post:
       summary: Complete shipper order after delivery
+      description: Confirms delivery for a confirming order. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -1627,6 +1985,12 @@ paths:
           example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteShipperOrderRequest'
       responses:
         '200':
           description: Order completed
@@ -1634,6 +1998,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1654,22 +2029,47 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-01T08:00:00.000Z'
         '409':
-          description: Current order status does not allow delivery confirmation
+          description: Idempotency key was reused or expired, order base version is stale, or current order status does not allow delivery confirmation
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单状态不允许确认送达
-                requestId: req_local
-                timestamp: '2026-07-01T08:10:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current order state does not allow delivery confirmation
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许确认送达
+                    requestId: req_local
+                    timestamp: '2026-07-01T08:10:00.000Z'
   /shipper/orders/{orderId}/status:
     post:
       summary: Advance current shipper order status
-      description: 'Advances status in order: waiting to loading, loading to transporting, transporting to confirming. Completion still uses /complete.'
+      description: 'Advances status in order: waiting to loading, loading to transporting, transporting to confirming. Completion still uses /complete. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.'
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -1691,6 +2091,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -1711,16 +2122,40 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-01T08:00:00.000Z'
         '409':
-          description: Current order status does not allow advancing to the requested status
+          description: Idempotency key was reused or expired, order base version is stale, or current order status does not allow advancing to the requested status
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单状态不允许推进到目标状态
-                requestId: req_local
-                timestamp: '2026-07-01T08:10:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current order state does not allow advancing to the requested status
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许推进到目标状态
+                    requestId: req_local
+                    timestamp: '2026-07-01T08:10:00.000Z'
   /shipper/orders/{orderId}/exception:
     post:
       summary: Report an exception for current shipper order
@@ -1892,6 +2327,598 @@ paths:
                 message: 当前订单状态不允许评价
                 requestId: req_local
                 timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/payments:
+    post:
+      summary: Create an online payment order
+      description: Creates an online payment order for the current shipper order. The create request body does not contain baseUpdatedAtIso. The online payment requires fixed pricing with a final non-zero amount, and the API returns an opaque provider payload for the mobile payment SDK. Reusing the same Idempotency-Key with the same normalized request does not create another order or another created event, and the payment reservation, provider payload preparation and later financial facts commit in one database transaction per callback.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+      responses:
+        '200':
+          description: Payment order created or replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePaymentResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-15T08:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-15T08:00:00.000Z'
+        '409':
+          description: Payment creation is not available for the current order, payment amount, or idempotency key reuse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                keyReused:
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他支付请求使用
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:01:00.000Z'
+                paymentAmountInvalid:
+                  value:
+                    code: PAYMENT_AMOUNT_INVALID
+                    message: 订单支付金额不合法
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:01:30.000Z'
+                paymentAlreadyEscrowed:
+                  value:
+                    code: PAYMENT_ALREADY_ESCROWED
+                    message: 订单已经支付
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:02:00.000Z'
+                paymentOrderNotAvailable:
+                  value:
+                    code: PAYMENT_ORDER_NOT_AVAILABLE
+                    message: 当前订单不可创建支付单
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:02:30.000Z'
+                paymentChannelUnavailable:
+                  value:
+                    code: PAYMENT_CHANNEL_UNAVAILABLE
+                    message: 支付渠道暂时不可用
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:03:00.000Z'
+    get:
+      summary: Get latest online payment order
+      description: Returns the latest online payment order for the current shipper order so the mobile client can poll the latest server payment state.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Latest order payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Payment order does not exist for the current shipper order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: PAYMENT_ORDER_NOT_AVAILABLE
+                message: 订单支付单不存在
+                requestId: req_local
+                timestamp: '2026-07-15T08:04:00.000Z'
+  /callbacks/payment/wechat:
+    post:
+      summary: Accept signed WeChat payment callback
+      description: Uses the raw request body and WeChat headers to verify the signed payment callback, then writes the payment escrow or late-refund-pending financial facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: WeChat callback success acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatCallbackSuccessAck'
+        '400':
+          description: WeChat callback verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatCallbackFailureAck'
+  /callbacks/payment/alipay:
+    post:
+      summary: Accept signed Alipay payment callback
+      description: Uses the raw request body and Alipay signature fields to verify the signed payment callback, then writes the payment escrow or late-refund-pending financial facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: Alipay callback success acknowledgement
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [success]
+              example: success
+        '400':
+          description: Alipay callback verification failed
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [failure]
+              example: failure
+  /callbacks/payment/sandbox:
+    post:
+      summary: Accept signed sandbox payment callback
+      description: Uses the raw request body and sandbox HMAC headers to verify the signed payment callback, then writes the payment escrow or late-refund-pending financial facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: Sandbox callback success acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxCallbackSuccessAck'
+        '400':
+          description: Sandbox callback verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxCallbackFailureAck'
+  /callbacks/refund/wechat:
+    post:
+      summary: Accept signed WeChat refund callback
+      description: Uses the raw request body and WeChat headers to verify the signed refund callback, then writes refund and ledger facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: WeChat refund callback success acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatCallbackSuccessAck'
+        '400':
+          description: WeChat refund callback verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WechatCallbackFailureAck'
+  /callbacks/refund/alipay:
+    post:
+      summary: Accept signed Alipay refund callback
+      description: Uses the raw request body and Alipay signature fields to verify the signed refund callback, then writes refund and ledger facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: Alipay refund callback success acknowledgement
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [success]
+              example: success
+        '400':
+          description: Alipay refund callback verification failed
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum: [failure]
+              example: failure
+  /callbacks/refund/sandbox:
+    post:
+      summary: Accept signed sandbox refund callback
+      description: Uses the raw request body and sandbox HMAC headers to verify the signed refund callback, then writes refund and ledger facts. The response uses provider-native acknowledgements rather than the platform's normal success wrapper.
+      security: []
+      responses:
+        '200':
+          description: Sandbox refund callback success acknowledgement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxCallbackSuccessAck'
+        '400':
+          description: Sandbox refund callback verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxCallbackFailureAck'
+  /admin/orders:
+    get:
+      summary: List admin orders
+      description: Returns a read-only admin order list across all shippers. This first slice supports the back-office order management console for keyword, status, status collection and created-at range filtering; report generation, CSV export and waiting-order cancellation are exposed through sibling endpoints, but richer batch operations and role-enforced permission splits are still not included.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Single status filter. Do not send together with statuses.
+          schema:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated status collection. Do not send together with status.
+          schema:
+            type: string
+          example: loading,transporting
+        - name: keyword
+          in: query
+          required: false
+          description: Search order number, cargo, addresses, contacts, phones and vehicle requirement text.
+          schema:
+            type: string
+            maxLength: 100
+          example: HY202607
+        - name: createdFromIso
+          in: query
+          required: false
+          description: Inclusive created-at lower bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        - name: createdToIso
+          in: query
+          required: false
+          description: Exclusive created-at upper bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-08-01T00:00:00.000Z'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin orders
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/orders/report:
+    get:
+      summary: Get admin order report
+      description: Returns a read-only admin order report for the current admin order filters. This first slice summarizes status, payment, pricing and top-shipper breakdowns, but it does not include scheduled reports, async jobs or customer-service and finance joins yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Single status filter. Do not send together with statuses.
+          schema:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated status collection. Do not send together with status.
+          schema:
+            type: string
+          example: loading,transporting
+        - name: keyword
+          in: query
+          required: false
+          description: Search order number, cargo, addresses, contacts, phones and vehicle requirement text.
+          schema:
+            type: string
+            maxLength: 100
+          example: HY202607
+        - name: createdFromIso
+          in: query
+          required: false
+          description: Inclusive created-at lower bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        - name: createdToIso
+          in: query
+          required: false
+          description: Exclusive created-at upper bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-08-01T00:00:00.000Z'
+        - name: topShippersLimit
+          in: query
+          required: false
+          description: Number of top shippers to keep in the report.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 5
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin order report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderReportResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/orders/export:
+    get:
+      summary: Export admin orders as csv
+      description: Exports matched admin orders as CSV using the same filter set as the admin list and report endpoints. This first slice returns the file inline and does not include async export jobs, scheduled delivery or role-scoped column trimming yet.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Single status filter. Do not send together with statuses.
+          schema:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+        - name: statuses
+          in: query
+          required: false
+          description: Comma-separated status collection. Do not send together with status.
+          schema:
+            type: string
+          example: loading,transporting
+        - name: keyword
+          in: query
+          required: false
+          description: Search order number, cargo, addresses, contacts, phones and vehicle requirement text.
+          schema:
+            type: string
+            maxLength: 100
+          example: HY202607
+        - name: createdFromIso
+          in: query
+          required: false
+          description: Inclusive created-at lower bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        - name: createdToIso
+          in: query
+          required: false
+          description: Exclusive created-at upper bound in ISO 8601 format.
+          schema:
+            type: string
+            format: date-time
+          example: '2026-08-01T00:00:00.000Z'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin orders CSV export
+          headers:
+            Content-Disposition:
+              description: Suggested CSV download filename.
+              schema:
+                type: string
+              example: attachment; filename="admin-orders.csv"
+          content:
+            text/csv:
+              schema:
+                type: string
+                example: "\uFEFForderId,orderNo,shipperId,status,paymentStatus,pricingMode,paymentMethod,priceCents,payablePriceCents,createdAtIso,updatedAtIso,pickupAddress,pickupContact,pickupPhone,deliveryAddress,deliveryContact,deliveryPhone,cargoType,vehicleRequirement,cargoPhotoCount,eventCount,latestExceptionCaseNo,latestExceptionCaseStatus\r\norder_01J1Z7P7V2QM9B3V8M3G1N6K8S,HY202607010777,shipper-1,waiting,not_required,fixed,cod,76000,76000,2026-07-01T08:00:00.000Z,2026-07-01T08:00:00.000Z,宝安区福永物流园,赵经理,13900139001,南山区科技园,钱店长,13900139002,build,medium,0,1,,"
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/orders/{orderId}:
+    get:
+      summary: Get admin order detail
+      description: Returns a read-only admin order detail snapshot across all shippers. It is intended for back-office inspection and reuses the same order schema as the shipper detail route.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin order detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-18T03:00:00.000Z'
+  /admin/orders/{orderId}/cancel:
+    post:
+      summary: Cancel waiting admin order
+      description: Only waiting orders can be cancelled from admin. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelShipperOrderRequest'
+      responses:
+        '200':
+          description: Admin order cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Request body is invalid or Idempotency-Key is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_idempotency_key:
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-18T03:00:00.000Z'
+        '409':
+          description: Idempotency key was reused or expired, order base version is stale, or current order status does not allow admin cancellation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotency_key_reused:
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
+                idempotency_key_expired:
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
+                order_conflict:
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
+                state_invalid:
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许后台取消
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
   /admin/orders/attachments:
     get:
       summary: List admin order attachment audit summaries
@@ -2596,7 +3623,7 @@ paths:
   /driver/income:
     get:
       summary: Get current driver income overview
-      description: Returns first-slice income summary and recent completed-income records for the current driver. Net income is currently calculated as 95% of payablePriceCents or priceCents. If a completed negotiable order still has no stored amount, this slice falls back to the latest quote submitted by the same driver.
+      description: Returns settlement-derived income summary, recent settlement income records and current driver wallet facts for the current driver.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2676,9 +3703,10 @@ paths:
                 timestamp: '2026-07-09T03:00:00.000Z'
     post:
       summary: Create current driver withdrawal request
-      description: Creates a reviewing withdrawal request for the current driver and stores only masked bank-account snapshot data in this slice.
+      description: Creates a reviewing withdrawal request for the current driver, atomically reserves wallet balance, and stores only masked bank-account snapshot data in this slice. Same key and same normalized body replay the original withdrawal.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
       security:
         - bearerAuth: []
       requestBody:
@@ -2695,16 +3723,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/DriverWithdrawalResponse'
         '400':
-          description: Withdrawal request is invalid or exceeds current available balance
+          description: Withdrawal request is invalid, Idempotency-Key is invalid, or current available balance is insufficient
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: DRIVER_WITHDRAWAL_BALANCE_INSUFFICIENT
-                message: 可提现余额不足
-                requestId: req_local
-                timestamp: '2026-07-09T03:20:00.000Z'
+              examples:
+                invalidKey:
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-15T11:20:00.000Z'
+                insufficientBalance:
+                  value:
+                    code: DRIVER_WITHDRAWAL_BALANCE_INSUFFICIENT
+                    message: 可提现余额不足
+                    requestId: req_local
+                    timestamp: '2026-07-09T03:20:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -2722,6 +3758,17 @@ paths:
                 message: 当前账号不是司机
                 requestId: req_local
                 timestamp: '2026-07-09T03:00:00.000Z'
+        '409':
+          description: Idempotency-Key was reused for a different withdrawal request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency-Key 已被其他提现请求使用
+                requestId: req_local
+                timestamp: '2026-07-15T11:21:00.000Z'
   /driver/orders:
     get:
       summary: List accepted orders for current driver
@@ -2896,9 +3943,10 @@ paths:
   /driver/orders/{orderId}/accept:
     post:
       summary: Accept a waiting order as current driver
-      description: Moves a waiting order to loading and appends a driver_accepted event. The current driver must have approved identity and vehicle certification, and current acceptance settings must be online.
+      description: Moves a waiting order to loading and appends a driver_accepted event. The current driver must have approved identity and vehicle certification, and current acceptance settings must be online. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -2920,6 +3968,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -2949,22 +4008,47 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
         '409':
-          description: Current order status cannot be accepted
+          description: Idempotency key was reused or expired, order base version is stale, or current order status cannot be accepted
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单已不可接单
-                requestId: req_local
-                timestamp: '2026-07-06T08:00:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current order state cannot be accepted
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单已不可接单
+                    requestId: req_local
+                    timestamp: '2026-07-06T08:00:00.000Z'
   /driver/orders/{orderId}/status:
     post:
       summary: Advance current driver accepted order status
-      description: Allows loading to transporting and transporting to confirming. Completion remains the shipper confirmation flow in this slice.
+      description: Allows loading to transporting and transporting to confirming. Completion remains the shipper confirmation flow in this slice. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -2986,6 +4070,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-12T08:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -3015,16 +4110,40 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
         '409':
-          description: Current driver order status cannot advance to requested status
+          description: Idempotency key was reused or expired, order base version is stale, or current driver order status cannot advance to requested status
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前司机订单状态不允许推进到目标状态
-                requestId: req_local
-                timestamp: '2026-07-06T08:00:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for a different request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:10:00.000Z'
+                keyExpired:
+                  summary: Replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-13T08:10:00.000Z'
+                orderConflict:
+                  summary: Base order version is stale
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-12T08:11:00.000Z'
+                stateInvalid:
+                  summary: Current driver order state cannot advance to the requested status
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前司机订单状态不允许推进到目标状态
+                    requestId: req_local
+                    timestamp: '2026-07-06T08:00:00.000Z'
   /driver/orders/{orderId}/evaluation-reply:
     post:
       summary: Reply to a shipper evaluation
@@ -3329,7 +4448,7 @@ paths:
         '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
   /admin/order-exception-cases/{caseId}/resolve:
     post:
-      summary: Resolve a processing exception case
+      summary: Resolve a processing exception case and record compensation decision
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: caseId, in: path, required: true, schema: { type: string } }
@@ -3338,7 +4457,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest' }
+            schema: { $ref: '#/components/schemas/ResolveOrderExceptionCaseRequest' }
       responses:
         '200': { description: Case resolved, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
         '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
@@ -3357,6 +4476,620 @@ paths:
       responses:
         '200': { description: Case closed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
         '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /admin/auth/sessions:
+    get:
+      summary: List admin-managed active sessions
+      description: Returns active refresh sessions for the first-slice session governance console. The default `scope=current_admin` keeps the current admin self-governance view, while `scope=all` lets admin search platform sessions by user type, keyword and device-risk tags. Refresh token values are never exposed, and the response includes first-slice device-risk summary counters.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [current_admin, all], default: current_admin }
+        - name: userType
+          in: query
+          required: false
+          schema: { type: string, enum: [shipper, driver, admin] }
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string, maxLength: 60 }
+        - name: riskOnly
+          in: query
+          required: false
+          description: When `true`, only return sessions tagged by the first-slice device risk rules.
+          schema: { type: boolean }
+        - name: riskTag
+          in: query
+          required: false
+          description: Filter sessions by a specific first-slice device risk tag.
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin-managed active sessions with device-risk summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAuthSessionListResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/sessions/audit-events:
+    get:
+      summary: List admin session governance audit events
+      description: Returns fine-grained audit records for admin session governance writes. The first slice covers single-session revoke, revoke-other-sessions and account-wide session revoke actions, including actor, outcome, requested target and affected session snapshots.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: action
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditAction'
+        - name: result
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditResult'
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string, maxLength: 60 }
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin session governance audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditListResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/sessions/{sessionId}/revoke:
+    post:
+      summary: Revoke admin-managed session by id
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Session revoke result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAuthSessionRevokeResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/sessions/revoke-other-sessions:
+    post:
+      summary: Revoke current admin sessions except current device
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevokeOtherAdminAuthSessionsRequest' }
+      responses:
+        '200':
+          description: Other session revoke result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RevokeOtherAdminAuthSessionsResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/accounts:
+    get:
+      summary: List admin-managed platform auth accounts
+      description: Returns the first-slice back-office account directory with status, active session footprint and session-risk tags derived from the full platform active session set. The summary counts are calculated from the filtered result set.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userType
+          in: query
+          required: false
+          schema: { type: string, enum: [shipper, driver, admin] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, disabled] }
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string, maxLength: 60 }
+        - name: riskOnly
+          in: query
+          required: false
+          description: When `true`, only return accounts with at least one first-slice session risk tag.
+          schema: { type: boolean }
+        - name: riskTag
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        - name: riskLevel
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin auth account directory page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuthAccountListResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/accounts/report:
+    get:
+      summary: Get admin auth account report
+      description: Returns filtered account status, user-type and risk-tag breakdowns, top risk accounts, and governance audit summaries derived from the current account filter set.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userType
+          in: query
+          required: false
+          schema: { type: string, enum: [shipper, driver, admin] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, disabled] }
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string, maxLength: 60 }
+        - name: riskOnly
+          in: query
+          required: false
+          description: When `true`, only return accounts with at least one first-slice session risk tag.
+          schema: { type: boolean }
+        - name: riskTag
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        - name: riskLevel
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+        - name: topAccountsLimit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+        - name: auditEventLimit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 20, default: 10 }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin auth account filtered report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuthAccountReportResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/accounts/export:
+    get:
+      summary: Export admin auth accounts as csv
+      description: Exports the current filtered account directory as a UTF-8 BOM prefixed CSV sorted by risk level, active session count, active device count and latest update time. Admin-facing phone numbers and device identifiers are masked in the export.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userType
+          in: query
+          required: false
+          schema: { type: string, enum: [shipper, driver, admin] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, disabled] }
+        - name: keyword
+          in: query
+          required: false
+          schema: { type: string, maxLength: 60 }
+        - name: riskOnly
+          in: query
+          required: false
+          description: When `true`, only export accounts with at least one first-slice session risk tag.
+          schema: { type: boolean }
+        - name: riskTag
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        - name: riskLevel
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Filtered account directory CSV export
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              example: attachment; filename="admin-auth-accounts.csv"
+          content:
+            text/csv:
+              schema:
+                type: string
+                example: |
+                  userId,userPhone,userType,status,riskLevel,riskTags,activeSessionCount,activeDeviceCount,activeDeviceIds,latestSessionCreatedAtIso,createdAtIso,updatedAtIso
+                  driver-1,138****8001,driver,active,high,shared_device|high_session_volume,3,3,sha*******ice|dri**********d-2|dri******b-1,2026-06-26T06:12:00.000Z,2026-06-10T08:00:00.000Z,2026-06-26T05:40:00.000Z
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/accounts/{userId}:
+    get:
+      summary: Get admin-managed auth account detail
+      description: Returns one platform account with its active refresh sessions and recent session-governance audit events. Session risk is still calculated from the full platform active session set so shared-device signals do not lie.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: driver-1
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin auth account detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuthAccountDetailResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_ACCOUNT_NOT_FOUND
+                message: 账号不存在
+                requestId: req_local
+                timestamp: '2026-07-18T05:00:00.000Z'
+  /admin/auth/accounts/{userId}/status:
+    post:
+      summary: Update admin-managed auth account status
+      description: Updates one platform account between `active` and `disabled`. Disabling an account immediately revokes all its active refresh sessions, while enabling it only allows future logins and does not restore old sessions.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: driver-1
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminAuthAccountStatusRequest'
+      responses:
+        '200':
+          description: Admin auth account status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateAdminAuthAccountStatusResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_ACCOUNT_NOT_FOUND
+                message: 账号不存在
+                requestId: req_local
+                timestamp: '2026-07-18T05:01:00.000Z'
+  /admin/auth/accounts/{userId}/revoke-sessions:
+    post:
+      summary: Revoke admin-managed account sessions
+      description: Revokes all active refresh sessions for a target platform account, optionally keeping one session id. Every accepted request writes a `revoke_account_sessions` governance audit event.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: driver-1
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeAdminAuthAccountSessionsRequest'
+      responses:
+        '200':
+          description: Admin auth account sessions revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeAdminAuthAccountSessionsResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_ACCOUNT_NOT_FOUND
+                message: 账号不存在
+                requestId: req_local
+                timestamp: '2026-07-18T05:02:00.000Z'
+  /admin/console/overview:
+    get:
+      summary: Get admin console overview
+      description: Returns the first-slice admin console dashboard snapshot with live queue, audit, permission-matrix and finance counts for the currently implemented static admin tools. It already includes the permission-matrix first slice, but still does not provide multi-role workflows, row-level permissions or production reporting.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin console overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminConsoleOverviewResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/permissions/matrix:
+    get:
+      summary: Get admin permission matrix
+      description: Returns the first-slice admin permission matrix for the current back-office tools. Today all `userType=admin` sessions still share the same `platform_admin` profile, but the response already lists covered consoles, actions, risk levels and remaining gaps for future multi-role splits.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin permission matrix
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPermissionMatrixResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/report:
+    get:
+      summary: Get admin finance report
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin finance report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminFinanceReportResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/payments:
+    get:
+      summary: List admin finance payments
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: status, in: query, schema: { type: string, maxLength: 50 } }
+        - { name: orderId, in: query, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin payment page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPaymentPageResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/refunds:
+    get:
+      summary: List admin finance refunds
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: status, in: query, schema: { type: string, maxLength: 50 } }
+        - { name: orderId, in: query, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin refund page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefundPageResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/refunds/{refundId}/retry:
+    post:
+      summary: Retry a failed refund from admin finance
+      description: Requires expectedVersion and reason in the request body, plus an Idempotency-Key; every accepted retry writes a financial audit record.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - { name: refundId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminFinanceWriteRequest' }
+      responses:
+        '200':
+          description: Refund retry accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefundRetryResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Retry conflict or Idempotency-Key reuse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency-Key 已被其他退款重试使用
+                requestId: req_local
+                timestamp: '2026-07-15T12:00:00.000Z'
+  /admin/finance/settlements:
+    get:
+      summary: List admin finance settlements
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: status, in: query, schema: { type: string, maxLength: 50 } }
+        - { name: orderId, in: query, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin settlement page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSettlementPageResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/ledger-transactions/{transactionId}:
+    get:
+      summary: Get admin finance ledger transaction detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: transactionId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Ledger transaction detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinancialTransactionResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/withdrawals:
+    get:
+      summary: List admin finance withdrawals
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: status, in: query, schema: { type: string, maxLength: 50 } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin withdrawal page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminWithdrawalPageResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/withdrawals/{withdrawalId}/approve:
+    post:
+      summary: Approve a driver withdrawal from admin finance
+      description: Requires expectedVersion and reason in the request body, plus an Idempotency-Key; every accepted approval writes a financial audit record.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - { name: withdrawalId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminFinanceWriteRequest' }
+      responses:
+        '200':
+          description: Withdrawal approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminWithdrawalReviewResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Withdrawal review conflict or Idempotency-Key reuse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency-Key 已被其他提现审核使用
+                requestId: req_local
+                timestamp: '2026-07-15T12:01:00.000Z'
+  /admin/finance/withdrawals/{withdrawalId}/reject:
+    post:
+      summary: Reject a driver withdrawal from admin finance
+      description: Requires expectedVersion and reason in the request body, plus an Idempotency-Key; every accepted rejection writes a financial audit record.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - { name: withdrawalId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminFinanceWriteRequest' }
+      responses:
+        '200':
+          description: Withdrawal rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminWithdrawalReviewResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Withdrawal review conflict or Idempotency-Key reuse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency-Key 已被其他提现审核使用
+                requestId: req_local
+                timestamp: '2026-07-15T12:02:00.000Z'
 components:
   parameters:
     RequestIdHeader:
@@ -3367,6 +5100,16 @@ components:
         type: string
       description: Optional request correlation id echoed in success and business error responses.
       example: req_mobile_001
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+        maxLength: 64
+      description: Required UUID idempotency key for order creation and protected versioned order mutations. Creation has no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
+      example: 550e8400-e29b-41d4-a716-446655440000
   securitySchemes:
     bearerAuth:
       type: http
@@ -3489,6 +5232,21 @@ components:
         userType:
           type: string
           enum: [shipper, driver]
+        deviceId:
+          type: string
+          minLength: 1
+    AdminPasswordLoginRequest:
+      type: object
+      required: [phone, password, deviceId]
+      properties:
+        phone:
+          type: string
+          pattern: '^1[3-9]\d{9}$'
+        password:
+          type: string
+          minLength: 6
+          writeOnly: true
+          description: 密码需至少 6 位并包含字母和数字。
         deviceId:
           type: string
           minLength: 1
@@ -3764,10 +5522,26 @@ components:
           minimum: 0
           description: For a fixed price couponed order, couponId, couponTitle, couponDiscountCents and payablePriceCents must be provided together; payablePriceCents must equal priceCents minus couponDiscountCents.
           example: 71000
+    UpdateShipperOrderRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateShipperOrderRequest'
+        - type: object
+          required: [baseUpdatedAtIso]
+          properties:
+            baseUpdatedAtIso:
+              type: string
+              format: date-time
+              description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+              example: '2026-07-02T09:00:00.000Z'
     CancelShipperOrderRequest:
       type: object
-      required: [reasonText]
+      required: [baseUpdatedAtIso, reasonText]
       properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-02T09:00:00.000Z'
         reasonText:
           type: string
           minLength: 1
@@ -3779,12 +5553,26 @@ components:
           example: 客户临时调整发货计划
     AdvanceShipperOrderStatusRequest:
       type: object
-      required: [nextStatus]
+      required: [baseUpdatedAtIso, nextStatus]
       properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-02T09:00:00.000Z'
         nextStatus:
           type: string
           enum: [loading, transporting, confirming]
           example: loading
+    CompleteShipperOrderRequest:
+      type: object
+      required: [baseUpdatedAtIso]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-02T09:00:00.000Z'
     ReportShipperOrderExceptionRequest:
       type: object
       required: [typeLabel, description]
@@ -4002,6 +5790,120 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/FileUploadRecord'
+    FileMaintenanceListItem:
+      allOf:
+        - $ref: '#/components/schemas/FileUploadRecord'
+        - type: object
+          required: [isExpiredPending]
+          properties:
+            isExpiredPending:
+              type: boolean
+              description: True when the file is still pending and createdAtIso is older than the current upload expiry cutoff.
+              example: true
+    ListFileMaintenanceFilesResult:
+      type: object
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMaintenanceListItem'
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+        total:
+          type: integer
+          minimum: 0
+          example: 3
+    ListFileMaintenanceFilesResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ListFileMaintenanceFilesResult'
+    FileMaintenanceBatchGovernanceAction:
+      type: string
+      enum: [reject_pending, delete_rejected_objects]
+      example: reject_pending
+    FileMaintenanceBatchGovernanceRequest:
+      type: object
+      required:
+        - action
+        - fileIds
+      properties:
+        action:
+          $ref: '#/components/schemas/FileMaintenanceBatchGovernanceAction'
+        fileIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-local-1, file-local-2]
+    FileMaintenanceBatchGovernanceResult:
+      type: object
+      required:
+        - action
+        - requestedCount
+        - matchedCount
+        - processedCount
+        - skippedFileIds
+        - deletedObjectCount
+        - failedObjectDeletionCount
+      properties:
+        action:
+          $ref: '#/components/schemas/FileMaintenanceBatchGovernanceAction'
+        requestedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        matchedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        processedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        skippedFileIds:
+          type: array
+          description: Matched file ids that were skipped because their current status does not allow the selected action.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-local-2]
+        deletedObjectCount:
+          type: integer
+          minimum: 0
+          example: 1
+        failedObjectDeletionCount:
+          type: integer
+          minimum: 0
+          example: 0
+    FileMaintenanceBatchGovernanceResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileMaintenanceBatchGovernanceResult'
     RejectExpiredPendingFilesResult:
       type: object
       required:
@@ -4103,6 +6005,110 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/FileMaintenanceSummaryResult'
+    FileMaintenancePurposeBreakdownItem:
+      type: object
+      required:
+        - purpose
+        - totalCount
+        - pendingCount
+        - uploadedCount
+        - rejectedCount
+        - expiredPendingCount
+      properties:
+        purpose:
+          type: string
+          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+          example: cargo
+        totalCount:
+          type: integer
+          minimum: 0
+          example: 12
+        pendingCount:
+          type: integer
+          minimum: 0
+          example: 3
+        uploadedCount:
+          type: integer
+          minimum: 0
+          example: 7
+        rejectedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        expiredPendingCount:
+          type: integer
+          minimum: 0
+          example: 1
+    FileMaintenanceTopOwnerItem:
+      type: object
+      required:
+        - ownerUserId
+        - totalCount
+        - pendingCount
+        - uploadedCount
+        - rejectedCount
+        - expiredPendingCount
+        - latestCreatedAtIso
+      properties:
+        ownerUserId:
+          type: string
+          example: user-1
+        totalCount:
+          type: integer
+          minimum: 0
+          example: 8
+        pendingCount:
+          type: integer
+          minimum: 0
+          example: 3
+        uploadedCount:
+          type: integer
+          minimum: 0
+          example: 4
+        rejectedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        expiredPendingCount:
+          type: integer
+          minimum: 0
+          example: 2
+        latestCreatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T08:40:00.000Z'
+    FileMaintenanceReportResult:
+      type: object
+      required:
+        - generatedAtIso
+        - cutoffIso
+        - purposeBreakdown
+        - topOwners
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T09:00:00.000Z'
+        cutoffIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T08:45:00.000Z'
+        purposeBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMaintenancePurposeBreakdownItem'
+        topOwners:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMaintenanceTopOwnerItem'
+    FileMaintenanceReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FileMaintenanceReportResult'
     FilePreviewMetadataResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -4114,6 +6120,24 @@ components:
     ShipperOrderStatus:
       type: string
       enum: [waiting, loading, transporting, confirming, completed, cancelled]
+    OrderPaymentStatus:
+      type: string
+      enum: [not_required, pending, failed, escrowed, settled, refund_pending, refunded, refund_failed, cancelled, legacy_unverified]
+    PaymentOrderStatus:
+      type: string
+      enum: [pending, processing, escrowed, failed, expired, cancelled, settled, refund_pending, refunded, refund_failed]
+    RefundStatus:
+      type: string
+      enum: [pending, processing, succeeded, failed]
+    PaymentProviderChannel:
+      type: string
+      enum: [sandbox, wechat, alipay]
+    FinancialAccountType:
+      type: string
+      enum: [gateway_clearing, platform_escrow, driver_payable, platform_revenue, offline_clearing]
+    LedgerDirection:
+      type: string
+      enum: [debit, credit]
     ShipperOrder:
       allOf:
         - $ref: '#/components/schemas/CreateShipperOrderRequest'
@@ -4123,6 +6147,7 @@ components:
             - orderNo
             - shipperId
             - status
+            - paymentStatus
             - createdAtIso
             - updatedAtIso
             - events
@@ -4138,6 +6163,19 @@ components:
               example: user-platform-order
             status:
               $ref: '#/components/schemas/ShipperOrderStatus'
+            paymentStatus:
+              $ref: '#/components/schemas/OrderPaymentStatus'
+            assignedDriverId:
+              type: string
+              example: driver-1
+            paymentSettledAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-15T09:10:00.000Z'
+            refundedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-15T10:10:00.000Z'
             createdAtIso:
               type: string
               format: date-time
@@ -4145,6 +6183,7 @@ components:
             updatedAtIso:
               type: string
               format: date-time
+              description: Use this value as the baseUpdatedAtIso for the next protected order mutation.
               example: '2026-07-01T08:00:00.000Z'
             events:
               type: array
@@ -4407,6 +6446,191 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/ShipperOrderListResult'
+    AdminOrderFilters:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipperOrderStatus'
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperOrderStatus'
+          example: [loading, transporting]
+        keyword:
+          type: string
+          maxLength: 100
+          example: HY202607
+        createdFromIso:
+          type: string
+          format: date-time
+          example: '2026-07-01T00:00:00.000Z'
+        createdToIso:
+          type: string
+          format: date-time
+          example: '2026-08-01T00:00:00.000Z'
+    AdminOrderSummary:
+      type: object
+      required: [totalOrderCount, waitingOrderCount, activeOrderCount, completedOrderCount, cancelledOrderCount, exceptionOrderCount]
+      properties:
+        totalOrderCount:
+          type: integer
+          minimum: 0
+          example: 18
+        waitingOrderCount:
+          type: integer
+          minimum: 0
+          example: 4
+        activeOrderCount:
+          type: integer
+          minimum: 0
+          example: 6
+        completedOrderCount:
+          type: integer
+          minimum: 0
+          example: 5
+        cancelledOrderCount:
+          type: integer
+          minimum: 0
+          example: 3
+        exceptionOrderCount:
+          type: integer
+          minimum: 0
+          example: 2
+    AdminOrderReportStatusBreakdownItem:
+      type: object
+      required: [status, orderCount, payablePriceTotalCents]
+      properties:
+        status:
+          $ref: '#/components/schemas/ShipperOrderStatus'
+        orderCount:
+          type: integer
+          minimum: 0
+          example: 6
+        payablePriceTotalCents:
+          type: integer
+          minimum: 0
+          example: 288000
+    AdminOrderReportPaymentStatusBreakdownItem:
+      type: object
+      required: [paymentStatus, orderCount, payablePriceTotalCents]
+      properties:
+        paymentStatus:
+          $ref: '#/components/schemas/OrderPaymentStatus'
+        orderCount:
+          type: integer
+          minimum: 0
+          example: 8
+        payablePriceTotalCents:
+          type: integer
+          minimum: 0
+          example: 356000
+    AdminOrderReportPricingModeBreakdownItem:
+      type: object
+      required: [pricingMode, orderCount, payablePriceTotalCents]
+      properties:
+        pricingMode:
+          type: string
+          enum: [fixed, negotiable]
+          example: fixed
+        orderCount:
+          type: integer
+          minimum: 0
+          example: 12
+        payablePriceTotalCents:
+          type: integer
+          minimum: 0
+          example: 568000
+    AdminOrderReportPaymentMethodBreakdownItem:
+      type: object
+      required: [paymentMethod, orderCount, payablePriceTotalCents]
+      properties:
+        paymentMethod:
+          type: string
+          enum: [cod, online]
+          example: cod
+        orderCount:
+          type: integer
+          minimum: 0
+          example: 10
+        payablePriceTotalCents:
+          type: integer
+          minimum: 0
+          example: 420000
+    AdminOrderReportTopShipperItem:
+      type: object
+      required: [shipperId, orderCount, waitingOrderCount, activeOrderCount, completedOrderCount, cancelledOrderCount, payablePriceTotalCents]
+      properties:
+        shipperId:
+          type: string
+          example: shipper-1
+        orderCount:
+          type: integer
+          minimum: 0
+          example: 4
+        waitingOrderCount:
+          type: integer
+          minimum: 0
+          example: 1
+        activeOrderCount:
+          type: integer
+          minimum: 0
+          example: 2
+        completedOrderCount:
+          type: integer
+          minimum: 0
+          example: 1
+        cancelledOrderCount:
+          type: integer
+          minimum: 0
+          example: 0
+        payablePriceTotalCents:
+          type: integer
+          minimum: 0
+          example: 198000
+        latestOrderCreatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T03:00:00.000Z'
+    AdminOrderReport:
+      type: object
+      required: [generatedAtIso, filters, summary, statusBreakdown, paymentStatusBreakdown, pricingModeBreakdown, paymentMethodBreakdown, topShippers]
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T03:00:00.000Z'
+        filters:
+          $ref: '#/components/schemas/AdminOrderFilters'
+        summary:
+          $ref: '#/components/schemas/AdminOrderSummary'
+        statusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderReportStatusBreakdownItem'
+        paymentStatusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderReportPaymentStatusBreakdownItem'
+        pricingModeBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderReportPricingModeBreakdownItem'
+        paymentMethodBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderReportPaymentMethodBreakdownItem'
+        topShippers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderReportTopShipperItem'
+    AdminOrderReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminOrderReport'
     DriverOrderHallResult:
       type: object
       required: [items, page, pageSize, total]
@@ -4552,6 +6776,7 @@ components:
           pendingSettlementCents,
           availableWithdrawalCents,
           reviewingWithdrawalCents,
+          withdrawnCents,
           completedOrderCount,
         ]
       properties:
@@ -4577,6 +6802,9 @@ components:
         reviewingWithdrawalCents:
           type: integer
           example: 12000
+        withdrawnCents:
+          type: integer
+          example: 88000
         completedOrderCount:
           type: integer
           example: 8
@@ -4708,6 +6936,163 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DriverWithdrawalListResult'
+    CreatePaymentRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: string
+          enum: [wechat, alipay]
+          example: wechat
+    PaymentOrderRecord:
+      type: object
+      required:
+        [
+          id,
+          paymentNo,
+          orderId,
+          orderNo,
+          shipperId,
+          channel,
+          amountCents,
+          status,
+          idempotencyKey,
+          requestFingerprint,
+          expiresAtIso,
+          createdAtIso,
+          updatedAtIso,
+        ]
+      properties:
+        id:
+          type: string
+          example: payment-1
+        paymentNo:
+          type: string
+          example: PAY-payment-1
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        orderNo:
+          type: string
+          example: HY202607150001
+        shipperId:
+          type: string
+          example: shipper-pending-payment
+        channel:
+          $ref: '#/components/schemas/PaymentProviderChannel'
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        status:
+          $ref: '#/components/schemas/PaymentOrderStatus'
+        idempotencyKey:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        requestFingerprint:
+          type: string
+          example: 83f08bc9f098a1cc1f41e4ef5f80d98c53ecb3b7d90181b243fdd55d6e07e754
+        clientPayload:
+          description: Opaque provider payload for the mobile SDK.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+          example:
+            prepayId: wx201410272009395522657a690389285100
+        providerTradeNo:
+          type: string
+          example: wx_trade_123
+        failureCode:
+          type: string
+          example: provider_prepare_failed
+        failureMessage:
+          type: string
+          example: 支付渠道下单失败
+        expiresAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:15:00.000Z'
+        paidAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+        settledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:30.000Z'
+        cancelledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:30:30.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T07:59:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+    CreatePaymentResult:
+      type: object
+      required: [replayed, payment]
+      properties:
+        replayed:
+          type: boolean
+          example: false
+        payment:
+          $ref: '#/components/schemas/PaymentOrderRecord'
+    CreatePaymentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/CreatePaymentResult'
+    PaymentOrderResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/PaymentOrderRecord'
+    WechatCallbackSuccessAck:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [SUCCESS]
+        message:
+          type: string
+          example: 成功
+    WechatCallbackFailureAck:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [FAIL]
+        message:
+          type: string
+          example: 回调处理失败
+    SandboxCallbackSuccessAck:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+    SandboxCallbackFailureAck:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          enum: [false]
     DriverQuoteOrderRequest:
       type: object
       required: [quoteCents, arrivalText]
@@ -4728,15 +7113,26 @@ components:
           example: 可带尾板
     DriverAcceptOrderRequest:
       type: object
+      required: [baseUpdatedAtIso]
       properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-06T08:00:00.000Z'
         noteText:
           type: string
           maxLength: 200
           example: 已联系货主，马上出发
     DriverAdvanceOrderStatusRequest:
       type: object
-      required: [nextStatus]
+      required: [baseUpdatedAtIso, nextStatus]
       properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-06T08:30:00.000Z'
         nextStatus:
           type: string
           enum: [transporting, confirming]
@@ -5563,7 +7959,7 @@ components:
           example: 26000
     ShipperSpendingRecord:
       type: object
-      required: [orderId, orderNo, status, paymentMethod, amountCents, occurredAtIso, routeText]
+      required: [orderId, orderNo, status, paymentMethod, paymentStatus, amountCents, occurredAtIso, routeText]
       properties:
         orderId:
           type: string
@@ -5579,7 +7975,19 @@ components:
           $ref: '#/components/schemas/ShipperSpendingOrderStatus'
         paymentMethod:
           $ref: '#/components/schemas/ShipperSpendingPaymentMethod'
+        paymentStatus:
+          $ref: '#/components/schemas/OrderPaymentStatus'
+        paymentChannel:
+          $ref: '#/components/schemas/PaymentProviderChannel'
+        paymentOrderStatus:
+          $ref: '#/components/schemas/PaymentOrderStatus'
+        refundStatus:
+          $ref: '#/components/schemas/RefundStatus'
         amountCents:
+          type: integer
+          minimum: 1
+          example: 52000
+        refundAmountCents:
           type: integer
           minimum: 1
           example: 52000
@@ -5602,11 +8010,1599 @@ components:
           type: string
           format: date-time
           example: '2026-07-09T09:20:00.000Z'
+        paidAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T09:00:00.000Z'
+        settledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T10:00:00.000Z'
+        refundedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-09T11:00:00.000Z'
         routeText:
           type: string
           minLength: 1
           maxLength: 240
           example: 宝安仓库 → 南山门店
+    FinancialLedgerEntryRecord:
+      type: object
+      required: [id, transactionId, sequence, accountType, direction, amountCents, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: ledger-entry-1
+        transactionId:
+          type: string
+          example: ft-1
+        sequence:
+          type: integer
+          example: 1
+        accountType:
+          $ref: '#/components/schemas/FinancialAccountType'
+        accountUserId:
+          type: string
+          example: driver-1
+        direction:
+          $ref: '#/components/schemas/LedgerDirection'
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+    FinancialTransactionRecord:
+      type: object
+      required: [id, transactionNo, type, referenceId, amountCents, occurredAtIso, createdAtIso, entries]
+      properties:
+        id:
+          type: string
+          example: ft-1
+        transactionNo:
+          type: string
+          example: FT-ft-1
+        type:
+          type: string
+          enum: [online_payment_escrow, online_order_settlement, offline_order_settlement, online_refund, driver_withdrawal]
+        referenceId:
+          type: string
+          example: payment-1
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        paymentOrderId:
+          type: string
+          example: payment-1
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        occurredAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialLedgerEntryRecord'
+    FinancialTransactionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/FinancialTransactionRecord'
+    FinancialAuditLogRecord:
+      type: object
+      required: [id, actorAdminId, action, entityType, entityId, idempotencyKey, requestFingerprint, requestId, reason, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: audit-log-1
+        actorAdminId:
+          type: string
+          example: admin-1
+        action:
+          type: string
+          example: refund.retry
+        entityType:
+          type: string
+          example: refund
+        entityId:
+          type: string
+          example: refund-1
+        idempotencyKey:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        requestFingerprint:
+          type: string
+          example: c3f4d90c7a5e8ab8e72e7291f0b6c56b0baec8d27ad6e7b5558eb3adf5558ac1
+        requestId:
+          type: string
+          example: req_local
+        reason:
+          type: string
+          example: 人工核验后重试
+        beforeState:
+          type: object
+          additionalProperties: true
+        afterState:
+          type: object
+          additionalProperties: true
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:00:00.000Z'
+    AdminConsoleOverviewMetric:
+      type: object
+      required: [label, value, tone]
+      properties:
+        label:
+          type: string
+          example: 待审司机
+        value:
+          type: integer
+          minimum: 0
+          example: 3
+        tone:
+          type: string
+          enum: [neutral, warning, positive]
+          example: warning
+    AdminConsoleOverviewModule:
+      type: object
+      required: [key, title, route, stage, summary, metrics, pendingGaps]
+      properties:
+        key:
+          type: string
+          enum:
+            - permission-matrix
+            - driver-certification
+            - order-management
+            - account-management
+            - session-governance
+            - order-attachment
+            - file-maintenance
+            - order-exception-case
+            - shipper-coupon
+            - evaluation-audit
+            - finance
+          example: finance
+        title:
+          type: string
+          example: 财务操作台
+        route:
+          type: string
+          example: /api/admin/finance-console
+        stage:
+          type: string
+          enum: [first_slice]
+          example: first_slice
+        summary:
+          type: string
+          example: 支付/退款/结算/提现第一片已经能查能操作，财务报表第一片也能看，但还没正式支付 / 打款、生产对账和批量审核。
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminConsoleOverviewMetric'
+        pendingGaps:
+          type: array
+          items:
+            type: string
+          example: [正式支付 / 打款, 生产对账, 批量审核]
+    AdminConsoleOverview:
+      type: object
+      required: [generatedAtIso, implementedConsoleCount, liveMetricModuleCount, remainingCapabilityCount, modules, remainingPlatformGaps]
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T03:00:00.000Z'
+        implementedConsoleCount:
+          type: integer
+          minimum: 0
+          example: 11
+        liveMetricModuleCount:
+          type: integer
+          minimum: 0
+          example: 11
+        remainingCapabilityCount:
+          type: integer
+          minimum: 0
+          example: 5
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminConsoleOverviewModule'
+        remainingPlatformGaps:
+          type: array
+          items:
+            type: string
+          example:
+            - 地图 / 定位 / 轨迹 / ETA
+            - IM / WebSocket / 推送 / 在线客服会话
+            - 正式微信 / 支付宝 / 银行卡 / 真实打款 / 税务回调 / 对账报表
+            - 多角色工作台 / 行级权限 / 报表 / 批量操作
+            - 真实对象存储 / 短信 / 监控告警 / 备份恢复 / 发布体系
+    AdminConsoleOverviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminConsoleOverview'
+    AdminPermissionRiskLevel:
+      type: string
+      enum: [normal, sensitive, high]
+      example: high
+    AdminPermissionCapability:
+      type: object
+      required: [key, title, moduleKey, moduleTitle, consoleRoute, summary, actions, riskLevel, apiPaths]
+      properties:
+        key:
+          type: string
+          enum:
+            - permission_matrix_read
+            - driver_certification_manage
+            - order_management_manage
+            - session_governance_manage
+            - account_management_manage
+            - order_attachment_audit_read
+            - file_maintenance_manage
+            - order_exception_case_manage
+            - shipper_coupon_manage
+            - evaluation_audit_read
+            - finance_manage
+          example: order_management_manage
+        title:
+          type: string
+          example: 查看并取消待接单后台订单
+        moduleKey:
+          type: string
+          enum:
+            - permission-matrix
+            - driver-certification
+            - order-management
+            - session-governance
+            - account-management
+            - order-attachment
+            - file-maintenance
+            - order-exception-case
+            - shipper-coupon
+            - evaluation-audit
+            - finance
+          example: order-management
+        moduleTitle:
+          type: string
+          example: 订单管理台
+        consoleRoute:
+          type: string
+          example: /api/admin/order-management-console
+        summary:
+          type: string
+          example: 按状态、时间和关键字检索订单列表，查看单笔详情、筛选报表、导出当前筛选 CSV，并可取消 waiting 订单。
+        actions:
+          type: array
+          items:
+            type: string
+            enum: [read, write]
+          example: [read, write]
+        riskLevel:
+          $ref: '#/components/schemas/AdminPermissionRiskLevel'
+        apiPaths:
+          type: array
+          items:
+            type: string
+          example:
+            - /admin/orders
+            - /admin/orders/{orderId}/cancel
+    AdminPermissionMatrixModule:
+      type: object
+      required: [key, title, route, summary, capabilityCount, writeCapabilityCount, highRiskCapabilityCount, capabilityKeys]
+      properties:
+        key:
+          type: string
+          enum:
+            - permission-matrix
+            - driver-certification
+            - order-management
+            - session-governance
+            - account-management
+            - order-attachment
+            - file-maintenance
+            - order-exception-case
+            - shipper-coupon
+            - evaluation-audit
+            - finance
+          example: permission-matrix
+        title:
+          type: string
+          example: 权限矩阵台
+        route:
+          type: string
+          example: /api/admin/permission-matrix-console
+        summary:
+          type: string
+          example: 把现有后台工具和高风险写操作拉成统一权限清单，方便后面拆角色和做审批流。
+        capabilityCount:
+          type: integer
+          minimum: 0
+          example: 1
+        writeCapabilityCount:
+          type: integer
+          minimum: 0
+          example: 0
+        highRiskCapabilityCount:
+          type: integer
+          minimum: 0
+          example: 0
+        capabilityKeys:
+          type: array
+          items:
+            type: string
+          example: [permission_matrix_read]
+    AdminPermissionMatrixProfile:
+      type: object
+      required: [key, title, userType, summary, moduleKeys, capabilityKeys, pendingGaps]
+      properties:
+        key:
+          type: string
+          enum: [platform_admin]
+          example: platform_admin
+        title:
+          type: string
+          example: 平台管理员（第一片）
+        userType:
+          type: string
+          enum: [admin]
+          example: admin
+        summary:
+          type: string
+          example: 当前所有 userType=admin 的后台会话仍共享同一档位；这片先把现有后台工具和高风险写操作边界拉平，后面再拆多角色和审批流。
+        moduleKeys:
+          type: array
+          items:
+            type: string
+          example:
+            - permission-matrix
+            - driver-certification
+            - order-management
+            - account-management
+        capabilityKeys:
+          type: array
+          items:
+            type: string
+          example:
+            - permission_matrix_read
+            - order_management_manage
+            - account_management_manage
+            - session_governance_manage
+            - finance_manage
+        pendingGaps:
+          type: array
+          items:
+            type: string
+          example: [多角色拆分, 行级 / 数据域权限, 审批流 / 双人复核]
+    AdminPermissionMatrix:
+      type: object
+      required: [generatedAtIso, defaultProfileKey, profileCount, moduleCount, capabilityCount, writeCapabilityCount, highRiskCapabilityCount, profiles, modules, capabilities, remainingGaps]
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T04:00:00.000Z'
+        defaultProfileKey:
+          type: string
+          enum: [platform_admin]
+          example: platform_admin
+        profileCount:
+          type: integer
+          minimum: 0
+          example: 1
+        moduleCount:
+          type: integer
+          minimum: 0
+          example: 11
+        capabilityCount:
+          type: integer
+          minimum: 0
+          example: 11
+        writeCapabilityCount:
+          type: integer
+          minimum: 0
+          example: 8
+        highRiskCapabilityCount:
+          type: integer
+          minimum: 0
+          example: 8
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPermissionMatrixProfile'
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPermissionMatrixModule'
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPermissionCapability'
+        remainingGaps:
+          type: array
+          items:
+            type: string
+          example: [多角色拆分, 行级 / 数据域权限, 审批流 / 双人复核]
+    AdminPermissionMatrixResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminPermissionMatrix'
+    AdminAuthSessionRecord:
+      type: object
+      required: [id, userId, userPhone, userType, deviceId, createdAtIso, expiresAtIso, isCurrentUser, riskLevel, riskTags, riskContext]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        userId:
+          type: string
+          example: admin-1
+        userPhone:
+          type: string
+          description: Masked phone number shown in admin-facing responses.
+          example: '139****9000'
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+          example: admin
+        deviceId:
+          type: string
+          minLength: 1
+          description: Masked device identifier shown in admin-facing responses.
+          example: adm**************ice
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T03:00:00.000Z'
+        expiresAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-25T03:00:00.000Z'
+        isCurrentUser:
+          type: boolean
+          example: true
+        riskLevel:
+          $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+        riskTags:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        riskContext:
+          $ref: '#/components/schemas/AdminAuthSessionRiskContext'
+    AdminAuthSessionRiskTag:
+      type: string
+      enum: [shared_device, high_session_volume, admin_multi_device]
+      example: shared_device
+    AdminAuthSessionRiskLevel:
+      type: string
+      enum: [none, warning, high]
+      example: warning
+    AdminAuthSessionRiskContext:
+      type: object
+      required: [deviceSessionCount, deviceUserCount, userSessionCount]
+      properties:
+        deviceSessionCount:
+          type: integer
+          minimum: 0
+          example: 2
+        deviceUserCount:
+          type: integer
+          minimum: 0
+          example: 2
+        userSessionCount:
+          type: integer
+          minimum: 0
+          example: 3
+    AdminAuthSessionRiskSummary:
+      type: object
+      required: [riskySessionCount, highRiskSessionCount, sharedDeviceCount, highSessionVolumeUserCount, adminMultiDeviceUserCount]
+      properties:
+        riskySessionCount:
+          type: integer
+          minimum: 0
+          example: 6
+        highRiskSessionCount:
+          type: integer
+          minimum: 0
+          example: 1
+        sharedDeviceCount:
+          type: integer
+          minimum: 0
+          example: 2
+        highSessionVolumeUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+        adminMultiDeviceUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+    AdminAuthSessionListData:
+      type: object
+      required: [sessions, total, page, pageSize, riskSummary]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 3
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+        riskSummary:
+          $ref: '#/components/schemas/AdminAuthSessionRiskSummary'
+    AdminAuthSessionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthSessionListData'
+    AdminAuthSessionRevokeData:
+      type: object
+      required: [sessionId, revoked]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        revoked:
+          type: boolean
+          example: true
+    AdminAuthSessionRevokeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthSessionRevokeData'
+    AdminAuthSessionGovernanceAuditAction:
+      type: string
+      enum: [revoke_session, revoke_other_sessions, revoke_account_sessions]
+      example: revoke_session
+    AdminAuthSessionGovernanceAuditResult:
+      type: string
+      enum: [revoked, noop]
+      example: revoked
+    AdminAuthSessionGovernanceAuditSubject:
+      type: object
+      required: [sessionId, userId, userPhone, userType, deviceId]
+      properties:
+        sessionId:
+          type: string
+          example: 550e8400-e29b-41d4-a716-446655440111
+        userId:
+          type: string
+          example: driver-1
+        userPhone:
+          type: string
+          description: Masked phone number shown in admin-facing responses.
+          example: '138****8001'
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+          example: driver
+        deviceId:
+          type: string
+          minLength: 1
+          description: Masked device identifier shown in admin-facing responses.
+          example: dri**********d-1
+    AdminAuthSessionGovernanceAuditRecord:
+      type: object
+      required: [id, actorAdminId, actorAdminPhone, action, result, revokedCount, subjects, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: audit-1
+        actorAdminId:
+          type: string
+          example: admin-1
+        actorAdminPhone:
+          type: string
+          description: Masked phone number shown in admin-facing responses.
+          example: '139****9000'
+        action:
+          $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditAction'
+        result:
+          $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditResult'
+        requestedSessionId:
+          type: string
+          example: 550e8400-e29b-41d4-a716-446655440111
+        currentDeviceId:
+          type: string
+          description: Masked device identifier shown in admin-facing responses.
+          example: adm**************ice
+        revokedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        subjects:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditSubject'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T03:00:00.000Z'
+    AdminAuthSessionGovernanceAuditListData:
+      type: object
+      required: [events, total, page, pageSize]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 3
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+    AdminAuthSessionGovernanceAuditListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditListData'
+    RevokeOtherAdminAuthSessionsRequest:
+      type: object
+      required: [currentDeviceId]
+      properties:
+        currentDeviceId:
+          type: string
+          minLength: 1
+          description: Masked device identifier shown in admin-facing responses.
+          example: adm**************ice
+    RevokeOtherAdminAuthSessionsData:
+      type: object
+      required: [currentDeviceId, revokedCount]
+      properties:
+        currentDeviceId:
+          type: string
+          minLength: 1
+          description: Masked device identifier shown in admin-facing responses.
+          example: adm**************ice
+        revokedCount:
+          type: integer
+          minimum: 0
+          example: 2
+    RevokeOtherAdminAuthSessionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RevokeOtherAdminAuthSessionsData'
+    AdminAuthAccountRecord:
+      type: object
+      required: [userId, userPhone, userType, status, createdAtIso, updatedAtIso, activeSessionCount, activeDeviceCount, riskLevel, riskTags]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+        userPhone:
+          type: string
+          description: Masked phone number shown in admin-facing responses.
+          example: '138****8001'
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+          example: driver
+        status:
+          type: string
+          enum: [active, disabled]
+          example: active
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-06-10T08:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-06-26T05:40:00.000Z'
+        activeSessionCount:
+          type: integer
+          minimum: 0
+          example: 3
+        activeDeviceCount:
+          type: integer
+          minimum: 0
+          example: 3
+        latestSessionCreatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-06-26T06:12:00.000Z'
+        riskLevel:
+          $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+        riskTags:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+          example: [shared_device, high_session_volume]
+    AdminAuthAccountSummary:
+      type: object
+      required: [totalUserCount, activeUserCount, disabledUserCount, riskyUserCount, highRiskUserCount, activeSessionUserCount]
+      properties:
+        totalUserCount:
+          type: integer
+          minimum: 0
+          example: 4
+        activeUserCount:
+          type: integer
+          minimum: 0
+          example: 3
+        disabledUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+        riskyUserCount:
+          type: integer
+          minimum: 0
+          example: 2
+        highRiskUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+        activeSessionUserCount:
+          type: integer
+          minimum: 0
+          example: 3
+    AdminAuthAccountListData:
+      type: object
+      required: [items, total, page, pageSize, summary]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 2
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+        summary:
+          $ref: '#/components/schemas/AdminAuthAccountSummary'
+    AdminAuthAccountListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthAccountListData'
+    AdminAuthAccountFilters:
+      type: object
+      properties:
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+          example: driver
+        status:
+          type: string
+          enum: [active, disabled]
+          example: active
+        keyword:
+          type: string
+          maxLength: 60
+          example: shared-device
+        riskOnly:
+          type: boolean
+          example: true
+        riskTag:
+          $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        riskLevel:
+          $ref: '#/components/schemas/AdminAuthSessionRiskLevel'
+    AdminAuthAccountReportStatusBreakdownItem:
+      type: object
+      required: [status, userCount]
+      properties:
+        status:
+          type: string
+          enum: [active, disabled]
+          example: active
+        userCount:
+          type: integer
+          minimum: 0
+          example: 3
+    AdminAuthAccountReportUserTypeBreakdownItem:
+      type: object
+      required: [userType, userCount, riskyUserCount, disabledUserCount, activeSessionUserCount]
+      properties:
+        userType:
+          type: string
+          enum: [shipper, driver, admin]
+          example: driver
+        userCount:
+          type: integer
+          minimum: 0
+          example: 1
+        riskyUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+        disabledUserCount:
+          type: integer
+          minimum: 0
+          example: 0
+        activeSessionUserCount:
+          type: integer
+          minimum: 0
+          example: 1
+    AdminAuthAccountReportRiskTagBreakdownItem:
+      type: object
+      required: [riskTag, userCount]
+      properties:
+        riskTag:
+          $ref: '#/components/schemas/AdminAuthSessionRiskTag'
+        userCount:
+          type: integer
+          minimum: 0
+          example: 2
+    AdminAuthAccountReportAuditActionBreakdownItem:
+      type: object
+      required: [action, eventCount, revokedSessionCount]
+      properties:
+        action:
+          $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditAction'
+        eventCount:
+          type: integer
+          minimum: 0
+          example: 1
+        revokedSessionCount:
+          type: integer
+          minimum: 0
+          example: 1
+    AdminAuthAccountReportGovernanceAuditSummary:
+      type: object
+      required: [totalEventCount, totalRevokedSessionCount, actionBreakdown]
+      properties:
+        totalEventCount:
+          type: integer
+          minimum: 0
+          example: 2
+        totalRevokedSessionCount:
+          type: integer
+          minimum: 0
+          example: 2
+        latestEventCreatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-06-26T06:15:00.000Z'
+        actionBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountReportAuditActionBreakdownItem'
+    AdminAuthAccountReport:
+      type: object
+      required: [generatedAtIso, filters, summary, statusBreakdown, userTypeBreakdown, riskTagBreakdown, topRiskAccounts, governanceAuditSummary, recentAuditEvents]
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-06-26T06:00:00.000Z'
+        filters:
+          $ref: '#/components/schemas/AdminAuthAccountFilters'
+        summary:
+          $ref: '#/components/schemas/AdminAuthAccountSummary'
+        statusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountReportStatusBreakdownItem'
+        userTypeBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountReportUserTypeBreakdownItem'
+        riskTagBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountReportRiskTagBreakdownItem'
+        topRiskAccounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthAccountRecord'
+        governanceAuditSummary:
+          $ref: '#/components/schemas/AdminAuthAccountReportGovernanceAuditSummary'
+        recentAuditEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditRecord'
+    AdminAuthAccountReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthAccountReport'
+    AdminAuthAccountDetail:
+      type: object
+      required: [account, activeSessions, recentAuditEvents]
+      properties:
+        account:
+          $ref: '#/components/schemas/AdminAuthAccountRecord'
+        activeSessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionRecord'
+        recentAuditEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAuthSessionGovernanceAuditRecord'
+    AdminAuthAccountDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminAuthAccountDetail'
+    UpdateAdminAuthAccountStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, disabled]
+          example: disabled
+    UpdateAdminAuthAccountStatusData:
+      type: object
+      required: [userId, status, revokedSessionCount]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+        status:
+          type: string
+          enum: [active, disabled]
+          example: disabled
+        revokedSessionCount:
+          type: integer
+          minimum: 0
+          example: 3
+    UpdateAdminAuthAccountStatusResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/UpdateAdminAuthAccountStatusData'
+    RevokeAdminAuthAccountSessionsRequest:
+      type: object
+      properties:
+        keepSessionId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440112
+    RevokeAdminAuthAccountSessionsData:
+      type: object
+      required: [userId, revokedCount]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+        revokedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        keepSessionId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440112
+    RevokeAdminAuthAccountSessionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RevokeAdminAuthAccountSessionsData'
+    AdminFinanceWriteRequest:
+      type: object
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+          example: 2
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 人工复核通过
+    AdminPaymentRecord:
+      allOf:
+        - $ref: '#/components/schemas/PaymentOrderRecord'
+    AdminRefundRecord:
+      type: object
+      required: [id, refundNo, paymentOrderId, orderId, shipperId, channel, amountCents, reason, status, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+          example: refund-1
+        refundNo:
+          type: string
+          example: RF-PAY-payment-1
+        paymentOrderId:
+          type: string
+          example: payment-1
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        shipperId:
+          type: string
+          example: shipper-pending-payment
+        channel:
+          $ref: '#/components/schemas/PaymentProviderChannel'
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        reason:
+          type: string
+          example: late_payment_after_order_cancelled
+        status:
+          $ref: '#/components/schemas/RefundStatus'
+        providerRefundNo:
+          type: string
+          example: refund_provider_1
+        failureCode:
+          type: string
+          example: provider_refund_failed
+        failureMessage:
+          type: string
+          example: 退款渠道返回失败
+        processingStartedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:10:00.000Z'
+        succeededAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:20:00.000Z'
+        failedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:30:00.000Z'
+        financialTransactionId:
+          type: string
+          example: ft-2
+        outboxEvent:
+          $ref: '#/components/schemas/FinancialOutboxEventRecord'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:20:00.000Z'
+    AdminSettlementRecord:
+      type: object
+      required: [id, orderId, driverId, grossAmountCents, platformFeeRateBps, platformFeeCents, driverNetAmountCents, financialTransactionId, settledAtIso, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: settlement-1
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        paymentOrderId:
+          type: string
+          example: payment-1
+        driverId:
+          type: string
+          example: driver-1
+        grossAmountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        platformFeeRateBps:
+          type: integer
+          minimum: 0
+          example: 500
+        platformFeeCents:
+          type: integer
+          minimum: 0
+          example: 1550
+        driverNetAmountCents:
+          type: integer
+          minimum: 0
+          example: 29450
+        financialTransactionId:
+          type: string
+          example: ft-3
+        settledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T10:00:30.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T10:00:30.000Z'
+    AdminWithdrawalRecord:
+      type: object
+      required: [id, driverId, amountCents, bankAccountName, bankName, bankAccountMasked, status, version, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+          example: withdrawal-1
+        driverId:
+          type: string
+          example: driver-1
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 12000
+        bankAccountName:
+          type: string
+          example: 李师傅
+        bankName:
+          type: string
+          example: 招商银行深圳宝安支行
+        bankAccountMasked:
+          type: string
+          example: '**** **** **** 1234'
+        status:
+          $ref: '#/components/schemas/DriverWithdrawalStatus'
+        version:
+          type: integer
+          minimum: 0
+          example: 1
+        rejectionReason:
+          type: string
+          example: 银行卡信息不一致
+        processedByAdminId:
+          type: string
+          example: admin-1
+        processedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:01:30.000Z'
+        financialTransactionId:
+          type: string
+          example: ft-4
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T11:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:01:30.000Z'
+    FinancialOutboxEventRecord:
+      type: object
+      required: [id, status, attemptCount, maxAttempts, availableAtIso, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+          example: outbox-1
+        refundId:
+          type: string
+          example: refund-1
+        status:
+          type: string
+          enum: [pending, processing, completed, dead]
+        attemptCount:
+          type: integer
+          minimum: 0
+          example: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+          example: 10
+        availableAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:00.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:00.000Z'
+    AdminFinanceAmountBreakdownItem:
+      type: object
+      required: [status, count, amountCents]
+      properties:
+        status:
+          type: string
+          example: refund_failed
+        count:
+          type: integer
+          minimum: 0
+          example: 2
+        amountCents:
+          type: integer
+          minimum: 0
+          example: 46000
+    AdminFinanceCountBreakdownItem:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          example: dead
+        count:
+          type: integer
+          minimum: 0
+          example: 1
+    AdminFinanceSettlementSummary:
+      type: object
+      required: [count, grossAmountCents, platformFeeCents, driverNetAmountCents]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          example: 22
+        grossAmountCents:
+          type: integer
+          minimum: 0
+          example: 682000
+        platformFeeCents:
+          type: integer
+          minimum: 0
+          example: 51200
+        driverNetAmountCents:
+          type: integer
+          minimum: 0
+          example: 630800
+    AdminFinanceReportSummary:
+      type: object
+      required:
+        - paymentCount
+        - paymentAmountCents
+        - refundCount
+        - refundAmountCents
+        - settlementCount
+        - settlementGrossAmountCents
+        - settlementPlatformFeeCents
+        - settlementDriverNetAmountCents
+        - pendingWithdrawalCount
+        - pendingWithdrawalAmountCents
+        - deadRefundOutboxCount
+      properties:
+        paymentCount:
+          type: integer
+          minimum: 0
+          example: 28
+        paymentAmountCents:
+          type: integer
+          minimum: 0
+          example: 1820000
+        refundCount:
+          type: integer
+          minimum: 0
+          example: 6
+        refundAmountCents:
+          type: integer
+          minimum: 0
+          example: 128000
+        settlementCount:
+          type: integer
+          minimum: 0
+          example: 22
+        settlementGrossAmountCents:
+          type: integer
+          minimum: 0
+          example: 682000
+        settlementPlatformFeeCents:
+          type: integer
+          minimum: 0
+          example: 51200
+        settlementDriverNetAmountCents:
+          type: integer
+          minimum: 0
+          example: 630800
+        pendingWithdrawalCount:
+          type: integer
+          minimum: 0
+          example: 3
+        pendingWithdrawalAmountCents:
+          type: integer
+          minimum: 0
+          example: 54000
+        deadRefundOutboxCount:
+          type: integer
+          minimum: 0
+          example: 2
+    AdminFinanceReport:
+      type: object
+      required:
+        - generatedAtIso
+        - summary
+        - paymentStatusBreakdown
+        - refundStatusBreakdown
+        - withdrawalStatusBreakdown
+        - refundOutboxStatusBreakdown
+        - settlementSummary
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T09:00:00.000Z'
+        summary:
+          $ref: '#/components/schemas/AdminFinanceReportSummary'
+        paymentStatusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminFinanceAmountBreakdownItem'
+        refundStatusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminFinanceAmountBreakdownItem'
+        withdrawalStatusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminFinanceAmountBreakdownItem'
+        refundOutboxStatusBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminFinanceCountBreakdownItem'
+        settlementSummary:
+          $ref: '#/components/schemas/AdminFinanceSettlementSummary'
+    AdminPaymentPageData:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminPaymentRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 1
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          example: 20
+    AdminRefundPageData:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminRefundRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 1
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          example: 20
+    AdminSettlementPageData:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminSettlementRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 1
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          example: 20
+    AdminWithdrawalPageData:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminWithdrawalRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 1
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          example: 20
+    AdminPaymentPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminPaymentPageData'
+    AdminFinanceReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminFinanceReport'
+    AdminRefundPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminRefundPageData'
+    AdminSettlementPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminSettlementPageData'
+    AdminWithdrawalPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminWithdrawalPageData'
+    AdminRefundRetryResult:
+      type: object
+      required: [kind, replayed, refund, outboxEvent, auditLog]
+      properties:
+        kind:
+          type: string
+          enum: [success]
+        replayed:
+          type: boolean
+          example: false
+        refund:
+          $ref: '#/components/schemas/AdminRefundRecord'
+        outboxEvent:
+          $ref: '#/components/schemas/FinancialOutboxEventRecord'
+        auditLog:
+          $ref: '#/components/schemas/FinancialAuditLogRecord'
+    AdminRefundRetryResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminRefundRetryResult'
+    DriverWalletRecord:
+      type: object
+      required: [driverId, availableCents, reservedCents, withdrawnCents, version, createdAtIso, updatedAtIso]
+      properties:
+        driverId:
+          type: string
+          example: driver-1
+        availableCents:
+          type: integer
+          minimum: 0
+          example: 24100
+        reservedCents:
+          type: integer
+          minimum: 0
+          example: 12000
+        withdrawnCents:
+          type: integer
+          minimum: 0
+          example: 88000
+        version:
+          type: integer
+          minimum: 0
+          example: 2
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:01:30.000Z'
+    AdminWithdrawalReviewResult:
+      type: object
+      required: [kind, replayed, withdrawal, wallet, auditLog]
+      properties:
+        kind:
+          type: string
+          enum: [success]
+        replayed:
+          type: boolean
+          example: false
+        withdrawal:
+          $ref: '#/components/schemas/AdminWithdrawalRecord'
+        wallet:
+          $ref: '#/components/schemas/DriverWalletRecord'
+        financialTransaction:
+          $ref: '#/components/schemas/FinancialTransactionRecord'
+        auditLog:
+          $ref: '#/components/schemas/FinancialAuditLogRecord'
+    AdminWithdrawalReviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminWithdrawalReviewResult'
     ShipperSpendingSnapshot:
       type: object
       required: [shipperId, summary, items]
@@ -6014,6 +10010,75 @@ components:
           minLength: 1
           maxLength: 80
           example: 运营补偿
+    BatchIssueShipperCouponsRequest:
+      type: object
+      required: [shipperIds, title, conditionText, discountCents, minOrderAmountCents, validFromIso, validUntilIso]
+      properties:
+        shipperIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [user-profile-coupon, user-profile-coupon-2]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 60
+          example: 后台批量满 300 减 30
+        conditionText:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: 平台订单满 300 元可用
+        discountCents:
+          type: integer
+          minimum: 1
+          example: 3000
+        minOrderAmountCents:
+          type: integer
+          minimum: 0
+          example: 30000
+        validFromIso:
+          type: string
+          format: date-time
+          example: '2026-07-20T00:00:00.000Z'
+        validUntilIso:
+          type: string
+          format: date-time
+          example: '2026-08-20T00:00:00.000Z'
+        sourceText:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 运营批量补贴
+    BatchIssueShipperCouponsResult:
+      type: object
+      required: [requestedCount, issuedCount, coupons]
+      properties:
+        requestedCount:
+          type: integer
+          minimum: 1
+          example: 2
+        issuedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        coupons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperCouponRecord'
+    BatchIssueShipperCouponsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchIssueShipperCouponsResult'
     ShipperCouponRecordResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -6043,6 +10108,100 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/ShipperCouponWallet'
+    AdminShipperCouponReportSummary:
+      type: object
+      required: [totalCount, usableCount, lockedCount, usedCount, expiredCount, totalDiscountCents, redeemedDiscountCents]
+      properties:
+        totalCount:
+          type: integer
+          minimum: 0
+          example: 6
+        usableCount:
+          type: integer
+          minimum: 0
+          example: 2
+        lockedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        usedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        expiredCount:
+          type: integer
+          minimum: 0
+          example: 1
+        totalDiscountCents:
+          type: integer
+          minimum: 0
+          example: 21000
+        redeemedDiscountCents:
+          type: integer
+          minimum: 0
+          example: 7000
+    AdminShipperCouponReportSourceBreakdownItem:
+      type: object
+      required: [sourceText, totalCount, usedCount, redeemedDiscountCents]
+      properties:
+        sourceText:
+          type: string
+          minLength: 1
+          maxLength: 80
+          example: 运营补贴
+        totalCount:
+          type: integer
+          minimum: 0
+          example: 2
+        usedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        redeemedDiscountCents:
+          type: integer
+          minimum: 0
+          example: 4000
+    AdminShipperCouponReportTopShipperItem:
+      allOf:
+        - $ref: '#/components/schemas/AdminShipperCouponReportSummary'
+        - type: object
+          required: [shipperId, latestIssuedAtIso]
+          properties:
+            shipperId:
+              type: string
+              minLength: 1
+              maxLength: 120
+              example: shipper-1
+            latestIssuedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-20T11:00:00.000Z'
+    AdminShipperCouponReportResult:
+      type: object
+      required: [generatedAtIso, summary, sourceBreakdown, topShippers]
+      properties:
+        generatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-21T09:00:00.000Z'
+        summary:
+          $ref: '#/components/schemas/AdminShipperCouponReportSummary'
+        sourceBreakdown:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminShipperCouponReportSourceBreakdownItem'
+        topShippers:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminShipperCouponReportTopShipperItem'
+    AdminShipperCouponReportResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminShipperCouponReportResult'
     ShipperFrequentRoute:
       type: object
       required: [id, name, from, to, lastUsedText]
@@ -6123,6 +10282,11 @@ components:
     OrderExceptionCaseSourceRole:
       type: string
       enum: [shipper, driver]
+    OrderExceptionCaseCompensationStatus:
+      type: string
+      description: Compensation decision snapshot only. It does not trigger a real payment, refund or payout workflow in this first slice.
+      enum: [not_required, pending, offline_completed]
+      example: pending
     OrderExceptionCaseActionRecord:
       type: object
       required: [id, adminUserId, fromStatus, toStatus, content, createdAtIso]
@@ -6151,6 +10315,18 @@ components:
           items: { type: string }
         status: { $ref: '#/components/schemas/OrderExceptionCaseStatus' }
         resolutionText: { type: string, minLength: 6, maxLength: 500 }
+        compensationStatus:
+          $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus'
+        compensationTargetRole:
+          $ref: '#/components/schemas/OrderExceptionCaseSourceRole'
+        compensationAmountCents:
+          type: integer
+          minimum: 1
+          example: 3600
+        compensationUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-18T08:30:00.000Z'
         resolvedAtIso: { type: string, format: date-time }
         closedAtIso: { type: string, format: date-time }
         createdAtIso: { type: string, format: date-time }
@@ -6168,6 +10344,22 @@ components:
           format: date-time
           description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
         content: { type: string, minLength: 6, maxLength: 500 }
+    ResolveOrderExceptionCaseRequest:
+      allOf:
+        - $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest'
+        - type: object
+          required: [compensationStatus]
+          properties:
+            compensationStatus:
+              $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus'
+            compensationTargetRole:
+              $ref: '#/components/schemas/OrderExceptionCaseSourceRole'
+            compensationAmountCents:
+              type: integer
+              minimum: 1
+              maximum: 100000000
+              example: 3600
+          description: Compensation decision first slice. not_required forbids target and amount; pending or offline_completed require both fields.
     OrderExceptionCaseListData:
       type: object
       required: [items, total]

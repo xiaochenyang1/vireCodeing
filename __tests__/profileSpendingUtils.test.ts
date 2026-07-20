@@ -173,6 +173,96 @@ test('uses status categories for platform spending filters and totals', () => {
   });
 });
 
+test('maps platform payment, settlement and refund facts without order-status guesses', () => {
+  const records = createSpendingRecords([], {
+    platformOnly: true,
+    platformRecords: [
+      {
+        orderId: 'order-settled-1',
+        orderNo: 'HY202607150001',
+        status: 'completed',
+        paymentMethod: 'online',
+        paymentStatus: 'settled',
+        paymentChannel: 'alipay',
+        paymentOrderStatus: 'settled',
+        amountCents: 31000,
+        occurredAtIso: '2026-07-15T08:10:00.000Z',
+        paidAtIso: '2026-07-15T08:00:00.000Z',
+        settledAtIso: '2026-07-15T08:10:00.000Z',
+        routeText: '宝安仓 → 南山门店',
+      },
+      {
+        orderId: 'order-refunded-1',
+        orderNo: 'HY202607150002',
+        status: 'cancelled',
+        paymentMethod: 'online',
+        paymentStatus: 'refunded',
+        paymentChannel: 'wechat',
+        paymentOrderStatus: 'refunded',
+        refundStatus: 'succeeded',
+        amountCents: 31000,
+        refundAmountCents: 3000,
+        occurredAtIso: '2026-07-15T09:00:00.000Z',
+        paidAtIso: '2026-07-15T08:20:00.000Z',
+        settledAtIso: '2026-07-15T08:30:00.000Z',
+        refundedAtIso: '2026-07-15T09:00:00.000Z',
+        routeText: '龙岗仓 → 福田门店',
+      },
+    ] as never,
+  });
+
+  expect(records[0]).toMatchObject({
+    methodText: '在线支付 · 支付宝',
+    statusText: '已结算',
+    paymentTimeText: '支付时间：2026-07-15 16:00',
+    paymentStatusText: '资金状态：已结算',
+    settlementText: '结算金额：￥310',
+    flowText: '资金依据：平台支付与结算记录',
+    statusCategory: 'completed',
+  });
+  expect(records[1]).toMatchObject({
+    methodText: '在线支付 · 微信支付',
+    statusText: '已退款',
+    paymentTimeText: '支付时间：2026-07-15 16:20',
+    paymentStatusText: '退款状态：已退款',
+    settlementText: '退款金额：￥30',
+    flowText: '资金依据：平台支付与退款记录',
+    statusCategory: 'refund',
+  });
+  expect(records.map(record => record.flowText).join(' ')).not.toContain(
+    '待接入',
+  );
+});
+
+test('uses order financial facts when falling back to local spending records', () => {
+  const records = createSpendingRecords([
+    createOrder({
+      id: 'HYPLATFORMFALLBACK001',
+      paymentMethod: 'online',
+      paymentStatus: 'settled',
+      paymentChannel: 'wechat',
+      paymentSettledAtIso: '2026-07-15T08:10:00.000Z',
+      updatedAtIso: '2026-07-15T08:10:00.000Z',
+      updatedAtText: '平台已同步',
+    }),
+  ]);
+
+  expect(
+    records.find(item => item.orderId === 'HYPLATFORMFALLBACK001'),
+  ).toMatchObject({
+    methodText: '在线支付 · 微信支付',
+    statusText: '已结算',
+    paymentTimeText: '结算时间：2026-07-15 16:10',
+    paymentStatusText: '资金状态：已结算',
+    settlementText: '结算金额：￥100',
+    flowText: '资金依据：订单服务端支付与结算状态',
+    statusCategory: 'completed',
+  });
+  expect(records.map(record => record.flowText).join(' ')).not.toContain(
+    '本地演示',
+  );
+});
+
 function createOrder(overrides: Partial<RecentOrder>): RecentOrder {
   return {
     id: 'HYLOCAL001',

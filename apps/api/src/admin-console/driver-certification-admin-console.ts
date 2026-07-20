@@ -1,3 +1,12 @@
+import {
+  renderAdminConsoleNav,
+  renderAdminConsoleNavStyles,
+} from './admin-console-nav-snippet';
+import {
+  renderAdminSessionControls,
+  renderAdminSessionScript,
+} from './admin-session-snippet';
+
 export function renderDriverCertificationAdminConsole() {
   return `<!doctype html>
 <html lang="zh-CN">
@@ -55,10 +64,19 @@ export function renderDriverCertificationAdminConsole() {
       padding: 12px;
       margin-bottom: 10px;
     }
-    .queue-item { width: 100%; text-align: left; cursor: pointer; }
-    .queue-item.active {
+    .queue-item-shell.active {
       border-color: var(--accent);
       box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .queue-item-top, .queue-item-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .queue-item-actions {
+      justify-content: flex-end;
     }
     .meta { color: var(--muted); font-size: 13px; line-height: 1.5; }
     .status {
@@ -118,6 +136,25 @@ export function renderDriverCertificationAdminConsole() {
     }
     .attachment-link { word-break: break-all; color: var(--accent); }
     .notice { margin: 10px 0; color: var(--danger); min-height: 20px; }
+    .session-row { margin-top: 8px; }
+    .session-link { color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .secondary-button { width: auto; background: #fff; color: var(--text); }
+    .checkbox-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .status-line {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      min-height: 20px;
+      margin-top: 8px;
+      white-space: pre-wrap;
+    }
+    ${renderAdminConsoleNavStyles()}
     @media (max-width: 860px) {
       .console-shell { grid-template-columns: 1fr; }
       .queue-panel { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -140,7 +177,38 @@ export function renderDriverCertificationAdminConsole() {
         <input id="adminToken" type="password" aria-label="admin access token" title="粘贴 admin access token" />
         <button class="primary" id="loadQueue">刷新</button>
       </div>
+      ${renderAdminSessionControls({
+        currentRoute: '/api/admin/driver-certification-console',
+        hintClass: 'meta',
+      })}
+      ${renderAdminConsoleNav({
+        currentRoute: '/api/admin/driver-certification-console',
+      })}
       <div id="notice" class="notice"></div>
+      <section class="card">
+        <h2>批量审核</h2>
+        <div class="meta">这片先按当前筛选结果勾选司机，再顺序调用单条实名/车辆审核接口做批量通过或驳回。它能真下手，但不是原子事务，别拿一页静态台要求它像银行总账。</div>
+        <div class="toolbar" style="margin-top:10px;">
+          <label class="checkbox-label"><input id="selectAllDriversInput" type="checkbox" onclick="toggleSelectAllCurrentDrivers(this.checked)" />全选当前结果</label>
+          <button id="clearSelectedDriversButton" type="button" class="secondary-button" onclick="clearSelectedDrivers()">清空勾选</button>
+        </div>
+        <div class="toolbar" style="margin-top:10px;">
+          <select id="batchCertificationTypeInput" aria-label="批量审核类型" title="批量审核类型">
+            <option value="identity">实名审核</option>
+            <option value="vehicle">车辆审核</option>
+          </select>
+          <select id="batchReviewStatusInput" aria-label="批量审核结果" title="批量审核结果">
+            <option value="approved">批量通过</option>
+            <option value="rejected">批量驳回</option>
+          </select>
+        </div>
+        <textarea id="batchReviewReasonInput" aria-label="批量驳回原因" title="批量驳回原因" placeholder="批量驳回原因；批量通过时可留空"></textarea>
+        <div class="toolbar" style="margin-top:10px;">
+          <button id="runBatchReviewButton" class="primary" type="button" onclick="runBatchReview()">执行批量审核</button>
+        </div>
+        <div id="batchSelectionStatus" class="status-line">当前未勾选司机。</div>
+        <div id="batchActionStatus" class="status-line"></div>
+      </section>
       <div id="queue"></div>
     </section>
     <section class="detail-panel">
@@ -150,6 +218,7 @@ export function renderDriverCertificationAdminConsole() {
   </main>
   <script>
     const state = { token: '', items: [], selected: null, attachments: null, events: [] };
+    const selectedDriverIds = new Set();
     const apiBase = '/api';
     const apiPaths = {
       list: '/admin/driver-certifications',
@@ -160,10 +229,14 @@ export function renderDriverCertificationAdminConsole() {
     };
     const statusText = { unsubmitted: '未提交', reviewing: '待审核', approved: '已通过', rejected: '已驳回' };
     const certificationText = { identity: '实名认证', vehicle: '车辆认证' };
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/driver-certification-console',
+    })}
 
     function authHeaders() {
       state.token = document.getElementById('adminToken').value.trim();
       if (!state.token) throw new Error('请先填写 admin access token');
+      persistAdminAccessToken();
       return { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/json' };
     }
 
@@ -190,8 +263,97 @@ export function renderDriverCertificationAdminConsole() {
       document.getElementById('notice').textContent = message || '';
     }
 
+    function selectedQueueDriverIds() {
+      return Array.from(selectedDriverIds);
+    }
+
     function badge(status) {
       return '<span class="status ' + escapeHtml(status) + '">' + escapeHtml(statusText[status] || status) + '</span>';
+    }
+
+    function renderEmptyDetail() {
+      document.getElementById('detailTitle').textContent = '选择一条认证记录';
+      document.getElementById('detail').innerHTML = '';
+    }
+
+    function syncSelectedDriversToCurrentQueue() {
+      const currentDriverIds = new Set(state.items.map(getDriverId));
+
+      selectedQueueDriverIds().forEach(function(driverId) {
+        if (!currentDriverIds.has(driverId)) {
+          selectedDriverIds.delete(driverId);
+        }
+      });
+
+      if (state.selected && !currentDriverIds.has(getDriverId(state.selected))) {
+        state.selected = null;
+        state.attachments = null;
+        state.events = [];
+        renderEmptyDetail();
+      }
+    }
+
+    function updateBulkSelectionUi() {
+      const currentDriverIds = state.items.map(getDriverId);
+      const currentSelectedCount = currentDriverIds.filter(function(driverId) {
+        return selectedDriverIds.has(driverId);
+      }).length;
+      const selectedCount = selectedDriverIds.size;
+      const selectAllInput = document.getElementById('selectAllDriversInput');
+
+      if (selectAllInput) {
+        selectAllInput.disabled = currentDriverIds.length === 0;
+        selectAllInput.checked =
+          currentDriverIds.length > 0 &&
+          currentSelectedCount === currentDriverIds.length;
+        selectAllInput.indeterminate =
+          currentSelectedCount > 0 &&
+          currentSelectedCount < currentDriverIds.length;
+      }
+
+      document.getElementById('batchSelectionStatus').textContent =
+        selectedCount === 0
+          ? '当前未勾选司机。'
+          : '已勾选 ' + selectedCount + ' 个司机，其中当前结果 ' + currentSelectedCount + ' 个。';
+      [
+        'clearSelectedDriversButton',
+        'runBatchReviewButton',
+      ].forEach(function(id) {
+        const node = document.getElementById(id);
+        if (node) {
+          node.disabled = selectedCount === 0;
+        }
+      });
+    }
+
+    function toggleDriverSelection(driverId, checked) {
+      if (checked) {
+        selectedDriverIds.add(driverId);
+      } else {
+        selectedDriverIds.delete(driverId);
+      }
+      renderQueue();
+      updateBulkSelectionUi();
+    }
+
+    function toggleSelectAllCurrentDrivers(checked) {
+      state.items.forEach(function(item) {
+        const driverId = getDriverId(item);
+        if (checked) {
+          selectedDriverIds.add(driverId);
+        } else {
+          selectedDriverIds.delete(driverId);
+        }
+      });
+      renderQueue();
+      updateBulkSelectionUi();
+    }
+
+    function clearSelectedDrivers() {
+      selectedDriverIds.clear();
+      renderQueue();
+      updateBulkSelectionUi();
+      document.getElementById('batchActionStatus').textContent = '已清空批量勾选。';
     }
 
     async function loadQueue() {
@@ -200,7 +362,9 @@ export function renderDriverCertificationAdminConsole() {
         const status = document.getElementById('statusFilter').value;
         const data = await request(apiPaths.list + '?status=' + encodeURIComponent(status) + '&page=1&pageSize=20');
         state.items = data.items || [];
+        syncSelectedDriversToCurrentQueue();
         renderQueue();
+        updateBulkSelectionUi();
       } catch (error) {
         setNotice(error.message);
       }
@@ -220,13 +384,32 @@ export function renderDriverCertificationAdminConsole() {
         const driverId = getDriverId(item);
         const phone = item.driver && item.driver.phone ? item.driver.phone : '手机号待补充';
         const active = state.selected && getDriverId(state.selected) === driverId ? ' active' : '';
-        return '<button class="card queue-item' + active + '" data-driver-id="' + escapeHtml(driverId) + '">' +
-          '<strong>' + escapeHtml(phone) + '</strong><div class="meta">司机ID：' + escapeHtml(driverId) + '</div>' +
+        const selected = selectedDriverIds.has(driverId);
+        return '<article class="card queue-item-shell' + active + '">' +
+          '<div class="queue-item-top">' +
+            '<div>' +
+              '<strong>' + escapeHtml(phone) + '</strong><div class="meta">司机ID：' + escapeHtml(driverId) + '</div>' +
+            '</div>' +
+            '<div class="queue-item-actions">' +
+              '<label class="checkbox-label"><input type="checkbox" data-toggle-driver-id="' + escapeHtml(driverId) + '" ' + (selected ? 'checked ' : '') + '/>纳入批量</label>' +
+              '<button type="button" class="secondary-button" data-driver-id="' + escapeHtml(driverId) + '">查看详情</button>' +
+            '</div>' +
+          '</div>' +
           '<div class="meta">实名 ' + badge(item.identity.status) + ' 车辆 ' + badge(item.vehicle.status) + '</div>' +
-          '</button>';
+        '</article>';
       }).join('');
       queue.querySelectorAll('[data-driver-id]').forEach(node => {
-        node.addEventListener('click', () => selectDriver(node.getAttribute('data-driver-id')));
+        node.addEventListener('click', function() {
+          selectDriver(node.getAttribute('data-driver-id') || '');
+        });
+      });
+      queue.querySelectorAll('[data-toggle-driver-id]').forEach(node => {
+        node.addEventListener('change', function(event) {
+          toggleDriverSelection(
+            node.getAttribute('data-toggle-driver-id') || '',
+            event.target.checked,
+          );
+        });
       });
     }
 
@@ -249,7 +432,10 @@ export function renderDriverCertificationAdminConsole() {
 
     function renderDetail() {
       const item = state.selected;
-      if (!item) return;
+      if (!item) {
+        renderEmptyDetail();
+        return;
+      }
       const driverId = getDriverId(item);
       document.getElementById('detailTitle').textContent = '认证详情 · ' + (item.driver && item.driver.phone ? item.driver.phone : driverId);
       document.getElementById('detail').innerHTML =
@@ -316,7 +502,81 @@ export function renderDriverCertificationAdminConsole() {
           body: JSON.stringify(payload)
         });
         await loadQueue();
-        await selectDriver(driverId);
+        if (state.items.some(item => getDriverId(item) === driverId)) {
+          await selectDriver(driverId);
+        } else {
+          renderEmptyDetail();
+        }
+      } catch (error) {
+        setNotice(error.message);
+      }
+    }
+
+    async function runBatchReview() {
+      const driverIds = selectedQueueDriverIds();
+      const certificationType = document.getElementById('batchCertificationTypeInput').value;
+      const status = document.getElementById('batchReviewStatusInput').value;
+      const rejectionReason = document.getElementById('batchReviewReasonInput').value.trim();
+
+      if (!driverIds.length) {
+        document.getElementById('batchActionStatus').textContent =
+          '先勾选司机再批量审核，别对着空气点通过。';
+        return;
+      }
+
+      if (status === 'rejected' && !rejectionReason) {
+        document.getElementById('batchActionStatus').textContent =
+          '批量驳回必须填写原因，不然你让司机猜谜呢。';
+        return;
+      }
+
+      const reviewPath =
+        certificationType === 'identity'
+          ? apiPaths.identityReview
+          : apiPaths.vehicleReview;
+      const actionLabel =
+        certificationType === 'identity'
+          ? (status === 'approved' ? '实名批量通过' : '实名批量驳回')
+          : (status === 'approved' ? '车辆批量通过' : '车辆批量驳回');
+      let successCount = 0;
+      const failures = [];
+      const selectedDriverId = state.selected ? getDriverId(state.selected) : '';
+
+      try {
+        setNotice('');
+        document.getElementById('batchActionStatus').textContent =
+          actionLabel + '执行中，共 ' + driverIds.length + ' 个司机。';
+
+        for (const driverId of driverIds) {
+          try {
+            await request(
+              apiPaths.list + '/' + encodeURIComponent(driverId) + reviewPath,
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  status === 'approved'
+                    ? { status: 'approved' }
+                    : {
+                        status: 'rejected',
+                        rejectionReason,
+                      },
+                ),
+              },
+            );
+            successCount += 1;
+            selectedDriverIds.delete(driverId);
+          } catch (error) {
+            failures.push(driverId + '（' + error.message + '）');
+          }
+        }
+
+        document.getElementById('batchActionStatus').textContent =
+          actionLabel + '完成：成功 ' + successCount + ' 个，失败 ' + failures.length + ' 个。' +
+          (failures.length ? ' 失败详情：' + failures.join('；') : '');
+        await loadQueue();
+        if (selectedDriverId && state.items.some(item => getDriverId(item) === selectedDriverId)) {
+          await selectDriver(selectedDriverId);
+        }
       } catch (error) {
         setNotice(error.message);
       }
@@ -324,6 +584,9 @@ export function renderDriverCertificationAdminConsole() {
 
     document.getElementById('loadQueue').addEventListener('click', loadQueue);
     document.getElementById('statusFilter').addEventListener('change', loadQueue);
+    updateBulkSelectionUi();
+    renderEmptyDetail();
+    initializeAdminSession();
   </script>
 </body>
 </html>`;

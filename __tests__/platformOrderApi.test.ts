@@ -2,6 +2,7 @@ import { createPlatformOrderApi } from '../src/services/platformOrderApi';
 import { PlatformApiError } from '../src/services/platformApiClient';
 
 describe('platform order api', () => {
+  const createIdempotencyKey = '550e8400-e29b-41d4-a716-446655440000';
   it('lists shipper exception cases with a normalized order id', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
       createJsonResponse({ items: [], total: 0 }),
@@ -22,6 +23,55 @@ describe('platform order api', () => {
         }),
       }),
     );
+  });
+
+  it('preserves compensation decision fields when listing shipper exception cases', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        total: 1,
+        items: [
+          {
+            id: 'case-1',
+            caseNo: 'YC202607180001',
+            orderId: 'order-1',
+            orderNo: 'HY202607180001',
+            sourceEventId: 'event-1',
+            reporterUserId: 'driver-1',
+            sourceRole: 'driver',
+            typeLabel: '货损',
+            description: '装货时发现包装破损',
+            attachmentFileIds: [],
+            status: 'resolved',
+            resolutionText: '客服判定线下赔付。',
+            compensationStatus: 'offline_completed',
+            compensationTargetRole: 'driver',
+            compensationAmountCents: 8800,
+            compensationUpdatedAtIso: '2026-07-18T02:30:00.000Z',
+            createdAtIso: '2026-07-18T02:00:00.000Z',
+            updatedAtIso: '2026-07-18T02:30:00.000Z',
+            actions: [],
+          },
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.listExceptionCases('order-1')).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          caseNo: 'YC202607180001',
+          compensationStatus: 'offline_completed',
+          compensationTargetRole: 'driver',
+          compensationAmountCents: 8800,
+          compensationUpdatedAtIso: '2026-07-18T02:30:00.000Z',
+        }),
+      ],
+    });
   });
   const originalFetch = globalThis.fetch;
 
@@ -47,7 +97,9 @@ describe('platform order api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await expect(api.createOrder(createInput())).resolves.toMatchObject({
+    await expect(
+      api.createOrder(createInput(), createIdempotencyKey),
+    ).resolves.toMatchObject({
       id: 'order-1',
       orderNo: 'HY202607010001',
     });
@@ -57,7 +109,9 @@ describe('platform order api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': createIdempotencyKey,
         }),
+        body: expect.not.stringContaining('baseUpdatedAtIso'),
       }),
     );
   });
@@ -105,7 +159,7 @@ describe('platform order api', () => {
       couponTitle: '   ',
     };
 
-    await api.createOrder(request);
+    await api.createOrder(request, createIdempotencyKey);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/orders',
@@ -146,71 +200,87 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
     const nullRequest =
       null as unknown as Parameters<typeof api.createOrder>[0];
     const stringRequest =
       'bad request' as unknown as Parameters<typeof api.createOrder>[0];
     const blankCargoTypeRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       cargoType: '   ',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const numberWeightRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       weightText: 2.5,
     } as unknown as Parameters<typeof api.createOrder>[0];
     const longCargoDescriptionRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       cargoDescription: 'x'.repeat(201),
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidCargoPhotoCountRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       cargoPhotoCount: 7,
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidCargoPhotoFileIdsRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       cargoPhotoFileIds: ['1', '2', '3', '4', '5', '6', '7'],
     } as unknown as Parameters<typeof api.createOrder>[0];
     const sameAddressRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       deliveryAddress: ' 宝安区福永物流园 ',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidPhoneRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pickupPhone: '12345',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const longPickupNoteRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pickupNoteText: 'x'.repeat(51),
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidBooleanRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       needTailboard: 'false',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidPickupTimeRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pickupTimeIso: 'not-a-date',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidPricingModeRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pricingMode: 'market',
     } as unknown as Parameters<typeof api.createOrder>[0];
     const fixedWithoutPriceRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       priceCents: undefined,
     } as unknown as Parameters<typeof api.createOrder>[0];
     const negotiableWithPriceRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pricingMode: 'negotiable',
       priceCents: 76000,
     } as unknown as Parameters<typeof api.createOrder>[0];
     const incompleteCouponRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       couponId: 'coupon-1',
       couponTitle: '满减券',
       couponDiscountCents: 1000,
     } as unknown as Parameters<typeof api.createOrder>[0];
     const mismatchedPayablePriceRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       couponId: 'coupon-1',
       couponTitle: '满减券',
       couponDiscountCents: 1000,
@@ -218,6 +288,7 @@ describe('platform order api', () => {
     } as unknown as Parameters<typeof api.createOrder>[0];
     const invalidPaymentMethodRequest = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       paymentMethod: 'cash',
     } as unknown as Parameters<typeof api.createOrder>[0];
 
@@ -243,9 +314,13 @@ describe('platform order api', () => {
     ];
     const runners = [
       (request: Parameters<typeof api.createOrder>[0]) =>
-        api.createOrder(request),
+        api.createOrder(request, createIdempotencyKey),
       (request: Parameters<typeof api.createOrder>[0]) =>
-        api.updateOrder('order-1', request),
+        api.updateOrder(
+          'order-1',
+          request as Parameters<typeof api.updateOrder>[1],
+          mutationContext.idempotencyKey,
+        ),
     ];
 
     for (const runner of runners) {
@@ -960,12 +1035,14 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
 
     await expect(
       api.cancelOrder('order-1', {
+        baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
         reasonText: '计划变更',
         description: '客户临时取消出货',
-      }),
+      }, mutationContext.idempotencyKey),
     ).resolves.toMatchObject({
       id: 'order-1',
       status: 'cancelled',
@@ -976,8 +1053,10 @@ describe('platform order api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
         }),
         body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
           reasonText: '计划变更',
           description: '客户临时取消出货',
         }),
@@ -1006,17 +1085,23 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
 
     await api.cancelOrder('order-1', {
+      baseUpdatedAtIso: `  ${mutationContext.baseUpdatedAtIso}  `,
       reasonText: '  计划变更  ',
       description: '   ',
-    });
+    }, `  ${mutationContext.idempotencyKey}  `);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/orders/order-1/cancel',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
         body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
           reasonText: '计划变更',
         }),
       }),
@@ -1031,36 +1116,42 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
     const nullRequest =
       null as unknown as Parameters<typeof api.cancelOrder>[1];
     const stringRequest =
       '计划变更' as unknown as Parameters<typeof api.cancelOrder>[1];
     const blankReasonRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       reasonText: '   ',
     } as unknown as Parameters<typeof api.cancelOrder>[1];
     const longReasonRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       reasonText: 'x'.repeat(51),
     } as unknown as Parameters<typeof api.cancelOrder>[1];
     const numberReasonRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       reasonText: 123,
     } as unknown as Parameters<typeof api.cancelOrder>[1];
     const longDescriptionRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       reasonText: '计划变更',
       description: 'x'.repeat(201),
     } as unknown as Parameters<typeof api.cancelOrder>[1];
     const objectDescriptionRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       reasonText: '计划变更',
       description: { value: '客户临时取消出货' },
     } as unknown as Parameters<typeof api.cancelOrder>[1];
 
     const requests = [
-      () => api.cancelOrder('order-1', nullRequest),
-      () => api.cancelOrder('order-1', stringRequest),
-      () => api.cancelOrder('order-1', blankReasonRequest),
-      () => api.cancelOrder('order-1', longReasonRequest),
-      () => api.cancelOrder('order-1', numberReasonRequest),
-      () => api.cancelOrder('order-1', longDescriptionRequest),
-      () => api.cancelOrder('order-1', objectDescriptionRequest),
+      () => api.cancelOrder('order-1', nullRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', stringRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', blankReasonRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', longReasonRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', numberReasonRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', longDescriptionRequest, mutationContext.idempotencyKey),
+      () => api.cancelOrder('order-1', objectDescriptionRequest, mutationContext.idempotencyKey),
     ];
 
     for (const request of requests) {
@@ -1116,13 +1207,43 @@ describe('platform order api', () => {
       null as unknown as Parameters<typeof api.getOrder>[0];
     const numberOrderId =
       123 as unknown as Parameters<typeof api.getOrder>[0];
+    const mutationContext = createOrderMutationContext();
 
     const requests = [
       () => api.getOrder(blankOrderId),
-      () => api.updateOrder(blankOrderId, createInput()),
-      () => api.cancelOrder(blankOrderId, { reasonText: '计划变更' }),
-      () => api.completeOrder(blankOrderId),
-      () => api.advanceOrderStatus(blankOrderId, { nextStatus: 'loading' }),
+      () =>
+        api.updateOrder(
+          blankOrderId,
+          {
+            ...createInput(),
+            baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          },
+          mutationContext.idempotencyKey,
+        ),
+      () =>
+        api.cancelOrder(
+          blankOrderId,
+          {
+            reasonText: '计划变更',
+            baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          },
+          mutationContext.idempotencyKey,
+        ),
+      () =>
+        api.completeOrder(
+          blankOrderId,
+          { baseUpdatedAtIso: mutationContext.baseUpdatedAtIso },
+          mutationContext.idempotencyKey,
+        ),
+      () =>
+        api.advanceOrderStatus(
+          blankOrderId,
+          {
+            nextStatus: 'loading',
+            baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          },
+          mutationContext.idempotencyKey,
+        ),
       () => api.reportException(blankOrderId, {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
@@ -1170,12 +1291,16 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
     const request = {
       ...createInput(),
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       pickupAddress: '宝安区新装货仓',
     };
 
-    await expect(api.updateOrder('order-1', request)).resolves.toMatchObject({
+    await expect(
+      api.updateOrder('order-1', request, mutationContext.idempotencyKey),
+    ).resolves.toMatchObject({
       id: 'order-1',
       pickupAddress: '宝安区新装货仓',
     });
@@ -1185,6 +1310,7 @@ describe('platform order api', () => {
         method: 'PUT',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
         }),
         body: JSON.stringify(request),
       }),
@@ -1212,8 +1338,15 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
 
-    await expect(api.completeOrder('order-1')).resolves.toMatchObject({
+    await expect(
+      api.completeOrder(
+        'order-1',
+        { baseUpdatedAtIso: mutationContext.baseUpdatedAtIso },
+        mutationContext.idempotencyKey,
+      ),
+    ).resolves.toMatchObject({
       id: 'order-1',
       status: 'completed',
     });
@@ -1223,6 +1356,10 @@ describe('platform order api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
+        body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
         }),
       }),
     );
@@ -1249,9 +1386,17 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
 
     await expect(
-      api.advanceOrderStatus('order-1', { nextStatus: 'loading' }),
+      api.advanceOrderStatus(
+        'order-1',
+        {
+          nextStatus: 'loading',
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        },
+        mutationContext.idempotencyKey,
+      ),
     ).resolves.toMatchObject({
       id: 'order-1',
       status: 'loading',
@@ -1262,8 +1407,10 @@ describe('platform order api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
         }),
         body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
           nextStatus: 'loading',
         }),
       }),
@@ -1278,22 +1425,25 @@ describe('platform order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createOrderMutationContext();
     const nullRequest =
       null as unknown as Parameters<typeof api.advanceOrderStatus>[1];
     const stringRequest =
       'loading' as unknown as Parameters<typeof api.advanceOrderStatus>[1];
     const invalidNextStatusRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       nextStatus: 'waiting',
     } as unknown as Parameters<typeof api.advanceOrderStatus>[1];
     const nullNextStatusRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
       nextStatus: null,
     } as unknown as Parameters<typeof api.advanceOrderStatus>[1];
 
     const requests = [
-      () => api.advanceOrderStatus('order-1', nullRequest),
-      () => api.advanceOrderStatus('order-1', stringRequest),
-      () => api.advanceOrderStatus('order-1', invalidNextStatusRequest),
-      () => api.advanceOrderStatus('order-1', nullNextStatusRequest),
+      () => api.advanceOrderStatus('order-1', nullRequest, mutationContext.idempotencyKey),
+      () => api.advanceOrderStatus('order-1', stringRequest, mutationContext.idempotencyKey),
+      () => api.advanceOrderStatus('order-1', invalidNextStatusRequest, mutationContext.idempotencyKey),
+      () => api.advanceOrderStatus('order-1', nullNextStatusRequest, mutationContext.idempotencyKey),
     ];
 
     for (const request of requests) {
@@ -1302,6 +1452,74 @@ describe('platform order api', () => {
         status: 0,
       } satisfies Partial<PlatformApiError>);
     }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid order mutation context before sending it', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const mutationContext = createOrderMutationContext();
+
+    await expect(
+      api.updateOrder(
+        'order-1',
+        {
+          ...createInput(),
+          baseUpdatedAtIso: 'not-a-date',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.cancelOrder(
+        'order-1',
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          reasonText: '计划变更',
+        },
+        'not-a-uuid',
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.completeOrder(
+        'order-1',
+        {
+          baseUpdatedAtIso: 'not-a-date',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.advanceOrderStatus(
+        'order-1',
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          nextStatus: 'loading',
+        },
+        'not-a-uuid',
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1877,6 +2095,13 @@ function createInput() {
     pricingMode: 'fixed' as const,
     priceCents: 76000,
     paymentMethod: 'cod' as const,
+  };
+}
+
+function createOrderMutationContext() {
+  return {
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+    baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
   };
 }
 

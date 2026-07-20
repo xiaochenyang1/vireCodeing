@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -12,6 +12,7 @@ import { colors, styles } from '../styles';
 import type {
   PlatformDriverAcceptanceSettings,
   PlatformDriverAcceptOrderRequest,
+  PlatformDriverAdvanceOrderStatusRequest,
   PlatformDriverIncomeOverview,
   PlatformDriverReplyEvaluationRequest,
   PlatformDriverWithdrawalRecord,
@@ -38,6 +39,21 @@ import {
   type DriverEvaluationReplyQueue,
   type DriverEvaluationReplyQueueItem,
 } from '../utils/driverEvaluationReplyQueue';
+import {
+  createDriverOrderMutationQueueKey,
+  hydrateDriverOrderMutationQueue,
+  saveDriverOrderMutationQueue,
+  type DriverOrderMutationQueue,
+  type DriverOrderMutationQueueItem,
+} from '../utils/driverOrderMutationQueue';
+import {
+  createOrderMutationContext,
+  getOrderMutationFailureAction,
+} from '../utils/orderMutationSync';
+import {
+  getOrderExceptionCaseSummaryHeadline,
+  getOrderExceptionCaseSummaryText,
+} from '../utils/orderExceptionCases';
 import {
   createAcceptanceSettingsForm,
   createAcceptanceSettingsRequest,
@@ -97,13 +113,16 @@ export function DriverHomeScreen({
   platformDriverOrderApi,
   platformDriverCertificationApi,
   platformFileApi,
+  driverAccountId = 'local-driver',
   onLogout,
 }: {
   platformDriverOrderApi?: PlatformDriverOrderApi;
   platformDriverCertificationApi?: PlatformDriverCertificationApi;
   platformFileApi?: DriverPlatformFileApi;
+  driverAccountId?: string;
   onLogout: () => void;
 }) {
+  const resolvedDriverAccountId = driverAccountId.trim() || 'local-driver';
   const [orderHallOrders, setOrderHallOrders] = useState<PlatformShipperOrder[]>(
     [],
   );
@@ -128,6 +147,7 @@ export function DriverHomeScreen({
     useState<DriverAcceptanceSettingsFormState>(emptyAcceptanceSettingsForm);
   const [withdrawalForm, setWithdrawalForm] =
     useState<DriverWithdrawalFormState>(emptyWithdrawalForm);
+  const withdrawalIdempotencyKeyRef = useRef<string | undefined>(undefined);
   const [certificationForm, setCertificationForm] =
     useState<DriverCertificationFormState>(emptyCertificationForm);
   const [executionProofs, setExecutionProofs] =
@@ -145,6 +165,8 @@ export function DriverHomeScreen({
   const [evaluationReplyQueue, setEvaluationReplyQueue] = useState<
     DriverEvaluationReplyQueue
   >({});
+  const [orderMutationQueue, setOrderMutationQueue] =
+    useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
 
   const refreshOrderHall = (
@@ -264,11 +286,19 @@ export function DriverHomeScreen({
         }
       })
       .catch(() => undefined);
+    setOrderMutationQueue({});
+    hydrateDriverOrderMutationQueue(resolvedDriverAccountId)
+      .then(queue => {
+        if (isMounted) {
+          setOrderMutationQueue(queue);
+        }
+      })
+      .catch(() => undefined);
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [resolvedDriverAccountId]);
 
   const getForm = (orderNo: string): DriverOrderFormState =>
     forms[orderNo] ?? emptyForm;
@@ -328,6 +358,39 @@ export function DriverHomeScreen({
     }));
   };
 
+  const upsertOrderMutationQueueItem = (
+    item: DriverOrderMutationQueueItem,
+  ) => {
+    setOrderMutationQueue(currentQueue => {
+      const nextQueue = {
+        ...currentQueue,
+        [createDriverOrderMutationQueueKey(item.operation, item.orderId)]: item,
+      };
+      saveDriverOrderMutationQueue(resolvedDriverAccountId, nextQueue);
+      return nextQueue;
+    });
+  };
+
+  const removeOrderMutationQueueItem = (
+    item: DriverOrderMutationQueueItem,
+  ) => {
+    setOrderMutationQueue(currentQueue => {
+      const queueKey = createDriverOrderMutationQueueKey(
+        item.operation,
+        item.orderId,
+      );
+
+      if (!currentQueue[queueKey]) {
+        return currentQueue;
+      }
+
+      const nextQueue = { ...currentQueue };
+      delete nextQueue[queueKey];
+      saveDriverOrderMutationQueue(resolvedDriverAccountId, nextQueue);
+      return nextQueue;
+    });
+  };
+
   const submitQuote = (order: PlatformShipperOrder) => {
     if (!platformDriverOrderApi) {
       setNotice('司机报价需要平台 API 配置。');
@@ -366,6 +429,106 @@ export function DriverHomeScreen({
       });
   };
 
+  const refreshDriverOrderMutationTarget = (
+    item: DriverOrderMutationQueueItem,
+    noticeText: string,
+  ) => {
+    if (!platformDriverOrderApi) {
+      setNotice(noticeText);
+      return;
+    }
+
+    const refreshTask =
+      item.operation === 'accept'
+        ? platformDriverOrderApi
+            .listOrderHall({ page: 1, pageSize: 20 })
+            .then(result => {
+              setOrderHallOrders(result.items);
+            })
+        : platformDriverOrderApi.getOrder(item.orderId).then(updatedOrder => {
+            setSelectedOrder(updatedOrder);
+            setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+          });
+
+    refreshTask
+      .catch(() => undefined)
+      .finally(() => {
+        setNotice(noticeText);
+      });
+  };
+
+  const handleDriverOrderMutationFailure = (
+    error: unknown,
+    item: DriverOrderMutationQueueItem,
+  ) => {
+    const failureAction = getOrderMutationFailureAction(error);
+
+    if (failureAction === 'retry') {
+      upsertOrderMutationQueueItem(item);
+      setNotice(
+        item.operation === 'accept'
+          ? '司机接单失败，已加入本地重试队列。'
+          : '司机状态更新失败，已加入本地重试队列。',
+      );
+      return;
+    }
+
+    removeOrderMutationQueueItem(item);
+    refreshDriverOrderMutationTarget(
+      item,
+      failureAction === 'refresh'
+        ? '订单已被其他操作更新，请确认最新状态。'
+        : '订单操作凭证已失效，请确认最新状态后重新发起。',
+    );
+  };
+
+  const executeDriverOrderMutation = (item: DriverOrderMutationQueueItem) => {
+    if (!platformDriverOrderApi) {
+      setNotice('司机订单操作需要平台 API 配置。');
+      return;
+    }
+
+    if (item.operation === 'accept') {
+      platformDriverOrderApi
+        .acceptOrder(
+          item.orderId,
+          item.request,
+          item.mutationContext.idempotencyKey,
+        )
+        .then(updatedOrder => {
+          removeOrderMutationQueueItem(item);
+          setOrderHallOrders(currentOrders =>
+            currentOrders.filter(currentOrder => currentOrder.id !== item.orderId),
+          );
+          setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+          setSelectedOrder(updatedOrder);
+          refreshIncome();
+          setNotice('接单成功，订单已进入待装货。');
+        })
+        .catch(error => {
+          handleDriverOrderMutationFailure(error, item);
+        });
+      return;
+    }
+
+    platformDriverOrderApi
+      .advanceOrderStatus(
+        item.orderId,
+        item.request,
+        item.mutationContext.idempotencyKey,
+      )
+      .then(updatedOrder => {
+        removeOrderMutationQueueItem(item);
+        setSelectedOrder(updatedOrder);
+        setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+        refreshIncome();
+        setNotice(createDriverAdvanceSuccessNotice(item.request.nextStatus));
+      })
+      .catch(error => {
+        handleDriverOrderMutationFailure(error, item);
+      });
+  };
+
   const acceptOrder = (order: PlatformShipperOrder) => {
     if (!platformDriverOrderApi) {
       setNotice('司机接单需要平台 API 配置。');
@@ -377,30 +540,35 @@ export function DriverHomeScreen({
       return;
     }
 
-    const form = forms[order.orderNo];
-    const request: PlatformDriverAcceptOrderRequest = form?.noteText.trim()
-      ? { noteText: form.noteText.trim() }
-      : {};
+    const queuedMutation =
+      orderMutationQueue[
+        createDriverOrderMutationQueueKey('accept', order.id)
+      ];
 
-    platformDriverOrderApi
-      .acceptOrder(order.id, request)
-      .then(updatedOrder => {
-        setOrderHallOrders(currentOrders =>
-          currentOrders.filter(currentOrder => currentOrder.id !== order.id),
-        );
-        setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
-        setSelectedOrder(updatedOrder);
-        refreshIncome();
-        setNotice('接单成功，订单已进入待装货。');
-      })
-      .catch(error => {
-        setNotice(
-          getDriverOrderActionFailureNotice(
-            error,
-            '司机接单失败，请稍后重试。',
-          ),
-        );
-      });
+    if (queuedMutation?.operation === 'accept') {
+      executeDriverOrderMutation(queuedMutation);
+      return;
+    }
+
+    const form = forms[order.orderNo];
+    const mutationContext = createOrderMutationContext(
+      order.updatedAtIso ?? order.createdAtIso,
+    );
+    const request: PlatformDriverAcceptOrderRequest = form?.noteText.trim()
+      ? {
+          noteText: form.noteText.trim(),
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        }
+      : { baseUpdatedAtIso: mutationContext.baseUpdatedAtIso };
+
+    executeDriverOrderMutation({
+      operation: 'accept',
+      driverAccountId: resolvedDriverAccountId,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      request,
+      mutationContext,
+    });
   };
 
   const openOrderDetail = (order: PlatformShipperOrder) => {
@@ -445,6 +613,16 @@ export function DriverHomeScreen({
       return;
     }
 
+    const queuedMutation =
+      orderMutationQueue[
+        createDriverOrderMutationQueueKey('status', selectedOrder.id)
+      ];
+
+    if (queuedMutation?.operation === 'status') {
+      executeDriverOrderMutation(queuedMutation);
+      return;
+    }
+
     const nextStatus = getNextDriverStatus(selectedOrder.status);
 
     if (!nextStatus) {
@@ -457,21 +635,24 @@ export function DriverHomeScreen({
       selectedOrder.id,
       selectedOrder.status,
     );
+    const mutationContext = createOrderMutationContext(
+      selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso,
+    );
 
-    platformDriverOrderApi
-      .advanceOrderStatus(selectedOrder.id, {
-        nextStatus,
-        ...(receiptPhotoFileIds.length ? { receiptPhotoFileIds } : {}),
-      })
-      .then(updatedOrder => {
-        setSelectedOrder(updatedOrder);
-        setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
-        refreshIncome();
-        setNotice(createDriverAdvanceSuccessNotice(nextStatus));
-      })
-      .catch(() => {
-        setNotice('司机状态更新失败，请稍后重试。');
-      });
+    const request: PlatformDriverAdvanceOrderStatusRequest = {
+      baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+      nextStatus,
+      ...(receiptPhotoFileIds.length ? { receiptPhotoFileIds } : {}),
+    };
+
+    executeDriverOrderMutation({
+      operation: 'status',
+      driverAccountId: resolvedDriverAccountId,
+      orderId: selectedOrder.id,
+      orderNo: selectedOrder.orderNo,
+      request,
+      mutationContext,
+    });
   };
 
   const submitEvaluationReply = (order: PlatformShipperOrder) => {
@@ -861,9 +1042,15 @@ export function DriverHomeScreen({
       return;
     }
 
+    const idempotencyKey =
+      withdrawalIdempotencyKeyRef.current ??
+      createOrderMutationContext().idempotencyKey;
+    withdrawalIdempotencyKeyRef.current = idempotencyKey;
+
     platformDriverOrderApi
-      .createWithdrawal(request)
+      .createWithdrawal(request, idempotencyKey)
       .then(() => {
+        withdrawalIdempotencyKeyRef.current = undefined;
         setWithdrawalForm(emptyWithdrawalForm);
         setNotice('提现申请已提交审核。');
         refreshIncome();
@@ -980,6 +1167,37 @@ export function DriverHomeScreen({
         </View>
       ) : null}
 
+      {Object.values(orderMutationQueue).length ? (
+        <View style={styles.detailCard}>
+          <Text style={styles.detailRoute}>司机订单同步队列</Text>
+          {Object.values(orderMutationQueue).map(item => (
+            <View
+              key={createDriverOrderMutationQueueKey(
+                item.operation,
+                item.orderId,
+              )}
+              style={styles.detailNoticeCard}
+            >
+              <Text style={styles.detailMeta}>
+                {`${item.orderNo} · ${
+                  item.operation === 'accept' ? '接单' : '状态推进'
+                }待重试`}
+              </Text>
+              <Text style={styles.detailMeta}>
+                {`原始版本：${item.mutationContext.baseUpdatedAtIso}`}
+              </Text>
+              <Pressable
+                testID={`driver-order-mutation-retry-${item.operation}-${item.orderId}`}
+                style={styles.detailPrimaryButton}
+                onPress={() => executeDriverOrderMutation(item)}
+              >
+                <Text style={styles.detailPrimaryButtonText}>重试订单操作</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.detailCard}>
         <Text testID="driver-settings-title" style={styles.detailRoute}>
           接单设置
@@ -1079,7 +1297,12 @@ export function DriverHomeScreen({
         <Text style={styles.detailMeta}>
           {`待结算：${formatDriverCurrency(
             incomeOverview?.summary?.pendingSettlementCents ?? 0,
-          )} · 已完成 ${incomeOverview?.summary?.completedOrderCount ?? 0} 单`}
+          )} · 已提现：${formatDriverCurrency(
+            incomeOverview?.summary?.withdrawnCents ?? 0,
+          )}`}
+        </Text>
+        <Text style={styles.detailMeta}>
+          {`已完成 ${incomeOverview?.summary?.completedOrderCount ?? 0} 单`}
         </Text>
         {incomeRecords.length ? (
           incomeRecords.slice(0, 3).map(record => (
@@ -1109,9 +1332,10 @@ export function DriverHomeScreen({
           placeholderTextColor={colors.textMuted}
           keyboardType="numeric"
           value={withdrawalForm.amountText}
-          onChangeText={amountText =>
+          onChangeText={amountText => {
+            withdrawalIdempotencyKeyRef.current = undefined;
             setWithdrawalForm(current => ({ ...current, amountText }))
-          }
+          }}
         />
         <TextInput
           testID="driver-withdrawal-bank-name"
@@ -1119,9 +1343,10 @@ export function DriverHomeScreen({
           placeholder="开户银行"
           placeholderTextColor={colors.textMuted}
           value={withdrawalForm.bankName}
-          onChangeText={bankName =>
+          onChangeText={bankName => {
+            withdrawalIdempotencyKeyRef.current = undefined;
             setWithdrawalForm(current => ({ ...current, bankName }))
-          }
+          }}
         />
         <TextInput
           testID="driver-withdrawal-bank-account-name"
@@ -1129,9 +1354,10 @@ export function DriverHomeScreen({
           placeholder="收款人姓名"
           placeholderTextColor={colors.textMuted}
           value={withdrawalForm.bankAccountName}
-          onChangeText={bankAccountName =>
+          onChangeText={bankAccountName => {
+            withdrawalIdempotencyKeyRef.current = undefined;
             setWithdrawalForm(current => ({ ...current, bankAccountName }))
-          }
+          }}
         />
         <TextInput
           testID="driver-withdrawal-bank-account-no"
@@ -1140,9 +1366,10 @@ export function DriverHomeScreen({
           placeholderTextColor={colors.textMuted}
           keyboardType="numeric"
           value={withdrawalForm.bankAccountNo}
-          onChangeText={bankAccountNo =>
+          onChangeText={bankAccountNo => {
+            withdrawalIdempotencyKeyRef.current = undefined;
             setWithdrawalForm(current => ({ ...current, bankAccountNo }))
-          }
+          }}
         />
         <Pressable
           testID="driver-withdrawal-submit"
@@ -1448,6 +1675,14 @@ export function DriverHomeScreen({
 
       {visibleOrders.map(order => {
         const form = getForm(order.orderNo);
+        const latestExceptionCaseHeadline =
+          order.latestExceptionCase
+            ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
+            : undefined;
+        const latestExceptionCaseDetail =
+          order.latestExceptionCase
+            ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
+            : undefined;
 
         return (
           <View
@@ -1461,6 +1696,24 @@ export function DriverHomeScreen({
             <Text style={styles.detailMeta}>
               {order.orderNo} · {order.cargoType} · {order.weightText}
             </Text>
+            {latestExceptionCaseHeadline ? (
+              <View style={styles.orderExceptionSummary}>
+                <Text
+                  style={styles.orderExceptionSummaryTitle}
+                  numberOfLines={1}
+                >
+                  {latestExceptionCaseHeadline}
+                </Text>
+                {latestExceptionCaseDetail ? (
+                  <Text
+                    style={styles.orderExceptionSummaryText}
+                    numberOfLines={2}
+                  >
+                    {latestExceptionCaseDetail}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             <Text style={styles.detailMeta}>
               装货：{order.pickupContact} {order.pickupPhone}
             </Text>
@@ -1524,27 +1777,56 @@ export function DriverHomeScreen({
         {myOrders.length === 0 ? (
           <Text style={styles.detailMeta}>暂无执行中的订单。</Text>
         ) : null}
-        {myOrders.map(order => (
-          <View
-            key={order.id}
-            testID={`driver-my-order-card-${order.orderNo}`}
-            style={styles.detailInlineGroup}
-          >
-            <Text style={styles.detailRoute}>
-              {order.pickupAddress} → {order.deliveryAddress}
-            </Text>
-            <Text style={styles.detailMeta}>
-              {order.orderNo} · {getDriverStatusText(order.status)}
-            </Text>
-            <Pressable
-              testID={`driver-open-order-${order.orderNo}`}
-              style={styles.detailSecondaryButton}
-              onPress={() => openOrderDetail(order)}
+        {myOrders.map(order => {
+          const latestExceptionCaseHeadline =
+            order.latestExceptionCase
+              ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
+              : undefined;
+          const latestExceptionCaseDetail =
+            order.latestExceptionCase
+              ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
+              : undefined;
+
+          return (
+            <View
+              key={order.id}
+              testID={`driver-my-order-card-${order.orderNo}`}
+              style={styles.detailInlineGroup}
             >
-              <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
-            </Pressable>
-          </View>
-        ))}
+              <Text style={styles.detailRoute}>
+                {order.pickupAddress} → {order.deliveryAddress}
+              </Text>
+              <Text style={styles.detailMeta}>
+                {order.orderNo} · {getDriverStatusText(order.status)}
+              </Text>
+              {latestExceptionCaseHeadline ? (
+                <View style={styles.orderExceptionSummary}>
+                  <Text
+                    style={styles.orderExceptionSummaryTitle}
+                    numberOfLines={1}
+                  >
+                    {latestExceptionCaseHeadline}
+                  </Text>
+                  {latestExceptionCaseDetail ? (
+                    <Text
+                      style={styles.orderExceptionSummaryText}
+                      numberOfLines={2}
+                    >
+                      {latestExceptionCaseDetail}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              <Pressable
+                testID={`driver-open-order-${order.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() => openOrderDetail(order)}
+              >
+                <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
+              </Pressable>
+            </View>
+          );
+        })}
       </View>
 
       {selectedOrder ? (

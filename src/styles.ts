@@ -1006,6 +1006,24 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
+  orderExceptionSummary: {
+    marginTop: 12,
+    gap: 4,
+    borderRadius: 8,
+    backgroundColor: colors.amberSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  orderExceptionSummaryTitle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  orderExceptionSummaryText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   orderBottomRow: {
     marginTop: 14,
     flexDirection: 'row',

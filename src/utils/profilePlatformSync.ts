@@ -214,12 +214,81 @@ function isValidPlatformSpendingRecord(
     Boolean(item) &&
     typeof item?.orderId === 'string' &&
     typeof item?.orderNo === 'string' &&
-    typeof item?.status === 'string' &&
-    typeof item?.paymentMethod === 'string' &&
-    typeof item?.amountCents === 'number' &&
+    platformSpendingOrderStatuses.has(item?.status ?? '') &&
+    platformSpendingPaymentMethods.has(item?.paymentMethod ?? '') &&
+    platformSpendingPaymentStatuses.has(item?.paymentStatus ?? '') &&
+    isOptionalEnum(item?.paymentChannel, platformSpendingPaymentChannels) &&
+    isOptionalEnum(
+      item?.paymentOrderStatus,
+      platformSpendingPaymentOrderStatuses,
+    ) &&
+    isOptionalEnum(item?.refundStatus, platformSpendingRefundStatuses) &&
+    isNonNegativeSafeInteger(item?.amountCents) &&
+    isOptionalNonNegativeSafeInteger(item?.refundAmountCents) &&
     typeof item?.occurredAtIso === 'string' &&
     typeof item?.routeText === 'string'
   );
+}
+
+const platformSpendingOrderStatuses = new Set([
+  'waiting',
+  'loading',
+  'transporting',
+  'confirming',
+  'completed',
+  'cancelled',
+]);
+const platformSpendingPaymentMethods = new Set(['cod', 'online']);
+const platformSpendingPaymentStatuses = new Set([
+  'not_required',
+  'pending',
+  'escrowed',
+  'settled',
+  'failed',
+  'cancelled',
+  'refund_pending',
+  'refunded',
+  'refund_failed',
+  'legacy_unverified',
+]);
+const platformSpendingPaymentChannels = new Set([
+  'sandbox',
+  'wechat',
+  'alipay',
+]);
+const platformSpendingPaymentOrderStatuses = new Set([
+  'pending',
+  'processing',
+  'escrowed',
+  'settled',
+  'failed',
+  'expired',
+  'cancelled',
+  'refund_pending',
+  'refunded',
+  'refund_failed',
+]);
+const platformSpendingRefundStatuses = new Set([
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+]);
+
+function isOptionalEnum(value: unknown, allowedValues: Set<string>) {
+  return value === undefined || allowedValues.has(value as string);
+}
+
+function isNonNegativeSafeInteger(value: unknown) {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
+
+function isOptionalNonNegativeSafeInteger(value: unknown) {
+  return value === undefined || isNonNegativeSafeInteger(value);
 }
 
 export function isValidPlatformCouponWallet(

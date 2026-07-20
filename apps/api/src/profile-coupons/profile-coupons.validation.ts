@@ -1,13 +1,18 @@
 import { z } from 'zod';
-import type { IssueShipperCouponRequest } from './dto';
+import type {
+  AdminShipperCouponReportQuery,
+  BatchIssueShipperCouponsRequest,
+  IssueShipperCouponRequest,
+} from './dto';
 
-export const issueShipperCouponSchema = z
+const shipperIdSchema = z
+  .string()
+  .trim()
+  .min(1, '货主标识不能为空')
+  .max(120, '货主标识过长');
+
+const shipperCouponIssueTemplateSchema = z
   .object({
-    shipperId: z
-      .string()
-      .trim()
-      .min(1, '货主标识不能为空')
-      .max(120, '货主标识过长'),
     title: z
       .string()
       .trim()
@@ -54,8 +59,57 @@ export const issueShipperCouponSchema = z
     }
   });
 
+export const issueShipperCouponSchema = shipperCouponIssueTemplateSchema.extend({
+  shipperId: shipperIdSchema,
+});
+
+export const batchIssueShipperCouponsSchema =
+  shipperCouponIssueTemplateSchema.extend({
+    shipperIds: z
+      .array(shipperIdSchema)
+      .min(1, '至少要指定一个货主')
+      .max(50, '单次最多给 50 个货主发券')
+      .transform(uniqueShipperIds),
+  });
+
+export const adminShipperCouponReportQuerySchema = z.object({
+  topShippersLimit: z
+    .preprocess(normalizeIntegerQueryValue, z.number().int('topShippersLimit 必须是整数'))
+    .refine(value => value >= 1 && value <= 20, 'topShippersLimit 只能是 1 到 20')
+    .optional()
+    .transform(value => value ?? 5),
+});
+
 export function parseIssueShipperCouponRequest(
   input: unknown,
 ): IssueShipperCouponRequest {
   return issueShipperCouponSchema.parse(input);
+}
+
+export function parseBatchIssueShipperCouponsRequest(
+  input: unknown,
+): BatchIssueShipperCouponsRequest {
+  return batchIssueShipperCouponsSchema.parse(input);
+}
+
+export function parseAdminShipperCouponReportQuery(
+  input: unknown,
+): AdminShipperCouponReportQuery {
+  return adminShipperCouponReportQuerySchema.parse(input);
+}
+
+function uniqueShipperIds(shipperIds: string[]) {
+  return [...new Set(shipperIds)];
+}
+
+function normalizeIntegerQueryValue(value: unknown) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    return Number(value);
+  }
+
+  return value;
 }

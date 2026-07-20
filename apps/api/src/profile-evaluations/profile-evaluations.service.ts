@@ -1,4 +1,5 @@
 import type {
+  AdminEvaluationDirection,
   AdminEvaluationAuditListQuery,
   AdminEvaluationAuditListResult,
   AdminEvaluationAuditRecord,
@@ -56,15 +57,62 @@ export class ProfileEvaluationsService {
       .sort((left, right) =>
         right.submittedAtIso.localeCompare(left.submittedAtIso),
       );
+    const filteredItems = allItems.filter(item =>
+      matchesAdminEvaluationAuditQuery(item, query),
+    );
     const offset = (query.page - 1) * query.pageSize;
 
     return {
-      items: allItems.slice(offset, offset + query.pageSize),
+      items: filteredItems.slice(offset, offset + query.pageSize),
       page: query.page,
       pageSize: query.pageSize,
-      total: allItems.length,
+      total: filteredItems.length,
     };
   }
+}
+
+function matchesAdminEvaluationAuditQuery(
+  item: AdminEvaluationAuditRecord,
+  query: AdminEvaluationAuditListQuery,
+) {
+  if (query.direction && item.direction !== query.direction) {
+    return false;
+  }
+
+  if (query.rating !== undefined && item.rating !== query.rating) {
+    return false;
+  }
+
+  if (!query.keyword) {
+    return true;
+  }
+
+  const normalizedKeyword = query.keyword.trim().toLowerCase();
+
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  return buildAdminEvaluationAuditSearchText(item).includes(normalizedKeyword);
+}
+
+function buildAdminEvaluationAuditSearchText(item: AdminEvaluationAuditRecord) {
+  return [
+    item.orderNo,
+    item.reviewerUserId,
+    item.reviewerName,
+    item.revieweeUserId,
+    item.revieweeName,
+    item.content,
+    item.submittedAtIso,
+    item.direction,
+    item.direction === 'shipper_to_driver'
+      ? '货主评价司机 平台货主 平台司机'
+      : '司机评价货主 平台司机 平台货主',
+    ...item.tags,
+  ]
+    .join('\n')
+    .toLowerCase();
 }
 
 function createEvaluationRecords(
@@ -212,7 +260,7 @@ function createAdminEvaluationAuditRecord(
       id: event.id,
       orderId: order.id,
       orderNo: order.orderNo,
-      direction: 'driver_to_shipper',
+      direction: 'driver_to_shipper' satisfies AdminEvaluationDirection,
       reviewerUserId,
       reviewerName: resolveDriverName(
         order,
@@ -244,7 +292,7 @@ function createAdminEvaluationAuditRecord(
     id: event.id,
     orderId: order.id,
     orderNo: order.orderNo,
-    direction: 'shipper_to_driver',
+    direction: 'shipper_to_driver' satisfies AdminEvaluationDirection,
     reviewerUserId,
     reviewerName: formatShipperName(reviewerUserId),
     revieweeUserId,
@@ -315,6 +363,43 @@ function parseEvaluationNote(noteText?: string) {
 
   if (tags.length === 0) {
     return undefined;
+  }
+
+  const evaluationInfoMatch = noteParts[0]
+    ?.trim()
+    .match(/^评价信息：(匿名|实名)$/);
+
+  if (evaluationInfoMatch) {
+    noteParts.shift();
+    const photoCountMatch = noteParts[0]
+      ?.trim()
+      .match(/^图片凭证 (\d+) 张$/);
+    const photoCount = photoCountMatch ? Number(photoCountMatch[1]) : 0;
+
+    if (photoCountMatch) {
+      noteParts.shift();
+    }
+
+    const versionedContent = noteParts.join('；').trim();
+    const contentPrefix = '评价正文：';
+
+    if (!versionedContent.startsWith(contentPrefix)) {
+      return undefined;
+    }
+
+    const content = versionedContent.slice(contentPrefix.length).trim();
+
+    if (!content) {
+      return undefined;
+    }
+
+    return {
+      rating: Number(ratingMatch[1]),
+      tags,
+      content,
+      anonymous: evaluationInfoMatch[1] === '匿名',
+      photoCount,
+    };
   }
 
   let anonymous = false;

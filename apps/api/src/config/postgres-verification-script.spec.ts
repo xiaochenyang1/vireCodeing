@@ -14,6 +14,16 @@ describe('PostgreSQL verification script', () => {
   const packageJsonPath = join(__dirname, '..', '..', 'package.json');
   const composePath = join(__dirname, '..', '..', 'docker-compose.postgres.yml');
   const envExamplePath = join(__dirname, '..', '..', '.env.example');
+  const workflowPath = join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    '..',
+    '.github',
+    'workflows',
+    'verify.yml',
+  );
 
   it('uses the default local DATABASE_URL for normal PostgreSQL verification', () => {
     expect(resolveDatabaseUrl({})).toBe(
@@ -87,6 +97,24 @@ describe('PostgreSQL verification script', () => {
     expect(packageJson.scripts['db:test:postgres:wait']).toBe(
       'node scripts/verify-postgres.js wait --test',
     );
+    expect(
+      packageJson.scripts['db:postgres:order-coupon-migration-verify'],
+    ).toBe('node scripts/verify-order-coupon-migration.js');
+    expect(
+      packageJson.scripts['db:test:postgres:order-coupon-migration-verify'],
+    ).toBe('node scripts/verify-order-coupon-migration.js --test');
+    expect(
+      packageJson.scripts['db:postgres:order-coupon-atomicity-smoke'],
+    ).toBe('node scripts/seed-stage-1.js order-coupon-atomicity-smoke');
+    expect(
+      packageJson.scripts['db:test:postgres:order-coupon-atomicity-smoke'],
+    ).toBe('node scripts/seed-stage-1.js order-coupon-atomicity-smoke --test');
+    expect(packageJson.scripts['db:postgres:financial-ledger-smoke']).toBe(
+      'node scripts/verify-financial-ledger.js',
+    );
+    expect(packageJson.scripts['db:test:postgres:financial-ledger-smoke']).toBe(
+      'node scripts/verify-financial-ledger.js --test',
+    );
   });
 
   it('exposes local PostgreSQL compose and bootstrap scripts', () => {
@@ -101,10 +129,54 @@ describe('PostgreSQL verification script', () => {
       'docker compose -f docker-compose.postgres.yml down',
     );
     expect(packageJson.scripts['db:postgres:bootstrap']).toBe(
-      'npm run db:postgres:wait && npm run db:postgres:deploy && npm run db:postgres:seed && npm run db:postgres:auth-smoke && npm run db:postgres:order-smoke && npm run db:postgres:driver-certification-smoke',
+      'npm run db:postgres:wait && npm run db:postgres:deploy && npm run prisma:generate && npm run db:postgres:order-coupon-migration-verify && npm run db:postgres:seed && npm run db:postgres:auth-smoke && npm run db:postgres:order-smoke && npm run db:postgres:driver-certification-smoke && npm run db:postgres:order-mutation-concurrency-smoke && npm run db:postgres:order-coupon-atomicity-smoke && npm run db:postgres:financial-ledger-smoke',
     );
     expect(packageJson.scripts['db:test:postgres:bootstrap']).toBe(
-      'npm run db:test:postgres:wait && npm run db:test:postgres:deploy && npm run db:test:postgres:seed && npm run db:test:postgres:auth-smoke && npm run db:test:postgres:order-smoke && npm run db:test:postgres:driver-certification-smoke',
+      'npm run db:test:postgres:wait && npm run db:test:postgres:deploy && npm run prisma:generate && npm run db:test:postgres:order-coupon-migration-verify && npm run db:test:postgres:seed && npm run db:test:postgres:auth-smoke && npm run db:test:postgres:order-smoke && npm run db:test:postgres:driver-certification-smoke && npm run db:test:postgres:order-mutation-concurrency-smoke && npm run db:test:postgres:order-coupon-atomicity-smoke && npm run db:test:postgres:financial-ledger-smoke',
+    );
+
+    const normalBootstrap = packageJson.scripts['db:postgres:bootstrap'];
+    const testBootstrap = packageJson.scripts['db:test:postgres:bootstrap'];
+    expect(normalBootstrap.indexOf('db:postgres:deploy')).toBeLessThan(
+      normalBootstrap.indexOf('db:postgres:order-coupon-migration-verify'),
+    );
+    expect(
+      normalBootstrap.indexOf('db:postgres:order-coupon-migration-verify'),
+    ).toBeLessThan(normalBootstrap.indexOf('db:postgres:seed'));
+    expect(testBootstrap.indexOf('db:test:postgres:deploy')).toBeLessThan(
+      testBootstrap.indexOf('db:test:postgres:order-coupon-migration-verify'),
+    );
+    expect(
+      testBootstrap.indexOf('db:test:postgres:order-coupon-migration-verify'),
+    ).toBeLessThan(testBootstrap.indexOf('db:test:postgres:seed'));
+    expect(
+      normalBootstrap.indexOf('db:postgres:seed'),
+    ).toBeLessThan(
+      normalBootstrap.indexOf('db:postgres:order-coupon-atomicity-smoke'),
+    );
+    expect(
+      normalBootstrap.indexOf('db:postgres:order-coupon-atomicity-smoke'),
+    ).toBeLessThan(
+      normalBootstrap.indexOf('db:postgres:financial-ledger-smoke'),
+    );
+    expect(testBootstrap.indexOf('db:test:postgres:seed')).toBeLessThan(
+      testBootstrap.indexOf('db:test:postgres:order-coupon-atomicity-smoke'),
+    );
+    expect(
+      testBootstrap.indexOf('db:test:postgres:order-coupon-atomicity-smoke'),
+    ).toBeLessThan(
+      testBootstrap.indexOf('db:test:postgres:financial-ledger-smoke'),
+    );
+  });
+
+  it('runs the coupon migration and atomicity smoke in the PostgreSQL CI gate', () => {
+    const workflow = readFileSync(workflowPath, 'utf8');
+
+    expect(workflow).toContain(
+      'Verify PostgreSQL coupon migration, atomicity, and financial ledger smoke flows',
+    );
+    expect(workflow).toContain(
+      'npm --prefix apps/api run db:test:postgres:bootstrap',
     );
   });
 

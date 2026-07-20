@@ -16,6 +16,9 @@ export function OrderSyncStatusCard({
 }) {
   const syncQueueItems = syncState.queueItems ?? [];
   const canMarkOrderSyncFailed = syncState.status === 'pending';
+  const canRetryOrderSync =
+    (syncState.status === 'pending' || syncState.status === 'failed') &&
+    !syncState.retryBlocked;
 
   return (
     <View style={styles.detailCard}>
@@ -52,7 +55,7 @@ export function OrderSyncStatusCard({
           <Text style={styles.detailSecondaryButtonText}>本地标记失败</Text>
         </Pressable>
       ) : null}
-      {syncState.status === 'pending' || syncState.status === 'failed' ? (
+      {canRetryOrderSync ? (
         <Pressable
           testID="order-sync-retry"
           style={styles.detailSecondaryButton}

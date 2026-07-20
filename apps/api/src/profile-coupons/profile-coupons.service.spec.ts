@@ -37,6 +37,190 @@ describe('ProfileCouponsService', () => {
     });
   });
 
+  it('issues the same coupon template to multiple shippers in one batch', async () => {
+    const repository = new InMemoryProfileCouponsRepository();
+    const service = new ProfileCouponsService(repository);
+
+    const result = await service.batchIssueCoupons('admin-1', {
+      shipperIds: ['shipper-1', 'shipper-2', 'shipper-3'],
+      title: '后台批量满 300 减 30',
+      conditionText: '平台订单满 300 元可用',
+      discountCents: 3000,
+      minOrderAmountCents: 30000,
+      validFromIso: '2026-07-20T00:00:00.000Z',
+      validUntilIso: '2026-08-20T00:00:00.000Z',
+      sourceText: '运营批量补贴',
+    });
+
+    expect(result).toEqual({
+      requestedCount: 3,
+      issuedCount: 3,
+      coupons: [
+        expect.objectContaining({
+          shipperId: 'shipper-1',
+          title: '后台批量满 300 减 30',
+          status: 'usable',
+          sourceText: '运营批量补贴',
+        }),
+        expect.objectContaining({
+          shipperId: 'shipper-2',
+          title: '后台批量满 300 减 30',
+          status: 'usable',
+          sourceText: '运营批量补贴',
+        }),
+        expect.objectContaining({
+          shipperId: 'shipper-3',
+          title: '后台批量满 300 减 30',
+          status: 'usable',
+          sourceText: '运营批量补贴',
+        }),
+      ],
+    });
+    await expect(service.listCoupons('shipper-2')).resolves.toMatchObject({
+      summary: {
+        usableCount: 1,
+        lockedCount: 0,
+        usedCount: 0,
+        expiredCount: 0,
+      },
+      items: [
+        expect.objectContaining({
+          title: '后台批量满 300 减 30',
+          sourceText: '运营批量补贴',
+        }),
+      ],
+    });
+  });
+
+  it('builds an admin coupon report with source breakdown and top shippers', async () => {
+    const repository = new InMemoryProfileCouponsRepository({
+      coupons: [
+        createCoupon({
+          id: 'coupon-used-1',
+          shipperId: 'shipper-1',
+          status: 'used',
+          discountCents: 3000,
+          sourceText: '活动发放',
+          issuedAtIso: '2026-07-20T09:00:00.000Z',
+          usedOrderNo: 'HY202607200001',
+          usedAtIso: '2026-07-20T09:10:00.000Z',
+        }),
+        createCoupon({
+          id: 'coupon-usable-1',
+          shipperId: 'shipper-1',
+          status: 'usable',
+          discountCents: 5000,
+          sourceText: '后台手工发放',
+          issuedAtIso: '2026-07-20T10:00:00.000Z',
+        }),
+        createCoupon({
+          id: 'coupon-expired-1',
+          shipperId: 'shipper-1',
+          status: 'expired',
+          discountCents: 1000,
+          sourceText: '后台手工发放',
+          issuedAtIso: '2026-07-20T11:00:00.000Z',
+        }),
+        createCoupon({
+          id: 'coupon-locked-1',
+          shipperId: 'shipper-2',
+          status: 'locked',
+          discountCents: 2000,
+          sourceText: '运营补贴',
+          issuedAtIso: '2026-07-20T08:00:00.000Z',
+          lockedOrderNo: 'HY202607200010',
+          lockedAtIso: '2026-07-20T08:30:00.000Z',
+        }),
+        createCoupon({
+          id: 'coupon-used-2',
+          shipperId: 'shipper-2',
+          status: 'used',
+          discountCents: 4000,
+          sourceText: '运营补贴',
+          issuedAtIso: '2026-07-20T12:00:00.000Z',
+          usedOrderNo: 'HY202607200011',
+          usedAtIso: '2026-07-20T12:30:00.000Z',
+        }),
+        createCoupon({
+          id: 'coupon-usable-2',
+          shipperId: 'shipper-3',
+          status: 'usable',
+          discountCents: 6000,
+          sourceText: '邀新补贴',
+          issuedAtIso: '2026-07-20T13:00:00.000Z',
+        }),
+      ],
+    });
+    const service = new ProfileCouponsService(repository);
+
+    await expect(
+      service.getAdminCouponReport({
+        topShippersLimit: 2,
+      }),
+    ).resolves.toEqual({
+      generatedAtIso: expect.any(String),
+      summary: {
+        totalCount: 6,
+        usableCount: 2,
+        lockedCount: 1,
+        usedCount: 2,
+        expiredCount: 1,
+        totalDiscountCents: 21000,
+        redeemedDiscountCents: 7000,
+      },
+      sourceBreakdown: [
+        {
+          sourceText: '运营补贴',
+          totalCount: 2,
+          usedCount: 1,
+          redeemedDiscountCents: 4000,
+        },
+        {
+          sourceText: '后台手工发放',
+          totalCount: 2,
+          usedCount: 0,
+          redeemedDiscountCents: 0,
+        },
+        {
+          sourceText: '活动发放',
+          totalCount: 1,
+          usedCount: 1,
+          redeemedDiscountCents: 3000,
+        },
+        {
+          sourceText: '邀新补贴',
+          totalCount: 1,
+          usedCount: 0,
+          redeemedDiscountCents: 0,
+        },
+      ],
+      topShippers: [
+        {
+          shipperId: 'shipper-1',
+          totalCount: 3,
+          usableCount: 1,
+          lockedCount: 0,
+          usedCount: 1,
+          expiredCount: 1,
+          totalDiscountCents: 9000,
+          redeemedDiscountCents: 3000,
+          latestIssuedAtIso: '2026-07-20T11:00:00.000Z',
+        },
+        {
+          shipperId: 'shipper-2',
+          totalCount: 2,
+          usableCount: 0,
+          lockedCount: 1,
+          usedCount: 1,
+          expiredCount: 0,
+          totalDiscountCents: 6000,
+          redeemedDiscountCents: 4000,
+          latestIssuedAtIso: '2026-07-20T12:00:00.000Z',
+        },
+      ],
+    });
+  });
+
   it('returns the current shipper coupon wallet sorted by newest first', async () => {
     const repository = new InMemoryProfileCouponsRepository({
       coupons: [

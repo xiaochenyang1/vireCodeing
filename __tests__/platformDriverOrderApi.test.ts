@@ -23,6 +23,50 @@ describe('platform driver order api', () => {
       }),
     );
   });
+
+  it('preserves compensation decision fields when listing driver exception cases', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        total: 1,
+        items: [
+          {
+            id: 'case-1',
+            caseNo: 'YC202607180002',
+            orderId: 'order-1',
+            orderNo: 'HY202607180001',
+            sourceEventId: 'event-1',
+            reporterUserId: 'driver-1',
+            sourceRole: 'driver',
+            typeLabel: '货损',
+            description: '装货时发现包装破损',
+            attachmentFileIds: [],
+            status: 'resolved',
+            resolutionText: '客服判定无需赔付。',
+            compensationStatus: 'not_required',
+            createdAtIso: '2026-07-18T02:00:00.000Z',
+            updatedAtIso: '2026-07-18T02:20:00.000Z',
+            actions: [],
+          },
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.listExceptionCases('order-1')).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          caseNo: 'YC202607180002',
+          compensationStatus: 'not_required',
+          resolutionText: '客服判定无需赔付。',
+        }),
+      ],
+    });
+  });
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -102,14 +146,28 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
-    await api.acceptOrder('order-1', { noteText: '  马上联系货主  ' });
+    await api.acceptOrder(
+      'order-1',
+      {
+        baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        noteText: '  马上联系货主  ',
+      },
+      mutationContext.idempotencyKey,
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/accept',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ noteText: '马上联系货主' }),
+        headers: expect.objectContaining({
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
+        body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          noteText: '马上联系货主',
+        }),
       }),
     );
   });
@@ -225,17 +283,23 @@ describe('platform driver order api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await api.createWithdrawal({
-      amountCents: 12000,
-      bankAccountName: '  李师傅  ',
-      bankName: '  招商银行深圳宝安支行  ',
-      bankAccountNo: '  6225 8888 0000 1234  ',
-    });
+    await api.createWithdrawal(
+      {
+        amountCents: 12000,
+        bankAccountName: '  李师傅  ',
+        bankName: '  招商银行深圳宝安支行  ',
+        bankAccountNo: '  6225 8888 0000 1234  ',
+      },
+      '550e8400-e29b-41d4-a716-446655440112',
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/withdrawals',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': '550e8400-e29b-41d4-a716-446655440112',
+        }),
         body: JSON.stringify({
           amountCents: 12000,
           bankAccountName: '李师傅',
@@ -345,14 +409,28 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
-    await api.advanceOrderStatus(' order-1 ', { nextStatus: 'transporting' });
+    await api.advanceOrderStatus(
+      ' order-1 ',
+      {
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+      },
+      mutationContext.idempotencyKey,
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/status',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ nextStatus: 'transporting' }),
+        headers: expect.objectContaining({
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
+        body: JSON.stringify({
+          nextStatus: 'transporting',
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+        }),
       }),
     );
   });
@@ -367,18 +445,24 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
     await api.advanceOrderStatus(' order-1 ', {
+      baseUpdatedAtIso: `  ${mutationContext.baseUpdatedAtIso}  `,
       nextStatus: 'transporting',
       receiptPhotoFileIds: [' file-receipt-1 ', 'file-receipt-1'],
-    });
+    }, `  ${mutationContext.idempotencyKey}  `);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/status',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
         body: JSON.stringify({
           nextStatus: 'transporting',
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
           receiptPhotoFileIds: ['file-receipt-1'],
         }),
       }),
@@ -583,11 +667,13 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
     await expect(
       api.advanceOrderStatus('order-1', {
+        baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
         nextStatus: 'completed' as 'transporting',
-      }),
+      }, mutationContext.idempotencyKey),
     ).rejects.toMatchObject(
       new PlatformApiError(
         'Platform driver nextStatus is invalid',
@@ -677,7 +763,7 @@ describe('platform driver order api', () => {
         bankAccountName: '李师傅',
         bankName: '招商银行',
         bankAccountNo: '1234',
-      }),
+      }, '550e8400-e29b-41d4-a716-446655440112'),
     ).rejects.toMatchObject(
       new PlatformApiError(
         'Platform driver amountCents is invalid',
@@ -737,9 +823,14 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
     await expect(
-      api.acceptOrder('order-1', null as unknown as { noteText?: string }),
+      api.acceptOrder(
+        'order-1',
+        null as unknown as { baseUpdatedAtIso: string; noteText?: string },
+        mutationContext.idempotencyKey,
+      ),
     ).rejects.toMatchObject({
       code: 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
     });
@@ -754,12 +845,61 @@ describe('platform driver order api', () => {
       baseUrl: 'http://localhost:3000/api',
       getAccessToken: () => 'access-token',
     });
+    const mutationContext = createDriverOrderMutationContext();
 
     await expect(
-      api.acceptOrder('order-1', { noteText: '备'.repeat(201) }),
+      api.acceptOrder(
+        'order-1',
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          noteText: '备'.repeat(201),
+        },
+        mutationContext.idempotencyKey,
+      ),
     ).rejects.toMatchObject({
       code: 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid driver order mutation context before sending it', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const mutationContext = createDriverOrderMutationContext();
+
+    await expect(
+      api.acceptOrder(
+        'order-1',
+        {
+          baseUpdatedAtIso: 'not-a-date',
+          noteText: '马上联系货主',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID',
+      status: 0,
+    });
+
+    await expect(
+      api.advanceOrderStatus(
+        'order-1',
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          nextStatus: 'transporting',
+        },
+        'not-a-uuid',
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
+      status: 0,
+    });
+
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -845,5 +985,12 @@ function createJsonResponse(data: unknown) {
       requestId: 'req_driver_order',
       timestamp: '2026-07-06T08:00:00.000Z',
     }),
+  };
+}
+
+function createDriverOrderMutationContext() {
+  return {
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440111',
+    baseUpdatedAtIso: '2026-07-09T02:00:00.000Z',
   };
 }

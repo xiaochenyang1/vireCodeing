@@ -63,13 +63,30 @@ describe('driver orders validation', () => {
   it('normalizes driver accept order request notes', () => {
     expect(
       parseDriverAcceptOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         noteText: '  马上联系货主确认装货细节  ',
       }),
     ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       noteText: '马上联系货主确认装货细节',
     });
 
-    expect(parseDriverAcceptOrderRequest({ noteText: '   ' })).toEqual({});
+    expect(
+      parseDriverAcceptOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        noteText: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+    });
+  });
+
+  it('requires a concurrency baseline for driver accept requests', () => {
+    expect(() =>
+      parseDriverAcceptOrderRequest({
+        noteText: '马上联系货主',
+      }),
+    ).toThrow('订单版本时间无效');
   });
 
   it('parses driver my-orders query statuses', () => {
@@ -98,29 +115,48 @@ describe('driver orders validation', () => {
 
   it('parses driver status advance requests', () => {
     expect(
-      parseDriverAdvanceOrderStatusRequest({ nextStatus: 'transporting' }),
-    ).toEqual({ nextStatus: 'transporting' });
+      parseDriverAdvanceOrderStatusRequest({
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      }),
+    ).toEqual({
+      nextStatus: 'transporting',
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+    });
 
     expect(
       parseDriverAdvanceOrderStatusRequest({
         nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         receiptPhotoFileIds: [' file-receipt-1 ', 'file-receipt-1'],
       }),
     ).toEqual({
       nextStatus: 'transporting',
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       receiptPhotoFileIds: ['file-receipt-1'],
     });
 
     expect(() =>
-      parseDriverAdvanceOrderStatusRequest({ nextStatus: 'completed' }),
+      parseDriverAdvanceOrderStatusRequest({
+        nextStatus: 'completed',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      }),
     ).toThrow('司机订单目标状态无效');
 
     expect(() =>
       parseDriverAdvanceOrderStatusRequest({
         nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         receiptPhotoFileIds: [''],
       }),
     ).toThrow('司机执行凭证文件 ID 无效');
+
+    expect(() =>
+      parseDriverAdvanceOrderStatusRequest({
+        nextStatus: 'transporting',
+        baseUpdatedAtIso: '2026-07-12 08:00:00',
+      }),
+    ).toThrow('订单版本时间无效');
   });
 
   it('parses driver evaluation reply requests', () => {

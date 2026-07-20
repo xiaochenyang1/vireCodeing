@@ -48,3 +48,75 @@ export type FileUploadIntent = FileUploadRecord & {
   uploadUrl: string;
   expiresAtIso: string;
 };
+
+export type ListFileMaintenanceFilesQuery = {
+  status?: FileStatus;
+  purpose?: FilePurpose;
+  ownerUserId?: string;
+  keyword?: string;
+  page: number;
+  pageSize: number;
+};
+
+export type FileMaintenanceReportQuery = {
+  topOwnersLimit: number;
+};
+
+export type FileMaintenanceBatchGovernanceAction =
+  | 'reject_pending'
+  | 'delete_rejected_objects';
+
+export type RunFileMaintenanceBatchGovernanceRequest = {
+  action: FileMaintenanceBatchGovernanceAction;
+  fileIds: string[];
+};
+
+export type FileMaintenanceListItem = FileUploadRecord & {
+  isExpiredPending: boolean;
+};
+
+export type ListFileMaintenanceFilesResult = {
+  items: FileMaintenanceListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type FileMaintenancePurposeBreakdownItem = {
+  purpose: FilePurpose;
+  totalCount: number;
+  pendingCount: number;
+  uploadedCount: number;
+  rejectedCount: number;
+  expiredPendingCount: number;
+};
+
+export type FileMaintenanceTopOwnerItem = {
+  ownerUserId: string;
+  totalCount: number;
+  pendingCount: number;
+  uploadedCount: number;
+  rejectedCount: number;
+  expiredPendingCount: number;
+  latestCreatedAtIso: string;
+};
+
+export type FileMaintenanceReportData = {
+  purposeBreakdown: FileMaintenancePurposeBreakdownItem[];
+  topOwners: FileMaintenanceTopOwnerItem[];
+};
+
+export type RunFileMaintenanceBatchGovernanceResult = {
+  action: FileMaintenanceBatchGovernanceAction;
+  requestedCount: number;
+  matchedCount: number;
+  processedCount: number;
+  skippedFileIds: string[];
+  deletedObjectCount: number;
+  failedObjectDeletionCount: number;
+};
+
+export type FileMaintenanceReportResult = FileMaintenanceReportData & {
+  generatedAtIso: string;
+  cutoffIso: string;
+};

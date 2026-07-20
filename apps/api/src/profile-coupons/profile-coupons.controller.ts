@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -8,9 +8,15 @@ import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import type { IssueShipperCouponRequest } from './dto';
+import type {
+  BatchIssueShipperCouponsRequest,
+  IssueShipperCouponRequest,
+} from './dto';
 import { ProfileCouponsService } from './profile-coupons.service';
 import {
+  batchIssueShipperCouponsSchema,
+  parseAdminShipperCouponReportQuery,
+  parseBatchIssueShipperCouponsRequest,
   issueShipperCouponSchema,
   parseIssueShipperCouponRequest,
 } from './profile-coupons.validation';
@@ -48,6 +54,38 @@ export class AdminProfileCouponsController {
       await this.profileCouponsService.issueCoupon(
         currentAdmin.id,
         parseIssueShipperCouponRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('batch-issue')
+  async batchIssueCoupons(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(batchIssueShipperCouponsSchema))
+    body: BatchIssueShipperCouponsRequest,
+  ) {
+    const currentAdmin = getCurrentAdmin(request);
+
+    return ok(
+      await this.profileCouponsService.batchIssueCoupons(
+        currentAdmin.id,
+        parseBatchIssueShipperCouponsRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get('report')
+  async getCouponReport(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    getCurrentAdmin(request);
+
+    return ok(
+      await this.profileCouponsService.getAdminCouponReport(
+        parseAdminShipperCouponReportQuery(query),
       ),
       getRequestId(request),
     );

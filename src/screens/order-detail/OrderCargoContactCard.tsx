@@ -17,6 +17,8 @@ export function OrderCargoContactCard({
     phone?: string,
   ) => void;
 }) {
+  const paymentHintText = getOnlinePaymentHintText(order);
+
   return (
     <>
       <View style={styles.detailGrid}>
@@ -131,10 +133,8 @@ export function OrderCargoContactCard({
             ) : null}
           </>
         ) : null}
-        {order.paymentMethodText === '在线支付' ? (
-          <Text style={styles.detailMeta}>
-            本地演示暂不扣款，后续接入微信/支付宝。
-          </Text>
+        {paymentHintText ? (
+          <Text style={styles.detailMeta}>{paymentHintText}</Text>
         ) : null}
         {order.bonusText ? (
           <Text style={styles.detailMeta}>{`曝光赏金：${order.bonusText}`}</Text>
@@ -158,4 +158,37 @@ export function OrderCargoContactCard({
       </View>
     </>
   );
+}
+
+function getOnlinePaymentHintText(order: RecentOrder) {
+  if (order.paymentMethodText !== '在线支付') {
+    return undefined;
+  }
+
+  if (!order.paymentStatus) {
+    return '本地演示暂不扣款，后续接入微信/支付宝。';
+  }
+
+  switch (order.paymentStatus) {
+    case 'pending':
+      return '平台待确认支付结果，可在资金状态卡继续支付或刷新状态。';
+    case 'escrowed':
+      return '平台已确认收款并托管，运输完成后会按服务端结算快照分账。';
+    case 'settled':
+      return '平台已完成结算，可在消费记录和发票页查看资金结果。';
+    case 'failed':
+      return '支付未完成，可重新发起支付。';
+    case 'cancelled':
+      return '当前支付单已关闭。';
+    case 'refund_pending':
+      return '平台已受理退款，请勿重复取消订单。';
+    case 'refunded':
+      return '平台已确认原路退款完成。';
+    case 'refund_failed':
+      return '退款暂未完成，平台会继续处理。';
+    case 'legacy_unverified':
+      return '历史订单资金待人工核验。';
+    case 'not_required':
+      return undefined;
+  }
 }

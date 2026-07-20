@@ -151,25 +151,74 @@ describe('profile invoice utils', () => {
     });
   });
 
-  it('creates platform-only invoiceable orders from completed platform orders', () => {
+  it('creates platform invoice eligibility only from settled financial facts', () => {
     const invoiceableRecords = createInvoiceableOrders(
       [
         createOrder({
           id: 'HYPLATFORM001',
           platformOrderId: 'platform-order-1',
-          priceText: '￥880',
-          payablePriceText: '￥850',
-        }),
-        createOrder({
-          id: 'HYLOCAL002',
+          status: 'transporting',
+          priceText: '￥9999',
         }),
         createOrder({
           id: 'HYPLATFORM002',
           platformOrderId: 'platform-order-2',
-          status: 'transporting',
+        }),
+        createOrder({
+          id: 'HYPLATFORM003',
+          platformOrderId: 'platform-order-3',
         }),
       ],
-      {platformOnly: true},
+      {
+        platformOnly: true,
+        platformRecords: [
+          {
+            orderId: 'platform-order-1',
+            orderNo: 'HYPLATFORM001',
+            status: 'completed',
+            paymentMethod: 'online',
+            paymentStatus: 'settled',
+            paymentChannel: 'wechat',
+            paymentOrderStatus: 'settled',
+            amountCents: 88000,
+            occurredAtIso: '2026-07-15T08:00:00.000Z',
+            settledAtIso: '2026-07-15T08:00:00.000Z',
+            routeText: '宝安仓 → 南山门店',
+          },
+          {
+            orderId: 'platform-order-2',
+            orderNo: 'HYPLATFORM002',
+            status: 'completed',
+            paymentMethod: 'online',
+            paymentStatus: 'refunded',
+            paymentChannel: 'alipay',
+            paymentOrderStatus: 'refunded',
+            refundStatus: 'succeeded',
+            amountCents: 85000,
+            refundAmountCents: 3000,
+            occurredAtIso: '2026-07-15T09:00:00.000Z',
+            settledAtIso: '2026-07-15T08:30:00.000Z',
+            refundedAtIso: '2026-07-15T09:00:00.000Z',
+            routeText: '龙岗仓 → 福田门店',
+          },
+          {
+            orderId: 'platform-order-3',
+            orderNo: 'HYPLATFORM003',
+            status: 'completed',
+            paymentMethod: 'online',
+            paymentStatus: 'refunded',
+            paymentChannel: 'wechat',
+            paymentOrderStatus: 'refunded',
+            refundStatus: 'succeeded',
+            amountCents: 66000,
+            refundAmountCents: 66000,
+            occurredAtIso: '2026-07-15T10:00:00.000Z',
+            settledAtIso: '2026-07-15T09:30:00.000Z',
+            refundedAtIso: '2026-07-15T10:00:00.000Z',
+            routeText: '坪山仓 → 罗湖门店',
+          },
+        ] as never,
+      },
     );
 
     expect(invoiceableRecords).toEqual([
@@ -177,8 +226,15 @@ describe('profile invoice utils', () => {
         id: createPlatformInvoiceOrderSelectionId('platform-order-1'),
         orderId: 'HYPLATFORM001',
         platformOrderId: 'platform-order-1',
-        amountValue: 850,
-        amountText: '可开票 ￥850',
+        amountValue: 880,
+        amountText: '可开票 ￥880',
+      }),
+      expect.objectContaining({
+        id: createPlatformInvoiceOrderSelectionId('platform-order-2'),
+        orderId: 'HYPLATFORM002',
+        platformOrderId: 'platform-order-2',
+        amountValue: 820,
+        amountText: '可开票 ￥820',
       }),
     ]);
   });

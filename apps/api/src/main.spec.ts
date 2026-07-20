@@ -46,6 +46,10 @@ describe('bootstrapApi', () => {
     });
 
     expect(app.setGlobalPrefix).toHaveBeenCalledWith('api');
+    expect(nestFactory.create).toHaveBeenCalledWith(
+      expect.anything(),
+      { rawBody: true },
+    );
     expect(app.listen).toHaveBeenCalledWith(3100);
   });
 });

@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  Headers,
   Param,
   Post,
   Put,
@@ -21,29 +23,40 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
   AdvanceShipperOrderStatusRequest,
   CancelShipperOrderRequest,
+  CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
   ReportShipperOrderExceptionRequest,
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
+  UpdateShipperOrderRequest,
 } from './dto';
 import { OrdersService } from './orders.service';
+import { parseOrderIdempotencyKey } from './order-mutation-idempotency';
 import {
   cancelShipperOrderSchema,
   adminOrderAttachmentAuditListQuerySchema,
+  adminOrderFiltersSchema,
+  adminOrderReportQuerySchema,
   advanceShipperOrderStatusSchema,
+  completeShipperOrderSchema,
   createShipperOrderSchema,
   listShipperOrdersQuerySchema,
   reportShipperOrderExceptionSchema,
+  parseAdminOrderFilters,
+  parseAdminOrderReportQuery,
   submitShipperOrderChangeRequestSchema,
   submitShipperOrderEvaluationSchema,
   parseAdvanceShipperOrderStatusRequest,
   parseAdminOrderAttachmentAuditListQuery,
   parseCancelShipperOrderRequest,
+  parseCompleteShipperOrderRequest,
   parseCreateShipperOrderRequest,
   parseListShipperOrdersQuery,
   parseReportShipperOrderExceptionRequest,
   parseSubmitShipperOrderChangeRequest,
   parseSubmitShipperOrderEvaluationRequest,
+  parseUpdateShipperOrderRequest,
+  updateShipperOrderSchema,
 } from './orders.validation';
 
 @Controller('shipper/orders')
@@ -54,12 +67,14 @@ export class OrdersController {
   @Post()
   async createOrder(
     @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(createShipperOrderSchema))
     body: CreateShipperOrderRequest,
   ) {
     return ok(
       await this.ordersService.createOrder(
         getCurrentShipperId(request),
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseCreateShipperOrderRequest(body),
       ),
       getRequestId(request),
@@ -95,14 +110,16 @@ export class OrdersController {
   async updateOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
-    @Body(new ZodValidationPipe(createShipperOrderSchema))
-    body: CreateShipperOrderRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(updateShipperOrderSchema))
+    body: UpdateShipperOrderRequest,
   ) {
     return ok(
       await this.ordersService.updateOrder(
         getCurrentShipperId(request),
         orderId,
-        parseCreateShipperOrderRequest(body),
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseUpdateShipperOrderRequest(body),
       ),
       getRequestId(request),
     );
@@ -112,6 +129,7 @@ export class OrdersController {
   async cancelOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(cancelShipperOrderSchema))
     body: CancelShipperOrderRequest,
   ) {
@@ -119,6 +137,7 @@ export class OrdersController {
       await this.ordersService.cancelOrder(
         getCurrentShipperId(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseCancelShipperOrderRequest(body),
       ),
       getRequestId(request),
@@ -129,11 +148,16 @@ export class OrdersController {
   async completeOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(completeShipperOrderSchema))
+    body: CompleteShipperOrderRequest,
   ) {
     return ok(
       await this.ordersService.completeOrder(
         getCurrentShipperId(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseCompleteShipperOrderRequest(body),
       ),
       getRequestId(request),
     );
@@ -143,6 +167,7 @@ export class OrdersController {
   async advanceOrderStatus(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(advanceShipperOrderStatusSchema))
     body: AdvanceShipperOrderStatusRequest,
   ) {
@@ -150,6 +175,7 @@ export class OrdersController {
       await this.ordersService.advanceOrderStatus(
         getCurrentShipperId(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseAdvanceShipperOrderStatusRequest(body),
       ),
       getRequestId(request),
@@ -210,8 +236,52 @@ export class OrdersController {
 
 @Controller('admin/orders')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
-export class AdminOrderAttachmentsController {
+export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
+
+  @Get()
+  async listAdminOrders(
+    @Req() request: AuthenticatedRequest,
+    @Query(new ZodValidationPipe(listShipperOrdersQuerySchema)) query: unknown,
+  ) {
+    getCurrentAdmin(request);
+
+    return ok(
+      await this.ordersService.listAdminOrders(
+        parseListShipperOrdersQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get('report')
+  async getAdminOrderReport(
+    @Req() request: AuthenticatedRequest,
+    @Query(new ZodValidationPipe(adminOrderReportQuerySchema)) query: unknown,
+  ) {
+    getCurrentAdmin(request);
+
+    return ok(
+      await this.ordersService.getAdminOrderReport(
+        parseAdminOrderReportQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get('export')
+  @Header('content-type', 'text/csv; charset=utf-8')
+  @Header('content-disposition', 'attachment; filename="admin-orders.csv"')
+  async exportAdminOrders(
+    @Req() request: AuthenticatedRequest,
+    @Query(new ZodValidationPipe(adminOrderFiltersSchema)) query: unknown,
+  ) {
+    getCurrentAdmin(request);
+
+    return this.ordersService.exportAdminOrdersCsv(
+      parseAdminOrderFilters(query),
+    );
+  }
 
   @Get('attachments')
   async listOrderAttachmentAudits(
@@ -238,6 +308,38 @@ export class AdminOrderAttachmentsController {
 
     return ok(
       await this.ordersService.getAdminOrderAttachmentAudit(orderId),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':orderId/cancel')
+  async cancelAdminOrder(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(cancelShipperOrderSchema))
+    body: CancelShipperOrderRequest,
+  ) {
+    return ok(
+      await this.ordersService.cancelAdminOrder(
+        getCurrentAdmin(request),
+        orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseCancelShipperOrderRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get(':orderId')
+  async getAdminOrder(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+  ) {
+    getCurrentAdmin(request);
+
+    return ok(
+      await this.ordersService.getAdminOrder(orderId),
       getRequestId(request),
     );
   }
@@ -278,4 +380,8 @@ function getRequestId(request?: AuthenticatedRequest) {
   const requestIdHeader = request?.headers?.['x-request-id'];
 
   return Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader;
+}
+
+function parseRequiredOrderIdempotencyKey(value: unknown) {
+  return parseOrderIdempotencyKey(value);
 }

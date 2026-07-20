@@ -11,7 +11,10 @@ type ApiApplication = {
 };
 
 type ApiNestFactory = {
-  create(module: typeof AppModule): Promise<ApiApplication>;
+  create(
+    module: typeof AppModule,
+    options?: { rawBody: boolean },
+  ): Promise<ApiApplication>;
 };
 
 type BootstrapApiOptions = {
@@ -24,7 +27,7 @@ export async function bootstrapApi({
   nestFactory = NestFactory,
 }: BootstrapApiOptions = {}) {
   const apiEnv = parseEnv(env);
-  const app = await nestFactory.create(AppModule);
+  const app = await nestFactory.create(AppModule, { rawBody: true });
 
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new BusinessErrorFilter());

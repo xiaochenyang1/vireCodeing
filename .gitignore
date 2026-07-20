@@ -39,6 +39,7 @@ local.properties
 #
 node_modules/
 dist/
+apps/api/.smoke-build/
 npm-debug.log
 yarn-error.log
 

@@ -2,15 +2,59 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { DriverCertificationRepository } from '../driver-certification/driver-certification.repository';
 import { InMemoryFilesRepository } from '../files/files.repository';
 import { InMemoryOrdersRepository } from '../orders/orders.repository';
+import { InMemoryProfileCouponsStore } from '../profile-coupons/profile-coupons.repository';
+import { InMemoryDriverFinanceRepository } from '../payments/driver-finance.repository';
+import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import { InMemoryDriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
-import { InMemoryDriverWithdrawalsRepository } from './driver-withdrawals.repository';
+import {
+  InMemoryDriverWithdrawalsRepository,
+  PrismaDriverWithdrawalsRepository,
+} from './driver-withdrawals.repository';
 import { DriverOrdersService } from './driver-orders.service';
 
 describe('DriverOrdersService', () => {
+  it('requires an idempotency key and baseline for protected mutations', () => {
+    const service = null as unknown as DriverOrdersService;
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+
+    if (false) {
+      // @ts-expect-error Legacy accept calls without an idempotency key are forbidden.
+      service.acceptOrder(driver, 'order-1', {});
+      // @ts-expect-error Protected accepts require baseUpdatedAtIso.
+      service.acceptOrder(driver, 'order-1', 'key', {});
+      // @ts-expect-error Legacy status calls without an idempotency key are forbidden.
+      service.advanceOrderStatus(driver, 'order-1', {
+        nextStatus: 'transporting',
+      });
+      // @ts-expect-error Protected status calls require baseUpdatedAtIso.
+      service.advanceOrderStatus(driver, 'order-1', 'key', {
+        nextStatus: 'transporting',
+      });
+      // @ts-expect-error Withdrawals require an idempotency key.
+      service.createWithdrawal(driver, {
+        amountCents: 100,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225888800001234',
+      });
+    }
+
+    expect(service).toBeNull();
+  });
+
   const now = new Date('2026-07-06T08:00:00.000Z');
 
   function createService() {
-    const repository = new InMemoryOrdersRepository(() => now);
+    const financialStore = new InMemoryFinancialStore();
+    const repository = new InMemoryOrdersRepository(
+      () => now,
+      new InMemoryProfileCouponsStore(),
+      financialStore,
+    );
     const certificationRepository = createDriverCertificationRepository({
       identityStatus: 'approved',
       vehicleStatus: 'approved',
@@ -21,10 +65,15 @@ describe('DriverOrdersService', () => {
     const driverWithdrawalsRepository = new InMemoryDriverWithdrawalsRepository(
       () => now,
     );
+    const driverFinanceRepository = new InMemoryDriverFinanceRepository(
+      financialStore,
+      { now: () => now },
+    );
 
     return {
       acceptanceSettingsRepository,
       certificationRepository,
+      driverFinanceRepository,
       driverWithdrawalsRepository,
       filesRepository,
       repository,
@@ -35,6 +84,8 @@ describe('DriverOrdersService', () => {
         driverWithdrawalsRepository,
         filesRepository,
         () => now,
+        86400,
+        driverFinanceRepository,
       ),
     };
   }
@@ -54,11 +105,11 @@ describe('DriverOrdersService', () => {
 
   it('lists waiting shipper orders for drivers', async () => {
     const { repository, service } = createService();
-    const waitingOrder = await repository.createOrder(
+    const waitingOrder = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
-    const loadingOrder = await repository.createOrder(
+    const loadingOrder = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('南山区科技园'),
     );
@@ -116,7 +167,7 @@ describe('DriverOrdersService', () => {
 
   it('submits a driver quote without changing the order status', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -175,7 +226,7 @@ describe('DriverOrdersService', () => {
       undefined,
       () => now,
     );
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -216,7 +267,7 @@ describe('DriverOrdersService', () => {
       undefined,
       () => now,
     );
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -240,7 +291,7 @@ describe('DriverOrdersService', () => {
 
   it('accepts a waiting order and moves it to loading', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -248,7 +299,8 @@ describe('DriverOrdersService', () => {
     const acceptedOrder = await service.acceptOrder(
       { id: 'driver-1', phone: '13900139009', userType: 'driver' },
       order.id,
-      { noteText: '马上联系货主' },
+      'accept-key',
+      { noteText: '马上联系货主', baseUpdatedAtIso: order.updatedAtIso },
     );
 
     expect(acceptedOrder).toMatchObject({
@@ -294,7 +346,7 @@ describe('DriverOrdersService', () => {
       undefined,
       () => now,
     );
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -303,7 +355,8 @@ describe('DriverOrdersService', () => {
       service.acceptOrder(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { noteText: '马上联系货主' },
+        'uncertified-accept-key',
+        { noteText: '马上联系货主', baseUpdatedAtIso: order.updatedAtIso },
       ),
     ).rejects.toMatchObject(
       new BusinessError(
@@ -315,7 +368,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects accepting a non-waiting order', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -327,7 +380,8 @@ describe('DriverOrdersService', () => {
       service.acceptOrder(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        {},
+        'invalid-accept-key',
+        { baseUpdatedAtIso: order.updatedAtIso },
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.ORDER_STATE_INVALID, '当前订单已不可接单'),
@@ -336,11 +390,11 @@ describe('DriverOrdersService', () => {
 
   it('lists only orders accepted by the current driver', async () => {
     const { repository, service } = createService();
-    const ownOrder = await repository.createOrder(
+    const ownOrder = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
-    const otherOrder = await repository.createOrder(
+    const otherOrder = await repository.seedOrderForTest(
       'shipper-2',
       createOrderInput('南山区科技园'),
     );
@@ -364,7 +418,7 @@ describe('DriverOrdersService', () => {
 
   it('gets an accepted order detail for the current driver', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -383,7 +437,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects detail access for orders accepted by another driver', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -475,7 +529,7 @@ describe('DriverOrdersService', () => {
 
   it('reports an exception without changing the driver order status', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -551,7 +605,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects exception files owned by another user', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -579,7 +633,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects pending and wrong-purpose exception files', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -665,7 +719,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects driver shipper evaluations before order completion', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -711,7 +765,7 @@ describe('DriverOrdersService', () => {
 
   it('advances a current driver order from loading to transporting', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -721,7 +775,11 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { nextStatus: 'transporting' },
+        'driver-status-key',
+        {
+          nextStatus: 'transporting',
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
       ),
     ).resolves.toMatchObject({
       id: order.id,
@@ -738,7 +796,7 @@ describe('DriverOrdersService', () => {
 
   it('binds uploaded receipt files to driver status advance events', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -753,9 +811,11 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        'driver-receipt-status-key',
         {
           nextStatus: 'transporting',
           receiptPhotoFileIds: [receiptFile.id],
+          baseUpdatedAtIso: order.updatedAtIso,
         },
       ),
     ).resolves.toMatchObject({
@@ -771,7 +831,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects driver status advance proofs owned by another user', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -786,9 +846,11 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        'other-owner-receipt-key',
         {
           nextStatus: 'transporting',
           receiptPhotoFileIds: [receiptFile.id],
+          baseUpdatedAtIso: order.updatedAtIso,
         },
       ),
     ).rejects.toMatchObject(
@@ -798,7 +860,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects invalid current driver order status transitions', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -808,7 +870,11 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { nextStatus: 'confirming' },
+        'invalid-driver-status-key',
+        {
+          nextStatus: 'confirming',
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(
@@ -818,14 +884,14 @@ describe('DriverOrdersService', () => {
     );
   });
 
-  it('returns driver income overview with completed income, pending settlement and reviewing withdrawals', async () => {
-    const { driverWithdrawalsRepository, repository, service } = createService();
+  it('returns driver income and wallet balances from financial facts', async () => {
+    const { driverFinanceRepository, repository, service } = createService();
     const completedOrder = await createCompletedDriverOrder(
       repository,
       'driver-1',
       createOrderInput('宝安区福永物流园'),
     );
-    const pendingOrder = await repository.createOrder(
+    const pendingOrder = await repository.seedOrderForTest(
       'shipper-1',
       {
         ...createOrderInput('南山区科技园'),
@@ -834,7 +900,10 @@ describe('DriverOrdersService', () => {
       },
     );
     await repository.acceptDriverOrder(pendingOrder.id, 'driver-1', {});
-    await driverWithdrawalsRepository.createWithdrawal('driver-1', {
+    await driverFinanceRepository.executeIdempotentWithdrawalRequest({
+      driverId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+      requestFingerprint: 'income-withdrawal-fingerprint',
       amountCents: 12000,
       bankAccountName: '李师傅',
       bankName: '招商银行',
@@ -854,9 +923,10 @@ describe('DriverOrdersService', () => {
         weekIncomeCents: 72200,
         monthIncomeCents: 72200,
         historyIncomeCents: 72200,
-        pendingSettlementCents: 79800,
+        pendingSettlementCents: 0,
         availableWithdrawalCents: 60200,
         reviewingWithdrawalCents: 12000,
+        withdrawnCents: 0,
         completedOrderCount: 1,
       },
       records: [
@@ -878,21 +948,65 @@ describe('DriverOrdersService', () => {
       createOrderInput('宝安区福永物流园'),
     );
 
-    await expect(
-      service.createWithdrawal(
-        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
-        {
-          amountCents: 12000,
-          bankAccountName: '李师傅',
-          bankName: '招商银行',
-          bankAccountNo: '6225888800001234',
-        },
-      ),
-    ).resolves.toMatchObject({
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const request = {
+      amountCents: 12000,
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6225888800001234',
+    };
+    const first = await service.createWithdrawal(
+      driver,
+      '550e8400-e29b-41d4-a716-446655440000',
+      request,
+    );
+    const replay = await service.createWithdrawal(
+      driver,
+      '550e8400-e29b-41d4-a716-446655440000',
+      request,
+    );
+
+    expect(first).toMatchObject({
       amountCents: 12000,
       bankAccountMasked: '**** **** **** 1234',
       status: 'reviewing',
+      replayed: false,
     });
+    expect(replay).toMatchObject({ id: first.id, replayed: true });
+  });
+
+  it('rejects a withdrawal key reused with another body', async () => {
+    const { repository, service } = createService();
+    await createCompletedDriverOrder(
+      repository,
+      'driver-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const key = '550e8400-e29b-41d4-a716-446655440000';
+    await service.createWithdrawal(driver, key, {
+      amountCents: 12000,
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6225888800001234',
+    });
+
+    await expect(
+      service.createWithdrawal(driver, key, {
+        amountCents: 13000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225888800001234',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
   });
 
   it('rejects driver withdrawals that exceed available balance', async () => {
@@ -901,6 +1015,7 @@ describe('DriverOrdersService', () => {
     await expect(
       service.createWithdrawal(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        '550e8400-e29b-41d4-a716-446655440000',
         {
           amountCents: 12000,
           bankAccountName: '李师傅',
@@ -918,7 +1033,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects receipt proofs that are not yet uploaded', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -935,7 +1050,12 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { nextStatus: 'transporting', receiptPhotoFileIds: [pendingFile.id] },
+        'pending-receipt-status-key',
+        {
+          nextStatus: 'transporting',
+          receiptPhotoFileIds: [pendingFile.id],
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(
@@ -947,7 +1067,7 @@ describe('DriverOrdersService', () => {
 
   it('rejects receipt proofs whose purpose is not receipt', async () => {
     const { repository, service, filesRepository } = createService();
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -962,7 +1082,12 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { nextStatus: 'transporting', receiptPhotoFileIds: [cargoFile.id] },
+        'wrong-purpose-status-key',
+        {
+          nextStatus: 'transporting',
+          receiptPhotoFileIds: [cargoFile.id],
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(
@@ -1000,6 +1125,26 @@ describe('DriverOrdersService', () => {
     });
   });
 
+  it('keeps the production withdrawals repository read-only', () => {
+    const repository = new PrismaDriverWithdrawalsRepository({
+      driverWithdrawal: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
+    });
+
+    if (false) {
+      // @ts-expect-error Production withdrawal writes require wallet CAS.
+      repository.createWithdrawal('driver-1', {
+        amountCents: 5000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225888800001234',
+      });
+    }
+    expect(repository).not.toHaveProperty('createWithdrawal');
+  });
+
   it('rejects non-driver users from listing withdrawals', async () => {
     const { service } = createService();
 
@@ -1015,7 +1160,7 @@ describe('DriverOrdersService', () => {
 
   it('derives negotiated completed-order income from the driver quote event', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder('shipper-1', {
+    const order = await repository.seedOrderForTest('shipper-1', {
       ...createOrderInput('宝安区福永物流园'),
       pricingMode: 'negotiable',
       priceCents: undefined,
@@ -1029,10 +1174,25 @@ describe('DriverOrdersService', () => {
     await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
       nextStatus: 'transporting',
     });
-    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+    const confirmingOrder = await repository.advanceDriverOrderStatus(
+      order.id,
+      'driver-1',
+      {
       nextStatus: 'confirming',
-    });
-    await repository.completeOrder(order.id, 'shipper-1');
+      },
+    );
+    await expect(
+      repository.executeIdempotentOrderMutation({
+        actorUserId: 'shipper-1',
+        orderId: order.id,
+        operation: 'shipper_complete',
+        idempotencyKey: `complete-${order.id}`,
+        requestFingerprint: `complete-fingerprint-${order.id}`,
+        baseUpdatedAtIso: confirmingOrder.updatedAtIso,
+        expiresAtIso: '2026-07-16T08:00:00.000Z',
+        mutation: { type: 'shipper_complete' },
+      }),
+    ).resolves.toMatchObject({ kind: 'success' });
 
     const overview = await service.getIncomeOverview({
       id: 'driver-1',
@@ -1040,7 +1200,6 @@ describe('DriverOrdersService', () => {
       userType: 'driver',
     });
 
-    // 90000 gross → 95% net income.
     expect(overview.records[0]).toMatchObject({
       orderId: order.id,
       grossAmountCents: 90000,
@@ -1050,9 +1209,9 @@ describe('DriverOrdersService', () => {
     expect(overview.summary.historyIncomeCents).toBe(85500);
   });
 
-  it('treats a negotiated completed order without a quote as zero income', async () => {
+  it('rejects financial completion for a negotiated order without a quote', async () => {
     const { repository, service } = createService();
-    const order = await repository.createOrder('shipper-1', {
+    const order = await repository.seedOrderForTest('shipper-1', {
       ...createOrderInput('宝安区福永物流园'),
       pricingMode: 'negotiable',
       priceCents: undefined,
@@ -1062,10 +1221,25 @@ describe('DriverOrdersService', () => {
     await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
       nextStatus: 'transporting',
     });
-    await repository.advanceDriverOrderStatus(order.id, 'driver-1', {
+    const confirmingOrder = await repository.advanceDriverOrderStatus(
+      order.id,
+      'driver-1',
+      {
       nextStatus: 'confirming',
-    });
-    await repository.completeOrder(order.id, 'shipper-1');
+      },
+    );
+    await expect(
+      repository.executeIdempotentOrderMutation({
+        actorUserId: 'shipper-1',
+        orderId: order.id,
+        operation: 'shipper_complete',
+        idempotencyKey: `complete-${order.id}`,
+        requestFingerprint: `complete-fingerprint-${order.id}`,
+        baseUpdatedAtIso: confirmingOrder.updatedAtIso,
+        expiresAtIso: '2026-07-16T08:00:00.000Z',
+        mutation: { type: 'shipper_complete' },
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.PAYMENT_AMOUNT_INVALID });
 
     const overview = await service.getIncomeOverview({
       id: 'driver-1',
@@ -1073,11 +1247,8 @@ describe('DriverOrdersService', () => {
       userType: 'driver',
     });
 
-    expect(overview.records[0]).toMatchObject({
-      orderId: order.id,
-      grossAmountCents: 0,
-      netIncomeCents: 0,
-    });
+    expect(overview.records).toEqual([]);
+    expect(overview.summary.historyIncomeCents).toBe(0);
   });
 
   it('rejects receipt proofs when no files repository is configured', async () => {
@@ -1093,7 +1264,7 @@ describe('DriverOrdersService', () => {
       undefined,
       () => now,
     );
-    const order = await repository.createOrder(
+    const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
@@ -1103,11 +1274,114 @@ describe('DriverOrdersService', () => {
       service.advanceOrderStatus(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { nextStatus: 'transporting', receiptPhotoFileIds: ['file-x'] },
+        'missing-files-repository-key',
+        {
+          nextStatus: 'transporting',
+          receiptPhotoFileIds: ['file-x'],
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '司机执行凭证不存在'),
     );
+  });
+
+  it('replays an idempotent driver accept mutation without duplicating events', async () => {
+    const { repository, service } = createService();
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440000';
+    const request = {
+      noteText: '马上联系货主',
+      baseUpdatedAtIso: order.updatedAtIso,
+    };
+
+    const first = await service.acceptOrder(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      order.id,
+      idempotencyKey,
+      request,
+    );
+    const findOrderSpy = jest
+      .spyOn(repository, 'findOrderById')
+      .mockRejectedValue(new Error('replay must not load the order'));
+    const replay = await service.acceptOrder(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      order.id,
+      idempotencyKey,
+      request,
+    );
+
+    expect(replay).toEqual(first);
+    expect(findOrderSpy).not.toHaveBeenCalled();
+    findOrderSpy.mockRestore();
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'driver_accepted',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rejects a reused driver accept key before loading a missing order', async () => {
+    const { repository, service } = createService();
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440010';
+    const request = {
+      noteText: '马上联系货主',
+      baseUpdatedAtIso: order.updatedAtIso,
+    };
+
+    await service.acceptOrder(driver, order.id, idempotencyKey, request);
+
+    await expect(
+      service.acceptOrder(driver, 'missing-order', idempotencyKey, request),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+      message: 'Idempotency-Key 已被其他请求复用',
+    });
+  });
+
+  it('maps a losing driver accept mutation to ORDER_CONFLICT', async () => {
+    const { repository, service } = createService();
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+
+    await service.acceptOrder(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      order.id,
+      '550e8400-e29b-41d4-a716-446655440001',
+      {
+        noteText: '马上联系货主',
+        baseUpdatedAtIso: order.updatedAtIso,
+      },
+    );
+
+    await expect(
+      service.acceptOrder(
+        { id: 'driver-2', phone: '13900139010', userType: 'driver' },
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440002',
+        {
+          noteText: '我也准备接单',
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.ORDER_CONFLICT,
+      message: '订单已被其他操作更新',
+    });
   });
 });
 
@@ -1137,16 +1411,34 @@ async function createCompletedDriverOrder(
   driverId: string,
   input: ReturnType<typeof createOrderInput>,
 ) {
-  const order = await repository.createOrder('shipper-1', input);
+  const order = await repository.seedOrderForTest('shipper-1', input);
   await repository.acceptDriverOrder(order.id, driverId, {});
   await repository.advanceDriverOrderStatus(order.id, driverId, {
     nextStatus: 'transporting',
   });
-  await repository.advanceDriverOrderStatus(order.id, driverId, {
+  const confirmingOrder = await repository.advanceDriverOrderStatus(
+    order.id,
+    driverId,
+    {
     nextStatus: 'confirming',
+    },
+  );
+  const result = await repository.executeIdempotentOrderMutation({
+    actorUserId: 'shipper-1',
+    orderId: order.id,
+    operation: 'shipper_complete',
+    idempotencyKey: `complete-${order.id}`,
+    requestFingerprint: `complete-fingerprint-${order.id}`,
+    baseUpdatedAtIso: confirmingOrder.updatedAtIso,
+    expiresAtIso: '2026-07-16T08:00:00.000Z',
+    mutation: { type: 'shipper_complete' },
   });
 
-  return repository.completeOrder(order.id, 'shipper-1');
+  if (result.kind !== 'success') {
+    throw new Error(`Unexpected completion result: ${result.kind}`);
+  }
+
+  return result.order;
 }
 
 async function createUploadedFile(

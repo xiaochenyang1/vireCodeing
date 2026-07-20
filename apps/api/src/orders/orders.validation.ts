@@ -1,13 +1,17 @@
 import { z } from 'zod';
 import type {
+  AdminOrderFilters,
+  AdminOrderReportQuery,
   AdvanceShipperOrderStatusRequest,
   AdminOrderAttachmentAuditListQuery,
   CancelShipperOrderRequest,
+  CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
   ListShipperOrdersQuery,
   ReportShipperOrderExceptionRequest,
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
+  UpdateShipperOrderRequest,
 } from './dto';
 
 const phoneSchema = z.string().trim().regex(/^1[3-9]\d{9}$/, '手机号不合法');
@@ -65,6 +69,10 @@ const shipperOrderStatusSchema = z.enum([
   'completed',
   'cancelled',
 ]);
+const baseUpdatedAtIsoSchema = z.preprocess(
+  value => (typeof value === 'string' ? value : ''),
+  z.string().trim().datetime({ offset: true, message: '订单版本时间无效' }),
+);
 const optionalOrderStatusQuerySchema = z.preprocess(input => {
   if (input === undefined) {
     return undefined;
@@ -96,42 +104,53 @@ function parseStatusCollectionInput(input: unknown) {
     .filter(Boolean);
 }
 
-export const createShipperOrderSchema = z
-  .object({
-    cargoType: z.string().trim().min(1, '货物类型不能为空'),
-    weightText: z.string().trim().min(1, '货物重量不能为空'),
-    volumeText: optionalTrimmedString,
-    quantityText: z.string().trim().min(1, '货物数量不能为空'),
-    cargoDescription: z.string().trim().max(200).optional(),
-    cargoPhotoCount: z.number().int().min(0).max(6).optional(),
-    cargoPhotoFileIds: optionalPhotoFileIdsSchema,
-    pickupAddress: z.string().trim().min(1, '装货地址不能为空'),
-    pickupNoteText: z.string().trim().max(50).optional(),
-    pickupContact: z.string().trim().min(1, '装货联系人不能为空'),
-    pickupPhone: phoneSchema,
-    deliveryAddress: z.string().trim().min(1, '卸货地址不能为空'),
-    deliveryNoteText: z.string().trim().max(50).optional(),
-    deliveryContact: z.string().trim().min(1, '卸货联系人不能为空'),
-    deliveryPhone: phoneSchema,
-    vehicleRequirement: z.string().trim().min(1, '车型要求不能为空'),
-    vehicleLengthText: optionalTrimmedString,
-    needTailboard: z.boolean(),
-    needTarp: z.boolean(),
-    pickupTimeIso: z
-      .string()
-      .trim()
-      .refine(value => !Number.isNaN(Date.parse(value)), '装货时间不合法'),
-    expectedDeliveryTimeText: optionalTrimmedString,
-    valueAddedServicesText: optionalTrimmedString,
-    pricingMode: z.enum(['fixed', 'negotiable']),
-    priceCents: z.number().int().positive().optional(),
-    paymentMethod: z.enum(['cod', 'online']),
-    couponId: optionalTrimmedString,
-    couponTitle: optionalTrimmedString,
-    couponDiscountCents: z.number().int().nonnegative().optional(),
-    payablePriceCents: z.number().int().nonnegative().optional(),
-  })
-  .superRefine((value, context) => {
+const adminOrderFilterSchemaShape = {
+  status: shipperOrderStatusSchema.optional(),
+  statuses: optionalStatusCollectionSchema,
+  keyword: optionalListKeywordString,
+  createdFromIso: optionalIsoDateString,
+  createdToIso: optionalIsoDateString,
+} as const;
+
+const createShipperOrderSchemaShape = {
+  cargoType: z.string().trim().min(1, '货物类型不能为空'),
+  weightText: z.string().trim().min(1, '货物重量不能为空'),
+  volumeText: optionalTrimmedString,
+  quantityText: z.string().trim().min(1, '货物数量不能为空'),
+  cargoDescription: z.string().trim().max(200).optional(),
+  cargoPhotoCount: z.number().int().min(0).max(6).optional(),
+  cargoPhotoFileIds: optionalPhotoFileIdsSchema,
+  pickupAddress: z.string().trim().min(1, '装货地址不能为空'),
+  pickupNoteText: z.string().trim().max(50).optional(),
+  pickupContact: z.string().trim().min(1, '装货联系人不能为空'),
+  pickupPhone: phoneSchema,
+  deliveryAddress: z.string().trim().min(1, '卸货地址不能为空'),
+  deliveryNoteText: z.string().trim().max(50).optional(),
+  deliveryContact: z.string().trim().min(1, '卸货联系人不能为空'),
+  deliveryPhone: phoneSchema,
+  vehicleRequirement: z.string().trim().min(1, '车型要求不能为空'),
+  vehicleLengthText: optionalTrimmedString,
+  needTailboard: z.boolean(),
+  needTarp: z.boolean(),
+  pickupTimeIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '装货时间不合法'),
+  expectedDeliveryTimeText: optionalTrimmedString,
+  valueAddedServicesText: optionalTrimmedString,
+  pricingMode: z.enum(['fixed', 'negotiable']),
+  priceCents: z.number().int().positive().optional(),
+  paymentMethod: z.enum(['cod', 'online']),
+  couponId: optionalTrimmedString,
+  couponTitle: optionalTrimmedString,
+  couponDiscountCents: z.number().int().nonnegative().optional(),
+  payablePriceCents: z.number().int().nonnegative().optional(),
+} as const;
+
+function refineCreateShipperOrder(
+  value: z.infer<z.ZodObject<typeof createShipperOrderSchemaShape>>,
+  context: z.RefinementCtx,
+) {
     if (value.pickupAddress === value.deliveryAddress) {
       context.addIssue({
         code: 'custom',
@@ -175,6 +194,17 @@ export const createShipperOrderSchema = z
     }
 
     if (
+      value.pricingMode === 'negotiable' &&
+      value.paymentMethod === 'online'
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: '在线支付订单必须先确定最终金额',
+        path: ['paymentMethod'],
+      });
+    }
+
+    if (
       value.pricingMode === 'fixed' &&
       couponFields.some(couponField => couponField !== undefined) &&
       couponFields.some(couponField => couponField === undefined)
@@ -199,39 +229,55 @@ export const createShipperOrderSchema = z
         path: ['payablePriceCents'],
       });
     }
-  });
+}
+
+export const createShipperOrderSchema = z
+  .object(createShipperOrderSchemaShape)
+  .superRefine(refineCreateShipperOrder);
+
+function refineAdminOrderFilters(
+  value: z.infer<z.ZodObject<typeof adminOrderFilterSchemaShape>>,
+  context: z.RefinementCtx,
+) {
+  if (value.status && value.statuses?.length) {
+    context.addIssue({
+      code: 'custom',
+      message: '状态筛选只能传入 status 或 statuses 之一',
+      path: ['status'],
+    });
+  }
+
+  if (
+    value.createdFromIso &&
+    value.createdToIso &&
+    Date.parse(value.createdFromIso) >= Date.parse(value.createdToIso)
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: '开始时间必须早于结束时间',
+      path: ['createdFromIso'],
+    });
+  }
+}
+
+export const adminOrderFiltersSchema = z
+  .object(adminOrderFilterSchemaShape)
+  .superRefine(refineAdminOrderFilters);
 
 export const listShipperOrdersQuerySchema = z
   .object({
-    status: shipperOrderStatusSchema.optional(),
-    statuses: optionalStatusCollectionSchema,
-    keyword: optionalListKeywordString,
-    createdFromIso: optionalIsoDateString,
-    createdToIso: optionalIsoDateString,
+    ...adminOrderFilterSchemaShape,
     page: z.coerce.number().int().positive().default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(20),
   })
-  .superRefine((value, context) => {
-    if (value.status && value.statuses?.length) {
-      context.addIssue({
-        code: 'custom',
-        message: '状态筛选只能传入 status 或 statuses 之一',
-        path: ['status'],
-      });
-    }
+  .superRefine(refineAdminOrderFilters);
 
-    if (
-      value.createdFromIso &&
-      value.createdToIso &&
-      Date.parse(value.createdFromIso) >= Date.parse(value.createdToIso)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        message: '开始时间必须早于结束时间',
-        path: ['createdFromIso'],
-      });
-    }
-  });
+export const adminOrderReportQuerySchema = z
+  .object({
+    ...adminOrderFilterSchemaShape,
+    topShippersLimit: z.coerce.number().int().min(1).max(20).default(5),
+  })
+  .superRefine(refineAdminOrderFilters);
 
 export const adminOrderAttachmentAuditListQuerySchema = z
   .object({
@@ -258,7 +304,15 @@ export const adminOrderAttachmentAuditListQuerySchema = z
     }
   });
 
+export const updateShipperOrderSchema = z
+  .object({
+    ...createShipperOrderSchemaShape,
+    baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+  })
+  .superRefine(refineCreateShipperOrder);
+
 export const cancelShipperOrderSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
   reasonText: z.string().trim().min(1, '取消原因不能为空').max(50),
   description: z
     .string()
@@ -268,7 +322,12 @@ export const cancelShipperOrderSchema = z.object({
     .transform(value => (value === '' ? undefined : value)),
 });
 
+export const completeShipperOrderSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+});
+
 export const advanceShipperOrderStatusSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
   nextStatus: z.enum(['loading', 'transporting', 'confirming']),
 });
 
@@ -312,6 +371,12 @@ export function parseCreateShipperOrderRequest(
   return createShipperOrderSchema.parse(input);
 }
 
+export function parseUpdateShipperOrderRequest(
+  input: unknown,
+): UpdateShipperOrderRequest {
+  return updateShipperOrderSchema.parse(input);
+}
+
 export function parseListShipperOrdersQuery(
   input: unknown,
 ): ListShipperOrdersQuery {
@@ -325,6 +390,33 @@ export function parseListShipperOrdersQuery(
     keyword: parsed.keyword,
     createdFromIso: parsed.createdFromIso,
     createdToIso: parsed.createdToIso,
+  };
+}
+
+export function parseAdminOrderFilters(input: unknown): AdminOrderFilters {
+  const parsed = adminOrderFiltersSchema.parse(input);
+
+  return {
+    status: parsed.status,
+    statuses: parsed.statuses,
+    keyword: parsed.keyword,
+    createdFromIso: parsed.createdFromIso,
+    createdToIso: parsed.createdToIso,
+  };
+}
+
+export function parseAdminOrderReportQuery(
+  input: unknown,
+): AdminOrderReportQuery {
+  const parsed = adminOrderReportQuerySchema.parse(input);
+
+  return {
+    status: parsed.status,
+    statuses: parsed.statuses,
+    keyword: parsed.keyword,
+    createdFromIso: parsed.createdFromIso,
+    createdToIso: parsed.createdToIso,
+    topShippersLimit: parsed.topShippersLimit,
   };
 }
 
@@ -349,6 +441,12 @@ export function parseCancelShipperOrderRequest(
   input: unknown,
 ): CancelShipperOrderRequest {
   return cancelShipperOrderSchema.parse(input);
+}
+
+export function parseCompleteShipperOrderRequest(
+  input: unknown,
+): CompleteShipperOrderRequest {
+  return completeShipperOrderSchema.parse(input);
 }
 
 export function parseAdvanceShipperOrderStatusRequest(

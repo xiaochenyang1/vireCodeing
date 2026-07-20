@@ -3,6 +3,7 @@ import type { OrdersRepository } from '../orders/orders.repository';
 import type {
   OrderExceptionCaseListQuery,
   OrderExceptionCaseStatus,
+  ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 
@@ -69,7 +70,7 @@ export class OrderExceptionCasesService {
   async resolveCase(
     adminUserId: string,
     caseId: string,
-    input: UpdateOrderExceptionCaseRequest,
+    input: ResolveOrderExceptionCaseRequest,
   ) {
     return this.transition(
       adminUserId,
@@ -99,7 +100,7 @@ export class OrderExceptionCasesService {
     caseId: string,
     expectedStatus: OrderExceptionCaseStatus,
     nextStatus: OrderExceptionCaseStatus,
-    input: UpdateOrderExceptionCaseRequest,
+    input: UpdateOrderExceptionCaseRequest | ResolveOrderExceptionCaseRequest,
   ) {
     const result = await this.repository.transitionOrderExceptionCase(
       caseId,

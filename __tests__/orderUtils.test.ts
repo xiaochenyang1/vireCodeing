@@ -1,7 +1,10 @@
 import {
   createLocalOrder,
   createOrderUpdateFromDraft,
+  createPendingOrderSyncState,
   createPrefillFromOrder,
+  createSyncedOrderSyncState,
+  createFailedOrderSyncState,
   isValidLocalPickupTimeText,
 } from '../src/utils/order';
 import type { DraftOrderInput } from '../src/types';
@@ -121,6 +124,83 @@ test('drops stale coupon amounts when creating or updating negotiable orders', (
     couponDiscountText: undefined,
     payablePriceText: undefined,
   });
+});
+
+test('preserves mutation context in order sync states when provided', () => {
+  const mutationContext = {
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+    baseUpdatedAtIso: '2026-07-13T08:00:00.000Z',
+  };
+
+  expect(
+    createPendingOrderSyncState(undefined, 'update', 1000, { mutationContext }),
+  ).toMatchObject({
+    mutationContext,
+  });
+  expect(
+    createFailedOrderSyncState(undefined, 'cancel', 1000, { mutationContext }),
+  ).toMatchObject({
+    mutationContext,
+  });
+  expect(
+    createSyncedOrderSyncState(undefined, 'status', 1000, { mutationContext }),
+  ).toMatchObject({
+    mutationContext,
+  });
+  expect(createSyncedOrderSyncState(undefined, 'status', 1000)).not.toHaveProperty(
+    'mutationContext',
+  );
+});
+
+test('preserves create context in every order sync state when provided', () => {
+  const createContext = {
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+  };
+
+  expect(
+    createPendingOrderSyncState(undefined, 'create', 1000, { createContext }),
+  ).toMatchObject({ createContext });
+  expect(
+    createFailedOrderSyncState(undefined, 'create', 1000, { createContext }),
+  ).toMatchObject({ createContext });
+  expect(
+    createSyncedOrderSyncState(undefined, 'create', 1000, { createContext }),
+  ).toMatchObject({ createContext });
+});
+
+test('preserves a blocked create retry decision in failed sync state', () => {
+  const options = {
+    createContext: {
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+    },
+    retryBlocked: true,
+  } as Parameters<typeof createFailedOrderSyncState>[3] & {
+    retryBlocked: boolean;
+  };
+
+  expect(
+    createFailedOrderSyncState('retry blocked', 'create', 1000, options),
+  ).toMatchObject({
+    status: 'failed',
+    operation: 'create',
+    createContext: options.createContext,
+    retryBlocked: true,
+  });
+});
+
+test('adds mutation context to local order snapshots when requested', () => {
+  const mutationContext = {
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+    baseUpdatedAtIso: '2026-07-13T08:00:00.000Z',
+  };
+  const draftOrder = createDraftOrder();
+  const now = new Date('2026-07-13T08:10:00.000Z').getTime();
+
+  const localOrder = createLocalOrder(draftOrder, [], now, { mutationContext });
+  const update = createOrderUpdateFromDraft(draftOrder, now, { mutationContext });
+
+  expect(localOrder.syncState?.mutationContext).toEqual(mutationContext);
+  expect(update.syncState?.mutationContext).toEqual(mutationContext);
 });
 
 function createDraftOrder(

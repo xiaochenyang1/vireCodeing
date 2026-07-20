@@ -28,6 +28,10 @@ const optionalTrimmedString = (maxLength: number, message: string) =>
     .max(maxLength, message)
     .optional()
     .transform(value => (value === '' ? undefined : value));
+const baseUpdatedAtIsoSchema = z.preprocess(
+  value => (typeof value === 'string' ? value : ''),
+  z.string().trim().datetime({ offset: true, message: '订单版本时间无效' }),
+);
 
 const optionalReceiptPhotoFileIdsSchema = z
   .array(
@@ -126,10 +130,12 @@ export const driverQuoteOrderSchema = z.object({
 });
 
 export const driverAcceptOrderSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
   noteText: optionalTrimmedString(200, '接单备注最多 200 字'),
 });
 
 export const driverAdvanceOrderStatusSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
   nextStatus: z.enum(driverStatusAdvanceTargets, {
     message: '司机订单目标状态无效',
   }),

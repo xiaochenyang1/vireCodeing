@@ -26,6 +26,9 @@ describe('InMemoryAuthRepository', () => {
     await expect(repository.findUserByPhone('13800138000')).resolves.toEqual(
       firstUser,
     );
+    await expect(
+      repository.findPlatformUserByPhone('13800138000'),
+    ).resolves.toEqual(firstUser);
   });
 
   it('updates the existing local user type when the same phone logs in as another mobile role', async () => {
@@ -193,5 +196,285 @@ describe('InMemoryAuthRepository', () => {
       refreshToken: 'refresh.other-user',
       deviceId: 'device-3',
     });
+  });
+
+  it('lists active refresh sessions newest first and skips expired records', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-one',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-two',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.expired-device',
+      deviceId: 'device-expired',
+      expiresAt: new Date('2026-06-26T06:09:00.000Z'),
+    });
+
+    await expect(
+      repository.listActiveUserRefreshSessions('local-user-13800138000'),
+    ).resolves.toMatchObject([
+      {
+        id: 'session-2',
+        deviceId: 'device-2',
+        createdAt: new Date('2026-06-26T06:05:00.000Z'),
+      },
+      {
+        id: 'session-1',
+        deviceId: 'device-1',
+        createdAt: new Date('2026-06-26T06:00:00.000Z'),
+      },
+    ]);
+  });
+
+  it('lists all active refresh sessions newest first across users', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-one',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13900139000',
+      refreshToken: 'refresh.device-two',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138001',
+      refreshToken: 'refresh.expired-device',
+      deviceId: 'device-expired',
+      expiresAt: new Date('2026-06-26T06:09:00.000Z'),
+    });
+
+    await expect(repository.listAllActiveRefreshSessions()).resolves.toMatchObject(
+      [
+        {
+          id: 'session-2',
+          userId: 'local-user-13900139000',
+          deviceId: 'device-2',
+          createdAt: new Date('2026-06-26T06:05:00.000Z'),
+        },
+        {
+          id: 'session-1',
+          userId: 'local-user-13800138000',
+          deviceId: 'device-1',
+          createdAt: new Date('2026-06-26T06:00:00.000Z'),
+        },
+      ],
+    );
+  });
+
+  it('revokes an active refresh session by session id', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-one',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-two',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+
+    const sessions = await repository.listActiveUserRefreshSessions(
+      'local-user-13800138000',
+    );
+
+    await expect(
+      repository.revokeUserRefreshSession(
+        'local-user-13800138000',
+        sessions[0]!.id,
+        new Date('2026-06-26T06:10:00.000Z'),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      repository.listActiveUserRefreshSessions('local-user-13800138000'),
+    ).resolves.toMatchObject([
+      {
+        id: 'session-1',
+        deviceId: 'device-1',
+      },
+    ]);
+    await expect(
+      repository.revokeUserRefreshSession(
+        'local-user-13900139000',
+        sessions[0]!.id,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('revokes an active refresh session by session id without restricting user', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.saveRefreshSession({
+      userId: 'local-user-13800138000',
+      refreshToken: 'refresh.device-one',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: 'local-user-13900139000',
+      refreshToken: 'refresh.device-two',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+
+    await expect(
+      repository.revokeRefreshSessionById(
+        'session-2',
+        new Date('2026-06-26T06:10:00.000Z'),
+      ),
+    ).resolves.toBe(true);
+    await expect(repository.listAllActiveRefreshSessions()).resolves.toMatchObject([
+      {
+        id: 'session-1',
+        userId: 'local-user-13800138000',
+        deviceId: 'device-1',
+      },
+    ]);
+    await expect(
+      repository.revokeRefreshSessionById('session-missing'),
+    ).resolves.toBe(false);
+  });
+
+  it('stores session governance audit events newest first', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.saveAdminAuthSessionGovernanceAuditEvent?.({
+      actorAdminId: 'admin-1',
+      actorAdminPhone: '13900139000',
+      action: 'revoke_session',
+      result: 'revoked',
+      requestedSessionId: 'session-1',
+      revokedCount: 1,
+      subjects: [
+        {
+          sessionId: 'session-1',
+          userId: 'driver-1',
+          userPhone: '13800138001',
+          userType: 'driver',
+          deviceId: 'driver-android-1',
+        },
+      ],
+    });
+
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveAdminAuthSessionGovernanceAuditEvent?.({
+      actorAdminId: 'admin-2',
+      actorAdminPhone: '13900139002',
+      action: 'revoke_other_sessions',
+      result: 'noop',
+      currentDeviceId: 'admin-console-device',
+      revokedCount: 0,
+      subjects: [],
+    });
+
+    await expect(
+      repository.listAdminAuthSessionGovernanceAuditEvents?.(),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'admin-session-governance-audit-2',
+        actorAdminId: 'admin-2',
+        actorAdminPhone: '13900139002',
+        action: 'revoke_other_sessions',
+        result: 'noop',
+        currentDeviceId: 'admin-console-device',
+        revokedCount: 0,
+        subjects: [],
+        createdAt: new Date('2026-06-26T06:05:00.000Z'),
+      }),
+      expect.objectContaining({
+        id: 'admin-session-governance-audit-1',
+        actorAdminId: 'admin-1',
+        actorAdminPhone: '13900139000',
+        action: 'revoke_session',
+        result: 'revoked',
+        requestedSessionId: 'session-1',
+        revokedCount: 1,
+        subjects: [
+          {
+            sessionId: 'session-1',
+            userId: 'driver-1',
+            userPhone: '13800138001',
+            userType: 'driver',
+            deviceId: 'driver-android-1',
+          },
+        ],
+        createdAt: new Date('2026-06-26T06:00:00.000Z'),
+      }),
+    ]);
+  });
+
+  it('updates platform user status and refreshes updatedAt for local users', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+
+    await repository.upsertMobileUser({
+      phone: '13800138000',
+      userType: 'shipper',
+    });
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+
+    await expect(
+      (repository as unknown as {
+        updateUserStatus: (
+          userId: string,
+          status: 'active' | 'disabled',
+        ) => Promise<{
+          id: string;
+          phone: string;
+          userType: 'shipper' | 'driver' | 'admin';
+          status: 'active' | 'disabled';
+        } | undefined>;
+      }).updateUserStatus('local-user-13800138000', 'disabled'),
+    ).resolves.toEqual({
+      id: 'local-user-13800138000',
+      phone: '13800138000',
+      userType: 'shipper',
+      status: 'disabled',
+    });
+    await expect(
+      repository.findUserById('local-user-13800138000'),
+    ).resolves.toMatchObject({
+      status: 'disabled',
+    });
+    await expect(repository.listPlatformUsers?.()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'local-user-13800138000',
+        status: 'disabled',
+        updatedAt: new Date('2026-06-26T06:10:00.000Z'),
+      }),
+    ]);
   });
 });

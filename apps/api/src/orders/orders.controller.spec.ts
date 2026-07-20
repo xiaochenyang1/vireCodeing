@@ -1,12 +1,45 @@
 import type { OrdersService } from './orders.service';
 import {
-  AdminOrderAttachmentsController,
+  AdminOrdersController,
   OrdersController,
 } from './orders.controller';
 import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 
+const IDEMPOTENCY_KEY = '550e8400-e29b-41d4-a716-446655440000';
+
 describe('OrdersController', () => {
+  const idempotencyKey = '550e8400-e29b-41d4-a716-446655440000';
+
+  function cancelAdminOrderForTest(
+    controller: AdminOrdersController,
+    request: AuthenticatedRequest,
+    orderId: string,
+    idempotencyKeyValue: unknown,
+    body: {
+      reasonText: string;
+      description?: string;
+      baseUpdatedAtIso: string;
+    },
+  ) {
+    return Promise.resolve().then(() =>
+      (
+        controller as unknown as {
+          cancelAdminOrder: (
+            request: AuthenticatedRequest,
+            orderId: string,
+            idempotencyKeyValue: unknown,
+            body: {
+              reasonText: string;
+              description?: string;
+              baseUpdatedAtIso: string;
+            },
+          ) => Promise<unknown>;
+        }
+      ).cancelAdminOrder(request, orderId, idempotencyKeyValue, body),
+    );
+  }
+
   it('creates an order for the authenticated shipper', async () => {
     const service = {
       createOrder: jest.fn().mockResolvedValue({ id: 'order-1' }),
@@ -15,13 +48,35 @@ describe('OrdersController', () => {
     const body = createBody();
 
     await expect(
-      controller.createOrder(createRequest('shipper-1'), body),
+      controller.createOrder(
+        createRequest('shipper-1'),
+        idempotencyKey,
+        body,
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1' },
       requestId: 'req_order_test',
     });
-    expect(service.createOrder).toHaveBeenCalledWith('shipper-1', body);
+    expect(service.createOrder).toHaveBeenCalledWith(
+      'shipper-1',
+      idempotencyKey,
+      body,
+    );
+  });
+
+  it('rejects a missing create idempotency key', async () => {
+    const service = { createOrder: jest.fn() } as unknown as OrdersService;
+    const controller = new OrdersController(service);
+
+    await expect(
+      controller.createOrder(
+        createRequest('shipper-1'),
+        undefined,
+        createBody(),
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID });
+    expect(service.createOrder).not.toHaveBeenCalled();
   });
 
   it('lists orders for the authenticated shipper', async () => {
@@ -55,19 +110,31 @@ describe('OrdersController', () => {
     const body = createBody();
 
     await expect(
-      controller.updateOrder(createRequest('shipper-1'), 'order-1', {
-        ...body,
-        pickupAddress: '宝安区新装货仓',
-      }),
+      controller.updateOrder(
+        createRequest('shipper-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          ...body,
+          pickupAddress: '宝安区新装货仓',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', pickupAddress: '宝安区新装货仓' },
       requestId: 'req_order_test',
     });
-    expect(service.updateOrder).toHaveBeenCalledWith('shipper-1', 'order-1', {
-      ...body,
-      pickupAddress: '宝安区新装货仓',
-    });
+    expect(service.updateOrder).toHaveBeenCalledWith(
+      'shipper-1',
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        ...body,
+        pickupAddress: '宝安区新装货仓',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
+    );
   });
 
   it('cancels an order for the authenticated shipper', async () => {
@@ -80,19 +147,31 @@ describe('OrdersController', () => {
     const controller = new OrdersController(service);
 
     await expect(
-      controller.cancelOrder(createRequest('shipper-1'), 'order-1', {
-        reasonText: '计划变更',
-        description: '客户临时取消出货',
-      }),
+      controller.cancelOrder(
+        createRequest('shipper-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          reasonText: '计划变更',
+          description: '客户临时取消出货',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', status: 'cancelled' },
       requestId: 'req_order_test',
     });
-    expect(service.cancelOrder).toHaveBeenCalledWith('shipper-1', 'order-1', {
-      reasonText: '计划变更',
-      description: '客户临时取消出货',
-    });
+    expect(service.cancelOrder).toHaveBeenCalledWith(
+      'shipper-1',
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        reasonText: '计划变更',
+        description: '客户临时取消出货',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
+    );
   });
 
   it('completes an order for the authenticated shipper', async () => {
@@ -105,13 +184,27 @@ describe('OrdersController', () => {
     const controller = new OrdersController(service);
 
     await expect(
-      controller.completeOrder(createRequest('shipper-1'), 'order-1'),
+      controller.completeOrder(
+        createRequest('shipper-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', status: 'completed' },
       requestId: 'req_order_test',
     });
-    expect(service.completeOrder).toHaveBeenCalledWith('shipper-1', 'order-1');
+    expect(service.completeOrder).toHaveBeenCalledWith(
+      'shipper-1',
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
+    );
   });
 
   it('advances an order status for the authenticated shipper', async () => {
@@ -124,9 +217,15 @@ describe('OrdersController', () => {
     const controller = new OrdersController(service);
 
     await expect(
-      controller.advanceOrderStatus(createRequest('shipper-1'), 'order-1', {
-        nextStatus: 'loading',
-      }),
+      controller.advanceOrderStatus(
+        createRequest('shipper-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          nextStatus: 'loading',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', status: 'loading' },
@@ -135,8 +234,32 @@ describe('OrdersController', () => {
     expect(service.advanceOrderStatus).toHaveBeenCalledWith(
       'shipper-1',
       'order-1',
-      { nextStatus: 'loading' },
+      IDEMPOTENCY_KEY,
+      {
+        nextStatus: 'loading',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
     );
+  });
+
+  it('rejects missing idempotency keys before mutating shipper orders', async () => {
+    const service = {
+      cancelOrder: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new OrdersController(service);
+
+    await expect(
+      controller.cancelOrder(createRequest('shipper-1'), 'order-1', undefined, {
+        reasonText: '计划变更',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        'Idempotency-Key 无效',
+      ),
+    );
+    expect(service.cancelOrder).not.toHaveBeenCalled();
   });
 
   it('reports an order exception for the authenticated shipper', async () => {
@@ -239,7 +362,11 @@ describe('OrdersController', () => {
     const controller = new OrdersController(service);
 
     await expect(
-      controller.createOrder(createRequest('driver-1', 'driver'), createBody()),
+      controller.createOrder(
+        createRequest('driver-1', 'driver'),
+        idempotencyKey,
+        createBody(),
+      ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是货主'),
     );
@@ -254,7 +381,7 @@ describe('OrdersController', () => {
         events: [],
       }),
     } as unknown as OrdersService;
-    const controller = new AdminOrderAttachmentsController(service);
+    const controller = new AdminOrdersController(service);
 
     await expect(
       controller.getOrderAttachmentAudit(
@@ -274,6 +401,232 @@ describe('OrdersController', () => {
     );
   });
 
+  it('lists admin orders for the authenticated admin', async () => {
+    const service = {
+      listAdminOrders: jest.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'order-1',
+            orderNo: 'HY202607010001',
+            shipperId: 'shipper-1',
+            status: 'loading',
+          },
+        ],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      }),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.listAdminOrders(createRequest('admin-1', 'admin'), {
+        page: '1',
+        pageSize: '20',
+        keyword: 'HY202607',
+        statuses: 'loading,transporting',
+        createdFromIso: '2026-07-01T00:00:00.000Z',
+        createdToIso: '2026-07-31T00:00:00.000Z',
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        items: [
+          {
+            id: 'order-1',
+            orderNo: 'HY202607010001',
+            shipperId: 'shipper-1',
+            status: 'loading',
+          },
+        ],
+        total: 1,
+      },
+      requestId: 'req_order_test',
+    });
+    expect(service.listAdminOrders).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      keyword: 'HY202607',
+      status: undefined,
+      statuses: ['loading', 'transporting'],
+      createdFromIso: '2026-07-01T00:00:00.000Z',
+      createdToIso: '2026-07-31T00:00:00.000Z',
+    });
+  });
+
+  it('returns admin order report for the authenticated admin', async () => {
+    const service = {
+      getAdminOrderReport: jest.fn().mockResolvedValue({
+        generatedAtIso: '2026-07-18T03:00:00.000Z',
+        filters: {
+          keyword: 'HY202607',
+          statuses: ['loading', 'transporting'],
+        },
+        summary: {
+          totalOrderCount: 2,
+          waitingOrderCount: 0,
+          activeOrderCount: 2,
+          completedOrderCount: 0,
+          cancelledOrderCount: 0,
+          exceptionOrderCount: 1,
+        },
+        statusBreakdown: [],
+        paymentStatusBreakdown: [],
+        pricingModeBreakdown: [],
+        paymentMethodBreakdown: [],
+        topShippers: [],
+      }),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.getAdminOrderReport(createRequest('admin-1', 'admin'), {
+        keyword: 'HY202607',
+        statuses: 'loading,transporting',
+        createdFromIso: '2026-07-01T00:00:00.000Z',
+        createdToIso: '2026-07-31T00:00:00.000Z',
+        topShippersLimit: '8',
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        generatedAtIso: '2026-07-18T03:00:00.000Z',
+        summary: {
+          totalOrderCount: 2,
+          activeOrderCount: 2,
+          exceptionOrderCount: 1,
+        },
+      },
+      requestId: 'req_order_test',
+    });
+    expect(service.getAdminOrderReport).toHaveBeenCalledWith({
+      keyword: 'HY202607',
+      status: undefined,
+      statuses: ['loading', 'transporting'],
+      createdFromIso: '2026-07-01T00:00:00.000Z',
+      createdToIso: '2026-07-31T00:00:00.000Z',
+      topShippersLimit: 8,
+    });
+  });
+
+  it('exports admin orders as csv for the authenticated admin', async () => {
+    const service = {
+      exportAdminOrdersCsv: jest
+        .fn()
+        .mockResolvedValue('\uFEFForderId,orderNo\r\norder-1,HY202607010001'),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.exportAdminOrders(
+        createRequest('admin-1', 'admin'),
+        {
+          keyword: 'HY202607',
+          statuses: 'loading,transporting',
+          createdFromIso: '2026-07-01T00:00:00.000Z',
+          createdToIso: '2026-07-31T00:00:00.000Z',
+        },
+      ),
+    ).resolves.toBe('\uFEFForderId,orderNo\r\norder-1,HY202607010001');
+    expect(service.exportAdminOrdersCsv).toHaveBeenCalledWith({
+      keyword: 'HY202607',
+      status: undefined,
+      statuses: ['loading', 'transporting'],
+      createdFromIso: '2026-07-01T00:00:00.000Z',
+      createdToIso: '2026-07-31T00:00:00.000Z',
+    });
+  });
+
+  it('returns admin order detail for the authenticated admin', async () => {
+    const service = {
+      getAdminOrder: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        orderNo: 'HY202607010001',
+        shipperId: 'shipper-1',
+        status: 'transporting',
+      }),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.getAdminOrder(createRequest('admin-1', 'admin'), 'order-1'),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'order-1',
+        orderNo: 'HY202607010001',
+        shipperId: 'shipper-1',
+        status: 'transporting',
+      },
+      requestId: 'req_order_test',
+    });
+    expect(service.getAdminOrder).toHaveBeenCalledWith('order-1');
+  });
+
+  it('cancels a waiting order for the authenticated admin', async () => {
+    const service = {
+      cancelAdminOrder: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        status: 'cancelled',
+      }),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      cancelAdminOrderForTest(
+        controller,
+        createRequest('admin-1', 'admin'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          reasonText: '后台取消',
+          description: '运营按筛选结果批量清理 waiting 单',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { id: 'order-1', status: 'cancelled' },
+      requestId: 'req_order_test',
+    });
+    expect(service.cancelAdminOrder).toHaveBeenCalledWith(
+      'admin-1',
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        reasonText: '后台取消',
+        description: '运营按筛选结果批量清理 waiting 单',
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
+    );
+  });
+
+  it('rejects missing idempotency keys before cancelling admin orders', async () => {
+    const service = {
+      cancelAdminOrder: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      cancelAdminOrderForTest(
+        controller,
+        createRequest('admin-1', 'admin'),
+        'order-1',
+        undefined,
+        {
+          reasonText: '后台取消',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        'Idempotency-Key 无效',
+      ),
+    );
+    expect(service.cancelAdminOrder).not.toHaveBeenCalled();
+  });
+
   it('lists order attachment audit summaries for the authenticated admin', async () => {
     const service = {
       listAdminOrderAttachmentAudits: jest.fn().mockResolvedValue({
@@ -290,7 +643,7 @@ describe('OrdersController', () => {
         total: 1,
       }),
     } as unknown as OrdersService;
-    const controller = new AdminOrderAttachmentsController(service);
+    const controller = new AdminOrdersController(service);
 
     await expect(
       controller.listOrderAttachmentAudits(createRequest('admin-1', 'admin'), {
@@ -350,7 +703,7 @@ describe('OrdersController', () => {
         total: 1,
       }),
     } as unknown as OrdersService;
-    const controller = new AdminOrderAttachmentsController(service);
+    const controller = new AdminOrdersController(service);
 
     await expect(
       controller.listOrderAttachmentAudits(createRequest('admin-1', 'admin'), {
@@ -391,7 +744,7 @@ describe('OrdersController', () => {
     const service = {
       listAdminOrderAttachmentAudits: jest.fn(),
     } as unknown as OrdersService;
-    const controller = new AdminOrderAttachmentsController(service);
+    const controller = new AdminOrdersController(service);
 
     await expect(
       controller.listOrderAttachmentAudits(
@@ -404,11 +757,93 @@ describe('OrdersController', () => {
     expect(service.listAdminOrderAttachmentAudits).not.toHaveBeenCalled();
   });
 
+  it('rejects non-admin users before listing admin orders', async () => {
+    const service = {
+      listAdminOrders: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.listAdminOrders(createRequest('shipper-1', 'shipper'), {}),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.listAdminOrders).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-admin users before reading admin order report', async () => {
+    const service = {
+      getAdminOrderReport: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.getAdminOrderReport(createRequest('shipper-1', 'shipper'), {}),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.getAdminOrderReport).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-admin users before exporting admin orders', async () => {
+    const service = {
+      exportAdminOrdersCsv: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.exportAdminOrders(createRequest('shipper-1', 'shipper'), {}),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.exportAdminOrdersCsv).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-admin users before reading admin order detail', async () => {
+    const service = {
+      getAdminOrder: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.getAdminOrder(
+        createRequest('shipper-1', 'shipper'),
+        'order-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.getAdminOrder).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-admin users before cancelling admin orders', async () => {
+    const service = {
+      cancelAdminOrder: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      cancelAdminOrderForTest(
+        controller,
+        createRequest('shipper-1', 'shipper'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          reasonText: '后台取消',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.cancelAdminOrder).not.toHaveBeenCalled();
+  });
+
   it('rejects non-admin users before reading order attachment audit', async () => {
     const service = {
       getAdminOrderAttachmentAudit: jest.fn(),
     } as unknown as OrdersService;
-    const controller = new AdminOrderAttachmentsController(service);
+    const controller = new AdminOrdersController(service);
 
     await expect(
       controller.getOrderAttachmentAudit(
