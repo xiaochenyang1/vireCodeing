@@ -8,7 +8,7 @@ import {
 export type PlatformGeocodeResult = {
   latitude: number;
   longitude: number;
-  provider: 'sandbox';
+  provider: 'sandbox' | 'amap';
   formattedAddress: string;
 };
 

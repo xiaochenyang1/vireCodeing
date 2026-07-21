@@ -29,6 +29,7 @@ const RATE_LIMIT_ERROR_CODES = new Set<string>([
 ]);
 const UPSTREAM_ERROR_CODES = new Set<string>([
   ApiErrorCode.AUTH_CODE_DELIVERY_FAILED,
+  ApiErrorCode.MAP_PROVIDER_UNAVAILABLE,
   ApiErrorCode.PAYMENT_CHANNEL_UNAVAILABLE,
   ApiErrorCode.REFUND_PROVIDER_FAILED,
 ]);

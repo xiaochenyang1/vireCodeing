@@ -5,7 +5,7 @@ export type GeocodeRequest = {
 export type GeocodeResponse = {
   latitude: number;
   longitude: number;
-  provider: 'sandbox';
+  provider: 'sandbox' | 'amap';
   formattedAddress: string;
 };
 

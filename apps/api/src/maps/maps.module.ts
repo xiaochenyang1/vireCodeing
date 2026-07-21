@@ -7,13 +7,17 @@ import {
   PrismaOrdersRepository,
   type PrismaOrdersClient,
 } from '../orders/orders.repository';
+import { AmapMapProvider } from './amap-map.provider';
 import { MapsController } from './maps.controller';
 import {
   PrismaMapsRepository,
   type MapsOrdersLookup,
 } from './maps.repository';
 import { MapsService } from './maps.service';
+import type { MapProvider } from './map-provider';
 import { SandboxMapProvider } from './sandbox-map.provider';
+
+export const MAP_PROVIDER = Symbol('MAP_PROVIDER');
 
 @Module({
   imports: [AuthModule, PrismaModule],
@@ -40,23 +44,47 @@ import { SandboxMapProvider } from './sandbox-map.provider';
       inject: [PrismaService, PrismaOrdersRepository],
     },
     {
-      provide: SandboxMapProvider,
-      useFactory: () => new SandboxMapProvider(),
+      provide: MAP_PROVIDER,
+      useFactory: () => createMapProviderFromEnv(process.env),
     },
     {
       provide: MapsService,
       useFactory: (
         repository: PrismaMapsRepository,
-        mapProvider: SandboxMapProvider,
+        mapProvider: MapProvider,
       ) => new MapsService(repository, mapProvider, () => new Date()),
-      inject: [PrismaMapsRepository, SandboxMapProvider],
+      inject: [PrismaMapsRepository, MAP_PROVIDER],
     },
     ShipperOnlyGuard,
     DriverOnlyGuard,
   ],
-  exports: [MapsService, SandboxMapProvider],
+  exports: [MapsService, MAP_PROVIDER],
 })
 export class MapsModule {}
+
+export function createMapProviderFromEnv(
+  env: NodeJS.ProcessEnv,
+): MapProvider {
+  const provider = env.MAP_PROVIDER || 'sandbox';
+
+  if (provider === 'sandbox') {
+    return new SandboxMapProvider();
+  }
+
+  if (provider === 'amap') {
+    return new AmapMapProvider({
+      webKey: requireEnv(env, 'AMAP_WEB_KEY'),
+      ...(env.AMAP_API_BASE_URL
+        ? { apiBaseUrl: env.AMAP_API_BASE_URL }
+        : {}),
+      ...(env.AMAP_TIMEOUT_MS
+        ? { timeoutMs: Number(env.AMAP_TIMEOUT_MS) }
+        : {}),
+    });
+  }
+
+  throw new Error(`Unsupported MAP_PROVIDER: ${provider}`);
+}
 
 function createOrdersLookup(
   ordersRepository: PrismaOrdersRepository,
@@ -93,4 +121,12 @@ function createOrdersLookup(
       };
     },
   };
+}
+
+function requireEnv(env: NodeJS.ProcessEnv, key: string) {
+  const value = env[key];
+  if (!value) {
+    throw new Error(`${key} is required`);
+  }
+  return value;
 }

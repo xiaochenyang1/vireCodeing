@@ -1,21 +1,20 @@
+export type MapProviderName = 'sandbox' | 'amap';
+
 export type MapCoordinates = {
   latitude: number;
   longitude: number;
 };
 
 export type GeocodeResult = MapCoordinates & {
-  provider: 'sandbox';
+  provider: MapProviderName;
   formattedAddress: string;
 };
 
 export interface MapProvider {
-  readonly name: 'sandbox';
+  readonly name: MapProviderName;
   geocode(address: string): Promise<GeocodeResult>;
   reverseGeocode(coordinates: MapCoordinates): Promise<GeocodeResult>;
-  estimateDistanceMeters(
-    from: MapCoordinates,
-    to: MapCoordinates,
-  ): number;
+  estimateDistanceMeters(from: MapCoordinates, to: MapCoordinates): number;
 }
 
 const EARTH_RADIUS_METERS = 6_371_000;

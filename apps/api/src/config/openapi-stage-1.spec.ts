@@ -985,6 +985,8 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('deliveryLongitude');
     expect(source).toContain('DRIVER_LOCATION_NOT_FOUND');
     expect(source).toContain('DRIVER_LOCATION_ORDER_INVALID');
+    expect(source).toContain('enum: [sandbox, amap]');
+    expect(source).toContain('MAP_PROVIDER_UNAVAILABLE');
   });
 
   it('documents notifications first-slice inbox endpoints', () => {

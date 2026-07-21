@@ -81,7 +81,10 @@ const envSchema = z.object({
     .optional(),
   FILE_PREVIEW_SIGNING_SECRET: z.string().optional(),
   FILE_STORAGE_CALLBACK_SIGNING_SECRET: z.string().optional(),
-  MAP_PROVIDER: z.enum(['sandbox']).default('sandbox'),
+  MAP_PROVIDER: z.enum(['sandbox', 'amap']).default('sandbox'),
+  AMAP_WEB_KEY: z.string().min(1).optional(),
+  AMAP_API_BASE_URL: z.string().url().optional(),
+  AMAP_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   FILE_STORAGE_PROVIDER: z
     .enum(['local', 's3-compatible'])
     .default('local'),
@@ -124,10 +127,12 @@ export function parseEnv(input: NodeJS.ProcessEnv): ApiEnv {
     validateProductionFilePreviewConfig(parsed.data);
     validateProductionFileStorageCallbackConfig(parsed.data);
     validateProductionPaymentConfig(parsed.data);
+    validateProductionMapConfig(parsed.data);
   }
 
   validateWebhookSmsConfig(parsed.data);
   validateS3CompatibleFileStorageConfig(parsed.data);
+  validateAmapMapConfig(parsed.data);
   validatePaymentConfig(parsed.data);
 
   return parsed.data;
@@ -293,5 +298,29 @@ function validateWebhookSmsConfig(env: ApiEnv): void {
 
   if (!env.SMS_WEBHOOK_TOKEN) {
     throw new Error('SMS_WEBHOOK_TOKEN is required when SMS_PROVIDER=webhook');
+  }
+}
+
+function validateProductionMapConfig(env: ApiEnv): void {
+  if (env.MAP_PROVIDER === 'sandbox') {
+    throw new Error('Production map provider must not use sandbox');
+  }
+
+  if (env.MAP_PROVIDER === 'amap' && !env.AMAP_WEB_KEY) {
+    throw new Error('Production AMAP_WEB_KEY is required when MAP_PROVIDER=amap');
+  }
+}
+
+function validateAmapMapConfig(env: ApiEnv): void {
+  if (env.MAP_PROVIDER !== 'amap') {
+    return;
+  }
+
+  if (!env.AMAP_WEB_KEY) {
+    throw new Error('AMAP_WEB_KEY is required when MAP_PROVIDER=amap');
+  }
+
+  if ((env.AMAP_WEB_KEY?.length ?? 0) < 16) {
+    throw new Error('AMAP_WEB_KEY must be at least 16 characters');
   }
 }

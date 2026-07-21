@@ -26,6 +26,7 @@ describe('parseEnv', () => {
       PAYMENT_PROVIDER_MODE: 'disabled',
       PAYMENT_PLATFORM_FEE_BPS: 500,
       PAYMENT_ORDER_TTL_SECONDS: 900,
+      MAP_PROVIDER: 'sandbox',
       FILE_STORAGE_PROVIDER: 'local',
       FILE_STORAGE_ROOT: 'var/uploads',
       FILE_PENDING_CLEANUP_INTERVAL_SECONDS: 3600,
@@ -110,6 +111,10 @@ describe('parseEnv', () => {
         createProductionEnv({
           PAYMENT_PROVIDER_MODE: 'alipay',
           PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
+          ALIPAY_APP_ID: undefined,
+          ALIPAY_SELLER_ID: undefined,
+          ALIPAY_MERCHANT_PRIVATE_KEY_PEM: undefined,
+          ALIPAY_PUBLIC_KEY_PEM: undefined,
         }),
       ),
     ).toThrow('Alipay payment config is incomplete');
@@ -153,6 +158,8 @@ describe('parseEnv', () => {
           'production-file-preview-secret-32-chars',
         FILE_STORAGE_CALLBACK_SIGNING_SECRET:
           'production-file-callback-secret-32-chars',
+        MAP_PROVIDER: 'amap',
+        AMAP_WEB_KEY: 'production-amap-web-key-16',
         PAYMENT_PROVIDER_MODE: 'alipay',
         PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
         ALIPAY_APP_ID: 'alipay-app-id',
@@ -171,6 +178,8 @@ describe('parseEnv', () => {
         'production-file-preview-secret-32-chars',
       FILE_STORAGE_CALLBACK_SIGNING_SECRET:
         'production-file-callback-secret-32-chars',
+      MAP_PROVIDER: 'amap',
+      AMAP_WEB_KEY: 'production-amap-web-key-16',
     });
   });
 
@@ -422,6 +431,45 @@ describe('parseEnv', () => {
       }),
     ).toThrow('Production JWT access secret must be at least 32 characters');
   });
+
+  it('rejects sandbox map provider in production', () => {
+    expect(() =>
+      parseEnv(
+        createProductionEnv({
+          MAP_PROVIDER: 'sandbox',
+          AMAP_WEB_KEY: undefined,
+        }),
+      ),
+    ).toThrow('Production map provider must not use sandbox');
+  });
+
+  it('requires AMAP_WEB_KEY when MAP_PROVIDER=amap', () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        MAP_PROVIDER: 'amap',
+      }),
+    ).toThrow('AMAP_WEB_KEY is required when MAP_PROVIDER=amap');
+  });
+
+  it('parses amap map provider configuration', () => {
+    expect(
+      parseEnv({
+        NODE_ENV: 'development',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        MAP_PROVIDER: 'amap',
+        AMAP_WEB_KEY: 'development-amap-web-key',
+        AMAP_TIMEOUT_MS: '8000',
+      }),
+    ).toMatchObject({
+      MAP_PROVIDER: 'amap',
+      AMAP_WEB_KEY: 'development-amap-web-key',
+      AMAP_TIMEOUT_MS: 8000,
+    });
+  });
 });
 
 const rsaPrivateKeyFixture = '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----';
@@ -441,6 +489,14 @@ function createProductionEnv(
       'production-file-preview-secret-32-chars',
     FILE_STORAGE_CALLBACK_SIGNING_SECRET:
       'production-file-callback-secret-32-chars',
+    MAP_PROVIDER: 'amap',
+    AMAP_WEB_KEY: 'production-amap-web-key-16',
+    PAYMENT_PROVIDER_MODE: 'alipay',
+    PAYMENT_CALLBACK_BASE_URL: 'https://api.example.com/api',
+    ALIPAY_APP_ID: 'alipay-app-id',
+    ALIPAY_SELLER_ID: 'seller-id',
+    ALIPAY_MERCHANT_PRIVATE_KEY_PEM: rsaPrivateKeyFixture,
+    ALIPAY_PUBLIC_KEY_PEM: rsaPublicKeyFixture,
     ...overrides,
   };
 }

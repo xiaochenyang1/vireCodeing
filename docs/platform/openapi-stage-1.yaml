@@ -138,7 +138,7 @@ paths:
   /maps/geocode:
     post:
       summary: Geocode an address through the configured map provider
-      description: First slice defaults to sandbox deterministic coordinates. Not real geography.
+      description: Defaults to sandbox deterministic coordinates. MAP_PROVIDER=amap uses Amap Web Service geocode. Not an in-app map SDK.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - $ref: '#/components/parameters/BearerAuthHeader'
@@ -157,6 +157,12 @@ paths:
                 $ref: '#/components/schemas/GeocodeResponse'
         '400':
           description: MAP_ADDRESS_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: MAP_PROVIDER_UNAVAILABLE
           content:
             application/json:
               schema:
@@ -10916,7 +10922,7 @@ components:
           format: double
         provider:
           type: string
-          enum: [sandbox]
+          enum: [sandbox, amap]
         formattedAddress:
           type: string
     GeocodeResponse:
