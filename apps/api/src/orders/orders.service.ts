@@ -41,6 +41,7 @@ import type {
 } from './orders.repository';
 import { assertOrderCanCompleteFinancially } from '../payments/payment-domain';
 import type { NotificationsService } from '../notifications/notifications.service';
+import type { MapsService } from '../maps/maps.service';
 
 const defaultAdminOrderReportQuery: AdminOrderReportQuery = {
   topShippersLimit: 5,
@@ -55,6 +56,7 @@ export class OrdersService {
     private readonly now: () => Date = () => new Date(),
     private readonly orderMutationIdempotencyTtlSeconds = 86400,
     private readonly notificationsService?: NotificationsService,
+    private readonly mapsService?: MapsService,
   ) {}
 
   async createOrder(
@@ -80,6 +82,8 @@ export class OrdersService {
       'cargo',
     );
 
+    const enrichedInput = await this.enrichOrderCoordinates(input);
+
     const order = this.unwrapOrderCreateResult(
       await this.repository.executeIdempotentOrderCreate({
         actorUserId: shipperId,
@@ -87,7 +91,7 @@ export class OrdersService {
         idempotencyKey,
         requestFingerprint,
         expiresAtIso: this.createOrderMutationExpiresAtIso(),
-        input,
+        input: enrichedInput,
       }),
     ).order;
 
@@ -399,6 +403,8 @@ export class OrdersService {
       'cargo',
     );
 
+    const enrichedMutationInput = await this.enrichOrderCoordinates(mutationInput);
+
     const mutationResult = await this.repository.executeIdempotentOrderMutation({
         actorUserId: shipperId,
         orderId,
@@ -409,7 +415,7 @@ export class OrdersService {
         expiresAtIso: this.createOrderMutationExpiresAtIso(),
         mutation: {
           type: 'shipper_update',
-          input: mutationInput,
+          input: enrichedMutationInput,
         },
       });
 
@@ -787,6 +793,69 @@ export class OrdersService {
     } catch {
       // Inbox/push is best-effort and must not break order mutations.
     }
+  }
+
+  private async enrichOrderCoordinates<
+    T extends {
+      pickupAddress: string;
+      deliveryAddress: string;
+      pickupLatitude?: number;
+      pickupLongitude?: number;
+      pickupGeocodeStatus?: 'manual' | 'sandbox' | 'amap';
+      deliveryLatitude?: number;
+      deliveryLongitude?: number;
+      deliveryGeocodeStatus?: 'manual' | 'sandbox' | 'amap';
+    },
+  >(input: T): Promise<T> {
+    if (!this.mapsService) {
+      return input;
+    }
+
+    const next = { ...input };
+
+    const needsPickup =
+      next.pickupLatitude === undefined || next.pickupLongitude === undefined;
+    const needsDelivery =
+      next.deliveryLatitude === undefined ||
+      next.deliveryLongitude === undefined;
+
+    if (!needsPickup && !needsDelivery) {
+      return next;
+    }
+
+    if (needsPickup) {
+      try {
+        const geocoded = await this.mapsService.geocode({
+          address: next.pickupAddress,
+        });
+        next.pickupLatitude = geocoded.latitude;
+        next.pickupLongitude = geocoded.longitude;
+        next.pickupGeocodeStatus =
+          geocoded.provider === 'amap' ? 'amap' : 'sandbox';
+      } catch {
+        // Geocode is best-effort; address text remains authoritative.
+      }
+    } else if (!next.pickupGeocodeStatus) {
+      next.pickupGeocodeStatus = 'manual';
+    }
+
+    if (needsDelivery) {
+      try {
+        const geocoded = await this.mapsService.geocode({
+          address: next.deliveryAddress,
+        });
+        next.deliveryLatitude = geocoded.latitude;
+        next.deliveryLongitude = geocoded.longitude;
+        next.deliveryGeocodeStatus =
+          geocoded.provider === 'amap' ? 'amap' : 'sandbox';
+      } catch {
+        // Geocode is best-effort; address text remains authoritative.
+      }
+    } else if (!next.deliveryGeocodeStatus) {
+      next.deliveryGeocodeStatus = 'manual';
+    }
+
+    return next;
   }
 
   private async safeNotifyExceptionEvent(input: {

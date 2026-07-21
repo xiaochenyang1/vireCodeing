@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   GeocodeRequest,
+  ReverseGeocodeRequest,
   ReportDriverLocationRequest,
 } from './dto';
 
@@ -20,6 +21,11 @@ export const geocodeRequestSchema = z.object({
     .trim()
     .min(2, '地址至少 2 个字')
     .max(200, '地址最多 200 个字'),
+});
+
+export const reverseGeocodeRequestSchema = z.object({
+  latitude: latitudeSchema,
+  longitude: coordinateSchema,
 });
 
 export const reportDriverLocationSchema = z.object({
@@ -43,6 +49,12 @@ export const reportDriverLocationSchema = z.object({
 
 export function parseGeocodeRequest(input: unknown): GeocodeRequest {
   return geocodeRequestSchema.parse(input);
+}
+
+export function parseReverseGeocodeRequest(
+  input: unknown,
+): ReverseGeocodeRequest {
+  return reverseGeocodeRequestSchema.parse(input);
 }
 
 export function parseReportDriverLocationRequest(

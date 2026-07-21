@@ -11,6 +11,8 @@ import { createFilePreviewUrlSignerConfigFromEnv } from '../files/file-preview-u
 import { LocalFilePreviewUrlSigner } from '../files/file-preview-url.signer';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MapsModule } from '../maps/maps.module';
+import { MapsService } from '../maps/maps.service';
 import {
   AdminOrdersController,
   OrdersController,
@@ -23,7 +25,7 @@ import { createOrderMutationIdempotencyConfigFromEnv } from './order-mutation-id
 import { OrdersService } from './orders.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule, NotificationsModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule, MapsModule],
   controllers: [OrdersController, AdminOrdersController],
   providers: [
     {
@@ -56,6 +58,7 @@ import { OrdersService } from './orders.service';
         filesRepository: PrismaFilesRepository,
         previewUrlSigner: LocalFilePreviewUrlSigner,
         notificationsService: NotificationsService,
+        mapsService: MapsService,
       ) =>
         new OrdersService(
           repository,
@@ -64,12 +67,14 @@ import { OrdersService } from './orders.service';
           () => new Date(),
           createOrderMutationIdempotencyConfigFromEnv(process.env).ttlSeconds,
           notificationsService,
+          mapsService,
         ),
       inject: [
         PrismaOrdersRepository,
         PrismaFilesRepository,
         LocalFilePreviewUrlSigner,
         NotificationsService,
+        MapsService,
       ],
     },
     AdminOnlyGuard,

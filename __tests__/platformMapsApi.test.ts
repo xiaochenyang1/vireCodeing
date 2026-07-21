@@ -51,6 +51,36 @@ describe('platform maps api', () => {
     await expect(api.geocode(' ')).rejects.toBeInstanceOf(PlatformApiError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('reverse geocodes coordinates', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        latitude: 22.61,
+        longitude: 113.91,
+        provider: 'sandbox',
+        formattedAddress: '沙箱坐标 22.610000,113.910000',
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformMapsApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.reverseGeocode({ latitude: 22.61, longitude: 113.91 }),
+    ).resolves.toMatchObject({
+      provider: 'sandbox',
+      formattedAddress: '沙箱坐标 22.610000,113.910000',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/maps/reverse-geocode',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ latitude: 22.61, longitude: 113.91 }),
+      }),
+    );
+  });
 });
 
 describe('maps navigation utils', () => {

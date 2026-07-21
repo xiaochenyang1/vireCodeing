@@ -15,6 +15,19 @@ describe('MapsService', () => {
     expect(result.longitude).toBeGreaterThan(113);
   });
 
+  it('reverse geocodes coordinates through the sandbox provider', async () => {
+    const service = createService();
+    const result = await service.reverseGeocode({
+      latitude: 22.61,
+      longitude: 113.91,
+    });
+
+    expect(result.provider).toBe('sandbox');
+    expect(result.latitude).toBe(22.61);
+    expect(result.longitude).toBe(113.91);
+    expect(result.formattedAddress).toContain('22.610000');
+  });
+
   it('reports a driver location and lets the shipper read it', async () => {
     const service = createService(createOrderContext());
 

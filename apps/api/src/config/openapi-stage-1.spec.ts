@@ -972,10 +972,12 @@ describe('stage 1 OpenAPI contract', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/maps/geocode:');
+    expect(source).toContain('/maps/reverse-geocode:');
     expect(source).toContain('/driver/location:');
     expect(source).toContain('/shipper/orders/{orderId}/driver-location:');
     expect(source).toContain('/driver/orders/{orderId}/navigation-targets:');
     expect(source).toContain('GeocodeRequest');
+    expect(source).toContain('ReverseGeocodeRequest');
     expect(source).toContain('ReportDriverLocationRequest');
     expect(source).toContain('DriverLocationSnapshot');
     expect(source).toContain('DriverNavigationTargets');

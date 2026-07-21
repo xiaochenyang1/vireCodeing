@@ -167,6 +167,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /maps/reverse-geocode:
+    post:
+      summary: Reverse geocode coordinates through the configured map provider
+      description: Defaults to sandbox formatted address text. MAP_PROVIDER=amap uses Amap Web Service regeo.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseGeocodeRequest'
+      responses:
+        '200':
+          description: Reverse geocode success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeocodeResponse'
+        '400':
+          description: MAP_COORDINATES_INVALID or MAP_ADDRESS_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: MAP_PROVIDER_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /driver/location:
     post:
       summary: Report the current driver location snapshot
@@ -10910,6 +10942,22 @@ components:
           minLength: 2
           maxLength: 200
           example: 宝安区福永物流园
+    ReverseGeocodeRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          example: 22.61
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          example: 113.91
     GeocodeResult:
       type: object
       required: [latitude, longitude, provider, formattedAddress]

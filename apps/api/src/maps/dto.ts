@@ -2,6 +2,11 @@ export type GeocodeRequest = {
   address: string;
 };
 
+export type ReverseGeocodeRequest = {
+  latitude: number;
+  longitude: number;
+};
+
 export type GeocodeResponse = {
   latitude: number;
   longitude: number;

@@ -15,13 +15,19 @@ import { DriverOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import type { GeocodeRequest, ReportDriverLocationRequest } from './dto';
+import type {
+  GeocodeRequest,
+  ReverseGeocodeRequest,
+  ReportDriverLocationRequest,
+} from './dto';
 import { MapsService } from './maps.service';
 import {
   geocodeRequestSchema,
   parseGeocodeRequest,
   parseOrderId,
+  parseReverseGeocodeRequest,
   parseReportDriverLocationRequest,
+  reverseGeocodeRequestSchema,
   reportDriverLocationSchema,
 } from './maps.validation';
 
@@ -38,6 +44,20 @@ export class MapsController {
     assertAuthenticated(request);
     return ok(
       await this.mapsService.geocode(parseGeocodeRequest(body)),
+      getRequestId(request),
+    );
+  }
+
+  @Post('maps/reverse-geocode')
+  @UseGuards(AccessTokenGuard)
+  async reverseGeocode(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(reverseGeocodeRequestSchema))
+    body: ReverseGeocodeRequest,
+  ) {
+    assertAuthenticated(request);
+    return ok(
+      await this.mapsService.reverseGeocode(parseReverseGeocodeRequest(body)),
       getRequestId(request),
     );
   }

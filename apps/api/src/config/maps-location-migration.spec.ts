@@ -34,6 +34,26 @@ describe('maps location first slice migration', () => {
     );
   });
 
+  it('extends geocode status enum with amap provider value', () => {
+    const amapMigrationSql = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        'prisma',
+        'migrations',
+        '20260721040000_map_geocode_status_amap',
+        'migration.sql',
+      ),
+      'utf8',
+    );
+
+    expect(schema).toContain('amap');
+    expect(amapMigrationSql).toContain(
+      'ALTER TYPE "OrderLocationGeocodeStatus" ADD VALUE \'amap\'',
+    );
+  });
+
   it('creates the driver location snapshot table', () => {
     expect(schema).toContain('model DriverLocationSnapshot');
     expect(schema).toContain('enum DriverLocationSource');

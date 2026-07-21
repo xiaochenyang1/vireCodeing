@@ -2195,6 +2195,7 @@ function createPrismaOrderCreateData(
           ...createLocationCoordinateWrite(
             input.pickupLatitude,
             input.pickupLongitude,
+            input.pickupGeocodeStatus,
           ),
         },
         {
@@ -2206,6 +2207,7 @@ function createPrismaOrderCreateData(
           ...createLocationCoordinateWrite(
             input.deliveryLatitude,
             input.deliveryLongitude,
+            input.deliveryGeocodeStatus,
           ),
         },
       ],
@@ -2901,6 +2903,7 @@ async function applyPrismaOrderMutation(
           ...createLocationCoordinateWrite(
             input.mutation.input.pickupLatitude,
             input.mutation.input.pickupLongitude,
+            input.mutation.input.pickupGeocodeStatus,
           ),
         },
       });
@@ -2917,6 +2920,7 @@ async function applyPrismaOrderMutation(
           ...createLocationCoordinateWrite(
             input.mutation.input.deliveryLatitude,
             input.mutation.input.deliveryLongitude,
+            input.mutation.input.deliveryGeocodeStatus,
           ),
         },
       });
@@ -4378,6 +4382,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 ...createLocationCoordinateWrite(
                   input.pickupLatitude,
                   input.pickupLongitude,
+                  input.pickupGeocodeStatus,
                 ),
               },
             },
@@ -4393,6 +4398,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 ...createLocationCoordinateWrite(
                   input.deliveryLatitude,
                   input.deliveryLongitude,
+                  input.deliveryGeocodeStatus,
                 ),
               },
             },
@@ -5458,6 +5464,7 @@ function isAppealActorRelated(
 function createLocationCoordinateWrite(
   latitude?: number,
   longitude?: number,
+  geocodeStatus: 'sandbox' | 'manual' | 'amap' = 'manual',
 ) {
   if (latitude === undefined || longitude === undefined) {
     return {};
@@ -5466,7 +5473,7 @@ function createLocationCoordinateWrite(
   return {
     latitude,
     longitude,
-    geocodeStatus: 'manual' as const,
+    geocodeStatus,
     geocodedAt: new Date(),
   };
 }

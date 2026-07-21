@@ -27,12 +27,14 @@ export type CreateShipperOrderRequest = {
   pickupPhone: string;
   pickupLatitude?: number;
   pickupLongitude?: number;
+  pickupGeocodeStatus?: 'manual' | 'sandbox' | 'amap';
   deliveryAddress: string;
   deliveryNoteText?: string;
   deliveryContact: string;
   deliveryPhone: string;
   deliveryLatitude?: number;
   deliveryLongitude?: number;
+  deliveryGeocodeStatus?: 'manual' | 'sandbox' | 'amap';
   vehicleRequirement: string;
   vehicleLengthText?: string;
   needTailboard: boolean;

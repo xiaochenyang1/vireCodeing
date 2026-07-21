@@ -81,6 +81,7 @@ enum OrderLocationGeocodeStatus {
   none
   sandbox
   manual
+  amap
   failed
 }
 

@@ -49,6 +49,15 @@ export function createPlatformMapsApi(config: PlatformApiConfig) {
         { address: normalizedAddress },
       );
     },
+    async reverseGeocode(request: { latitude: number; longitude: number }) {
+      const latitude = normalizeCoordinate(request.latitude, 'latitude');
+      const longitude = normalizeCoordinate(request.longitude, 'longitude');
+
+      return platformPost<
+        { latitude: number; longitude: number },
+        PlatformGeocodeResult
+      >(config, '/maps/reverse-geocode', { latitude, longitude });
+    },
     async reportDriverLocation(request: {
       latitude: number;
       longitude: number;
@@ -101,6 +110,37 @@ function normalizeAddress(address: string) {
   }
 
   return normalizedAddress;
+}
+
+function normalizeCoordinate(
+  value: number,
+  kind: 'latitude' | 'longitude',
+) {
+  if (!Number.isFinite(value)) {
+    throw new PlatformApiError(
+      `Platform map ${kind} is invalid`,
+      'PLATFORM_MAP_COORDINATES_INVALID',
+      0,
+    );
+  }
+
+  if (kind === 'latitude' && Math.abs(value) > 90) {
+    throw new PlatformApiError(
+      'Platform map latitude is invalid',
+      'PLATFORM_MAP_COORDINATES_INVALID',
+      0,
+    );
+  }
+
+  if (kind === 'longitude' && Math.abs(value) > 180) {
+    throw new PlatformApiError(
+      'Platform map longitude is invalid',
+      'PLATFORM_MAP_COORDINATES_INVALID',
+      0,
+    );
+  }
+
+  return value;
 }
 
 function normalizeOrderId(orderId: string) {

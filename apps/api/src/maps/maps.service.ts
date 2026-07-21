@@ -3,6 +3,7 @@ import type {
   DriverLocationSnapshotRecord,
   DriverNavigationTargetsRecord,
   GeocodeRequest,
+  ReverseGeocodeRequest,
   ReportDriverLocationRequest,
 } from './dto';
 import type { MapProvider } from './map-provider';
@@ -34,6 +35,14 @@ export class MapsService {
     }
 
     return this.mapProvider.geocode(address);
+  }
+
+  async reverseGeocode(request: ReverseGeocodeRequest) {
+    assertCoordinates(request.latitude, request.longitude);
+    return this.mapProvider.reverseGeocode({
+      latitude: request.latitude,
+      longitude: request.longitude,
+    });
   }
 
   async reportDriverLocation(
