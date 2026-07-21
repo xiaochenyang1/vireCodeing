@@ -33,6 +33,7 @@ export function TrackingCard({
   const [detailText, setDetailText] = useState(
     `预计到达：${order.updatedAtText}`,
   );
+  const [sourceText, setSourceText] = useState('本地轨迹');
   const [notice, setNotice] = useState(
     '本地演示：真实定位、路线规划和轨迹刷新后续接入地图服务。',
   );
@@ -55,6 +56,7 @@ export function TrackingCard({
           snapshot.longitude,
         );
 
+        setSourceText(getTrackingSourceText(snapshot.source));
         setLocationText(`司机位置：${coordinateText}`);
         setDetailText(`更新时间：${snapshot.recordedAtIso}`);
 
@@ -97,6 +99,7 @@ export function TrackingCard({
             ? '司机尚未上报位置，仍展示本地演示轨迹。'
             : '司机位置加载失败，仍展示本地演示轨迹。',
         );
+        setSourceText('本地轨迹');
       });
 
     return () => {
@@ -122,7 +125,9 @@ export function TrackingCard({
             <Text style={styles.driverMeta}>{driver.vehicleText}</Text>
           </View>
           <View style={styles.driverRatingPill}>
-            <Text style={styles.driverRatingText}>本地轨迹</Text>
+            <Text testID="order-tracking-source" style={styles.driverRatingText}>
+              {sourceText}
+            </Text>
           </View>
         </View>
         <Text style={styles.detailMeta}>{locationText}</Text>
@@ -138,4 +143,16 @@ export function TrackingCard({
       </View>
     </View>
   );
+}
+
+function getTrackingSourceText(source: 'manual' | 'device' | 'sandbox') {
+  if (source === 'device') {
+    return '设备定位';
+  }
+
+  if (source === 'manual') {
+    return '人工上报';
+  }
+
+  return '沙箱位置';
 }

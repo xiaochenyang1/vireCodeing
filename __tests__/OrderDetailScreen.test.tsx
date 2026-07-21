@@ -398,6 +398,10 @@ describe('OrderDetailScreen tracking', () => {
       '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:00:00.000Z',
     );
     expect(renderedText).toContain('已读取司机最新上报位置。');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+        .children,
+    ).toBe('沙箱位置');
   });
 
   it('falls back to coordinates when reverse geocoding fails', async () => {
@@ -435,5 +439,9 @@ describe('OrderDetailScreen tracking', () => {
     expect(renderedText).toContain('司机位置：22.610000, 113.910000');
     expect(renderedText).toContain('更新时间：2026-07-21T10:05:00.000Z');
     expect(renderedText).toContain('司机位置地址解析失败，仍展示坐标。');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+        .children,
+    ).toBe('沙箱位置');
   });
 });
