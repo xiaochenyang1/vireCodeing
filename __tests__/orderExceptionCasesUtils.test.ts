@@ -1,4 +1,6 @@
 import {
+  canAppealOrderExceptionCase,
+  getOrderExceptionCaseAppealStatusText,
   getOrderExceptionCaseCompensationStatusText,
   getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseCompensationTargetText,
@@ -29,6 +31,12 @@ describe('order exception case utilities', () => {
     expect(
       getOrderExceptionCaseCompensationStatusText('offline_completed'),
     ).toBe('线下已赔付');
+    expect(getOrderExceptionCaseCompensationStatusText('executed')).toBe(
+      '平台已赔付到账',
+    );
+    expect(getOrderExceptionCaseAppealStatusText('requested')).toBe(
+      '申诉处理中',
+    );
     expect(getOrderExceptionCaseCompensationTargetText('shipper')).toBe('货主');
     expect(getOrderExceptionCaseCompensationTargetText('driver')).toBe('司机');
     expect(
@@ -46,6 +54,13 @@ describe('order exception case utilities', () => {
     ).toBe(
       '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥88.00 · 更新时间：2026-07-12T08:30:00.000Z',
     );
+    expect(
+      getOrderExceptionCaseCompensationSummary({
+        compensationStatus: 'executed',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      }),
+    ).toBe('赔付决议：平台已赔付到账 · 对象：货主 · 金额：￥36.00');
     expect(
       getOrderExceptionCaseCompensationSummary({
         compensationStatus: 'offline_completed',
@@ -67,6 +82,27 @@ describe('order exception case utilities', () => {
       ),
     ).toBe('赔付决议：线下已赔付 · 对象：货主 · 金额：￥12.50');
     expect(getOrderExceptionCaseCompensationSummary({})).toBeUndefined();
+    expect(
+      canAppealOrderExceptionCase({
+        status: 'resolved',
+        compensationStatus: 'pending',
+        appealStatus: 'none',
+      }),
+    ).toBe(true);
+    expect(
+      canAppealOrderExceptionCase({
+        status: 'resolved',
+        compensationStatus: 'executed',
+        appealStatus: 'none',
+      }),
+    ).toBe(false);
+    expect(
+      canAppealOrderExceptionCase({
+        status: 'resolved',
+        compensationStatus: 'pending',
+        appealStatus: 'requested',
+      }),
+    ).toBe(false);
   });
 
   it('formats compact latest exception summaries', () => {

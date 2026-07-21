@@ -934,6 +934,51 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('EXCEPTION_CASE_CONFLICT');
   });
 
+  it('documents exception case compensation execution and appeal workflows', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain(
+      '/admin/order-exception-cases/{caseId}/compensation/execute:',
+    );
+    expect(source).toContain(
+      '/shipper/orders/{orderId}/exception-cases/{caseId}/appeal:',
+    );
+    expect(source).toContain(
+      '/driver/orders/{orderId}/exception-cases/{caseId}/appeal:',
+    );
+    expect(source).toContain('ExecuteOrderExceptionCaseCompensationRequest');
+    expect(source).toContain('AppealOrderExceptionCaseRequest');
+    expect(source).toContain('OrderExceptionCaseAppealStatus');
+    expect(source).toContain('compensationTransactionId');
+    expect(source).toContain('compensationExecutedAtIso');
+    expect(source).toContain('appealStatus');
+    expect(source).toContain('appealReason');
+    expect(source).toContain('exception_compensation_executed');
+    expect(source).toContain('exception_appeal_requested');
+    expect(source).toContain('EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE');
+    expect(source).toContain('EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED');
+    expect(source).toContain('EXCEPTION_CASE_APPEAL_NOT_ALLOWED');
+  });
+
+  it('documents maps location first-slice endpoints and optional order coordinates', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/maps/geocode:');
+    expect(source).toContain('/driver/location:');
+    expect(source).toContain('/shipper/orders/{orderId}/driver-location:');
+    expect(source).toContain('/driver/orders/{orderId}/navigation-targets:');
+    expect(source).toContain('GeocodeRequest');
+    expect(source).toContain('ReportDriverLocationRequest');
+    expect(source).toContain('DriverLocationSnapshot');
+    expect(source).toContain('DriverNavigationTargets');
+    expect(source).toContain('pickupLatitude');
+    expect(source).toContain('pickupLongitude');
+    expect(source).toContain('deliveryLatitude');
+    expect(source).toContain('deliveryLongitude');
+    expect(source).toContain('DRIVER_LOCATION_NOT_FOUND');
+    expect(source).toContain('DRIVER_LOCATION_ORDER_INVALID');
+  });
+
   it('documents driver identity and vehicle certification endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

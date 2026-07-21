@@ -51,6 +51,105 @@ paths:
                 message: 验证码发送失败
                 requestId: req_local
                 timestamp: '2026-06-26T06:00:00.000Z'
+  /maps/geocode:
+    post:
+      summary: Geocode an address through the configured map provider
+      description: First slice defaults to sandbox deterministic coordinates. Not real geography.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeocodeRequest'
+      responses:
+        '200':
+          description: Geocode success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeocodeResponse'
+        '400':
+          description: MAP_ADDRESS_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /driver/location:
+    post:
+      summary: Report the current driver location snapshot
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportDriverLocationRequest'
+      responses:
+        '200':
+          description: Location snapshot saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverLocationSnapshotResponse'
+        '409':
+          description: DRIVER_LOCATION_ORDER_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /shipper/orders/{orderId}/driver-location:
+    get:
+      summary: Read the assigned driver latest location for a shipper order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Latest driver location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverLocationSnapshotResponse'
+        '404':
+          description: ORDER_NOT_FOUND or DRIVER_LOCATION_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /driver/orders/{orderId}/navigation-targets:
+    get:
+      summary: Read pickup and delivery navigation targets for an assigned driver order
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Navigation targets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverNavigationTargetsResponse'
+        '404':
+          description: ORDER_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/login:
     post:
       summary: Login with phone and verification code
@@ -4476,6 +4575,73 @@ paths:
       responses:
         '200': { description: Case closed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
         '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /admin/order-exception-cases/{caseId}/compensation/execute:
+    post:
+      summary: Execute a resolved pending compensation through the financial ledger
+      description: >-
+        Moves a resolved case with compensationStatus=pending to compensationStatus=executed by
+        creating a balanced order_compensation ledger transaction. Driver compensation credits the
+        driver wallet; shipper compensation records an offline clearing entry. The platform funds the
+        compensation (platform_revenue is debited). Requires an Idempotency-Key and the case
+        baseUpdatedAtIso. The transaction is created once per case (FinancialTransaction is unique on
+        type + caseId); a replayed key returns the same executed case. This slice does not support
+        multi-party split compensation, original-channel card refunds, or appeal multi-level review.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExecuteOrderExceptionCaseCompensationRequest' }
+      responses:
+        '200': { description: Compensation executed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409':
+          description: >-
+            EXCEPTION_CASE_CONFLICT, EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE,
+            EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED or IDEMPOTENCY_KEY_REUSED
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '404': { description: EXCEPTION_CASE_NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /shipper/orders/{orderId}/exception-cases/{caseId}/appeal:
+    post:
+      summary: Appeal a resolved exception case as the order shipper
+      description: >-
+        Lets the order shipper reopen a resolved case (that has not had compensation executed) back to
+        processing with an appeal reason. Requires the case baseUpdatedAtIso. Unrelated users receive
+        EXCEPTION_CASE_NOT_FOUND. Executed compensation or an already-requested appeal returns
+        EXCEPTION_CASE_APPEAL_NOT_ALLOWED.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppealOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case reopened for appeal, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '404': { description: EXCEPTION_CASE_NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+        '409': { description: EXCEPTION_CASE_CONFLICT or EXCEPTION_CASE_APPEAL_NOT_ALLOWED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /driver/orders/{orderId}/exception-cases/{caseId}/appeal:
+    post:
+      summary: Appeal a resolved exception case as the accepted driver
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: orderId, in: path, required: true, schema: { type: string } }
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppealOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case reopened for appeal, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '404': { description: EXCEPTION_CASE_NOT_FOUND, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+        '409': { description: EXCEPTION_CASE_CONFLICT or EXCEPTION_CASE_APPEAL_NOT_ALLOWED, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
   /admin/auth/sessions:
     get:
       summary: List admin-managed active sessions
@@ -5092,6 +5258,14 @@ paths:
                 timestamp: '2026-07-15T12:02:00.000Z'
 components:
   parameters:
+    BearerAuthHeader:
+      name: Authorization
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Bearer access token
+      example: Bearer access-token
     RequestIdHeader:
       name: x-request-id
       in: header
@@ -5455,6 +5629,20 @@ components:
           type: string
           pattern: '^1[3-9]\d{9}$'
           example: '13800138001'
+        pickupLatitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Optional pickup latitude. Must be paired with pickupLongitude.
+          example: 22.6
+        pickupLongitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Optional pickup longitude. Must be paired with pickupLatitude.
+          example: 113.9
         deliveryAddress:
           type: string
           minLength: 1
@@ -5471,6 +5659,20 @@ components:
           type: string
           pattern: '^1[3-9]\d{9}$'
           example: '13800138002'
+        deliveryLatitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Optional delivery latitude. Must be paired with deliveryLongitude.
+          example: 22.7
+        deliveryLongitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Optional delivery longitude. Must be paired with deliveryLatitude.
+          example: 114.1
         vehicleRequirement:
           type: string
           minLength: 1
@@ -6213,6 +6415,8 @@ components:
             - driver_exception_reported
             - evaluation_replied
             - shipper_evaluation_submitted
+            - exception_compensation_executed
+            - exception_appeal_requested
           example: driver_quote_submitted
         actorUserId:
           type: string
@@ -10284,9 +10488,24 @@ components:
       enum: [shipper, driver]
     OrderExceptionCaseCompensationStatus:
       type: string
-      description: Compensation decision snapshot only. It does not trigger a real payment, refund or payout workflow in this first slice.
-      enum: [not_required, pending, offline_completed]
+      description: >-
+        Compensation decision and execution state. not_required, pending and
+        offline_completed are decision snapshots. executed means the platform has
+        posted a balanced order_compensation ledger transaction (crediting the
+        driver wallet for a driver target, or an offline_clearing entry for a
+        shipper target). This first slice covers platform-funded, single-currency,
+        single execution; it does not cover multi-party cost sharing, original-card
+        refunds or payout-channel settlement.
+      enum: [not_required, pending, offline_completed, executed]
       example: pending
+    OrderExceptionCaseAppealStatus:
+      type: string
+      description: >-
+        Appeal lifecycle for a resolved case. requested reopens the case to
+        processing for a second customer-service review. rejected and accepted are
+        reserved for a later slice and are not yet produced by any endpoint.
+      enum: [none, requested, rejected, accepted]
+      example: none
     OrderExceptionCaseActionRecord:
       type: object
       required: [id, adminUserId, fromStatus, toStatus, content, createdAtIso]
@@ -10299,7 +10518,7 @@ components:
         createdAtIso: { type: string, format: date-time }
     OrderExceptionCaseRecord:
       type: object
-      required: [id, caseNo, orderId, orderNo, sourceEventId, reporterUserId, sourceRole, typeLabel, description, attachmentFileIds, status, createdAtIso, updatedAtIso, actions]
+      required: [id, caseNo, orderId, orderNo, sourceEventId, reporterUserId, sourceRole, typeLabel, description, attachmentFileIds, status, appealStatus, createdAtIso, updatedAtIso, actions]
       properties:
         id: { type: string }
         caseNo: { type: string, example: YC202607120001 }
@@ -10327,6 +10546,23 @@ components:
           type: string
           format: date-time
           example: '2026-07-18T08:30:00.000Z'
+        compensationTransactionId:
+          type: string
+          description: Linked balanced financial ledger transaction id when compensationStatus is executed.
+        compensationExecutedAtIso:
+          type: string
+          format: date-time
+          description: Time the compensation was executed against the financial ledger.
+        appealStatus:
+          $ref: '#/components/schemas/OrderExceptionCaseAppealStatus'
+        appealReason:
+          type: string
+          minLength: 6
+          maxLength: 500
+          description: Latest appeal reason submitted by the related shipper or accepted driver.
+        appealRequestedAtIso:
+          type: string
+          format: date-time
         resolvedAtIso: { type: string, format: date-time }
         closedAtIso: { type: string, format: date-time }
         createdAtIso: { type: string, format: date-time }
@@ -10359,7 +10595,32 @@ components:
               minimum: 1
               maximum: 100000000
               example: 3600
-          description: Compensation decision first slice. not_required forbids target and amount; pending or offline_completed require both fields.
+          description: Compensation decision first slice. not_required forbids target and amount; pending or offline_completed require both fields. This step records the decision only; use the compensation/execute endpoint to move money.
+    ExecuteOrderExceptionCaseCompensationRequest:
+      type: object
+      required: [baseUpdatedAtIso, idempotencyKey, content]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 200
+          description: Replaying the same key returns the first execution result without creating a second ledger transaction.
+        content: { type: string, minLength: 6, maxLength: 500 }
+      description: Executes a resolved case whose compensation is pending. The platform books a balanced order_compensation ledger transaction; driver targets are credited to the driver wallet, shipper targets are cleared offline.
+    AppealOrderExceptionCaseRequest:
+      type: object
+      required: [baseUpdatedAtIso, reason]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+        reason: { type: string, minLength: 6, maxLength: 500 }
+      description: The related shipper or accepted driver reopens a resolved case that has not been executed, moving it back to processing.
     OrderExceptionCaseListData:
       type: object
       required: [items, total]
@@ -10442,6 +10703,134 @@ components:
         timestamp:
           type: string
           format: date-time
+
+    GeocodeRequest:
+      type: object
+      required: [address]
+      properties:
+        address:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: 宝安区福永物流园
+    GeocodeResult:
+      type: object
+      required: [latitude, longitude, provider, formattedAddress]
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        provider:
+          type: string
+          enum: [sandbox]
+        formattedAddress:
+          type: string
+    GeocodeResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/GeocodeResult'
+    ReportDriverLocationRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+        accuracyMeters:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 5000
+        orderId:
+          type: string
+          maxLength: 120
+        source:
+          type: string
+          enum: [manual, device, sandbox]
+    DriverLocationSnapshot:
+      type: object
+      required: [driverId, latitude, longitude, source, recordedAtIso, updatedAtIso]
+      properties:
+        driverId:
+          type: string
+        orderId:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        accuracyMeters:
+          type: number
+          format: double
+        source:
+          type: string
+          enum: [manual, device, sandbox]
+        recordedAtIso:
+          type: string
+          format: date-time
+        updatedAtIso:
+          type: string
+          format: date-time
+    DriverLocationSnapshotResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverLocationSnapshot'
+    NavigationTarget:
+      type: object
+      required: [type, address, contactName, contactPhone]
+      properties:
+        type:
+          type: string
+          enum: [pickup, delivery]
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        contactName:
+          type: string
+        contactPhone:
+          type: string
+    DriverNavigationTargets:
+      type: object
+      required: [orderId, orderNo, targets]
+      properties:
+        orderId:
+          type: string
+        orderNo:
+          type: string
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/NavigationTarget'
+    DriverNavigationTargetsResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverNavigationTargets'
     ErrorResponse:
       type: object
       required: [code, message, requestId, timestamp]

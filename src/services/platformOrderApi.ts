@@ -101,6 +101,11 @@ export type PlatformSubmitShipperOrderChangeRequest = {
   description: string;
 };
 
+export type PlatformAppealOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  reason: string;
+};
+
 export type PlatformSubmitShipperOrderEvaluationRequest = {
   rating: number;
   tags: string[];
@@ -120,9 +125,15 @@ export type PlatformOrderExceptionCaseSourceRole = 'shipper' | 'driver';
 export type PlatformOrderExceptionCaseCompensationStatus =
   | 'not_required'
   | 'pending'
-  | 'offline_completed';
+  | 'offline_completed'
+  | 'executed';
 export type PlatformOrderExceptionCaseCompensationTargetRole =
   PlatformOrderExceptionCaseSourceRole;
+export type PlatformOrderExceptionCaseAppealStatus =
+  | 'none'
+  | 'requested'
+  | 'rejected'
+  | 'accepted';
 
 export type PlatformOrderLatestExceptionCase = {
   id: string;
@@ -136,6 +147,10 @@ export type PlatformOrderLatestExceptionCase = {
   compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
   compensationUpdatedAtIso?: string;
+  compensationExecutedAtIso?: string;
+  appealStatus?: PlatformOrderExceptionCaseAppealStatus;
+  appealReason?: string;
+  appealRequestedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
 };
@@ -188,6 +203,11 @@ export type PlatformOrderExceptionCase = {
   compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
   compensationUpdatedAtIso?: string;
+  compensationTransactionId?: string;
+  compensationExecutedAtIso?: string;
+  appealStatus: PlatformOrderExceptionCaseAppealStatus;
+  appealReason?: string;
+  appealRequestedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   createdAtIso: string;
@@ -387,6 +407,24 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         PlatformSubmitShipperOrderEvaluationRequest,
         PlatformShipperOrder
       >(config, `/shipper/orders/${normalizedOrderId}/evaluation`, normalizedRequest);
+    },
+    async appealExceptionCase(
+      orderId: string,
+      caseId: string,
+      request: PlatformAppealOrderExceptionCaseRequest,
+    ) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+      const normalizedRequest = normalizeAppealExceptionCaseRequest(request);
+
+      return platformPost<
+        PlatformAppealOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/exception-cases/${normalizedCaseId}/appeal`,
+        normalizedRequest,
+      );
     },
   };
 }
@@ -972,6 +1010,74 @@ function normalizeReportExceptionRequest(
   };
 }
 
+function normalizeExceptionCaseId(caseId: string) {
+  const caseIdInput = caseId as unknown;
+
+  if (typeof caseIdInput !== 'string') {
+    throw new PlatformApiError(
+      'Platform exception case id must be a string',
+      'PLATFORM_ORDER_EXCEPTION_CASE_ID_INVALID',
+      0,
+    );
+  }
+
+  const normalizedCaseId = caseIdInput.trim();
+
+  if (!normalizedCaseId) {
+    throw new PlatformApiError(
+      'Platform exception case id is required',
+      'PLATFORM_ORDER_EXCEPTION_CASE_ID_INVALID',
+      0,
+    );
+  }
+
+  return normalizedCaseId;
+}
+
+function normalizeAppealExceptionCaseRequest(
+  request: PlatformAppealOrderExceptionCaseRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform order exception appeal request must be an object',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+  );
+  const reasonInput = request.reason as unknown;
+
+  if (typeof reasonInput !== 'string') {
+    throw new PlatformApiError(
+      'Platform order exception appeal reason must be a string',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const reason = reasonInput.trim();
+
+  if (reason.length < 6 || reason.length > 500) {
+    throw new PlatformApiError(
+      'Platform order exception appeal reason is invalid',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  return { baseUpdatedAtIso, reason };
+}
+
 function normalizeSubmitChangeRequest(
   request: PlatformSubmitShipperOrderChangeRequest,
 ) {
@@ -1225,7 +1331,8 @@ function normalizeOrderMutationBaseUpdatedAtIso(
     | 'PLATFORM_ORDER_REQUEST_INVALID'
     | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
-    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(

@@ -461,6 +461,9 @@ describe('BusinessErrorFilter', () => {
   it.each([
     ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
     ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+    ApiErrorCode.EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE,
+    ApiErrorCode.EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED,
+    ApiErrorCode.EXCEPTION_CASE_APPEAL_NOT_ALLOWED,
   ])('maps %s to conflict', code => {
     const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
     const { host, status } = createHost();

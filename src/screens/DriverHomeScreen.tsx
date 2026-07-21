@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -18,6 +19,11 @@ import type {
   PlatformDriverWithdrawalRecord,
   createPlatformDriverOrderApi,
 } from '../services/platformDriverOrderApi';
+import type {
+  PlatformNavigationTarget,
+  createPlatformMapsApi,
+} from '../services/platformMapsApi';
+import { buildExternalNavigationUrls } from '../utils/mapsNavigation';
 import type {
   PlatformDriverCertificationSnapshot,
   createPlatformDriverCertificationApi,
@@ -107,18 +113,24 @@ type PlatformDriverCertificationApi = ReturnType<
 >;
 type DriverPlatformFileApi = PlatformFileUploadConfirmationApi &
   Pick<ReturnType<typeof createPlatformFileApi>, 'createUploadIntent'>;
+type PlatformMapsApi = Pick<
+  ReturnType<typeof createPlatformMapsApi>,
+  'getDriverNavigationTargets' | 'reportDriverLocation'
+>;
 
 
 export function DriverHomeScreen({
   platformDriverOrderApi,
   platformDriverCertificationApi,
   platformFileApi,
+  platformMapsApi,
   driverAccountId = 'local-driver',
   onLogout,
 }: {
   platformDriverOrderApi?: PlatformDriverOrderApi;
   platformDriverCertificationApi?: PlatformDriverCertificationApi;
   platformFileApi?: DriverPlatformFileApi;
+  platformMapsApi?: PlatformMapsApi;
   driverAccountId?: string;
   onLogout: () => void;
 }) {
@@ -134,6 +146,11 @@ export function DriverHomeScreen({
   const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
     useState(false);
   const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
+  const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
+  const [appealingCaseId, setAppealingCaseId] = useState<string>();
+  const [navigationTargets, setNavigationTargets] = useState<
+    PlatformNavigationTarget[]
+  >([]);
   const [certification, setCertification] =
     useState<PlatformDriverCertificationSnapshot>();
   const [incomeOverview, setIncomeOverview] =
@@ -579,6 +596,9 @@ export function DriverHomeScreen({
 
     setExceptionCases([]);
     setExceptionCaseNotice(undefined);
+    setAppealDrafts({});
+    setAppealingCaseId(undefined);
+    setNavigationTargets([]);
     setIsLoadingExceptionCases(true);
     platformDriverOrderApi
       .getOrder(order.id)
@@ -604,6 +624,137 @@ export function DriverHomeScreen({
       })
       .finally(() => {
         setIsLoadingExceptionCases(false);
+      });
+    if (platformMapsApi) {
+      platformMapsApi
+        .getDriverNavigationTargets(order.id)
+        .then(result => {
+          setNavigationTargets(Array.isArray(result?.targets) ? result.targets : []);
+        })
+        .catch(() => {
+          setNavigationTargets([
+            {
+              type: 'pickup',
+              address: order.pickupAddress,
+              contactName: order.pickupContact,
+              contactPhone: order.pickupPhone,
+            },
+            {
+              type: 'delivery',
+              address: order.deliveryAddress,
+              contactName: order.deliveryContact,
+              contactPhone: order.deliveryPhone,
+            },
+          ]);
+        });
+    } else {
+      setNavigationTargets([
+        {
+          type: 'pickup',
+          address: order.pickupAddress,
+          contactName: order.pickupContact,
+          contactPhone: order.pickupPhone,
+        },
+        {
+          type: 'delivery',
+          address: order.deliveryAddress,
+          contactName: order.deliveryContact,
+          contactPhone: order.deliveryPhone,
+        },
+      ]);
+    }
+  };
+
+  const openDriverNavigation = (target: PlatformNavigationTarget) => {
+    const urls = buildExternalNavigationUrls({
+      label: target.type === 'pickup' ? '装货点' : '卸货点',
+      address: target.address,
+      latitude: target.latitude,
+      longitude: target.longitude,
+    });
+    Linking.openURL(urls.geo).catch(() => {
+      setNotice('无法打开导航应用，请检查本机是否安装地图 App。');
+    });
+  };
+
+  const reportSandboxDriverLocation = () => {
+    if (!platformMapsApi || !selectedOrder) {
+      setNotice('上报位置需要平台 API 配置。');
+      return;
+    }
+
+    const pickup = navigationTargets.find(item => item.type === 'pickup');
+    const latitude = pickup?.latitude ?? 22.6;
+    const longitude = pickup?.longitude ?? 113.9;
+    platformMapsApi
+      .reportDriverLocation({
+        latitude,
+        longitude,
+        orderId: selectedOrder.id,
+        source: 'sandbox',
+        accuracyMeters: 25,
+      })
+      .then(() => {
+        setNotice('已上报 sandbox 司机位置。');
+      })
+      .catch(error => {
+        setNotice(
+          error instanceof PlatformApiError
+            ? error.message || '司机位置上报失败。'
+            : '司机位置上报失败。',
+        );
+      });
+  };
+
+  const submitExceptionCaseAppeal = (
+    exceptionCase: PlatformOrderExceptionCase,
+  ) => {
+    if (!platformDriverOrderApi || !selectedOrder) {
+      setExceptionCaseNotice('异常工单申诉需要平台登录后才能提交。');
+      return;
+    }
+
+    const reason = (appealDrafts[exceptionCase.id] ?? '').trim();
+    if (reason.length < 6 || reason.length > 500) {
+      setExceptionCaseNotice('请填写 6-500 字申诉理由。');
+      return;
+    }
+
+    setAppealingCaseId(exceptionCase.id);
+    setExceptionCaseNotice(undefined);
+    platformDriverOrderApi
+      .appealExceptionCase(selectedOrder.id, exceptionCase.id, {
+        baseUpdatedAtIso: exceptionCase.updatedAtIso,
+        reason,
+      })
+      .then(updatedCase => {
+        setExceptionCases(currentCases =>
+          currentCases.map(item =>
+            item.id === updatedCase.id ? updatedCase : item,
+          ),
+        );
+        setAppealDrafts(currentDrafts => {
+          const nextDrafts = { ...currentDrafts };
+          delete nextDrafts[exceptionCase.id];
+          return nextDrafts;
+        });
+        setExceptionCaseNotice('申诉已提交，客服将重新处理该工单。');
+      })
+      .catch(error => {
+        setExceptionCaseNotice(
+          error instanceof PlatformApiError
+            ? error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? '登录状态已失效，请重新登录后再提交申诉。'
+              : error.code === 'EXCEPTION_CASE_CONFLICT'
+                ? '异常工单已被更新，请刷新后重试申诉。'
+                : error.code === 'EXCEPTION_CASE_APPEAL_NOT_ALLOWED'
+                  ? '当前工单状态不允许申诉。'
+                  : error.message || '申诉提交失败，请稍后重试。'
+            : '申诉提交失败，请稍后重试。',
+        );
+      })
+      .finally(() => {
+        setAppealingCaseId(undefined);
       });
   };
 
@@ -1856,6 +2007,34 @@ export function DriverHomeScreen({
           <Text style={styles.detailMeta}>
             卸货：{selectedOrder.deliveryContact} {selectedOrder.deliveryPhone}
           </Text>
+          {navigationTargets.length > 0 ? (
+            <View style={styles.detailInlineGroup}>
+              <Text style={styles.draftSectionTitle}>导航与位置</Text>
+              {navigationTargets.map(target => (
+                <Pressable
+                  key={`${target.type}-${target.address}`}
+                  testID={`driver-navigate-${target.type}-${selectedOrder.orderNo}`}
+                  style={styles.detailSecondaryButton}
+                  onPress={() => openDriverNavigation(target)}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    外跳导航到{target.type === 'pickup' ? '装货点' : '卸货点'}
+                  </Text>
+                </Pressable>
+              ))}
+              {platformMapsApi ? (
+                <Pressable
+                  testID={`driver-report-location-${selectedOrder.orderNo}`}
+                  style={styles.detailSecondaryButton}
+                  onPress={reportSandboxDriverLocation}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    上报 sandbox 位置
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           <Text style={styles.detailMeta}>
             事件记录：{selectedOrder.events?.length ?? 0} 条
           </Text>
@@ -1868,6 +2047,19 @@ export function DriverHomeScreen({
             cases={exceptionCases}
             isLoading={isLoadingExceptionCases}
             notice={exceptionCaseNotice}
+            appealDrafts={appealDrafts}
+            appealingCaseId={appealingCaseId}
+            onChangeAppealReason={(caseId, reason) =>
+              setAppealDrafts(currentDrafts => ({
+                ...currentDrafts,
+                [caseId]: reason,
+              }))
+            }
+            onSubmitAppeal={
+              platformDriverOrderApi?.appealExceptionCase
+                ? submitExceptionCaseAppeal
+                : undefined
+            }
           />
           {canDriverReportException(selectedOrder.status) ? (
             <View style={styles.detailInlineGroup}>

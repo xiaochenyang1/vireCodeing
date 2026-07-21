@@ -8,9 +8,15 @@ export type OrderExceptionCaseSourceRole = 'shipper' | 'driver';
 export type OrderExceptionCaseCompensationStatus =
   | 'not_required'
   | 'pending'
-  | 'offline_completed';
+  | 'offline_completed'
+  | 'executed';
 export type OrderExceptionCaseCompensationTargetRole =
   OrderExceptionCaseSourceRole;
+export type OrderExceptionCaseAppealStatus =
+  | 'none'
+  | 'requested'
+  | 'rejected'
+  | 'accepted';
 
 export type OrderExceptionCaseActionRecord = {
   id: string;
@@ -38,6 +44,11 @@ export type OrderExceptionCaseRecord = {
   compensationTargetRole?: OrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
   compensationUpdatedAtIso?: string;
+  compensationTransactionId?: string;
+  compensationExecutedAtIso?: string;
+  appealStatus: OrderExceptionCaseAppealStatus;
+  appealReason?: string;
+  appealRequestedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   createdAtIso: string;
@@ -71,4 +82,15 @@ export type ResolveOrderExceptionCaseRequest = UpdateOrderExceptionCaseRequest &
   compensationStatus: OrderExceptionCaseCompensationStatus;
   compensationTargetRole?: OrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
+};
+
+export type ExecuteOrderExceptionCaseCompensationRequest = {
+  baseUpdatedAtIso: string;
+  idempotencyKey: string;
+  content: string;
+};
+
+export type AppealOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  reason: string;
 };

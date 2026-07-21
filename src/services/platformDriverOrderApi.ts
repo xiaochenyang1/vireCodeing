@@ -6,6 +6,8 @@ import {
   type PlatformApiConfig,
 } from './platformApiClient';
 import type {
+  PlatformAppealOrderExceptionCaseRequest,
+  PlatformOrderExceptionCase,
   PlatformOrderExceptionCaseListResult,
   PlatformShipperOrder,
   PlatformShipperOrderStatus,
@@ -241,6 +243,26 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       return platformGet<PlatformOrderExceptionCaseListResult>(
         config,
         `/driver/orders/${normalizedOrderId}/exception-cases`,
+      );
+    },
+    async appealExceptionCase(
+      orderId: string,
+      caseId: string,
+      request: PlatformAppealOrderExceptionCaseRequest,
+    ) {
+      const normalizedOrderId = normalizeDriverOrderId(orderId);
+      const normalizedCaseId = normalizeDriverExceptionCaseId(caseId);
+      const normalizedRequest = normalizeDriverAppealExceptionCaseRequest(
+        request,
+      );
+
+      return platformPost<
+        PlatformAppealOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/driver/orders/${normalizedOrderId}/exception-cases/${normalizedCaseId}/appeal`,
+        normalizedRequest,
       );
     },
     async quoteOrder(orderId: string, request: PlatformDriverQuoteOrderRequest) {
@@ -964,11 +986,80 @@ function normalizeDriverOrderMutationIdempotencyKey(
   return normalizedValue;
 }
 
+function normalizeDriverExceptionCaseId(caseId: string) {
+  const caseIdInput = caseId as unknown;
+
+  if (typeof caseIdInput !== 'string') {
+    throw new PlatformApiError(
+      'Platform driver exception case id must be a string',
+      'PLATFORM_ORDER_EXCEPTION_CASE_ID_INVALID',
+      0,
+    );
+  }
+
+  const normalizedCaseId = caseIdInput.trim();
+
+  if (!normalizedCaseId) {
+    throw new PlatformApiError(
+      'Platform driver exception case id is required',
+      'PLATFORM_ORDER_EXCEPTION_CASE_ID_INVALID',
+      0,
+    );
+  }
+
+  return normalizedCaseId;
+}
+
+function normalizeDriverAppealExceptionCaseRequest(
+  request: PlatformAppealOrderExceptionCaseRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform driver exception appeal request must be an object',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const baseUpdatedAtIso = normalizeDriverOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+  );
+  const reasonInput = request.reason as unknown;
+
+  if (typeof reasonInput !== 'string') {
+    throw new PlatformApiError(
+      'Platform driver exception appeal reason must be a string',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const reason = reasonInput.trim();
+
+  if (reason.length < 6 || reason.length > 500) {
+    throw new PlatformApiError(
+      'Platform driver exception appeal reason is invalid',
+      'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  return { baseUpdatedAtIso, reason };
+}
+
 function normalizeDriverOrderMutationBaseUpdatedAtIso(
   value: unknown,
   errorCode:
     | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
-    | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID',
+    | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
+    | 'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(

@@ -67,6 +67,27 @@ enum OrderExceptionCaseCompensationStatus {
   not_required
   pending
   offline_completed
+  executed
+}
+
+enum OrderExceptionCaseAppealStatus {
+  none
+  requested
+  rejected
+  accepted
+}
+
+enum OrderLocationGeocodeStatus {
+  none
+  sandbox
+  manual
+  failed
+}
+
+enum DriverLocationSource {
+  manual
+  device
+  sandbox
 }
 
 model User {
@@ -106,6 +127,7 @@ model User {
   orderIdempotencyRecords     OrderIdempotencyRecord[]   @relation("OrderIdempotencyActor")
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
+  driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
 }
 
 model AuthSession {
@@ -223,6 +245,7 @@ enum FinancialTransactionType {
   offline_order_settlement
   online_refund
   driver_withdrawal
+  order_compensation
 }
 
 enum FinancialAccountType {
@@ -288,6 +311,7 @@ model Order {
   refunds              Refund[]
   settlement           Settlement?
   financialTransactions FinancialTransaction[]
+  driverLocationSnapshots DriverLocationSnapshot[]
 
   @@index([shipperId, status, createdAt], name: "Order_shipper_status_created_idx")
   @@index([shipperId, createdAt], name: "Order_shipper_created_idx")
@@ -308,16 +332,36 @@ model OrderCargo {
 }
 
 model OrderLocation {
-  id           String @id @default(uuid())
-  orderId      String
-  type         String
-  address      String
-  contactName  String
-  contactPhone String
-  noteText     String?
-  order        Order  @relation(fields: [orderId], references: [id])
+  id            String                     @id @default(uuid())
+  orderId       String
+  type          String
+  address       String
+  contactName   String
+  contactPhone  String
+  noteText      String?
+  latitude      Decimal?                   @db.Decimal(10, 7)
+  longitude     Decimal?                   @db.Decimal(10, 7)
+  geocodeStatus OrderLocationGeocodeStatus @default(none)
+  geocodedAt    DateTime?
+  order         Order                      @relation(fields: [orderId], references: [id])
 
   @@index([orderId, type], name: "OrderLocation_order_type_idx")
+}
+
+model DriverLocationSnapshot {
+  driverId       String               @id
+  orderId        String?
+  latitude       Decimal              @db.Decimal(10, 7)
+  longitude      Decimal              @db.Decimal(10, 7)
+  accuracyMeters Float?
+  source         DriverLocationSource @default(device)
+  recordedAt     DateTime
+  updatedAt      DateTime             @updatedAt
+  driver         User                 @relation("DriverLocationSnapshot", fields: [driverId], references: [id])
+  order          Order?               @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, recordedAt], name: "DriverLocationSnapshot_order_recorded_idx")
+  @@index([recordedAt], name: "DriverLocationSnapshot_recorded_idx")
 }
 
 model OrderRequirement {
@@ -378,6 +422,11 @@ model OrderExceptionCase {
   compensationTargetRole OrderExceptionCaseSourceRole?
   compensationAmountCents Int?
   compensationUpdatedAt DateTime?
+  compensationTransactionId String?                    @unique
+  compensationExecutedAt DateTime?
+  appealStatus      OrderExceptionCaseAppealStatus @default(none)
+  appealReason      String?
+  appealRequestedAt DateTime?
   resolvedAt        DateTime?
   closedAt          DateTime?
   createdAt         DateTime                     @default(now())
@@ -385,6 +434,7 @@ model OrderExceptionCase {
   order             Order                        @relation(fields: [orderId], references: [id])
   sourceEvent       OrderEvent                   @relation("ExceptionCaseSourceEvent", fields: [sourceEventId], references: [id])
   reporter          User                         @relation("ExceptionCaseReporter", fields: [reporterUserId], references: [id])
+  compensationTransaction FinancialTransaction?    @relation("ExceptionCaseCompensationTransaction", fields: [compensationTransactionId], references: [id])
   actions           OrderExceptionCaseAction[]
 
   @@index([status, createdAt], name: "OrderExceptionCase_status_created_idx")
@@ -699,6 +749,7 @@ model FinancialTransaction {
   refund             Refund?
   settlement         Settlement?
   driverWithdrawal   DriverWithdrawal?
+  exceptionCase      OrderExceptionCase?      @relation("ExceptionCaseCompensationTransaction")
 
   @@unique([type, referenceId], name: "FinancialTransaction_type_reference_unique")
   @@index([orderId, occurredAt], name: "FinancialTransaction_order_occurred_idx")

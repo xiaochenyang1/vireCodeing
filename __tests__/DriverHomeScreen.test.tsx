@@ -117,6 +117,7 @@ function createMockDriverOrderApi() {
     saveAcceptanceSettings: jest.fn(),
     getOrder: jest.fn(),
     listExceptionCases: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+    appealExceptionCase: jest.fn(),
     quoteOrder: jest.fn(),
     acceptOrder: jest.fn(),
     advanceOrderStatus: jest.fn(),

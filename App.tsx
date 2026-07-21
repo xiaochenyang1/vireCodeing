@@ -107,6 +107,7 @@ import {
   createPlatformPaymentApi,
   type PlatformPaymentSdk,
 } from './src/services/platformPaymentApi';
+import { createPlatformMapsApi } from './src/services/platformMapsApi';
 import { mapPlatformOrderToRecentOrder } from './src/services/platformOrderMapper';
 import { PlatformApiError } from './src/services/platformApiClient';
 import { resolvePlatformApiBaseUrl } from './src/services/platformRuntimeConfig';
@@ -277,6 +278,16 @@ function App({
     () =>
       resolvedPlatformApiBaseUrl
         ? createPlatformPaymentApi({
+            baseUrl: resolvedPlatformApiBaseUrl,
+            getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
+          })
+        : undefined,
+    [resolvedPlatformApiBaseUrl],
+  );
+  const platformMapsApi = useMemo(
+    () =>
+      resolvedPlatformApiBaseUrl
+        ? createPlatformMapsApi({
             baseUrl: resolvedPlatformApiBaseUrl,
             getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
           })
@@ -2430,6 +2441,7 @@ function App({
             platformDriverOrderApi={platformDriverOrderApi}
             platformDriverCertificationApi={platformDriverCertificationApi}
             platformFileApi={platformFileApi}
+            platformMapsApi={platformMapsApi}
             driverAccountId={authenticatedUser?.id}
             onLogout={handleLogout}
           />
@@ -2472,6 +2484,7 @@ function App({
             platformFileApi={platformFileApi}
             platformOrderApi={platformOrderApi}
             platformPaymentApi={platformPaymentApi}
+            platformMapsApi={platformMapsApi}
             platformPaymentSdk={paymentSdk}
           />
         ) : screen === 'orders' ? (

@@ -15,6 +15,7 @@ type OrderExceptionCaseSummarySnapshot = {
   compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
   compensationUpdatedAtIso?: string;
+  appealStatus?: PlatformOrderExceptionCase['appealStatus'];
 };
 
 export function getOrderExceptionCaseStatusText(
@@ -46,9 +47,43 @@ export function getOrderExceptionCaseCompensationStatusText(
     not_required: '无需赔付',
     pending: '待赔付跟进',
     offline_completed: '线下已赔付',
+    executed: '平台已赔付到账',
   };
 
   return textByStatus[status];
+}
+
+export function getOrderExceptionCaseAppealStatusText(
+  status: NonNullable<PlatformOrderExceptionCase['appealStatus']>,
+) {
+  const textByStatus: Record<
+    NonNullable<PlatformOrderExceptionCase['appealStatus']>,
+    string
+  > = {
+    none: '未申诉',
+    requested: '申诉处理中',
+    rejected: '申诉已驳回',
+    accepted: '申诉已受理',
+  };
+
+  return textByStatus[status];
+}
+
+export function canAppealOrderExceptionCase(
+  exceptionCase: Pick<
+    PlatformOrderExceptionCase,
+    'status' | 'compensationStatus' | 'appealStatus'
+  >,
+) {
+  if (exceptionCase.status !== 'resolved') {
+    return false;
+  }
+
+  if (exceptionCase.compensationStatus === 'executed') {
+    return false;
+  }
+
+  return (exceptionCase.appealStatus ?? 'none') === 'none';
 }
 
 export function getOrderExceptionCaseCompensationTargetText(

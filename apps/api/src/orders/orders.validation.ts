@@ -112,6 +112,19 @@ const adminOrderFilterSchemaShape = {
   createdToIso: optionalIsoDateString,
 } as const;
 
+const optionalCoordinateSchema = z
+  .number()
+  .finite('坐标必须是有效数字')
+  .optional();
+const optionalLatitudeSchema = optionalCoordinateSchema.refine(
+  value => value === undefined || Math.abs(value) <= 90,
+  '纬度必须在 -90 到 90 之间',
+);
+const optionalLongitudeSchema = optionalCoordinateSchema.refine(
+  value => value === undefined || Math.abs(value) <= 180,
+  '经度必须在 -180 到 180 之间',
+);
+
 const createShipperOrderSchemaShape = {
   cargoType: z.string().trim().min(1, '货物类型不能为空'),
   weightText: z.string().trim().min(1, '货物重量不能为空'),
@@ -124,10 +137,14 @@ const createShipperOrderSchemaShape = {
   pickupNoteText: z.string().trim().max(50).optional(),
   pickupContact: z.string().trim().min(1, '装货联系人不能为空'),
   pickupPhone: phoneSchema,
+  pickupLatitude: optionalLatitudeSchema,
+  pickupLongitude: optionalLongitudeSchema,
   deliveryAddress: z.string().trim().min(1, '卸货地址不能为空'),
   deliveryNoteText: z.string().trim().max(50).optional(),
   deliveryContact: z.string().trim().min(1, '卸货联系人不能为空'),
   deliveryPhone: phoneSchema,
+  deliveryLatitude: optionalLatitudeSchema,
+  deliveryLongitude: optionalLongitudeSchema,
   vehicleRequirement: z.string().trim().min(1, '车型要求不能为空'),
   vehicleLengthText: optionalTrimmedString,
   needTailboard: z.boolean(),
@@ -158,6 +175,21 @@ function refineCreateShipperOrder(
         path: ['deliveryAddress'],
       });
     }
+
+    refineCoordinatePair(
+      value.pickupLatitude,
+      value.pickupLongitude,
+      'pickupLatitude',
+      'pickupLongitude',
+      context,
+    );
+    refineCoordinatePair(
+      value.deliveryLatitude,
+      value.deliveryLongitude,
+      'deliveryLatitude',
+      'deliveryLongitude',
+      context,
+    );
 
     if (value.cargoPhotoFileIds?.length) {
       value.cargoPhotoCount = value.cargoPhotoFileIds.length;
@@ -471,4 +503,24 @@ export function parseSubmitShipperOrderEvaluationRequest(
   input: unknown,
 ): SubmitShipperOrderEvaluationRequest {
   return submitShipperOrderEvaluationSchema.parse(input);
+}
+
+function refineCoordinatePair(
+  latitude: number | undefined,
+  longitude: number | undefined,
+  latitudePath: string,
+  longitudePath: string,
+  context: z.RefinementCtx,
+) {
+  if (latitude === undefined && longitude === undefined) {
+    return;
+  }
+
+  if (latitude === undefined || longitude === undefined) {
+    context.addIssue({
+      code: 'custom',
+      message: '经纬度必须成对传入',
+      path: [latitude === undefined ? latitudePath : longitudePath],
+    });
+  }
 }

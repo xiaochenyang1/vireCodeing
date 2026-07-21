@@ -95,6 +95,19 @@ describe('financial ledger verification script', () => {
     );
   });
 
+  it('covers exception compensation execution and appeal in the financial ledger smoke', () => {
+    const source = readFileSync(runnerPath, 'utf8');
+
+    expect(source).toContain('runExceptionCompensationScenario');
+    expect(source).toContain('executeExceptionCompensation');
+    expect(source).toContain('appealShipperExceptionCase');
+    expect(source).toContain('/compensation/execute');
+    expect(source).toContain('order_compensation');
+    expect(source).toContain('offline_clearing');
+    expect(source).toContain('appealStatus');
+    expect(source).toContain('exceptionCompensation');
+  });
+
   it('exports an async main entrypoint', () => {
     expect(typeof runner.main).toBe('function');
   });

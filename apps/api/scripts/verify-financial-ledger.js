@@ -163,6 +163,13 @@ async function runFinancialLedgerSmoke({
     shipper,
     driver,
   });
+  const exceptionCompensation = await runExceptionCompensationScenario({
+    prisma,
+    apiClient,
+    shipper,
+    driver,
+    admin,
+  });
 
   return {
     onlinePaymentSingleWinner: onlineSettlement.paymentSingleWinner,
@@ -172,6 +179,7 @@ async function runFinancialLedgerSmoke({
     latePaymentRefund: refundFlow,
     withdrawals,
     lateFailureRollback,
+    exceptionCompensation,
   };
 }
 
@@ -991,6 +999,301 @@ async function runLateFailureRollbackScenario({
   };
 }
 
+async function runExceptionCompensationScenario({
+  prisma,
+  apiClient,
+  shipper,
+  driver,
+  admin,
+}) {
+  const driverOrder = await apiClient.createShipperOrder(
+    shipper.tokens.accessToken,
+    createCodOrderRequest('exception-comp-driver'),
+    randomUUID(),
+  );
+  let currentDriverOrder = await apiClient.acceptDriverOrder(
+    driver.tokens.accessToken,
+    driverOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: driverOrder.updatedAtIso,
+    },
+  );
+  currentDriverOrder = await apiClient.advanceDriverOrderStatus(
+    driver.tokens.accessToken,
+    driverOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: currentDriverOrder.updatedAtIso,
+      nextStatus: 'transporting',
+    },
+  );
+  await apiClient.reportShipperOrderException(
+    shipper.tokens.accessToken,
+    driverOrder.id,
+    {
+      typeLabel: '货损',
+      description: 'financial-ledger smoke driver compensation exception',
+    },
+  );
+
+  const driverCases = await apiClient.listShipperExceptionCases(
+    shipper.tokens.accessToken,
+    driverOrder.id,
+  );
+  assert.equal(driverCases.items.length, 1, '应生成一张异常工单');
+  let driverCase = driverCases.items[0];
+  driverCase = await apiClient.processExceptionCase(
+    admin.tokens.accessToken,
+    driverCase.id,
+    {
+      baseUpdatedAtIso: driverCase.updatedAtIso,
+      content: '客服已受理异常赔付测试工单。',
+    },
+  );
+  driverCase = await apiClient.resolveExceptionCase(
+    admin.tokens.accessToken,
+    driverCase.id,
+    {
+      baseUpdatedAtIso: driverCase.updatedAtIso,
+      content: '客服确认需要向司机赔付。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'driver',
+      compensationAmountCents: 2500,
+    },
+  );
+
+  const walletBefore = await prisma.driverWallet.findUnique({
+    where: {
+      driverId: driver.user.id,
+    },
+  });
+  const executeKey = randomUUID();
+  const executedDriverCase = await apiClient.executeExceptionCompensation(
+    admin.tokens.accessToken,
+    driverCase.id,
+    {
+      baseUpdatedAtIso: driverCase.updatedAtIso,
+      idempotencyKey: executeKey,
+      content: '平台确认执行司机赔付入账。',
+    },
+  );
+  const executedDriverCaseReplay = await apiClient.executeExceptionCompensation(
+    admin.tokens.accessToken,
+    driverCase.id,
+    {
+      baseUpdatedAtIso: driverCase.updatedAtIso,
+      idempotencyKey: executeKey,
+      content: '平台确认执行司机赔付入账。',
+    },
+  );
+  assert.equal(
+    executedDriverCase.compensationStatus,
+    'executed',
+    '司机赔付应执行成功',
+  );
+  assert.equal(
+    executedDriverCaseReplay.compensationTransactionId,
+    executedDriverCase.compensationTransactionId,
+    '重复执行应重放同一笔赔付流水',
+  );
+
+  const compensationTransactions = await prisma.financialTransaction.findMany({
+    where: {
+      type: 'order_compensation',
+      referenceId: driverCase.id,
+    },
+    include: {
+      entries: {
+        orderBy: {
+          sequence: 'asc',
+        },
+      },
+    },
+  });
+  assert.equal(compensationTransactions.length, 1, '司机赔付只能生成一笔流水');
+  assertLedgerBalanced(compensationTransactions[0].entries);
+  const walletAfterDriverCompensation = await prisma.driverWallet.findUnique({
+    where: {
+      driverId: driver.user.id,
+    },
+  });
+  assert.equal(
+    walletAfterDriverCompensation?.availableCents ?? 0,
+    (walletBefore?.availableCents ?? 0) + 2500,
+    '司机赔付应增加可提现余额',
+  );
+
+  const shipperOrder = await apiClient.createShipperOrder(
+    shipper.tokens.accessToken,
+    createCodOrderRequest('exception-comp-shipper'),
+    randomUUID(),
+  );
+  let currentShipperOrder = await apiClient.acceptDriverOrder(
+    driver.tokens.accessToken,
+    shipperOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: shipperOrder.updatedAtIso,
+    },
+  );
+  currentShipperOrder = await apiClient.advanceDriverOrderStatus(
+    driver.tokens.accessToken,
+    shipperOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: currentShipperOrder.updatedAtIso,
+      nextStatus: 'transporting',
+    },
+  );
+  await apiClient.reportShipperOrderException(
+    shipper.tokens.accessToken,
+    shipperOrder.id,
+    {
+      typeLabel: '货损',
+      description: 'financial-ledger smoke shipper compensation exception',
+    },
+  );
+  const shipperCases = await apiClient.listShipperExceptionCases(
+    shipper.tokens.accessToken,
+    shipperOrder.id,
+  );
+  let shipperCase = shipperCases.items[0];
+  shipperCase = await apiClient.processExceptionCase(
+    admin.tokens.accessToken,
+    shipperCase.id,
+    {
+      baseUpdatedAtIso: shipperCase.updatedAtIso,
+      content: '客服已受理货主赔付测试工单。',
+    },
+  );
+  shipperCase = await apiClient.resolveExceptionCase(
+    admin.tokens.accessToken,
+    shipperCase.id,
+    {
+      baseUpdatedAtIso: shipperCase.updatedAtIso,
+      content: '客服确认需要向货主赔付。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 1800,
+    },
+  );
+  const executedShipperCase = await apiClient.executeExceptionCompensation(
+    admin.tokens.accessToken,
+    shipperCase.id,
+    {
+      baseUpdatedAtIso: shipperCase.updatedAtIso,
+      idempotencyKey: randomUUID(),
+      content: '平台确认执行货主线下结清赔付。',
+    },
+  );
+  assert.equal(
+    executedShipperCase.compensationStatus,
+    'executed',
+    '货主赔付应执行成功',
+  );
+  const shipperCompensationTransaction =
+    await prisma.financialTransaction.findFirst({
+      where: {
+        type: 'order_compensation',
+        referenceId: shipperCase.id,
+      },
+      include: {
+        entries: {
+          orderBy: {
+            sequence: 'asc',
+          },
+        },
+      },
+    });
+  assert.ok(shipperCompensationTransaction, '货主赔付应生成流水');
+  assertLedgerBalanced(shipperCompensationTransaction.entries);
+  assert.ok(
+    shipperCompensationTransaction.entries.some(
+      entry =>
+        entry.accountType === 'offline_clearing' &&
+        entry.direction === 'credit' &&
+        entry.amountCents === 1800,
+    ),
+    '货主赔付应记 offline_clearing 贷方',
+  );
+
+  const appealOrder = await apiClient.createShipperOrder(
+    shipper.tokens.accessToken,
+    createCodOrderRequest('exception-comp-appeal'),
+    randomUUID(),
+  );
+  let currentAppealOrder = await apiClient.acceptDriverOrder(
+    driver.tokens.accessToken,
+    appealOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: appealOrder.updatedAtIso,
+    },
+  );
+  currentAppealOrder = await apiClient.advanceDriverOrderStatus(
+    driver.tokens.accessToken,
+    appealOrder.id,
+    randomUUID(),
+    {
+      baseUpdatedAtIso: currentAppealOrder.updatedAtIso,
+      nextStatus: 'transporting',
+    },
+  );
+  await apiClient.reportShipperOrderException(
+    shipper.tokens.accessToken,
+    appealOrder.id,
+    {
+      typeLabel: '货损',
+      description: 'financial-ledger smoke appeal exception',
+    },
+  );
+  const appealCases = await apiClient.listShipperExceptionCases(
+    shipper.tokens.accessToken,
+    appealOrder.id,
+  );
+  let appealCase = appealCases.items[0];
+  appealCase = await apiClient.processExceptionCase(
+    admin.tokens.accessToken,
+    appealCase.id,
+    {
+      baseUpdatedAtIso: appealCase.updatedAtIso,
+      content: '客服已受理申诉测试工单。',
+    },
+  );
+  appealCase = await apiClient.resolveExceptionCase(
+    admin.tokens.accessToken,
+    appealCase.id,
+    {
+      baseUpdatedAtIso: appealCase.updatedAtIso,
+      content: '客服判定暂不赔付，可申诉。',
+      compensationStatus: 'not_required',
+    },
+  );
+  const appealedCase = await apiClient.appealShipperExceptionCase(
+    shipper.tokens.accessToken,
+    appealOrder.id,
+    appealCase.id,
+    {
+      baseUpdatedAtIso: appealCase.updatedAtIso,
+      reason: '货主对处理结论不服，申请重新核定。',
+    },
+  );
+  assert.equal(appealedCase.status, 'processing', '申诉后应回退到处理中');
+  assert.equal(appealedCase.appealStatus, 'requested', '申诉状态应为 requested');
+
+  return {
+    driverCompensationCaseId: driverCase.id,
+    driverCompensationTransactionId:
+      executedDriverCase.compensationTransactionId,
+    shipperCompensationCaseId: shipperCase.id,
+    shipperCompensationTransactionId:
+      executedShipperCase.compensationTransactionId,
+    appealCaseId: appealCase.id,
+    appealStatus: appealedCase.appealStatus,
+  };
+}
+
 async function settleOrder({
   apiClient,
   shipperToken,
@@ -1352,6 +1655,77 @@ function createFinancialSmokeApiClient(baseUrl, sandboxSecret, fetchImpl = fetch
         {
           accessToken,
           idempotencyKey,
+          body,
+        },
+      );
+    },
+    reportShipperOrderException(accessToken, orderId, body) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'POST',
+        `/api/shipper/orders/${orderId}/exception`,
+        {
+          accessToken,
+          body,
+        },
+      );
+    },
+    listShipperExceptionCases(accessToken, orderId) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'GET',
+        `/api/shipper/orders/${orderId}/exception-cases`,
+        {
+          accessToken,
+        },
+      );
+    },
+    processExceptionCase(accessToken, caseId, body) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'POST',
+        `/api/admin/order-exception-cases/${caseId}/process`,
+        {
+          accessToken,
+          body,
+        },
+      );
+    },
+    resolveExceptionCase(accessToken, caseId, body) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'POST',
+        `/api/admin/order-exception-cases/${caseId}/resolve`,
+        {
+          accessToken,
+          body,
+        },
+      );
+    },
+    executeExceptionCompensation(accessToken, caseId, body) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'POST',
+        `/api/admin/order-exception-cases/${caseId}/compensation/execute`,
+        {
+          accessToken,
+          body,
+        },
+      );
+    },
+    appealShipperExceptionCase(accessToken, orderId, caseId, body) {
+      return requestApi(
+        fetchImpl,
+        baseUrl,
+        'POST',
+        `/api/shipper/orders/${orderId}/exception-cases/${caseId}/appeal`,
+        {
+          accessToken,
           body,
         },
       );

@@ -81,6 +81,7 @@ const envSchema = z.object({
     .optional(),
   FILE_PREVIEW_SIGNING_SECRET: z.string().optional(),
   FILE_STORAGE_CALLBACK_SIGNING_SECRET: z.string().optional(),
+  MAP_PROVIDER: z.enum(['sandbox']).default('sandbox'),
   FILE_STORAGE_PROVIDER: z
     .enum(['local', 's3-compatible'])
     .default('local'),

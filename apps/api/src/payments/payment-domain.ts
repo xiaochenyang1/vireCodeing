@@ -276,6 +276,48 @@ export function createWithdrawalEntries(
   ];
 }
 
+export function createDriverCompensationEntries(
+  amountCents: number,
+  driverId: string,
+): LedgerEntryDraft[] {
+  assertPositiveSafeInteger(amountCents);
+
+  return [
+    {
+      accountType: 'platform_revenue',
+      direction: 'debit',
+      amountCents,
+    },
+    {
+      accountType: 'driver_payable',
+      accountUserId: driverId,
+      direction: 'credit',
+      amountCents,
+    },
+  ];
+}
+
+export function createShipperCompensationEntries(
+  amountCents: number,
+  shipperId: string,
+): LedgerEntryDraft[] {
+  assertPositiveSafeInteger(amountCents);
+
+  return [
+    {
+      accountType: 'platform_revenue',
+      direction: 'debit',
+      amountCents,
+    },
+    {
+      accountType: 'offline_clearing',
+      accountUserId: shipperId,
+      direction: 'credit',
+      amountCents,
+    },
+  ];
+}
+
 export function sumSignedLedgerEntries(entries: LedgerEntryDraft[]): number {
   return entries.reduce(
     (total, entry) =>

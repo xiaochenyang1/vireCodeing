@@ -73,6 +73,100 @@ describe('platform order api', () => {
       ],
     });
   });
+
+  it('preserves executed compensation and appeal fields when listing cases', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        total: 1,
+        items: [
+          {
+            id: 'case-1',
+            caseNo: 'YC202607200001',
+            orderId: 'order-1',
+            orderNo: 'HY202607200001',
+            sourceEventId: 'event-1',
+            reporterUserId: 'shipper-1',
+            sourceRole: 'shipper',
+            typeLabel: '货损',
+            description: '外包装破损，货物受潮',
+            attachmentFileIds: [],
+            status: 'resolved',
+            resolutionText: '平台已完成赔付。',
+            compensationStatus: 'executed',
+            compensationTargetRole: 'shipper',
+            compensationAmountCents: 3600,
+            compensationUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+            compensationTransactionId: 'ft-1',
+            compensationExecutedAtIso: '2026-07-20T02:30:00.000Z',
+            appealStatus: 'none',
+            createdAtIso: '2026-07-20T02:00:00.000Z',
+            updatedAtIso: '2026-07-20T02:30:00.000Z',
+            actions: [],
+          },
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.listExceptionCases('order-1')).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          compensationStatus: 'executed',
+          compensationTransactionId: 'ft-1',
+          compensationExecutedAtIso: '2026-07-20T02:30:00.000Z',
+          appealStatus: 'none',
+        }),
+      ],
+    });
+  });
+
+  it('appeals a resolved exception case with normalized ids and reason', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({ id: 'case-1', status: 'processing' }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.appealExceptionCase(' order-1 ', ' case-1 ', {
+      baseUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+      reason: '  平台赔付金额与实际货损不符，申请重新核定。  ',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/orders/order-1/exception-cases/case-1/appeal',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+          reason: '平台赔付金额与实际货损不符，申请重新核定。',
+        }),
+      }),
+    );
+  });
+
+  it('rejects an appeal reason that is too short before sending', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.appealExceptionCase('order-1', 'case-1', {
+        baseUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+        reason: '太短',
+      }),
+    ).rejects.toBeInstanceOf(PlatformApiError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {

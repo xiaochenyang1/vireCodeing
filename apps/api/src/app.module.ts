@@ -5,6 +5,7 @@ import { DriverCertificationModule } from './driver-certification/driver-certifi
 import { DriverOrdersModule } from './driver-orders/driver-orders.module';
 import { FilesModule } from './files/files.module';
 import { HealthController } from './health/health.controller';
+import { MapsModule } from './maps/maps.module';
 import { OrderDraftsModule } from './order-drafts/order-drafts.module';
 import { OrderExceptionCasesModule } from './order-exception-cases/order-exception-cases.module';
 import { OrdersModule } from './orders/orders.module';
@@ -25,6 +26,7 @@ import { PaymentsModule } from './payments/payments.module';
     DriverCertificationModule,
     DriverOrdersModule,
     FilesModule,
+    MapsModule,
     OrdersModule,
     PaymentsModule,
     OrderExceptionCasesModule,

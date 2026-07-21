@@ -3,12 +3,14 @@ import {
   assertLedgerBalanced,
   assertOrderCanCompleteFinancially,
   assertOrderCanEnterDriverHall,
+  createDriverCompensationEntries,
   createInitialOrderPaymentStatus,
   createOfflineSettlementEntries,
   createOnlineEscrowEntries,
   createOnlineRefundEntries,
   createOnlineSettlementEntries,
   createSettlementBreakdown,
+  createShipperCompensationEntries,
   createWithdrawalEntries,
   resolveCancellationPaymentStatus,
   resolveSuccessfulPaymentStatus,
@@ -193,4 +195,55 @@ describe('payment domain', () => {
       }),
     ).toThrow(BusinessError);
   });
+
+  it('builds balanced platform-funded compensation entries for each target role', () => {
+    const driverEntries = createDriverCompensationEntries(5000, 'driver-1');
+    expect(driverEntries).toEqual([
+      {
+        accountType: 'platform_revenue',
+        direction: 'debit',
+        amountCents: 5000,
+      },
+      {
+        accountType: 'driver_payable',
+        accountUserId: 'driver-1',
+        direction: 'credit',
+        amountCents: 5000,
+      },
+    ]);
+
+    const shipperEntries = createShipperCompensationEntries(5000, 'shipper-1');
+    expect(shipperEntries).toEqual([
+      {
+        accountType: 'platform_revenue',
+        direction: 'debit',
+        amountCents: 5000,
+      },
+      {
+        accountType: 'offline_clearing',
+        accountUserId: 'shipper-1',
+        direction: 'credit',
+        amountCents: 5000,
+      },
+    ]);
+
+    for (const entries of [driverEntries, shipperEntries]) {
+      expect(sumSignedLedgerEntries(entries)).toBe(0);
+      expect(() => assertLedgerBalanced(entries)).not.toThrow();
+    }
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid compensation amount %s',
+    amount => {
+      expect(() => createDriverCompensationEntries(amount, 'driver-1')).toThrow(
+        expect.objectContaining({ code: ApiErrorCode.PAYMENT_AMOUNT_INVALID }),
+      );
+      expect(() =>
+        createShipperCompensationEntries(amount, 'shipper-1'),
+      ).toThrow(
+        expect.objectContaining({ code: ApiErrorCode.PAYMENT_AMOUNT_INVALID }),
+      );
+    },
+  );
 });

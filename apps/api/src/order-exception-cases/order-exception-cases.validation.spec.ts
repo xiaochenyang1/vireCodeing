@@ -1,4 +1,6 @@
 import {
+  parseAppealOrderExceptionCaseRequest,
+  parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
   parseOrderExceptionCaseListQuery,
   parseOrderExceptionOrderId,
@@ -131,5 +133,61 @@ describe('order exception case validation', () => {
     expect(parseOrderExceptionCaseId(' case-1 ')).toBe('case-1');
     expect(() => parseOrderExceptionOrderId('   ')).toThrow('订单 ID 不能为空');
     expect(() => parseOrderExceptionCaseId('   ')).toThrow('工单 ID 不能为空');
+  });
+
+  it('normalizes a compensation execution request', () => {
+    expect(
+      parseExecuteOrderExceptionCaseCompensationRequest({
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: ' idem-compensation-1 ',
+        content: '  平台已线下向货主完成赔付结清。  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+      idempotencyKey: 'idem-compensation-1',
+      content: '平台已线下向货主完成赔付结清。',
+    });
+  });
+
+  it('rejects an invalid compensation execution request', () => {
+    expect(() =>
+      parseExecuteOrderExceptionCaseCompensationRequest({
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'short',
+        content: '平台已线下向货主完成赔付结清。',
+      }),
+    ).toThrow('Idempotency-Key 至少 8 位');
+    expect(() =>
+      parseExecuteOrderExceptionCaseCompensationRequest({
+        baseUpdatedAtIso: 'not-a-date',
+        idempotencyKey: 'idem-compensation-1',
+        content: '平台已线下向货主完成赔付结清。',
+      }),
+    ).toThrow('工单版本时间不合法');
+    expect(() =>
+      parseExecuteOrderExceptionCaseCompensationRequest({
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-compensation-1',
+        content: '太短',
+      }),
+    ).toThrow('赔付执行说明至少 6 个字');
+  });
+
+  it('normalizes and validates an appeal request', () => {
+    expect(
+      parseAppealOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        reason: '  货主认为赔付金额不足，要求重新核定。  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+      reason: '货主认为赔付金额不足，要求重新核定。',
+    });
+    expect(() =>
+      parseAppealOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        reason: '太短',
+      }),
+    ).toThrow('申诉理由至少 6 个字');
   });
 });

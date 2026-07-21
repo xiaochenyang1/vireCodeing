@@ -17,12 +17,18 @@ import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
+  AppealOrderExceptionCaseRequest,
+  ExecuteOrderExceptionCaseCompensationRequest,
   ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 import {
+  appealOrderExceptionCaseSchema,
+  executeOrderExceptionCaseCompensationSchema,
   orderExceptionCaseListQuerySchema,
+  parseAppealOrderExceptionCaseRequest,
+  parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
   parseOrderExceptionCaseListQuery,
   parseOrderExceptionOrderId,
@@ -50,6 +56,25 @@ export class ShipperOrderExceptionCasesController {
       getRequestId(request),
     );
   }
+
+  @Post(':orderId/exception-cases/:caseId/appeal')
+  async appealCase(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('caseId') caseId: string,
+    @Body(new ZodValidationPipe(appealOrderExceptionCaseSchema))
+    body: AppealOrderExceptionCaseRequest,
+  ) {
+    return ok(
+      await this.service.appealForShipper(
+        getCurrentUserId(request, 'shipper'),
+        parseOrderExceptionOrderId(orderId),
+        parseOrderExceptionCaseId(caseId),
+        parseAppealOrderExceptionCaseRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
 }
 
 @Controller('driver/orders')
@@ -66,6 +91,25 @@ export class DriverOrderExceptionCasesController {
       await this.service.listForDriver(
         getCurrentUserId(request, 'driver'),
         parseOrderExceptionOrderId(orderId),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':orderId/exception-cases/:caseId/appeal')
+  async appealCase(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('caseId') caseId: string,
+    @Body(new ZodValidationPipe(appealOrderExceptionCaseSchema))
+    body: AppealOrderExceptionCaseRequest,
+  ) {
+    return ok(
+      await this.service.appealForDriver(
+        getCurrentUserId(request, 'driver'),
+        parseOrderExceptionOrderId(orderId),
+        parseOrderExceptionCaseId(caseId),
+        parseAppealOrderExceptionCaseRequest(body),
       ),
       getRequestId(request),
     );
@@ -140,6 +184,24 @@ export class AdminOrderExceptionCasesController {
     body: UpdateOrderExceptionCaseRequest,
   ) {
     return this.mutate(request, caseId, body, 'closeCase');
+  }
+
+  @Post(':caseId/compensation/execute')
+  async executeCompensation(
+    @Req() request: AuthenticatedRequest,
+    @Param('caseId') caseId: string,
+    @Body(new ZodValidationPipe(executeOrderExceptionCaseCompensationSchema))
+    body: ExecuteOrderExceptionCaseCompensationRequest,
+  ) {
+    const adminUserId = getCurrentUserId(request, 'admin');
+    const result = await this.service.executeCompensation(
+      adminUserId,
+      parseOrderExceptionCaseId(caseId),
+      getRequestId(request) ?? '',
+      parseExecuteOrderExceptionCaseCompensationRequest(body),
+    );
+
+    return ok(result, getRequestId(request));
   }
 
   private async mutate(

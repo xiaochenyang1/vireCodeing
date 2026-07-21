@@ -820,8 +820,13 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
     expect(html).toContain('/close');
+    expect(html).toContain('/compensation/execute');
+    expect(html).toContain('executeCompensation()');
+    expect(html).toContain('平台已赔付到账');
+    expect(html).toContain('申诉处理中');
     expect(html).toContain('baseUpdatedAtIso');
     expect(html).toContain('EXCEPTION_CASE_CONFLICT');
+    expect(html).toContain('EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED');
     expect(html).toContain('caseStatusInput');
     expect(html).toContain('caseSourceRoleInput');
     expect(html).toContain('caseKeywordInput');

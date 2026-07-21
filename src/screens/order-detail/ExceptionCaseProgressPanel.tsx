@@ -1,8 +1,10 @@
-import { Text, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 
 import type { PlatformOrderExceptionCase } from '../../services/platformOrderApi';
 import { styles } from '../../styles';
 import {
+  canAppealOrderExceptionCase,
+  getOrderExceptionCaseAppealStatusText,
   getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
@@ -13,10 +15,18 @@ export function ExceptionCaseProgressPanel({
   cases,
   isLoading,
   notice,
+  appealDrafts = {},
+  appealingCaseId,
+  onChangeAppealReason,
+  onSubmitAppeal,
 }: {
   cases: PlatformOrderExceptionCase[];
   isLoading: boolean;
   notice?: string;
+  appealDrafts?: Record<string, string>;
+  appealingCaseId?: string;
+  onChangeAppealReason?: (caseId: string, reason: string) => void;
+  onSubmitAppeal?: (exceptionCase: PlatformOrderExceptionCase) => void;
 }) {
   return (
     <View style={styles.detailInlineGroup}>
@@ -29,6 +39,9 @@ export function ExceptionCaseProgressPanel({
       {cases.map(exceptionCase => {
         const compensationSummary =
           getOrderExceptionCaseCompensationSummary(exceptionCase);
+        const canAppeal = canAppealOrderExceptionCase(exceptionCase);
+        const appealDraft = appealDrafts[exceptionCase.id] ?? '';
+        const isAppealing = appealingCaseId === exceptionCase.id;
 
         return (
           <View
@@ -54,7 +67,31 @@ export function ExceptionCaseProgressPanel({
               </Text>
             ) : null}
             {compensationSummary ? (
-              <Text style={styles.detailMeta}>{compensationSummary}</Text>
+              <Text
+                style={styles.detailMeta}
+                testID={`exception-case-compensation-${exceptionCase.caseNo}`}
+              >
+                {compensationSummary}
+              </Text>
+            ) : null}
+            {exceptionCase.compensationExecutedAtIso ? (
+              <Text style={styles.detailMeta}>
+                赔付执行时间：{exceptionCase.compensationExecutedAtIso}
+              </Text>
+            ) : null}
+            {exceptionCase.appealStatus && exceptionCase.appealStatus !== 'none' ? (
+              <Text
+                style={styles.detailMeta}
+                testID={`exception-case-appeal-status-${exceptionCase.caseNo}`}
+              >
+                申诉状态：
+                {getOrderExceptionCaseAppealStatusText(exceptionCase.appealStatus)}
+              </Text>
+            ) : null}
+            {exceptionCase.appealReason ? (
+              <Text style={styles.detailMeta}>
+                申诉理由：{exceptionCase.appealReason}
+              </Text>
             ) : null}
             {sortOrderExceptionCaseActions(exceptionCase.actions).map(action => (
               <Text key={action.id} style={styles.detailMeta}>
@@ -63,6 +100,32 @@ export function ExceptionCaseProgressPanel({
                 {action.content}
               </Text>
             ))}
+            {canAppeal && onSubmitAppeal ? (
+              <View style={styles.detailInlineGroup}>
+                <Text style={styles.detailMeta}>申请申诉</Text>
+                <TextInput
+                  testID={`exception-case-appeal-reason-${exceptionCase.caseNo}`}
+                  style={styles.ordersSearchInput}
+                  placeholder="请填写 6-500 字申诉理由"
+                  value={appealDraft}
+                  editable={!isAppealing}
+                  multiline
+                  onChangeText={value =>
+                    onChangeAppealReason?.(exceptionCase.id, value)
+                  }
+                />
+                <Pressable
+                  testID={`exception-case-appeal-submit-${exceptionCase.caseNo}`}
+                  style={styles.detailSecondaryButton}
+                  disabled={isAppealing}
+                  onPress={() => onSubmitAppeal(exceptionCase)}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    {isAppealing ? '申诉提交中...' : '提交申诉'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         );
       })}

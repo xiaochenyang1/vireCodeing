@@ -241,6 +241,7 @@ describe('OrderDetailScreen exception case progress', () => {
     };
     const platformOrderApi = {
       listExceptionCases: jest.fn().mockResolvedValue({}),
+      appealExceptionCase: jest.fn(),
     };
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -301,6 +302,7 @@ describe('OrderDetailScreen exception case progress', () => {
           },
         ],
       }),
+      appealExceptionCase: jest.fn(),
     };
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;

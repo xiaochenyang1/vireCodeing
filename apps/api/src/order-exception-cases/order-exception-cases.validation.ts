@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type {
+  AppealOrderExceptionCaseRequest,
+  ExecuteOrderExceptionCaseCompensationRequest,
   OrderExceptionCaseListQuery,
   ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
@@ -102,6 +104,35 @@ export const resolveOrderExceptionCaseSchema = updateOrderExceptionCaseSchema
     }
   });
 
+export const executeOrderExceptionCaseCompensationSchema = z.object({
+  baseUpdatedAtIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '工单版本时间不合法'),
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(8, 'Idempotency-Key 至少 8 位')
+    .max(200, 'Idempotency-Key 最多 200 位'),
+  content: z
+    .string()
+    .trim()
+    .min(6, '赔付执行说明至少 6 个字')
+    .max(500, '赔付执行说明最多 500 字'),
+});
+
+export const appealOrderExceptionCaseSchema = z.object({
+  baseUpdatedAtIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '工单版本时间不合法'),
+  reason: z
+    .string()
+    .trim()
+    .min(6, '申诉理由至少 6 个字')
+    .max(500, '申诉理由最多 500 字'),
+});
+
 const orderIdSchema = z.string().trim().min(1, '订单 ID 不能为空').max(120);
 const caseIdSchema = z.string().trim().min(1, '工单 ID 不能为空').max(120);
 
@@ -129,4 +160,16 @@ export function parseOrderExceptionOrderId(input: unknown) {
 
 export function parseOrderExceptionCaseId(input: unknown) {
   return caseIdSchema.parse(input);
+}
+
+export function parseExecuteOrderExceptionCaseCompensationRequest(
+  input: unknown,
+): ExecuteOrderExceptionCaseCompensationRequest {
+  return executeOrderExceptionCaseCompensationSchema.parse(input);
+}
+
+export function parseAppealOrderExceptionCaseRequest(
+  input: unknown,
+): AppealOrderExceptionCaseRequest {
+  return appealOrderExceptionCaseSchema.parse(input);
 }

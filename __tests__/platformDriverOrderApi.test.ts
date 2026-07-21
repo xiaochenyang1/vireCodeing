@@ -67,6 +67,33 @@ describe('platform driver order api', () => {
       ],
     });
   });
+
+  it('appeals a resolved driver exception case with normalized ids and reason', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({ id: 'case-1', status: 'processing' }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformDriverOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await api.appealExceptionCase(' order-1 ', ' case-1 ', {
+      baseUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+      reason: '  平台赔付金额与实际货损不符，申请重新核定。  ',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/driver/orders/order-1/exception-cases/case-1/appeal',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-20T02:30:00.000Z',
+          reason: '平台赔付金额与实际货损不符，申请重新核定。',
+        }),
+      }),
+    );
+  });
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {

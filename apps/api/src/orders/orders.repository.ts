@@ -25,6 +25,7 @@ import type {
   OrderExceptionCaseListQuery,
   ResolveOrderExceptionCaseRequest,
   OrderExceptionCaseRecord,
+  OrderExceptionCaseSourceRole,
   OrderExceptionCaseStatus,
   UpdateOrderExceptionCaseRequest,
 } from '../order-exception-cases/dto';
@@ -46,10 +47,12 @@ import {
   assertLedgerBalanced,
   assertOrderCanEnterDriverHall,
   assertOrderCanCompleteFinancially,
+  createDriverCompensationEntries,
   createOfflineSettlementEntries,
   createInitialOrderPaymentStatus,
   createOnlineSettlementEntries,
   createSettlementBreakdown,
+  createShipperCompensationEntries,
   resolveCancellationPaymentStatus,
 } from '../payments/payment-domain';
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
@@ -155,6 +158,47 @@ export type ExecuteOrderMutationResult =
       kind: 'not-found';
     };
 
+export type ExecuteExceptionCaseCompensationInput = {
+  caseId: string;
+  adminUserId: string;
+  baseUpdatedAtIso: string;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  requestId: string;
+  content: string;
+};
+
+export type ExecuteExceptionCaseCompensationResult =
+  | {
+      kind: 'success';
+      replayed: boolean;
+      exceptionCase: OrderExceptionCaseRecord;
+    }
+  | { kind: 'not-found' }
+  | { kind: 'conflict' }
+  | { kind: 'key-reused' }
+  | { kind: 'not-executable' }
+  | { kind: 'already-executed' }
+  | { kind: 'target-missing' };
+
+export type AppealExceptionCaseInput = {
+  caseId: string;
+  orderId: string;
+  actorUserId: string;
+  actorRole: OrderExceptionCaseSourceRole;
+  baseUpdatedAtIso: string;
+  reason: string;
+};
+
+export type AppealExceptionCaseResult =
+  | {
+      kind: 'success';
+      exceptionCase: OrderExceptionCaseRecord;
+    }
+  | { kind: 'not-found' }
+  | { kind: 'conflict' }
+  | { kind: 'not-allowed' };
+
 export interface OrdersRepository {
   executeIdempotentOrderCreate(
     input: ExecuteOrderCreateInput,
@@ -191,6 +235,12 @@ export interface OrdersRepository {
   ): Promise<
     OrderExceptionCaseRecord | 'conflict' | 'state-invalid' | undefined
   >;
+  executeExceptionCaseCompensation(
+    input: ExecuteExceptionCaseCompensationInput,
+  ): Promise<ExecuteExceptionCaseCompensationResult>;
+  appealExceptionCase(
+    input: AppealExceptionCaseInput,
+  ): Promise<AppealExceptionCaseResult>;
   executeIdempotentOrderMutation(
     input: ExecuteOrderMutationInput,
   ): Promise<ExecuteOrderMutationResult>;
@@ -544,6 +594,238 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     }
 
     return exceptionCase;
+  }
+
+  async executeExceptionCaseCompensation(
+    input: ExecuteExceptionCaseCompensationInput,
+  ): Promise<ExecuteExceptionCaseCompensationResult> {
+    const action = 'exception_compensation.execute';
+    const existingAuditLog = this.financialStore.findFinancialAuditLog(
+      input.adminUserId,
+      action,
+      input.idempotencyKey,
+    );
+
+    if (existingAuditLog) {
+      if (
+        existingAuditLog.requestFingerprint !== input.requestFingerprint ||
+        existingAuditLog.entityId !== input.caseId
+      ) {
+        return { kind: 'key-reused' };
+      }
+
+      const replayed = this.exceptionCases.find(
+        item => item.id === input.caseId,
+      );
+
+      return replayed
+        ? {
+            kind: 'success',
+            replayed: true,
+            exceptionCase: structuredClone(replayed),
+          }
+        : { kind: 'not-found' };
+    }
+
+    const exceptionCase = this.exceptionCases.find(
+      item => item.id === input.caseId,
+    );
+
+    if (!exceptionCase) {
+      return { kind: 'not-found' };
+    }
+
+    if (
+      exceptionCase.compensationStatus === 'executed' ||
+      exceptionCase.compensationTransactionId !== undefined
+    ) {
+      return { kind: 'already-executed' };
+    }
+
+    if (
+      exceptionCase.status !== 'resolved' ||
+      exceptionCase.compensationStatus !== 'pending' ||
+      exceptionCase.compensationTargetRole === undefined ||
+      exceptionCase.compensationAmountCents === undefined
+    ) {
+      return { kind: 'not-executable' };
+    }
+
+    if (exceptionCase.updatedAtIso !== input.baseUpdatedAtIso) {
+      return { kind: 'conflict' };
+    }
+
+    const order = this.orders.find(
+      currentOrder => currentOrder.id === exceptionCase.orderId,
+    );
+
+    if (!order) {
+      return { kind: 'not-found' };
+    }
+
+    const targetUserId = resolveCompensationTargetUserId(
+      order,
+      exceptionCase.compensationTargetRole,
+    );
+
+    if (!targetUserId) {
+      return { kind: 'target-missing' };
+    }
+
+    const amountCents = exceptionCase.compensationAmountCents;
+    const now = this.now();
+    const nowIso = now.toISOString();
+    const entryDrafts =
+      exceptionCase.compensationTargetRole === 'driver'
+        ? createDriverCompensationEntries(amountCents, targetUserId)
+        : createShipperCompensationEntries(amountCents, targetUserId);
+    assertLedgerBalanced(entryDrafts);
+
+    const transactionId = randomUUID();
+    const transaction: FinancialTransactionRecord = {
+      id: transactionId,
+      transactionNo: `FT-${transactionId}`,
+      type: 'order_compensation',
+      referenceId: exceptionCase.id,
+      orderId: exceptionCase.orderId,
+      amountCents,
+      occurredAtIso: nowIso,
+      createdAtIso: nowIso,
+      entries: entryDrafts.map((entry, sequence) => ({
+        id: randomUUID(),
+        transactionId,
+        sequence,
+        accountType: entry.accountType,
+        ...(entry.accountUserId ? { accountUserId: entry.accountUserId } : {}),
+        direction: entry.direction,
+        amountCents: entry.amountCents,
+        createdAtIso: nowIso,
+      })),
+    };
+    const persistedTransaction =
+      this.financialStore.createFinancialTransaction(transaction);
+
+    if (persistedTransaction.id !== transactionId) {
+      // A compensation transaction for this case already exists.
+      return { kind: 'already-executed' };
+    }
+
+    if (exceptionCase.compensationTargetRole === 'driver') {
+      this.financialStore.creditDriverWallet(targetUserId, amountCents, now);
+    }
+
+    const beforeSnapshot = structuredClone(exceptionCase);
+    const updatedAtIso = createNextUpdatedAtIso(
+      exceptionCase.updatedAtIso,
+      now,
+    );
+    exceptionCase.compensationStatus = 'executed';
+    exceptionCase.compensationTransactionId = transactionId;
+    exceptionCase.compensationExecutedAtIso = nowIso;
+    exceptionCase.compensationUpdatedAtIso = updatedAtIso;
+    exceptionCase.updatedAtIso = updatedAtIso;
+
+    order.events.push({
+      id: `event-${this.orders.length}-${order.events.length + 1}`,
+      actorUserId: input.adminUserId,
+      eventType: 'exception_compensation_executed',
+      noteText: createExceptionCompensationNote(
+        exceptionCase.compensationTargetRole,
+        amountCents,
+      ),
+      createdAtIso: nowIso,
+    });
+    order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
+
+    this.financialStore.createFinancialAuditLog({
+      id: randomUUID(),
+      actorAdminId: input.adminUserId,
+      action,
+      entityType: 'order_exception_case',
+      entityId: exceptionCase.id,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      requestId: input.requestId,
+      reason: input.content,
+      beforeState: { exceptionCase: beforeSnapshot },
+      afterState: {
+        exceptionCase: structuredClone(exceptionCase),
+        financialTransactionId: transactionId,
+      },
+      createdAtIso: nowIso,
+    });
+
+    return {
+      kind: 'success',
+      replayed: false,
+      exceptionCase: structuredClone(exceptionCase),
+    };
+  }
+
+  async appealExceptionCase(
+    input: AppealExceptionCaseInput,
+  ): Promise<AppealExceptionCaseResult> {
+    const exceptionCase = this.exceptionCases.find(
+      item => item.id === input.caseId && item.orderId === input.orderId,
+    );
+
+    if (!exceptionCase) {
+      return { kind: 'not-found' };
+    }
+
+    const order = this.orders.find(
+      currentOrder => currentOrder.id === input.orderId,
+    );
+
+    if (!order || !isAppealActorRelated(order, input)) {
+      return { kind: 'not-found' };
+    }
+
+    if (
+      exceptionCase.status !== 'resolved' ||
+      exceptionCase.compensationStatus === 'executed' ||
+      exceptionCase.appealStatus === 'requested'
+    ) {
+      return { kind: 'not-allowed' };
+    }
+
+    if (exceptionCase.updatedAtIso !== input.baseUpdatedAtIso) {
+      return { kind: 'conflict' };
+    }
+
+    const now = this.now();
+    const nowIso = now.toISOString();
+    const updatedAtIso = createNextUpdatedAtIso(
+      exceptionCase.updatedAtIso,
+      now,
+    );
+    exceptionCase.actions.push({
+      id: `exception-action-${exceptionCase.actions.length + 1}`,
+      adminUserId: input.actorUserId,
+      fromStatus: 'resolved',
+      toStatus: 'processing',
+      content: input.reason,
+      createdAtIso: updatedAtIso,
+    });
+    exceptionCase.status = 'processing';
+    exceptionCase.appealStatus = 'requested';
+    exceptionCase.appealReason = input.reason;
+    exceptionCase.appealRequestedAtIso = updatedAtIso;
+    exceptionCase.updatedAtIso = updatedAtIso;
+
+    order.events.push({
+      id: `event-${this.orders.length}-${order.events.length + 1}`,
+      actorUserId: input.actorUserId,
+      eventType: 'exception_appeal_requested',
+      noteText: `${input.actorRole === 'driver' ? '司机' : '货主'}申诉：${input.reason}`,
+      createdAtIso: nowIso,
+    });
+    order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
+
+    return {
+      kind: 'success',
+      exceptionCase: structuredClone(exceptionCase),
+    };
   }
 
   async executeIdempotentOrderMutation(
@@ -1910,6 +2192,10 @@ function createPrismaOrderCreateData(
           contactName: input.pickupContact,
           contactPhone: input.pickupPhone,
           noteText: input.pickupNoteText,
+          ...createLocationCoordinateWrite(
+            input.pickupLatitude,
+            input.pickupLongitude,
+          ),
         },
         {
           type: 'delivery',
@@ -1917,6 +2203,10 @@ function createPrismaOrderCreateData(
           contactName: input.deliveryContact,
           contactPhone: input.deliveryPhone,
           noteText: input.deliveryNoteText,
+          ...createLocationCoordinateWrite(
+            input.deliveryLatitude,
+            input.deliveryLongitude,
+          ),
         },
       ],
     },
@@ -2608,6 +2898,10 @@ async function applyPrismaOrderMutation(
           contactName: input.mutation.input.pickupContact,
           contactPhone: input.mutation.input.pickupPhone,
           noteText: input.mutation.input.pickupNoteText ?? null,
+          ...createLocationCoordinateWrite(
+            input.mutation.input.pickupLatitude,
+            input.mutation.input.pickupLongitude,
+          ),
         },
       });
       await transaction.orderLocation.updateMany({
@@ -2620,6 +2914,10 @@ async function applyPrismaOrderMutation(
           contactName: input.mutation.input.deliveryContact,
           contactPhone: input.mutation.input.deliveryPhone,
           noteText: input.mutation.input.deliveryNoteText ?? null,
+          ...createLocationCoordinateWrite(
+            input.mutation.input.deliveryLatitude,
+            input.mutation.input.deliveryLongitude,
+          ),
         },
       });
       await transaction.orderRequirement.upsert({
@@ -2768,6 +3066,8 @@ export type PrismaOrderRecord = {
     contactName: string;
     contactPhone: string;
     noteText: string | null;
+    latitude?: { toNumber(): number } | number | null;
+    longitude?: { toNumber(): number } | number | null;
   }>;
   requirement: {
     vehicleType: string;
@@ -2824,6 +3124,15 @@ export type PrismaOrdersClient = {
   orderExceptionCaseAction?: {
     create(args: unknown): Promise<unknown>;
   };
+  financialAuditLog?: {
+    findUnique(args: unknown): Promise<PrismaExceptionCompensationAuditLog | null>;
+  };
+};
+
+type PrismaExceptionCompensationAuditLog = {
+  entityId: string;
+  requestFingerprint: string;
+  afterState: unknown;
 };
 
 type PrismaOrdersTransactionClient = {
@@ -2871,6 +3180,7 @@ type PrismaOrdersTransactionClient = {
     count(args: unknown): Promise<number>;
     create(args: unknown): Promise<{ id: string; caseNo: string }>;
     update(args: unknown): Promise<PrismaOrderExceptionCaseRecord>;
+    findUnique(args: unknown): Promise<PrismaOrderExceptionCaseRecord | null>;
   };
   orderExceptionCaseAction: {
     create(args: unknown): Promise<unknown>;
@@ -2886,14 +3196,66 @@ type PrismaOrdersTransactionClient = {
     create(args: unknown): Promise<unknown>;
   };
   financialTransaction: {
-    create(args: unknown): Promise<unknown>;
+    create(args: unknown): Promise<PrismaExceptionCompensationTransactionRecord>;
+  };
+  financialAuditLog: {
+    findUnique(args: unknown): Promise<PrismaExceptionCompensationAuditLogRecord | null>;
+    create(args: unknown): Promise<PrismaExceptionCompensationAuditLogRecord>;
   };
   settlement: {
     create(args: unknown): Promise<unknown>;
   };
   driverWallet: {
-    upsert(args: unknown): Promise<unknown>;
+    findUnique(args: unknown): Promise<PrismaExceptionCompensationWalletRecord | null>;
+    upsert(args: unknown): Promise<PrismaExceptionCompensationWalletRecord>;
   };
+};
+
+type PrismaExceptionCompensationWalletRecord = {
+  driverId: string;
+  availableCents: number;
+  reservedCents: number;
+  withdrawnCents: number;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type PrismaExceptionCompensationTransactionRecord = {
+  id: string;
+  transactionNo: string;
+  type: FinancialTransactionRecord['type'];
+  referenceId: string;
+  orderId: string | null;
+  paymentOrderId: string | null;
+  amountCents: number;
+  occurredAt: Date;
+  createdAt: Date;
+  entries: Array<{
+    id: string;
+    transactionId: string;
+    sequence: number;
+    accountType: FinancialTransactionRecord['entries'][number]['accountType'];
+    accountUserId: string | null;
+    direction: FinancialTransactionRecord['entries'][number]['direction'];
+    amountCents: number;
+    createdAt: Date;
+  }>;
+};
+
+type PrismaExceptionCompensationAuditLogRecord = {
+  id: string;
+  actorAdminId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  requestId: string;
+  reason: string;
+  beforeState: unknown | null;
+  afterState: unknown | null;
+  createdAt: Date;
 };
 
 type PrismaOrderPaymentRecord = {
@@ -2922,15 +3284,21 @@ type PrismaOrderExceptionCaseRecord = {
     | 'not_required'
     | 'pending'
     | 'offline_completed'
+    | 'executed'
     | null;
   compensationTargetRole: 'shipper' | 'driver' | null;
   compensationAmountCents: number | null;
   compensationUpdatedAt: Date | null;
+  compensationTransactionId: string | null;
+  compensationExecutedAt: Date | null;
+  appealStatus: 'none' | 'requested' | 'rejected' | 'accepted';
+  appealReason: string | null;
+  appealRequestedAt: Date | null;
   resolvedAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  order: { orderNo: string };
+  order: { orderNo: string; shipperId: string; assignedDriverId: string | null };
   actions: Array<{
     id: string;
     adminUserId: string;
@@ -2985,11 +3353,16 @@ const orderInclude = {
 } as const;
 
 export class PrismaOrdersRepository implements OrdersRepository {
+  private readonly createId: () => string;
+
   constructor(
     private readonly prisma: PrismaOrdersClient,
     private readonly now: () => Date = () => new Date(),
     private readonly platformFeeRateBps = DEFAULT_PLATFORM_FEE_RATE_BPS,
-  ) {}
+    options: { createId?: () => string } = {},
+  ) {
+    this.createId = options.createId ?? randomUUID;
+  }
 
   async executeIdempotentOrderCreate(
     input: ExecuteOrderCreateInput,
@@ -3399,6 +3772,364 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return mapPrismaExceptionCase(updated);
   }
 
+  async executeExceptionCaseCompensation(
+    input: ExecuteExceptionCaseCompensationInput,
+  ): Promise<ExecuteExceptionCaseCompensationResult> {
+    if (
+      !this.prisma.orderExceptionCase ||
+      !this.prisma.$transaction ||
+      !this.prisma.financialAuditLog
+    ) {
+      return { kind: 'not-found' };
+    }
+
+    const action = 'exception_compensation.execute';
+
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const existingAuditLog = await transaction.financialAuditLog.findUnique(
+          {
+            where: {
+              FinancialAuditLog_actor_action_key_unique: {
+                actorAdminId: input.adminUserId,
+                action,
+                idempotencyKey: input.idempotencyKey,
+              },
+            },
+          },
+        );
+
+        if (existingAuditLog) {
+          if (
+            existingAuditLog.requestFingerprint !== input.requestFingerprint ||
+            existingAuditLog.entityId !== input.caseId
+          ) {
+            return { kind: 'key-reused' as const };
+          }
+
+          const replayed = await transaction.orderExceptionCase.findUnique({
+            where: { id: input.caseId },
+            include: {
+              order: { select: { orderNo: true } },
+              actions: { orderBy: { createdAt: 'asc' } },
+            },
+          });
+
+          return replayed
+            ? {
+                kind: 'success' as const,
+                replayed: true,
+                exceptionCase: mapPrismaExceptionCase(replayed),
+              }
+            : { kind: 'not-found' as const };
+        }
+
+        const current = await transaction.orderExceptionCase.findUnique({
+          where: { id: input.caseId },
+          include: {
+            order: {
+              select: {
+                orderNo: true,
+                shipperId: true,
+                assignedDriverId: true,
+              },
+            },
+            actions: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        if (!current) {
+          return { kind: 'not-found' as const };
+        }
+
+        if (
+          current.compensationStatus === 'executed' ||
+          current.compensationTransactionId
+        ) {
+          return { kind: 'already-executed' as const };
+        }
+
+        if (
+          current.status !== 'resolved' ||
+          current.compensationStatus !== 'pending' ||
+          !current.compensationTargetRole ||
+          current.compensationAmountCents === null
+        ) {
+          return { kind: 'not-executable' as const };
+        }
+
+        if (current.updatedAt.toISOString() !== input.baseUpdatedAtIso) {
+          return { kind: 'conflict' as const };
+        }
+
+        const targetUserId = resolveCompensationTargetUserId(
+          {
+            shipperId: current.order.shipperId,
+            assignedDriverId: current.order.assignedDriverId ?? undefined,
+          },
+          current.compensationTargetRole,
+        );
+
+        if (!targetUserId) {
+          return { kind: 'target-missing' as const };
+        }
+
+        const amountCents = current.compensationAmountCents;
+        const now = this.now();
+        const entryDrafts =
+          current.compensationTargetRole === 'driver'
+            ? createDriverCompensationEntries(amountCents, targetUserId)
+            : createShipperCompensationEntries(amountCents, targetUserId);
+        assertLedgerBalanced(entryDrafts);
+
+        const transactionId = this.createId();
+        const financialTransaction =
+          await transaction.financialTransaction.create({
+            data: {
+              id: transactionId,
+              transactionNo: `FT-${transactionId}`,
+              type: 'order_compensation',
+              referenceId: current.id,
+              orderId: current.orderId,
+              amountCents,
+              occurredAt: now,
+              entries: {
+                create: entryDrafts.map((entry, sequence) => ({
+                  id: this.createId(),
+                  sequence,
+                  accountType: entry.accountType,
+                  accountUserId: entry.accountUserId ?? null,
+                  direction: entry.direction,
+                  amountCents: entry.amountCents,
+                  createdAt: now,
+                })),
+              },
+              createdAt: now,
+            },
+            include: { entries: { orderBy: { sequence: 'asc' } } },
+          });
+
+        if (current.compensationTargetRole === 'driver') {
+          await transaction.driverWallet.upsert({
+            where: { driverId: targetUserId },
+            create: {
+              driverId: targetUserId,
+              availableCents: amountCents,
+              reservedCents: 0,
+              withdrawnCents: 0,
+              version: 1,
+              createdAt: now,
+              updatedAt: now,
+            },
+            update: {
+              availableCents: { increment: amountCents },
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+          });
+        }
+
+        const updatedAt = new Date(
+          createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+        );
+        const updated = await transaction.orderExceptionCase.update({
+          where: { id: current.id },
+          data: {
+            compensationStatus: 'executed',
+            compensationTransactionId: transactionId,
+            compensationExecutedAt: now,
+            compensationUpdatedAt: updatedAt,
+            updatedAt,
+          },
+          include: {
+            order: { select: { orderNo: true } },
+            actions: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        await transaction.orderEvent.create({
+          data: {
+            orderId: current.orderId,
+            actorUserId: input.adminUserId,
+            eventType: 'exception_compensation_executed',
+            noteText: createExceptionCompensationNote(
+              current.compensationTargetRole,
+              amountCents,
+            ),
+            attachmentFileIds: [],
+            createdAt: now,
+          },
+        });
+
+        await transaction.financialAuditLog.create({
+          data: {
+            id: this.createId(),
+            actorAdminId: input.adminUserId,
+            action,
+            entityType: 'order_exception_case',
+            entityId: current.id,
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint: input.requestFingerprint,
+            requestId: input.requestId,
+            reason: input.content,
+            beforeState: {
+              exceptionCase: mapPrismaExceptionCase(current),
+            },
+            afterState: {
+              exceptionCase: mapPrismaExceptionCase(updated),
+              financialTransactionId: financialTransaction.id,
+            },
+            createdAt: now,
+          },
+        });
+
+        return {
+          kind: 'success' as const,
+          replayed: false,
+          exceptionCase: mapPrismaExceptionCase(updated),
+        };
+      });
+    } catch (error) {
+      if (!isPrismaErrorCode(error, 'P2002')) {
+        throw error;
+      }
+
+      const auditLog = await this.prisma.financialAuditLog.findUnique({
+        where: {
+          FinancialAuditLog_actor_action_key_unique: {
+            actorAdminId: input.adminUserId,
+            action,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+
+      if (!auditLog || !this.prisma.orderExceptionCase) {
+        throw error;
+      }
+
+      if (
+        auditLog.requestFingerprint !== input.requestFingerprint ||
+        auditLog.entityId !== input.caseId
+      ) {
+        return { kind: 'key-reused' };
+      }
+
+      const replayed = await this.prisma.orderExceptionCase.findUnique({
+        where: { id: input.caseId },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      return replayed
+        ? {
+            kind: 'success',
+            replayed: true,
+            exceptionCase: mapPrismaExceptionCase(replayed),
+          }
+        : { kind: 'not-found' };
+    }
+  }
+
+  async appealExceptionCase(
+    input: AppealExceptionCaseInput,
+  ): Promise<AppealExceptionCaseResult> {
+    if (!this.prisma.orderExceptionCase || !this.prisma.$transaction) {
+      return { kind: 'not-found' };
+    }
+
+    const current = await this.prisma.orderExceptionCase.findUnique({
+      where: { id: input.caseId },
+      include: {
+        order: {
+          select: {
+            orderNo: true,
+            shipperId: true,
+            assignedDriverId: true,
+          },
+        },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    if (!current || current.orderId !== input.orderId) {
+      return { kind: 'not-found' };
+    }
+
+    const relatedUserId =
+      input.actorRole === 'driver'
+        ? current.order.assignedDriverId
+        : current.order.shipperId;
+
+    if (relatedUserId !== input.actorUserId) {
+      return { kind: 'not-found' };
+    }
+
+    if (
+      current.status !== 'resolved' ||
+      current.compensationStatus === 'executed' ||
+      current.appealStatus === 'requested'
+    ) {
+      return { kind: 'not-allowed' };
+    }
+
+    if (current.updatedAt.toISOString() !== input.baseUpdatedAtIso) {
+      return { kind: 'conflict' };
+    }
+
+    const now = this.now();
+    const updatedAt = new Date(
+      createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+    );
+    const updated = await this.prisma.$transaction(async transaction => {
+      await transaction.orderExceptionCaseAction.create({
+        data: {
+          caseId: current.id,
+          adminUserId: input.actorUserId,
+          fromStatus: 'resolved',
+          toStatus: 'processing',
+          content: input.reason,
+          createdAt: updatedAt,
+        },
+      });
+
+      await transaction.orderEvent.create({
+        data: {
+          orderId: current.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'exception_appeal_requested',
+          noteText: `${
+            input.actorRole === 'driver' ? '司机' : '货主'
+          }申诉：${input.reason}`,
+          attachmentFileIds: [],
+          createdAt: now,
+        },
+      });
+
+      return transaction.orderExceptionCase.update({
+        where: { id: current.id },
+        data: {
+          status: 'processing',
+          appealStatus: 'requested',
+          appealReason: input.reason,
+          appealRequestedAt: now,
+          updatedAt,
+        },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+    });
+
+    return {
+      kind: 'success',
+      exceptionCase: mapPrismaExceptionCase(updated),
+    };
+  }
+
   async listAdminOrdersForAttachmentAudit(
     query: AdminOrderAttachmentAuditListQuery,
   ) {
@@ -3644,6 +4375,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 contactName: input.pickupContact,
                 contactPhone: input.pickupPhone,
                 noteText: input.pickupNoteText ?? null,
+                ...createLocationCoordinateWrite(
+                  input.pickupLatitude,
+                  input.pickupLongitude,
+                ),
               },
             },
             {
@@ -3655,6 +4390,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 contactName: input.deliveryContact,
                 contactPhone: input.deliveryPhone,
                 noteText: input.deliveryNoteText ?? null,
+                ...createLocationCoordinateWrite(
+                  input.deliveryLatitude,
+                  input.deliveryLongitude,
+                ),
               },
             },
           ],
@@ -4164,6 +4903,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
       sourceEventId: result.event.id,
       sourceRole,
       status: 'pending',
+      appealStatus: 'none',
       createdAtIso: result.event.createdAt.toISOString(),
       updatedAtIso: now.toISOString(),
     };
@@ -4377,10 +5117,26 @@ function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {
     pickupNoteText: pickupLocation?.noteText ?? undefined,
     pickupContact: pickupLocation?.contactName ?? '',
     pickupPhone: pickupLocation?.contactPhone ?? '',
+    ...(toOptionalCoordinate(pickupLocation?.latitude) === undefined
+      ? {}
+      : { pickupLatitude: toOptionalCoordinate(pickupLocation?.latitude) }),
+    ...(toOptionalCoordinate(pickupLocation?.longitude) === undefined
+      ? {}
+      : { pickupLongitude: toOptionalCoordinate(pickupLocation?.longitude) }),
     deliveryAddress: deliveryLocation?.address ?? '',
     deliveryNoteText: deliveryLocation?.noteText ?? undefined,
     deliveryContact: deliveryLocation?.contactName ?? '',
     deliveryPhone: deliveryLocation?.contactPhone ?? '',
+    ...(toOptionalCoordinate(deliveryLocation?.latitude) === undefined
+      ? {}
+      : {
+          deliveryLatitude: toOptionalCoordinate(deliveryLocation?.latitude),
+        }),
+    ...(toOptionalCoordinate(deliveryLocation?.longitude) === undefined
+      ? {}
+      : {
+          deliveryLongitude: toOptionalCoordinate(deliveryLocation?.longitude),
+        }),
     vehicleRequirement: order.requirement?.vehicleType ?? '',
     vehicleLengthText: order.requirement?.vehicleLengthText ?? undefined,
     needTailboard: order.requirement?.needTailboard ?? false,
@@ -4452,6 +5208,11 @@ function mapPrismaExceptionCase(
     compensationAmountCents: record.compensationAmountCents ?? undefined,
     compensationUpdatedAtIso:
       record.compensationUpdatedAt?.toISOString(),
+    compensationTransactionId: record.compensationTransactionId ?? undefined,
+    compensationExecutedAtIso: record.compensationExecutedAt?.toISOString(),
+    appealStatus: record.appealStatus ?? 'none',
+    appealReason: record.appealReason ?? undefined,
+    appealRequestedAtIso: record.appealRequestedAt?.toISOString(),
     resolvedAtIso: record.resolvedAt?.toISOString(),
     closedAtIso: record.closedAt?.toISOString(),
     createdAtIso: record.createdAt.toISOString(),
@@ -4624,6 +5385,7 @@ function createInMemoryExceptionCase({
     description: input.description,
     attachmentFileIds: input.photoFileIds ?? [],
     status: 'pending',
+    appealStatus: 'none',
     createdAtIso: nowIso,
     updatedAtIso: nowIso,
     actions: [],
@@ -4643,6 +5405,10 @@ function createExceptionCaseSummary(exceptionCase: OrderExceptionCaseRecord) {
     compensationTargetRole: exceptionCase.compensationTargetRole,
     compensationAmountCents: exceptionCase.compensationAmountCents,
     compensationUpdatedAtIso: exceptionCase.compensationUpdatedAtIso,
+    compensationExecutedAtIso: exceptionCase.compensationExecutedAtIso,
+    appealStatus: exceptionCase.appealStatus,
+    appealReason: exceptionCase.appealReason,
+    appealRequestedAtIso: exceptionCase.appealRequestedAtIso,
     createdAtIso: exceptionCase.createdAtIso,
     updatedAtIso: exceptionCase.updatedAtIso,
   };
@@ -4652,6 +5418,67 @@ function createNextUpdatedAtIso(previousIso: string, now: Date) {
   const nextTimestamp = Math.max(now.getTime(), Date.parse(previousIso) + 1);
 
   return new Date(nextTimestamp).toISOString();
+}
+
+const COMPENSATION_TARGET_LABEL: Record<OrderExceptionCaseSourceRole, string> = {
+  shipper: '货主',
+  driver: '司机',
+};
+
+function createExceptionCompensationNote(
+  targetRole: OrderExceptionCaseSourceRole,
+  amountCents: number,
+): string {
+  const amountYuan = (amountCents / 100).toFixed(2);
+
+  return `平台向${COMPENSATION_TARGET_LABEL[targetRole]}赔付 ${amountYuan} 元已入账`;
+}
+
+function resolveCompensationTargetUserId(
+  order: Pick<ShipperOrderRecord, 'shipperId' | 'assignedDriverId'>,
+  targetRole: OrderExceptionCaseSourceRole,
+): string | undefined {
+  if (targetRole === 'shipper') {
+    return order.shipperId;
+  }
+
+  return order.assignedDriverId ?? undefined;
+}
+
+function isAppealActorRelated(
+  order: ShipperOrderRecord,
+  input: AppealExceptionCaseInput,
+): boolean {
+  const relatedUserId =
+    input.actorRole === 'driver' ? order.assignedDriverId : order.shipperId;
+
+  return relatedUserId === input.actorUserId;
+}
+
+function createLocationCoordinateWrite(
+  latitude?: number,
+  longitude?: number,
+) {
+  if (latitude === undefined || longitude === undefined) {
+    return {};
+  }
+
+  return {
+    latitude,
+    longitude,
+    geocodeStatus: 'manual' as const,
+    geocodedAt: new Date(),
+  };
+}
+
+function toOptionalCoordinate(
+  value?: { toNumber(): number } | number | null,
+) {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return typeof value === 'number' ? value : value.toNumber();
 }
 
 function formatOrderDate(date: Date) {

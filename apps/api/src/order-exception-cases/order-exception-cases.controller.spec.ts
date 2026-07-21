@@ -14,6 +14,15 @@ describe('order exception case controllers', () => {
     processCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'processing' }),
     resolveCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'resolved' }),
     closeCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'closed' }),
+    executeCompensation: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', compensationStatus: 'executed' }),
+    appealForShipper: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', status: 'processing', appealStatus: 'requested' }),
+    appealForDriver: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', status: 'processing', appealStatus: 'requested' }),
   };
 
   beforeEach(() => jest.clearAllMocks());

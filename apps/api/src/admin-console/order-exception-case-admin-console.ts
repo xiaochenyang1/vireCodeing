@@ -110,7 +110,22 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (status === 'not_required') return '无需赔付';
       if (status === 'pending') return '待赔付跟进';
       if (status === 'offline_completed') return '线下已赔付';
+      if (status === 'executed') return '平台已赔付到账';
       return '未记录赔付决议';
+    }
+
+    function formatAppealStatus(status) {
+      if (status === 'requested') return '申诉处理中';
+      if (status === 'rejected') return '申诉已驳回';
+      if (status === 'accepted') return '申诉已受理';
+      return '未申诉';
+    }
+
+    function createIdempotencyKey() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+      return 'idem-' + Date.now() + '-' + Math.random().toString(16).slice(2);
     }
 
     function formatCompensationTargetRole(role) {
@@ -210,7 +225,17 @@ export function renderOrderExceptionCaseAdminConsole() {
         (item.compensationStatus === 'not_required'
           ? ''
           : '<p>赔付对象：' + escapeHtml(formatCompensationTargetRole(item.compensationTargetRole)) + ' · 金额：' + escapeHtml(formatMoney(item.compensationAmountCents)) + '</p>') +
-        '<p>赔付更新时间：' + escapeHtml(item.compensationUpdatedAtIso || item.resolvedAtIso || item.updatedAtIso || '-') + '</p>';
+        '<p>赔付更新时间：' + escapeHtml(item.compensationUpdatedAtIso || item.resolvedAtIso || item.updatedAtIso || '-') + '</p>' +
+        (item.compensationExecutedAtIso
+          ? '<p>赔付执行时间：' + escapeHtml(item.compensationExecutedAtIso) + '</p>'
+          : '') +
+        (item.compensationTransactionId
+          ? '<p>赔付流水：' + escapeHtml(item.compensationTransactionId) + '</p>'
+          : '') +
+        '<p>申诉状态：' + escapeHtml(formatAppealStatus(item.appealStatus)) + '</p>' +
+        (item.appealReason
+          ? '<p>申诉理由：' + escapeHtml(item.appealReason) + '</p>'
+          : '');
     }
 
     function readResolveCompensationInput() {
@@ -280,20 +305,28 @@ export function renderOrderExceptionCaseAdminConsole() {
         document.getElementById('caseCompensationStatusInput').value = item.compensationStatus || 'not_required';
         document.getElementById('caseCompensationTargetRoleInput').value = item.compensationTargetRole || '';
         document.getElementById('caseCompensationAmountInput').value = item.compensationAmountCents ? String(item.compensationAmountCents) : '';
-        renderMutationButtons(item.status);
+        renderMutationButtons(item);
       } catch (error) {
         document.getElementById('caseMutationNotice').textContent = error.message;
       }
     }
 
-    function renderMutationButtons(status) {
+    function renderMutationButtons(item) {
       const target = document.getElementById('caseActions');
+      const status = item.status;
       const actionByStatus = { pending: 'process', processing: 'resolve', resolved: 'close' };
       const labelByStatus = { pending: '受理工单', processing: '解决工单', resolved: '关闭工单' };
       const action = actionByStatus[status];
-      target.innerHTML += action
-        ? '<button id="caseMutationButton" data-action="' + action + '" onclick="mutateCase(this.dataset.action)">' + labelByStatus[status] + '</button>'
-        : '<p class="muted">工单已关闭</p>';
+      let buttons = '';
+      if (action) {
+        buttons += '<button id="caseMutationButton" data-action="' + action + '" onclick="mutateCase(this.dataset.action)">' + labelByStatus[status] + '</button>';
+      } else {
+        buttons += '<p class="muted">工单已关闭</p>';
+      }
+      if (status === 'resolved' && item.compensationStatus === 'pending') {
+        buttons += '<button id="caseExecuteCompensationButton" class="secondary-button" onclick="executeCompensation()">执行平台赔付</button>';
+      }
+      target.innerHTML += buttons;
       toggleCompensationInputs(action === 'resolve');
     }
 
@@ -309,6 +342,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       document.getElementById('caseMutationNotice').textContent = '';
       const button = getCaseMutationButton();
       if (button) button.disabled = true;
+      const executeButton = document.getElementById('caseExecuteCompensationButton');
+      if (executeButton) executeButton.disabled = true;
       try {
         const payload = { baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value, content };
         if (action === 'resolve') {
@@ -332,6 +367,54 @@ export function renderOrderExceptionCaseAdminConsole() {
         mutationPending = false;
         const nextButton = getCaseMutationButton();
         if (nextButton) nextButton.disabled = false;
+        const nextExecuteButton = document.getElementById('caseExecuteCompensationButton');
+        if (nextExecuteButton) nextExecuteButton.disabled = false;
+        syncCompensationInputsFromStatus();
+      }
+    }
+
+    async function executeCompensation() {
+      if (!selectedCaseId || mutationPending) return;
+      const content = document.getElementById('caseActionContent').value.trim() || '平台确认执行异常工单赔付入账。';
+      if (content.length < 6 || content.length > 500) {
+        document.getElementById('caseMutationNotice').textContent = '请输入 6-500 字赔付执行说明';
+        return;
+      }
+      mutationPending = true;
+      document.getElementById('caseMutationNotice').textContent = '';
+      const button = getCaseMutationButton();
+      if (button) button.disabled = true;
+      const executeButton = document.getElementById('caseExecuteCompensationButton');
+      if (executeButton) executeButton.disabled = true;
+      try {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/compensation/execute', {
+          method: 'POST',
+          body: JSON.stringify({
+            baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
+            idempotencyKey: createIdempotencyKey(),
+            content,
+          }),
+        });
+        document.getElementById('caseActionContent').value = '';
+        document.getElementById('caseMutationNotice').textContent = '平台赔付已执行并写入账本。';
+        await loadCase(selectedCaseId);
+        await loadCases(currentPage);
+      } catch (error) {
+        if (error.code === 'EXCEPTION_CASE_CONFLICT') {
+          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
+          await loadCase(selectedCaseId);
+        } else if (error.code === 'EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED') {
+          document.getElementById('caseMutationNotice').textContent = '该工单赔付已执行，不能重复赔付。';
+          await loadCase(selectedCaseId);
+        } else {
+          document.getElementById('caseMutationNotice').textContent = error.message;
+        }
+      } finally {
+        mutationPending = false;
+        const nextButton = getCaseMutationButton();
+        if (nextButton) nextButton.disabled = false;
+        const nextExecuteButton = document.getElementById('caseExecuteCompensationButton');
+        if (nextExecuteButton) nextExecuteButton.disabled = false;
         syncCompensationInputsFromStatus();
       }
     }

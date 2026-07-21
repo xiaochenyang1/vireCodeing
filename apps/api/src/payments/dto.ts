@@ -74,7 +74,8 @@ export type FinancialTransactionRecord = {
     | 'online_order_settlement'
     | 'offline_order_settlement'
     | 'online_refund'
-    | 'driver_withdrawal';
+    | 'driver_withdrawal'
+    | 'order_compensation';
   referenceId: string;
   orderId?: string;
   paymentOrderId?: string;

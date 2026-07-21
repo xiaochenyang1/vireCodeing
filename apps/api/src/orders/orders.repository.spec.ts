@@ -9,6 +9,7 @@ import {
   InMemoryProfileCouponsStore,
   type PrismaShipperCouponRecord,
 } from '../profile-coupons/profile-coupons.repository';
+import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import {
   type ExecuteOrderCreateInput,
   type ExecuteOrderMutationInput,
@@ -1062,6 +1063,450 @@ describe('InMemoryOrdersRepository exception cases', () => {
       },
     });
   });
+});
+
+describe('InMemoryOrdersRepository exception compensation execution', () => {
+  async function seedResolvedShipperCompensation(options?: {
+    financialStore?: InMemoryFinancialStore;
+  }) {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-20T08:00:00.000Z'),
+      new InMemoryProfileCouponsStore(),
+      options?.financialStore,
+    );
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '司机反馈货物外包装破损。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
+    const processing = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'pending',
+      'processing',
+      {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '客服已经联系双方核实异常情况。',
+      },
+    );
+
+    if (
+      !processing ||
+      processing === 'state-invalid' ||
+      processing === 'conflict'
+    ) {
+      throw new Error('processing transition failed');
+    }
+
+    const resolved = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'processing',
+      'resolved',
+      {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '客服确认需要给货主赔付。',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      },
+    );
+
+    if (!resolved || resolved === 'state-invalid' || resolved === 'conflict') {
+      throw new Error('resolve transition failed');
+    }
+
+    return { repository, order, caseId: created.id, resolved };
+  }
+
+  it('executes a shipper compensation against a balanced ledger transaction', async () => {
+    const financialStore = new InMemoryFinancialStore();
+    const { repository, order, caseId, resolved } =
+      await seedResolvedShipperCompensation({ financialStore });
+
+    const result = await repository.executeExceptionCaseCompensation({
+      caseId,
+      adminUserId: 'admin-1',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      idempotencyKey: 'idem-comp-1',
+      requestFingerprint: 'fp-comp-1',
+      requestId: 'req-comp-1',
+      content: '平台确认线下向货主赔付到账。',
+    });
+
+    expect(result).toMatchObject({
+      kind: 'success',
+      replayed: false,
+      exceptionCase: {
+        compensationStatus: 'executed',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      },
+    });
+    if (result.kind !== 'success') {
+      throw new Error('expected success');
+    }
+    expect(result.exceptionCase.compensationTransactionId).toBeDefined();
+    expect(result.exceptionCase.compensationExecutedAtIso).toBeDefined();
+
+    const transactions = financialStore.listFinancialTransactions();
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      type: 'order_compensation',
+      referenceId: caseId,
+      amountCents: 3600,
+    });
+    const signed = transactions[0].entries.reduce(
+      (total, entry) =>
+        total +
+        (entry.direction === 'credit'
+          ? entry.amountCents
+          : -entry.amountCents),
+      0,
+    );
+    expect(signed).toBe(0);
+
+    const auditLogs = financialStore.listFinancialAuditLogs();
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({
+      action: 'exception_compensation.execute',
+      entityType: 'order_exception_case',
+      entityId: caseId,
+    });
+
+    await expect(repository.findOrderById(order.id)).resolves.toMatchObject({
+      latestExceptionCase: { compensationStatus: 'executed' },
+    });
+  });
+
+  it('replays the same idempotency key without creating a second ledger transaction', async () => {
+    const financialStore = new InMemoryFinancialStore();
+    const { repository, caseId, resolved } =
+      await seedResolvedShipperCompensation({ financialStore });
+    const request = {
+      caseId,
+      adminUserId: 'admin-1',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      idempotencyKey: 'idem-comp-1',
+      requestFingerprint: 'fp-comp-1',
+      requestId: 'req-comp-1',
+      content: '平台确认线下向货主赔付到账。',
+    };
+    const first = await repository.executeExceptionCaseCompensation(request);
+    const second = await repository.executeExceptionCaseCompensation(request);
+
+    expect(first.kind).toBe('success');
+    expect(second).toMatchObject({ kind: 'success', replayed: true });
+    expect(financialStore.listFinancialTransactions()).toHaveLength(1);
+    expect(financialStore.listFinancialAuditLogs()).toHaveLength(1);
+  });
+
+  it('rejects a reused idempotency key with a different fingerprint', async () => {
+    const { repository, caseId, resolved } =
+      await seedResolvedShipperCompensation();
+    await repository.executeExceptionCaseCompensation({
+      caseId,
+      adminUserId: 'admin-1',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      idempotencyKey: 'idem-comp-1',
+      requestFingerprint: 'fp-comp-1',
+      requestId: 'req-comp-1',
+      content: '平台确认线下向货主赔付到账。',
+    });
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId,
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        idempotencyKey: 'idem-comp-1',
+        requestFingerprint: 'fp-comp-DIFFERENT',
+        requestId: 'req-comp-2',
+        content: '不同请求指纹。',
+      }),
+    ).resolves.toMatchObject({ kind: 'key-reused' });
+  });
+
+  it('refuses to execute compensation that is not resolved with a pending amount', async () => {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-20T08:00:00.000Z'),
+    );
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '货物破损，等待客服处理。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: created.id,
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: created.updatedAtIso,
+        idempotencyKey: 'idem-comp-x',
+        requestFingerprint: 'fp-comp-x',
+        requestId: 'req-comp-x',
+        content: '尝试对未决议工单赔付。',
+      }),
+    ).resolves.toMatchObject({ kind: 'not-executable' });
+  });
+
+  it('rejects a stale baseUpdatedAtIso with a conflict', async () => {
+    const { repository, caseId } = await seedResolvedShipperCompensation();
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId,
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2020-01-01T00:00:00.000Z',
+        idempotencyKey: 'idem-comp-stale',
+        requestFingerprint: 'fp-comp-stale',
+        requestId: 'req-comp-stale',
+        content: '版本过期的赔付执行。',
+      }),
+    ).resolves.toMatchObject({ kind: 'conflict' });
+  });
+
+  it('credits the driver wallet for a driver compensation', async () => {
+    const financialStore = new InMemoryFinancialStore();
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-20T08:00:00.000Z'),
+      new InMemoryProfileCouponsStore(),
+      financialStore,
+    );
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput({ paymentMethod: 'cod' }),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-9', {});
+    await repository.reportDriverOrderException(order.id, 'driver-9', {
+      typeLabel: '装货口错误',
+      description: '货主提供的装货地址有误，导致空跑。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
+    const processing = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'pending',
+      'processing',
+      { baseUpdatedAtIso: created.updatedAtIso, content: '客服受理司机异常。' },
+    );
+    if (
+      !processing ||
+      processing === 'state-invalid' ||
+      processing === 'conflict'
+    ) {
+      throw new Error('processing failed');
+    }
+    const resolved = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'processing',
+      'resolved',
+      {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '确认赔付司机空跑损失。',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'driver',
+        compensationAmountCents: 5000,
+      },
+    );
+    if (!resolved || resolved === 'state-invalid' || resolved === 'conflict') {
+      throw new Error('resolve failed');
+    }
+
+    const result = await repository.executeExceptionCaseCompensation({
+      caseId: created.id,
+      adminUserId: 'admin-1',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      idempotencyKey: 'idem-comp-driver',
+      requestFingerprint: 'fp-comp-driver',
+      requestId: 'req-comp-driver',
+      content: '赔付司机空跑损失已入钱包。',
+    });
+
+    expect(result.kind).toBe('success');
+    expect(financialStore.findDriverWallet('driver-9')).toMatchObject({
+      availableCents: 5000,
+    });
+  });
+});
+
+describe('InMemoryOrdersRepository exception appeal', () => {
+  async function seedResolvedCase() {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-20T08:00:00.000Z'),
+    );
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '货物外包装破损，要求赔付。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
+    const processing = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'pending',
+      'processing',
+      { baseUpdatedAtIso: created.updatedAtIso, content: '客服已受理该异常。' },
+    );
+    if (
+      !processing ||
+      processing === 'state-invalid' ||
+      processing === 'conflict'
+    ) {
+      throw new Error('processing failed');
+    }
+    const resolved = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'processing',
+      'resolved',
+      { baseUpdatedAtIso: processing.updatedAtIso, content: '客服判定无需赔付。' },
+    );
+    if (!resolved || resolved === 'state-invalid' || resolved === 'conflict') {
+      throw new Error('resolve failed');
+    }
+
+    return { repository, order, caseId: created.id, resolved };
+  }
+
+  it('reopens a resolved case to processing when the shipper appeals', async () => {
+    const { repository, order, caseId, resolved } = await seedResolvedCase();
+
+    const result = await repository.appealExceptionCase({
+      caseId,
+      orderId: order.id,
+      actorUserId: 'shipper-1',
+      actorRole: 'shipper',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      reason: '货主对无需赔付的结论不认可，要求重新核定。',
+    });
+
+    expect(result).toMatchObject({
+      kind: 'success',
+      exceptionCase: {
+        status: 'processing',
+        appealStatus: 'requested',
+      },
+    });
+    if (result.kind !== 'success') {
+      throw new Error('expected success');
+    }
+    expect(result.exceptionCase.actions.at(-1)).toMatchObject({
+      fromStatus: 'resolved',
+      toStatus: 'processing',
+    });
+  });
+
+  it('rejects an appeal from an unrelated user with not-found', async () => {
+    const { repository, order, caseId, resolved } = await seedResolvedCase();
+
+    await expect(
+      repository.appealExceptionCase({
+        caseId,
+        orderId: order.id,
+        actorUserId: 'shipper-OTHER',
+        actorRole: 'shipper',
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        reason: '无关用户尝试申诉。',
+      }),
+    ).resolves.toMatchObject({ kind: 'not-found' });
+  });
+
+  it('does not allow appealing an already executed compensation', async () => {
+    const { repository, order, caseId, resolved } =
+      await seedResolvedShipperExecutedCase();
+
+    await expect(
+      repository.appealExceptionCase({
+        caseId,
+        orderId: order.id,
+        actorUserId: 'shipper-1',
+        actorRole: 'shipper',
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        reason: '赔付已执行后不应允许申诉。',
+      }),
+    ).resolves.toMatchObject({ kind: 'not-allowed' });
+  });
+
+  async function seedResolvedShipperExecutedCase() {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-20T08:00:00.000Z'),
+    );
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '货物破损，需赔付。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
+    const processing = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'pending',
+      'processing',
+      { baseUpdatedAtIso: created.updatedAtIso, content: '客服受理。' },
+    );
+    if (
+      !processing ||
+      processing === 'state-invalid' ||
+      processing === 'conflict'
+    ) {
+      throw new Error('processing failed');
+    }
+    const resolvedCase = await repository.transitionOrderExceptionCase(
+      created.id,
+      'admin-1',
+      'processing',
+      'resolved',
+      {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '确认赔付货主。',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      },
+    );
+    if (
+      !resolvedCase ||
+      resolvedCase === 'state-invalid' ||
+      resolvedCase === 'conflict'
+    ) {
+      throw new Error('resolve failed');
+    }
+    const executed = await repository.executeExceptionCaseCompensation({
+      caseId: created.id,
+      adminUserId: 'admin-1',
+      baseUpdatedAtIso: resolvedCase.updatedAtIso,
+      idempotencyKey: 'idem-comp-exec',
+      requestFingerprint: 'fp-comp-exec',
+      requestId: 'req-comp-exec',
+      content: '赔付已执行。',
+    });
+    if (executed.kind !== 'success') {
+      throw new Error('execution failed');
+    }
+
+    return { repository, order, caseId: created.id, resolved: executed.exceptionCase };
+  }
 });
 
 function createOrderInput(overrides: Partial<CreateShipperOrderRequest> = {}) {

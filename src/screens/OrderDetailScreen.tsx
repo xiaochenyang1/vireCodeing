@@ -42,6 +42,7 @@ import type {
   PlatformPaymentRecord,
   PlatformPaymentSdk,
 } from '../services/platformPaymentApi';
+import type { createPlatformMapsApi } from '../services/platformMapsApi';
 import { PlatformApiError } from '../services/platformApiClient';
 import type {
   createPlatformOrderApi,
@@ -90,6 +91,7 @@ export function OrderDetailScreen({
   platformFileApi,
   platformOrderApi,
   platformPaymentApi,
+  platformMapsApi,
   platformPaymentSdk,
 }: {
   orderId: string;
@@ -127,11 +129,15 @@ export function OrderDetailScreen({
   >;
   platformOrderApi?: Pick<
     ReturnType<typeof createPlatformOrderApi>,
-    'listExceptionCases'
+    'listExceptionCases' | 'appealExceptionCase'
   >;
   platformPaymentApi?: Pick<
     ReturnType<typeof createPlatformPaymentApi>,
     'createPayment' | 'getLatestPayment'
+  >;
+  platformMapsApi?: Pick<
+    ReturnType<typeof createPlatformMapsApi>,
+    'getShipperDriverLocation'
   >;
   platformPaymentSdk?: PlatformPaymentSdk;
 }) {
@@ -145,6 +151,8 @@ export function OrderDetailScreen({
   const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
     useState(false);
   const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
+  const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
+  const [appealingCaseId, setAppealingCaseId] = useState<string>();
   const [payment, setPayment] = useState<PlatformPaymentRecord>();
   const [paymentChannel, setPaymentChannel] =
     useState<PlatformPaymentChannel>('wechat');
@@ -156,12 +164,16 @@ export function OrderDetailScreen({
       setExceptionCases([]);
       setExceptionCaseNotice(undefined);
       setIsLoadingExceptionCases(false);
+      setAppealDrafts({});
+      setAppealingCaseId(undefined);
       return;
     }
 
     let active = true;
     setExceptionCases([]);
     setExceptionCaseNotice(undefined);
+    setAppealDrafts({});
+    setAppealingCaseId(undefined);
     setIsLoadingExceptionCases(true);
     platformOrderApi
       .listExceptionCases(order.platformOrderId)
@@ -192,6 +204,58 @@ export function OrderDetailScreen({
       active = false;
     };
   }, [order.platformOrderId, platformOrderApi]);
+
+  const submitExceptionCaseAppeal = (
+    exceptionCase: PlatformOrderExceptionCase,
+  ) => {
+    if (!platformOrderApi || !order.platformOrderId) {
+      setExceptionCaseNotice('异常工单申诉需要平台登录后才能提交。');
+      return;
+    }
+
+    const reason = (appealDrafts[exceptionCase.id] ?? '').trim();
+    if (reason.length < 6 || reason.length > 500) {
+      setExceptionCaseNotice('请填写 6-500 字申诉理由。');
+      return;
+    }
+
+    setAppealingCaseId(exceptionCase.id);
+    setExceptionCaseNotice(undefined);
+    platformOrderApi
+      .appealExceptionCase(order.platformOrderId, exceptionCase.id, {
+        baseUpdatedAtIso: exceptionCase.updatedAtIso,
+        reason,
+      })
+      .then(updatedCase => {
+        setExceptionCases(currentCases =>
+          currentCases.map(item =>
+            item.id === updatedCase.id ? updatedCase : item,
+          ),
+        );
+        setAppealDrafts(currentDrafts => {
+          const nextDrafts = { ...currentDrafts };
+          delete nextDrafts[exceptionCase.id];
+          return nextDrafts;
+        });
+        setExceptionCaseNotice('申诉已提交，客服将重新处理该工单。');
+      })
+      .catch(error => {
+        setExceptionCaseNotice(
+          error instanceof PlatformApiError
+            ? error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? '登录状态已失效，请重新登录后再提交申诉。'
+              : error.code === 'EXCEPTION_CASE_CONFLICT'
+                ? '异常工单已被更新，请刷新后重试申诉。'
+                : error.code === 'EXCEPTION_CASE_APPEAL_NOT_ALLOWED'
+                  ? '当前工单状态不允许申诉。'
+                  : error.message || '申诉提交失败，请稍后重试。'
+            : '申诉提交失败，请稍后重试。',
+        );
+      })
+      .finally(() => {
+        setAppealingCaseId(undefined);
+      });
+  };
 
   useEffect(() => {
     if (
@@ -687,6 +751,19 @@ export function OrderDetailScreen({
         cases={exceptionCases}
         isLoading={isLoadingExceptionCases}
         notice={exceptionCaseNotice}
+        appealDrafts={appealDrafts}
+        appealingCaseId={appealingCaseId}
+        onChangeAppealReason={(caseId, reason) =>
+          setAppealDrafts(currentDrafts => ({
+            ...currentDrafts,
+            [caseId]: reason,
+          }))
+        }
+        onSubmitAppeal={
+          platformOrderApi?.appealExceptionCase
+            ? submitExceptionCaseAppeal
+            : undefined
+        }
       />
 
       <View style={styles.detailCard}>
@@ -763,7 +840,16 @@ export function OrderDetailScreen({
       {isPanelOpen('bonus') ? <BonusForm onSubmit={submitBonus} /> : null}
 
       {isPanelOpen('tracking') && order.driverInfo ? (
-        <TrackingCard order={order} driver={order.driverInfo} />
+        <TrackingCard
+          order={order}
+          driver={order.driverInfo}
+          platformMapsApi={platformMapsApi}
+          onOpenNavigation={url => {
+            Linking.openURL(url).catch(() => {
+              setExceptionCaseNotice('无法打开导航应用，请检查本机是否安装地图 App。');
+            });
+          }}
+        />
       ) : null}
 
       {isPanelOpen('evaluation') ? (

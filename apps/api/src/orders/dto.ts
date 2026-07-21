@@ -25,10 +25,14 @@ export type CreateShipperOrderRequest = {
   pickupNoteText?: string;
   pickupContact: string;
   pickupPhone: string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
   deliveryAddress: string;
   deliveryNoteText?: string;
   deliveryContact: string;
   deliveryPhone: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   vehicleRequirement: string;
   vehicleLengthText?: string;
   needTailboard: boolean;
@@ -131,6 +135,10 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
     | 'compensationTargetRole'
     | 'compensationAmountCents'
     | 'compensationUpdatedAtIso'
+    | 'compensationExecutedAtIso'
+    | 'appealStatus'
+    | 'appealReason'
+    | 'appealRequestedAtIso'
     | 'createdAtIso'
     | 'updatedAtIso'
   >;

@@ -126,9 +126,15 @@ export type RecentOrderExceptionCaseSourceRole = 'shipper' | 'driver';
 export type RecentOrderExceptionCaseCompensationStatus =
   | 'not_required'
   | 'pending'
-  | 'offline_completed';
+  | 'offline_completed'
+  | 'executed';
 export type RecentOrderExceptionCaseCompensationTargetRole =
   RecentOrderExceptionCaseSourceRole;
+export type RecentOrderExceptionCaseAppealStatus =
+  | 'none'
+  | 'requested'
+  | 'rejected'
+  | 'accepted';
 
 export type RecentOrderLatestExceptionCase = {
   id: string;
@@ -142,6 +148,10 @@ export type RecentOrderLatestExceptionCase = {
   compensationTargetRole?: RecentOrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
   compensationUpdatedAtIso?: string;
+  compensationExecutedAtIso?: string;
+  appealStatus?: RecentOrderExceptionCaseAppealStatus;
+  appealReason?: string;
+  appealRequestedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
 };
