@@ -21,6 +21,53 @@
 - 司机认证 Web 审核台第一片已提供 `GET /api/admin/driver-certification-console`。页面由 API 服务直接返回静态 HTML；现在已补 `POST /auth/admin/password-login` 和 `GET /api/admin/login` 后台专用登录第一片，`seed` 默认会创建演示账号 `13900139000 / Admin123`，现有静态后台页会优先从浏览器 `localStorage/sessionStorage` 读取已保存会话，不用再每页手抄 token。后台订单管理台第一片已提供 `GET /api/admin/order-management-console`，直接串 `GET /admin/orders`、`GET /admin/orders/report`、`GET /admin/orders/export`、`GET /admin/orders/{orderId}` 和 `POST /admin/orders/{orderId}/cancel`：列表支持 `status/statuses/page/pageSize/keyword/createdFromIso/createdToIso` 过滤，报表和 CSV 导出复用同一套筛选条件，可查看状态/资金/定价分布和 Top 货主，详情会展示路线、金额、支付状态、事件时间线和异常快照，还会按当前 `orderId` 并行拉支付 / 退款 / 结算做按单资金视图，也能和财务台围绕同一 `orderId` 双向跳转，查支付 / 退款 / 结算或回看订单都不用再手抄单号；异常快照现在还会展示最新赔付决议摘要，并可按 `caseNo` 直接跳异常工单台，但这依旧不是客服赔付闭环，真实赔付执行 / 退款联动还没补。静态台还支持按当前筛选结果顺序批量取消 waiting 订单，但它本质上仍是顺序调用单条后台取消接口，不是原子事务。后台会话治理台第一片已提供 `GET /api/admin/session-governance-console`，直接串 `GET /admin/auth/sessions`、`GET /admin/auth/sessions/audit-events`、`POST /admin/auth/sessions/{sessionId}/revoke` 和 `POST /admin/auth/sessions/revoke-other-sessions`；`GET /admin/auth/sessions` 默认仍可看当前 admin 自己的活跃 refresh 会话，但现在也支持 `scope=current_admin|all`、`userType`、`keyword`、`riskOnly`、`riskTag` 和 `page/pageSize`，可按角色、关键字和风险标签筛全平台活跃会话；返回会给每条会话补 `shared_device`、`high_session_volume`、`admin_multi_device` 风险标签、风险等级和上下文计数，并附带 `riskySessionCount`、`sharedDeviceCount`、`highSessionVolumeUserCount`、`adminMultiDeviceUserCount` 等设备风险摘要，方便先把共享设备、多开账号和多设备 admin 这些第一片风险暴露出来，再按 `sessionId` 跨账号强退；`GET /admin/auth/sessions/audit-events` 会展示单会话强退和“撤销当前账号其它设备”的细粒度审计记录，带 actor、结果、请求会话和受影响会话快照；`revoke-other-sessions` 仍用于保留当前设备后清掉当前 admin 其它登录。后台账号管理台第一片已提供 `GET /api/admin/account-management-console`，直接串 `GET /admin/auth/accounts`、`GET /admin/auth/accounts/report`、`GET /admin/auth/accounts/export`、`GET /admin/auth/accounts/{userId}`、`POST /admin/auth/accounts/{userId}/status` 和 `POST /admin/auth/accounts/{userId}/revoke-sessions`；admin 现在可按 `userType`、`status`、`keyword`、`riskOnly`、`riskTag`、`riskLevel`、`page/pageSize` 过滤账号，查看账号详情、活跃会话画像、风险摘要、治理审计汇总和 Top 风险账号，并按同一筛选条件导出 CSV；admin-facing 手机号和设备标识已经按第一片做了脱敏；冻结会立即撤销该账号全部活跃 refresh session，解冻不会恢复旧会话，管理员也不能禁用自己；这片还没补定时报表、更细粒度脱敏、实名解绑/注销和更严格的角色审批。权限矩阵台第一片已提供 `GET /api/admin/permission-matrix-console` 和 `GET /admin/permissions/matrix`；当前所有 `userType=admin` 会话仍共享同一档 `platform_admin` 能力画像，但现在已经能按后台台子列出覆盖 API、读/写边界和高风险操作，并把 `order-management` 模块 / `order_management_manage`、`account-management` 模块 / `account_management_manage` 等能力纳入矩阵；后台首页概览和权限矩阵当前统计口径已更新到 11 个模块、11 项能力，其中 8 项写能力和 8 项高风险能力，方便后面继续拆多角色、数据域权限和审批流。订单附件审计台第一片已提供 `GET /api/admin/order-attachment-console`，admin 可按订单状态、货主 ID、订单号、货物、地址或联系人关键字分页检索带附件订单摘要，可透传 `createdFromIso`/`createdToIso` 做创建时间范围筛选，也可在全部、只看 `missingFileIds`、只看无缺失引用之间切换；静态台会展示当前页、每页数量、本页数量、总数，摘要行会直接展示订单状态、创建时间、货主 ID、附件计数、已解析数量和缺失状态，并支持上一页/下一页翻页，再打开单笔订单查看主体货物图片、事件附件、文件元数据、本地短期签名 `previewUrl`/`previewExpiresAtIso` 和 `missingFileIds`。文件维护台第一片已提供 `GET /api/admin/file-maintenance-console`，admin 不光能拉 `GET /files/maintenance/summary`，还能通过 `GET /files/maintenance/report` 按 `topOwnersLimit` 拉用途分布和 owner 热点审计快照，再通过 `GET /files/maintenance/files` 按 `page/pageSize/status/purpose/ownerUserId/keyword` 分页筛文件记录，最后执行 `POST /files/maintenance/reject-expired-pending`、`POST /files/maintenance/delete-rejected-objects` 和 `POST /files/maintenance/batch-governance`；后台页会保留勾选结果，支持按筛选结果批量执行 `reject_pending` / `delete_rejected_objects`，也会直接展示报表生成时间、`cutoffIso`、`purposeBreakdown` 和 `topOwners`，把过期 pending、rejected 对象和指定 owner 的脏文件从后台入口里直接扫出来。优惠券发放台第一片已提供 `GET /api/admin/shipper-coupon-console`、`POST /admin/shipper-coupons`、`POST /admin/shipper-coupons/batch-issue` 和 `GET /admin/shipper-coupons/report`，同一套券模板现在既能单张发给指定货主，也能按 `shipperIds[]` 批量发给一批货主，还能按 `topShippersLimit` 看来源分布和货主排行核销报表；静态台会保留单发和批量发放结果，并在发券后自动刷新报表，但它依旧不是活动编排、审批流或完整营销后台。财务操作台第一片已提供 `GET /api/admin/finance-console`，现在除了查询支付单、退款单、结算和提现、执行退款重试与提现通过/驳回、查看资金流水，还会直连 `GET /admin/finance/report` 展示支付/退款/提现状态分布、结算汇总和 dead refund outbox 水位；`payments/refunds/settlements` 现已支持 `orderId` 过滤，既能在财务台手输，也能吃订单管理台带过来的 `tab + orderId` 深链，选中关联记录后还能直接回跳订单管理台详情。现有静态后台页现在也都补了统一导航第一片，能在司机认证、订单管理、会话治理、账号管理、权限矩阵、附件审计、文件维护、异常工单、优惠券、评价审计和财务台之间直接跳转，不用每次退回首页或手改 URL。运营后台工具台第一片已提供 `GET /api/admin/console`，现在不光是统一入口，还能配合受保护的 `GET /api/admin/console/overview` 拉实时摘要，把司机认证、订单量/待接单/执行中、权限矩阵、文件维护、会话治理入口、账号管理、附件审计、异常工单、优惠券、评价审计和财务操作几个散落静态台统一成一个能看队列、看查单入口、看文件积压、看财务死信、看优惠券库存的首页。后台订单 API 已补 `GET /admin/orders` 列表、`GET /admin/orders/report` 筛选报表、`GET /admin/orders/export` CSV 导出、`GET /admin/orders/{orderId}` 详情、`POST /admin/orders/{orderId}/cancel` 取消 waiting 订单、`GET /admin/orders/attachments` 摘要列表和 `GET /admin/orders/{orderId}/attachments` 单笔附件详情。这些页面仍不是完整运营后台，没有多角色工作台、数据域权限、深度经营报表、客服流转、复杂组合检索或高级批量审计。
 - 下一步计划是把 driver/vehicle certification 接到真实对象存储桶验收和更完整的附件治理，补真实 PostgreSQL 验收，再从静态审核台第一片继续推进到完整运营后台；之后再拆支付、地图、推送、IM 和客服后台。
 
+## 短信 webhook 与对象存储验收（生产联调前置）
+
+代码地基已支持 `SMS_PROVIDER=webhook` 与 `FILE_STORAGE_PROVIDER=s3-compatible`。本轮补的是 **env 门控 acceptance smoke**，不是厂商 SDK 重写。
+
+### 短信 webhook acceptance
+
+```bash
+npm --prefix apps/api run db:postgres:sms-smoke
+# 或测试库
+npm --prefix apps/api run db:test:postgres:sms-smoke
+```
+
+脚本会：
+
+1. 启动临时 HTTP webhook 接收器
+2. 以 `SMS_PROVIDER=webhook` 拉起编译后的 API
+3. 调 `POST /auth/send-code`，断言 webhook body 含 phone/purpose/code/expiresAt 与 Bearer token
+4. 用 webhook 捕获的验证码登录（不依赖 `devCode` 路径作为唯一证据）
+5. 让 webhook 返回非 2xx，断言 `AUTH_CODE_DELIVERY_FAILED` 且未送达验证码不可登录
+
+诚实边界：这是通用 HTTPS webhook 端口验收，不是阿里云/腾讯云短信模板/签名/回执联调。
+
+### S3 兼容对象存储 acceptance（opt-in）
+
+本地可选 MinIO：
+
+```bash
+npm --prefix apps/api run db:dev:minio:up
+```
+
+然后设置 `S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY`（MinIO 示例见 `.env.example`），再跑：
+
+```bash
+npm --prefix apps/api run db:postgres:s3-smoke
+# 或测试库
+npm --prefix apps/api run db:test:postgres:s3-smoke
+```
+
+脚本会：
+
+1. S3_* 不齐时 **skip 并打印清晰原因**，不破坏默认 bootstrap
+2. 创建 upload intent → 客户端 `PUT` 预签名 URL → `POST /files/{id}/uploaded`（HEAD 确认）
+3. 校验 HMAC storage callback 成功/失败路径
+4. 尝试 admin batch governance 的 reject_pending / delete_rejected_objects
+
+诚实边界：不含云厂商原生事件适配、病毒扫描、S3 signed GET 预览、跨桶 orphan 扫描。默认 `db:postgres:bootstrap` **不强制** SMS/S3 smoke。
+
 ## 默认技术路线
 
 - 移动端：React Native，货主端和司机端第一阶段共用工程，按业务目录隔离。
