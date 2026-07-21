@@ -1,107 +1,202 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# vireCodeing
 
-## 平台规划入口
+一个处于阶段 1 的货运平台仓库，不再是单纯的 React Native 模板。
 
-当前仓库已从 React Native 默认模板演进为货主端本地 MVP。完整平台建设按阶段推进：
+当前仓库同时包含：
 
-- 总体设计：`docs/superpowers/specs/2026-06-26-complete-platform-architecture-design.md`
-- 阶段 0/1 计划：`docs/superpowers/plans/2026-06-26-platform-stage-0-1-foundation.md`
-- 平台工程说明：`docs/platform/README.md`
-- API 规范：`docs/platform/api-conventions.md`
-- OpenAPI 初稿：`docs/platform/openapi-stage-1.yaml`
+- React Native 移动端：货主端主链路 + 司机端第一批执行链路
+- NestJS + Prisma API：认证、订单、司机执行、支付账本、文件、地图、消息等
+- 一批由 API 直接返回的静态后台控制台第一页
 
-# Getting Started
+更完整的状态审计和设计说明见：
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+- `docs/03-项目当前状态与补全路线.md`
+- `docs/platform/README.md`
+- `docs/platform/openapi-stage-1.yaml`
+- `docs/superpowers/specs/`
+- `docs/superpowers/plans/`
 
-## Step 1: Start Metro
+## 当前已落地
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- 手机验证码/密码认证、refresh session、`/me`
+- 货主发单草稿、发单、订单列表、订单详情、改单、取消、确认送达
+- 订单高风险写操作的幂等与乐观并发第一片
+- 优惠券锁定/释放/核销与发单原子性第一片
+- 司机大厅、报价、接单、执行状态推进、异常上报、评价回复
+- 司机实名/车辆认证与后台审核第一片
+- 异常工单、赔付执行、申诉重开第一片
+- 支付/退款/结算/提现账本第一片与财务对账第一片
+- 文件上传意图、确认、S3 兼容存储第一片、附件预览签名
+- 地图 geocode/reverse-geocode、司机位置上报、导航目标、货主跟踪第一片
+- 站内信消息中心与 sandbox push 第一片
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## 仍未完成
+
+- 真实微信/支付宝/银行卡支付与真实打款
+- 真实短信供应商、真实对象存储生产联调
+- 应用内地图 SDK、轨迹回放、附近单距离排序
+- IM/WebSocket/真实推送 SDK
+- 完整后台 RBAC、多角色工作台、双人复核
+- 监控告警、备份恢复、正式发布链路
+
+## 目录
+
+- `src/`：React Native 页面、adapter、本地运行态、工具函数
+- `apps/api/`：NestJS API、Prisma schema、migration、验证脚本
+- `__tests__/`：移动端与 adapter 测试
+- `docs/platform/`：平台工程说明、ERD、OpenAPI、迁移口径
+- `docs/superpowers/specs/`：设计规格
+- `docs/superpowers/plans/`：实施计划
+
+## 本地运行
+
+### 1. 安装依赖
+
+根项目：
 
 ```sh
-# Using npm
+npm install
+```
+
+API 子项目：
+
+```sh
+npm --prefix apps/api install
+```
+
+### 2. 运行移动端
+
+启动 Metro：
+
+```sh
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+运行 Android：
 
 ```sh
-# Using npm
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+运行 iOS：
 
 ```sh
 bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
 bundle exec pod install
+npm run ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### 3. 让移动端接 API
+
+移动端不写 `apiBaseUrl` 时，仍可跑本地 MVP fallback。
+
+要切到平台 API，先写运行时配置：
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+TRUCK_PLATFORM_API_BASE_URL=http://127.0.0.1:3000/api npm run platform:config:write
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+配置文件会写到：
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+- `src/config/platformBuildConfig.ts`
 
-## Step 3: Modify your app
+## API 运行
 
-Now that you have successfully run the app, let's make changes!
+### 基础环境
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+- Node `>= 22.11.0`
+- PostgreSQL（需要真实 API/Prisma/migration 验收时）
+- 可选：Docker Desktop / Docker CLI（本地 PostgreSQL 或 MinIO）
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+环境样例：
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+- `apps/api/.env.example`
 
-## Congratulations! :tada:
+常见本地环境变量包括：
 
-You've successfully run and modified your React Native App. :partying_face:
+- `DATABASE_URL`
+- `TEST_DATABASE_URL`
+- `JWT_ACCESS_SECRET`
+- `PAYMENT_PROVIDER_MODE`
+- `MAP_PROVIDER`
 
-### Now what?
+### 启动 API
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+开发模式：
 
-# Troubleshooting
+```sh
+npm --prefix apps/api run start:dev
+```
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+构建：
 
-# Learn More
+```sh
+npm --prefix apps/api run build
+```
 
-To learn more about React Native, take a look at the following resources:
+Prisma 校验：
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+```sh
+npm --prefix apps/api run prisma:validate
+```
+
+## 常用检查命令
+
+根项目：
+
+```sh
+npm test
+npx tsc --noEmit
+npm run lint
+```
+
+API：
+
+```sh
+npm --prefix apps/api test
+npm --prefix apps/api run typecheck
+npm --prefix apps/api run lint
+npm --prefix apps/api run prisma:validate
+npm --prefix apps/api run build
+```
+
+## PostgreSQL 验收
+
+先看诊断：
+
+```sh
+npm --prefix apps/api run db:postgres:doctor
+npm --prefix apps/api run db:test:postgres:doctor
+```
+
+本地 PostgreSQL：
+
+```sh
+npm --prefix apps/api run db:dev:postgres:up
+npm --prefix apps/api run db:dev:postgres:down
+```
+
+完整测试库 bootstrap：
+
+```sh
+npm --prefix apps/api run db:test:postgres:bootstrap
+```
+
+更细的命令口径见：
+
+- `docs/platform/README.md`
+- `apps/api/package.json`
+
+## 当前阅读顺序
+
+如果你刚接手这个仓库，建议按下面顺序看：
+
+1. `docs/03-项目当前状态与补全路线.md`
+2. `docs/platform/README.md`
+3. `docs/platform/openapi-stage-1.yaml`
+4. `App.tsx`
+5. `apps/api/src/app.module.ts`
+
+## 备注
+
+这个仓库现在的真实状态是“很多第一片已经打通，但还远没到生产完成”。不要把本地 fallback、静态后台页或 sandbox provider 当成完整平台能力。

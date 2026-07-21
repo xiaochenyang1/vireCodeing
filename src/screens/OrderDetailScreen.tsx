@@ -138,7 +138,10 @@ export function OrderDetailScreen({
   platformMapsApi?: Pick<
     ReturnType<typeof createPlatformMapsApi>,
     'getShipperDriverLocation'
-  >;
+  > &
+    Partial<
+      Pick<ReturnType<typeof createPlatformMapsApi>, 'reverseGeocode'>
+    >;
   platformPaymentSdk?: PlatformPaymentSdk;
 }) {
   const order = orders.find(item => item.id === orderId) ?? orders[0];

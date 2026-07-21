@@ -99,6 +99,37 @@ describe('createPlatformMessagesApi', () => {
     );
   });
 
+  it('marks all messages as read', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          updatedCount: 3,
+        },
+        requestId: 'req_test',
+        timestamp: '2026-07-21T10:05:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformMessagesApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'token-1',
+    });
+
+    const result = await api.markAllMessagesRead();
+    expect(result.updatedCount).toBe(3);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/me/messages/read-all',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+  });
+
   it('rejects invalid message ids before calling the network', async () => {
     const api = createPlatformMessagesApi({
       baseUrl: 'http://localhost:3000/api',

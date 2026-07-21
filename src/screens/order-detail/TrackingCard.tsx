@@ -21,13 +21,16 @@ export function TrackingCard({
   platformMapsApi?: Pick<
     ReturnType<typeof createPlatformMapsApi>,
     'getShipperDriverLocation'
-  >;
+  > &
+    Partial<
+      Pick<ReturnType<typeof createPlatformMapsApi>, 'reverseGeocode'>
+    >;
   onOpenNavigation?: (url: string) => void;
 }) {
   const [locationText, setLocationText] = useState(
     `当前位置：${order.from} → ${order.to}途中`,
   );
-  const [updatedText, setUpdatedText] = useState(
+  const [detailText, setDetailText] = useState(
     `预计到达：${order.updatedAtText}`,
   );
   const [notice, setNotice] = useState(
@@ -42,19 +45,46 @@ export function TrackingCard({
     let active = true;
     platformMapsApi
       .getShipperDriverLocation(order.platformOrderId)
-      .then(snapshot => {
+      .then(async snapshot => {
         if (!active) {
           return;
         }
 
-        setLocationText(
-          `司机位置：${formatCoordinateText(
-            snapshot.latitude,
-            snapshot.longitude,
-          )}`,
+        const coordinateText = formatCoordinateText(
+          snapshot.latitude,
+          snapshot.longitude,
         );
-        setUpdatedText(`更新时间：${snapshot.recordedAtIso}`);
-        setNotice('已读取司机最新上报位置（sandbox/设备上报）。');
+
+        setLocationText(`司机位置：${coordinateText}`);
+        setDetailText(`更新时间：${snapshot.recordedAtIso}`);
+
+        if (!platformMapsApi.reverseGeocode) {
+          setNotice('已读取司机最新上报位置。');
+          return;
+        }
+
+        try {
+          const geocode = await platformMapsApi.reverseGeocode({
+            latitude: snapshot.latitude,
+            longitude: snapshot.longitude,
+          });
+
+          if (!active) {
+            return;
+          }
+
+          setLocationText(`司机位置：${geocode.formattedAddress}`);
+          setDetailText(
+            `坐标：${coordinateText} · 更新时间：${snapshot.recordedAtIso}`,
+          );
+          setNotice('已读取司机最新上报位置。');
+        } catch {
+          if (!active) {
+            return;
+          }
+
+          setNotice('司机位置地址解析失败，仍展示坐标。');
+        }
       })
       .catch(error => {
         if (!active) {
@@ -96,7 +126,7 @@ export function TrackingCard({
           </View>
         </View>
         <Text style={styles.detailMeta}>{locationText}</Text>
-        <Text style={styles.detailMeta}>{updatedText}</Text>
+        <Text style={styles.detailMeta}>{detailText}</Text>
         <Text style={styles.routeMeta}>{notice}</Text>
         <Pressable
           testID="order-tracking-open-navigation"

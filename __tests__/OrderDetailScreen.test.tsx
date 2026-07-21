@@ -191,6 +191,7 @@ async function renderOrderDetail({
   onUpdateOrder = jest.fn(),
   platformPaymentApi,
   platformPaymentSdk,
+  platformMapsApi,
 }: {
   order: RecentOrder;
   onUpdateOrder?: jest.Mock;
@@ -199,6 +200,10 @@ async function renderOrderDetail({
     getLatestPayment: jest.Mock;
   };
   platformPaymentSdk?: PlatformPaymentSdk;
+  platformMapsApi?: {
+    getShipperDriverLocation: jest.Mock;
+    reverseGeocode?: jest.Mock;
+  };
 }) {
   let renderer!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => {
@@ -212,6 +217,7 @@ async function renderOrderDetail({
         onReorder={jest.fn()}
         onEditOrder={jest.fn()}
         platformPaymentApi={platformPaymentApi}
+        platformMapsApi={platformMapsApi}
         platformPaymentSdk={platformPaymentSdk}
       />,
     );
@@ -338,5 +344,96 @@ describe('OrderDetailScreen exception case progress', () => {
     expect(renderedText).toContain(
       '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥128.00 · 更新时间：2026-07-12T08:20:00.000Z',
     );
+  });
+});
+
+describe('OrderDetailScreen tracking', () => {
+  it('shows a reverse geocoded driver location when available', async () => {
+    const order = {
+      ...orderListOrders[1],
+      platformOrderId: 'order-platform-tracking-1',
+    };
+    const platformMapsApi = {
+      getShipperDriverLocation: jest.fn().mockResolvedValue({
+        driverId: 'driver-1',
+        orderId: 'order-platform-tracking-1',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'sandbox',
+        recordedAtIso: '2026-07-21T10:00:00.000Z',
+        updatedAtIso: '2026-07-21T10:00:00.000Z',
+      }),
+      reverseGeocode: jest.fn().mockResolvedValue({
+        latitude: 22.61,
+        longitude: 113.91,
+        provider: 'amap',
+        formattedAddress: '深圳市宝安区福永街道平台司机位置',
+      }),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformMapsApi,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(platformMapsApi.getShipperDriverLocation).toHaveBeenCalledWith(
+      'order-platform-tracking-1',
+    );
+    expect(platformMapsApi.reverseGeocode).toHaveBeenCalledWith({
+      latitude: 22.61,
+      longitude: 113.91,
+    });
+    expect(renderedText).toContain('位置跟踪');
+    expect(renderedText).toContain('司机位置：深圳市宝安区福永街道平台司机位置');
+    expect(renderedText).toContain(
+      '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:00:00.000Z',
+    );
+    expect(renderedText).toContain('已读取司机最新上报位置。');
+  });
+
+  it('falls back to coordinates when reverse geocoding fails', async () => {
+    const order = {
+      ...orderListOrders[1],
+      platformOrderId: 'order-platform-tracking-2',
+    };
+    const platformMapsApi = {
+      getShipperDriverLocation: jest.fn().mockResolvedValue({
+        driverId: 'driver-2',
+        orderId: 'order-platform-tracking-2',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'sandbox',
+        recordedAtIso: '2026-07-21T10:05:00.000Z',
+        updatedAtIso: '2026-07-21T10:05:00.000Z',
+      }),
+      reverseGeocode: jest.fn().mockRejectedValue(new Error('reverse failed')),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformMapsApi,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('司机位置：22.610000, 113.910000');
+    expect(renderedText).toContain('更新时间：2026-07-21T10:05:00.000Z');
+    expect(renderedText).toContain('司机位置地址解析失败，仍展示坐标。');
   });
 });

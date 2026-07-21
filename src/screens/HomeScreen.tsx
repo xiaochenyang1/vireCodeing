@@ -218,6 +218,7 @@ export function HomeScreen({
   onOpenOrdersWithFilter,
   onOpenNetworkError,
   onMarkMessageRead,
+  onMarkAllMessagesRead,
   onReuseRoute,
   draftGateNotice,
   networkNotice,
@@ -242,6 +243,7 @@ export function HomeScreen({
   onOpenOrdersWithFilter: (filter: OrderListFilter) => void;
   onOpenNetworkError: () => void;
   onMarkMessageRead: (messageId: string) => void;
+  onMarkAllMessagesRead: () => void;
   onReuseRoute: (route: FrequentRoute) => void;
 }) {
   const initialHomeState = getHomeLocalState();
@@ -693,6 +695,7 @@ export function HomeScreen({
         messages={messages}
         onBackHome={backHome}
         onMarkMessageRead={onMarkMessageRead}
+        onMarkAllMessagesRead={onMarkAllMessagesRead}
         onOpenOrderDetail={onOpenOrderDetail}
       />
     );

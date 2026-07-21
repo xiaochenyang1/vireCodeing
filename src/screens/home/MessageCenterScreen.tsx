@@ -12,16 +12,20 @@ export function MessageCenterScreen({
   messages,
   onBackHome,
   onMarkMessageRead,
+  onMarkAllMessagesRead,
   onOpenOrderDetail,
 }: {
   messages: MessageCenterItem[];
   onBackHome: () => void;
   onMarkMessageRead: (messageId: string) => void;
+  onMarkAllMessagesRead: () => void;
   onOpenOrderDetail: (
     orderId: string,
     returnTarget?: OrderDetailReturnTarget,
   ) => void;
 }) {
+  const unreadCount = messages.filter(item => item.unread).length;
+
   return (
     <ScrollView
       style={styles.screen}
@@ -33,6 +37,28 @@ export function MessageCenterScreen({
         subtitle="订单与系统通知"
         onBackHome={onBackHome}
       />
+
+      <View style={styles.detailCard}>
+        <View style={styles.routeHeader}>
+          <View>
+            <Text style={styles.routeName}>收件箱</Text>
+            <Text testID="message-unread-summary" style={styles.routeMeta}>
+              {unreadCount > 0
+                ? `还有 ${unreadCount} 条未读消息`
+                : '全部消息都已读'}
+            </Text>
+          </View>
+          {unreadCount > 0 ? (
+            <Pressable
+              testID="message-mark-all-read"
+              style={styles.detailSecondaryButton}
+              onPress={onMarkAllMessagesRead}
+            >
+              <Text style={styles.detailSecondaryButtonText}>全部已读</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
 
       {messages.map(item => {
         const orderId = getMessageOrderId(item.content, {

@@ -2475,6 +2475,24 @@ function App({
     }
   };
 
+  const markAllMessagesRead = () => {
+    if (!messages.some(message => message.unread)) {
+      return;
+    }
+
+    setMessages(currentMessages => {
+      const nextMessages = currentMessages.map(message =>
+        message.unread ? { ...message, unread: false } : message,
+      );
+      persistRuntimeState({ nextMessages });
+      return nextMessages;
+    });
+
+    if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
+      platformMessagesApi.markAllMessagesRead().catch(() => undefined);
+    }
+  };
+
   if (!isHydrated) {
     return (
       <SafeAreaProvider
@@ -2595,6 +2613,7 @@ function App({
             onOpenOrders={openOrders}
             onOpenOrdersWithFilter={openOrdersWithFilter}
             onMarkMessageRead={markMessageRead}
+            onMarkAllMessagesRead={markAllMessagesRead}
             onReuseRoute={route =>
               openDraftWithPrefill({
                 pickupAddress: route.from,

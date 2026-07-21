@@ -332,7 +332,7 @@ test('resumes a pending platform payment from the server on cold start', async (
     }
     return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
   const paymentSdk: PlatformPaymentSdk = {
     openPayment: jest.fn(),
   };
@@ -682,6 +682,34 @@ function installPlatformFetchMock(fetchMock: jest.Mock) {
     const requestUrl = String(input);
 
     if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [],
+          page: 1,
+          pageSize: 50,
+          total: 0,
+          unreadCount: 0,
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/navigation-targets') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          orderId: 'order-platform-navigation-fallback',
+          orderNo: 'HYTESTNAVIGATION',
+          targets: [],
+        }),
+      );
+    }
+
+    if (
       requestUrl.endsWith('/exception-cases') &&
       (!init?.method || init.method === 'GET')
     ) {
@@ -695,6 +723,62 @@ function installPlatformFetchMock(fetchMock: jest.Mock) {
 
     return fetchMock(input, init);
   }) as typeof fetch;
+}
+
+type FetchRequestMatcher = {
+  url?: string;
+  urlEndsWith?: string;
+  urlIncludes?: string;
+  method?: string;
+};
+
+type FetchMockCall = [RequestInfo | URL, RequestInit | undefined];
+
+function normalizeFetchMethod(method?: string) {
+  return (method ?? 'GET').toUpperCase();
+}
+
+function matchesFetchCall(call: FetchMockCall, matcher: FetchRequestMatcher) {
+  const [input, init] = call;
+  const requestUrl = String(input);
+
+  return (
+    (!matcher.url || requestUrl === matcher.url) &&
+    (!matcher.urlEndsWith || requestUrl.endsWith(matcher.urlEndsWith)) &&
+    (!matcher.urlIncludes || requestUrl.includes(matcher.urlIncludes)) &&
+    (!matcher.method ||
+      normalizeFetchMethod(init?.method) === matcher.method.toUpperCase())
+  );
+}
+
+function findFetchCall(fetchMock: jest.Mock, matcher: FetchRequestMatcher) {
+  return fetchMock.mock.calls.find(call =>
+    matchesFetchCall(call as FetchMockCall, matcher),
+  ) as FetchMockCall | undefined;
+}
+
+function findFetchCalls(fetchMock: jest.Mock, matcher: FetchRequestMatcher) {
+  return fetchMock.mock.calls.filter(call =>
+    matchesFetchCall(call as FetchMockCall, matcher),
+  ) as FetchMockCall[];
+}
+
+function findLastFetchCall(fetchMock: jest.Mock, matcher: FetchRequestMatcher) {
+  const matchingCalls = findFetchCalls(fetchMock, matcher);
+
+  return matchingCalls[matchingCalls.length - 1];
+}
+
+function getFetchCallBody<T>(call: FetchMockCall | undefined) {
+  if (!call?.[1]?.body) {
+    throw new Error('Expected fetch call body');
+  }
+
+  return JSON.parse(String(call[1].body)) as T;
+}
+
+function getFetchCallHeaders(call: FetchMockCall | undefined) {
+  return (call?.[1]?.headers ?? {}) as Record<string, string>;
 }
 
 function createPlatformApiErrorResponse(
@@ -1443,7 +1527,7 @@ test('injects platform auth api into the auth screen when base url is configured
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -1472,30 +1556,27 @@ test('injects platform auth api into the auth screen when base url is configured
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      'http://localhost:3000/api/auth/send-code',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          phone: '13800138000',
-          purpose: 'login',
-        }),
-      }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'http://localhost:3000/api/auth/login',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          phone: '13800138000',
-          code: '999999',
-          userType: 'shipper',
-          deviceId: 'local-device',
-        }),
-      }),
-    );
+    const sendCodeCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/auth/send-code',
+      method: 'POST',
+    });
+    expect(sendCodeCall).toBeDefined();
+    expect(getFetchCallBody(sendCodeCall)).toMatchObject({
+      phone: '13800138000',
+      purpose: 'login',
+    });
+
+    const loginCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/auth/login',
+      method: 'POST',
+    });
+    expect(loginCall).toBeDefined();
+    expect(getFetchCallBody(loginCall)).toMatchObject({
+      phone: '13800138000',
+      code: '999999',
+      userType: 'shipper',
+      deviceId: 'local-device',
+    });
     expect(getRenderedText(app)).toContain('货运发单');
     expect(getAuthSessionSnapshot()).toMatchObject({
       accessToken: 'access.platform-user.900',
@@ -1532,7 +1613,7 @@ test('syncs the platform authenticated phone into local profile account state', 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -1607,7 +1688,7 @@ test('uses platform auth api from runtime config when prop base url is not provi
   (globalThis as PlatformRuntimeConfigGlobal).__TRUCK_PLATFORM_CONFIG__ = {
     apiBaseUrl: 'http://runtime.example/api',
   };
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000);
@@ -1634,30 +1715,27 @@ test('uses platform auth api from runtime config when prop base url is not provi
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      'http://runtime.example/api/auth/send-code',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          phone: '13800138000',
-          purpose: 'login',
-        }),
-      }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'http://runtime.example/api/auth/login',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          phone: '13800138000',
-          code: '888888',
-          userType: 'shipper',
-          deviceId: 'local-device',
-        }),
-      }),
-    );
+    const sendCodeCall = findFetchCall(fetchMock, {
+      url: 'http://runtime.example/api/auth/send-code',
+      method: 'POST',
+    });
+    expect(sendCodeCall).toBeDefined();
+    expect(getFetchCallBody(sendCodeCall)).toMatchObject({
+      phone: '13800138000',
+      purpose: 'login',
+    });
+
+    const loginCall = findFetchCall(fetchMock, {
+      url: 'http://runtime.example/api/auth/login',
+      method: 'POST',
+    });
+    expect(loginCall).toBeDefined();
+    expect(getFetchCallBody(loginCall)).toMatchObject({
+      phone: '13800138000',
+      code: '888888',
+      userType: 'shipper',
+      deviceId: 'local-device',
+    });
     expect(getRenderedText(app)).toContain('货运发单');
     expect(getAuthSessionSnapshot()).toMatchObject({
       accessToken: 'access.runtime-user.900',
@@ -1691,7 +1769,7 @@ test('refreshes platform auth tokens on startup when a refresh token is saved', 
     }),
   );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(2000, {
@@ -1736,7 +1814,7 @@ test('keeps a saved platform auth session when startup token refresh has a netwo
     .fn()
     .mockRejectedValue(new TypeError('Network request failed'));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(2000, {
@@ -1788,7 +1866,7 @@ test('clears a saved platform auth session when startup token refresh is rejecte
     }),
   });
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(2000, {
@@ -1841,21 +1919,21 @@ test('syncs platform current user profile after startup token refresh', async ()
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(2000, {
       platformApiBaseUrl: 'http://localhost:3000/api',
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'http://localhost:3000/api/me',
+    const currentUserCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/me',
+      method: 'GET',
+    });
+    expect(currentUserCall).toBeDefined();
+    expect(getFetchCallHeaders(currentUserCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.refreshed-profile-user.900',
-        }),
+        Authorization: 'Bearer access.refreshed-profile-user.900',
       }),
     );
 
@@ -1903,21 +1981,21 @@ test('clears a saved platform auth session when startup current user lookup repo
       }),
     });
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(2000, {
       platformApiBaseUrl: 'http://localhost:3000/api',
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'http://localhost:3000/api/me',
+    const currentUserCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/me',
+      method: 'GET',
+    });
+    expect(currentUserCall).toBeDefined();
+    expect(getFetchCallHeaders(currentUserCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.refreshed-disabled-user.900',
-        }),
+        Authorization: 'Bearer access.refreshed-disabled-user.900',
       }),
     );
     expect(getAuthSessionSnapshot()).toBeUndefined();
@@ -1957,7 +2035,7 @@ test('logs out the platform refresh session before clearing local auth state', a
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -1991,17 +2069,15 @@ test('logs out the platform refresh session before clearing local auth state', a
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/auth/logout',
-      expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
-          deviceId: 'local-device',
-        }),
-      }),
-    );
+    const logoutCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/auth/logout',
+      method: 'POST',
+    });
+    expect(logoutCall).toBeDefined();
+    expect(getFetchCallBody(logoutCall)).toMatchObject({
+      refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
+      deviceId: 'local-device',
+    });
     expect(getAuthSessionSnapshot()).toBeUndefined();
     expect(getRenderedText(app)).toContain('账号验证');
   } finally {
@@ -5113,7 +5189,7 @@ test('syncs frequent routes through the platform frequent routes api', async () 
         updatedAtIso: '2026-07-04T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -5226,7 +5302,7 @@ test('keeps platform frequent route save queued when saving has no auth token', 
         updatedAtIso: '2026-07-04T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -5318,7 +5394,7 @@ test('loads platform frequent routes when opening the route manager', async () =
         updatedAtIso: '2026-07-04T08:40:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-04T08:00:00.000Z').getTime(), {
@@ -5407,7 +5483,7 @@ test('keeps platform frequent route load queued when opening manager has no auth
         },
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -5494,7 +5570,7 @@ test('keeps platform frequent route load queued when opening manager load fails'
       }),
     )
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -5592,7 +5668,7 @@ test('keeps local pending frequent routes when platform routes load', async () =
         },
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-04T08:00:00.000Z').getTime(), {
@@ -5734,7 +5810,7 @@ test('keeps local frequent routes when platform save conflicts and retries with 
         updatedAtIso: '2026-07-04T08:35:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -5915,7 +5991,7 @@ test('keeps platform frequent route conflict handling queued when auth token is 
         '常用路线已被其他设备更新，请先拉取最新路线后再保存。',
       );
     });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -6097,7 +6173,7 @@ test('keeps platform frequent route retry queued when retrying has no auth token
         updatedAtIso: '2026-07-04T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -7706,6 +7782,63 @@ test('marks a non-order message as read and updates the local unread count', asy
   ).toBe(1);
 });
 
+test('marks all messages as read and persists the unread count reset', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+  ).toBe('还有 2 条未读消息');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'message-status-message-quote-1' }).props
+      .children,
+  ).toBe('已读');
+  expect(
+    app.root.findByProps({ testID: 'message-status-message-system-1' }).props
+      .children,
+  ).toBe('已读');
+  expect(
+    app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+  ).toBe('全部消息都已读');
+  expect(getAppRuntimeState().messages.every(message => !message.unread)).toBe(
+    true,
+  );
+
+  await flushMicrotasks();
+
+  const storedState = await getStoredSnapshot<{
+    state: {
+      messages: Array<{
+        id: string;
+        unread: boolean;
+      }>;
+    };
+  }>('@vireCodeing/app-runtime-state');
+
+  expect(
+    storedState.state.messages.every(message => message.unread === false),
+  ).toBe(true);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'home-unread-message-count' }).props
+      .children,
+  ).toBe(0);
+});
+
 test('opens the local help center from the home screen', async () => {
   const app = await renderApp();
 
@@ -9268,7 +9401,7 @@ test('shows platform spending snapshot when opening spending in platform mode', 
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -9940,7 +10073,7 @@ test('submits a platform invoice request and refreshes platform invoice records'
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   const app = await renderApp(1000, {
     platformApiBaseUrl: 'http://localhost:3000/api',
@@ -10612,7 +10745,7 @@ test('shows platform coupon wallet when opening coupons in platform mode', async
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -10761,7 +10894,7 @@ test('shows platform evaluation records when opening evaluations in platform mod
 
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -11390,7 +11523,7 @@ test('syncs profile addresses through the platform address book api', async () =
         updatedAtIso: '2026-07-03T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -11425,9 +11558,13 @@ test('syncs profile addresses through the platform address book api', async () =
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/profile/address-book',
+    const saveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'PUT',
+    });
+
+    expect(saveCall).toBeDefined();
+    expect(saveCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'PUT',
         headers: expect.objectContaining({
@@ -11436,7 +11573,9 @@ test('syncs profile addresses through the platform address book api', async () =
         body: expect.stringContaining('龙华临时仓'),
       }),
     );
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toMatchObject({
+    expect(
+      getFetchCallBody<{ baseUpdatedAtIso: string }>(saveCall),
+    ).toMatchObject({
       baseUpdatedAtIso: '2026-07-03T08:20:00.000Z',
     });
     expect(getProfileLocalState()).toMatchObject({
@@ -11499,7 +11638,7 @@ test('keeps platform profile address book save queued when saving has no auth to
         updatedAtIso: '2026-07-03T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -11537,13 +11676,11 @@ test('keeps platform profile address book save queued when saving has no auth to
     });
 
     expect(
-      fetchMock.mock.calls.some(([url, init]) => {
-        return (
-          url === 'http://localhost:3000/api/shipper/profile/address-book' &&
-          init?.method === 'PUT'
-        );
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/address-book',
+        method: 'PUT',
       }),
-    ).toBe(false);
+    ).toBeUndefined();
     expect(getProfileLocalState().syncState).toMatchObject({
       status: 'failed',
       operation: 'addressBook',
@@ -11609,7 +11746,7 @@ test('loads the platform profile address book when opening profile center', asyn
         updatedAtIso: '2026-07-03T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -11626,9 +11763,13 @@ test('loads the platform profile address book when opening profile center', asyn
       app.root.findByProps({ testID: 'profile-entry-addresses' }).props.onPress();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/profile/address-book',
+    const loadCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'GET',
+    });
+
+    expect(loadCall).toBeDefined();
+    expect(loadCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -11685,7 +11826,7 @@ test('keeps platform profile address book load queued when opening profile has n
         },
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -11738,13 +11879,11 @@ test('keeps platform profile address book load queued when opening profile has n
     });
 
     expect(
-      fetchMock.mock.calls.some(([url, init]) => {
-        return (
-          url === 'http://localhost:3000/api/shipper/profile/address-book' &&
-          init?.method === 'GET'
-        );
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/address-book',
+        method: 'GET',
       }),
-    ).toBe(false);
+    ).toBeUndefined();
     expect(getRenderedText(app)).toContain('本地已同步仓');
     expect(getRenderedText(app)).toContain('本地仓管 13900139015');
     expect(getProfileLocalState()).toMatchObject({
@@ -11800,7 +11939,7 @@ test('keeps platform profile address book load queued when opening profile load 
       }),
     )
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -11844,9 +11983,13 @@ test('keeps platform profile address book load queued when opening profile load 
       app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
       await flushMicrotasks();
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/profile/address-book',
+    const loadCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'GET',
+    });
+
+    expect(loadCall).toBeDefined();
+    expect(loadCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -11929,7 +12072,7 @@ test('keeps local pending profile address book changes when platform profile ope
         updatedAtIso: '2026-07-03T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:10:00.000Z').getTime(), {
@@ -12119,7 +12262,7 @@ test('keeps local profile address book changes when platform save conflicts', as
         updatedAtIso: '2026-07-03T08:35:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -12156,7 +12299,14 @@ test('keeps local profile address book changes when platform save conflicts', as
 
     const state = getProfileLocalState();
 
-    expect(JSON.parse(fetchMock.mock.calls[3][1].body as string)).toMatchObject({
+    const initialSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'PUT',
+    });
+
+    expect(
+      getFetchCallBody<{ baseUpdatedAtIso: string }>(initialSaveCall),
+    ).toMatchObject({
       baseUpdatedAtIso: '2026-07-03T08:20:00.000Z',
     });
     expect(state.addresses).toEqual(
@@ -12373,7 +12523,15 @@ test('keeps local profile address book changes when platform save conflicts', as
       await flushMicrotasks();
     });
 
-    const retryBody = JSON.parse(fetchMock.mock.calls[5][1].body as string);
+    const addressBookSaveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'PUT',
+    });
+    const retryBody = getFetchCallBody<{
+      baseUpdatedAtIso: string;
+      addresses: Array<Record<string, unknown>>;
+      contacts: Array<Record<string, unknown>>;
+    }>(addressBookSaveCalls[addressBookSaveCalls.length - 1]);
 
     expect(retryBody).toMatchObject({
       baseUpdatedAtIso: '2026-07-03T08:30:00.000Z',
@@ -12468,7 +12626,7 @@ test('keeps platform profile address book conflict handling queued when auth tok
         '常用地址/联系人已被其他设备更新，请先拉取最新地址簿后再保存。',
       );
     });
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -12507,7 +12665,12 @@ test('keeps platform profile address book conflict handling queued when auth tok
       app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/address-book',
+        method: 'PUT',
+      }),
+    ).toHaveLength(1);
     expect(getProfileLocalState().syncState).toMatchObject({
       status: 'failed',
       operation: 'addressBook',
@@ -12565,7 +12728,7 @@ test('retries a failed profile address book sync through the platform api', asyn
         updatedAtIso: '2026-07-03T08:35:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
@@ -12609,9 +12772,13 @@ test('retries a failed profile address book sync through the platform api', asyn
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/profile/address-book',
+    const saveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'PUT',
+    });
+
+    expect(saveCalls).toHaveLength(2);
+    expect(saveCalls[1]?.[1]).toEqual(
       expect.objectContaining({
         method: 'PUT',
         headers: expect.objectContaining({
@@ -12669,7 +12836,7 @@ test('keeps platform profile address book retry queued when retrying has no auth
         updatedAtIso: '2026-07-03T08:30:00.000Z',
       }),
     );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -12710,11 +12877,9 @@ test('keeps platform profile address book retry queued when retrying has no auth
       app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
     });
     clearAuthSession();
-    const putCallCountBeforeRetry = fetchMock.mock.calls.filter(([url, init]) => {
-      return (
-        url === 'http://localhost:3000/api/shipper/profile/address-book' &&
-        init?.method === 'PUT'
-      );
+    const putCallCountBeforeRetry = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/address-book',
+      method: 'PUT',
     }).length;
 
     await ReactTestRenderer.act(async () => {
@@ -12723,11 +12888,9 @@ test('keeps platform profile address book retry queued when retrying has no auth
     });
 
     expect(
-      fetchMock.mock.calls.filter(([url, init]) => {
-        return (
-          url === 'http://localhost:3000/api/shipper/profile/address-book' &&
-          init?.method === 'PUT'
-        );
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/address-book',
+        method: 'PUT',
       }),
     ).toHaveLength(putCallCountBeforeRetry);
     expect(getProfileLocalState().syncState).toMatchObject({
@@ -12842,7 +13005,7 @@ test('changes the platform login password from profile settings with bearer toke
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -12896,20 +13059,20 @@ test('changes the platform login password from profile settings with bearer toke
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/auth/change-password',
+    const changePasswordCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/auth/change-password',
+      method: 'POST',
+    });
+    expect(changePasswordCall).toBeDefined();
+    expect(getFetchCallHeaders(changePasswordCall)).toEqual(
       expect.objectContaining({
-        method: 'POST',
-        body: JSON.stringify({
-          currentPassword: 'abc123',
-          newPassword: 'newpass1',
-        }),
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-settings-user.900',
-        }),
+        Authorization: 'Bearer access.platform-settings-user.900',
       }),
     );
+    expect(getFetchCallBody(changePasswordCall)).toMatchObject({
+      currentPassword: 'abc123',
+      newPassword: 'newpass1',
+    });
 
     const renderedText = getRenderedText(app);
 
@@ -12957,7 +13120,7 @@ test('does not call platform password change when auth token is missing', async 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -13015,7 +13178,12 @@ test('does not call platform password change when auth token is missing', async 
 
     const renderedText = getRenderedText(app);
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/auth/change-password',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
     expect(renderedText).toContain(
       '平台登录已过期，请重新登录后再修改密码。',
     );
@@ -13063,7 +13231,7 @@ test('shows current password error when platform password change is rejected', a
       }),
     });
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(1000, {
@@ -13205,7 +13373,7 @@ test('syncs local draft changes to the platform order draft api', async () => {
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13228,30 +13396,17 @@ test('syncs local draft changes to the platform order draft api', async () => {
       await flushMicrotasks();
     });
 
-    const draftCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (url !== 'http://localhost:3000/api/shipper/order-draft') {
-        return false;
-      }
-
-      if (init?.method !== 'PUT') {
-        return false;
-      }
-
-      return (
-        JSON.parse(String(init?.body)).draftSnapshot.pickupAddress ===
-        '宝安平台草稿仓'
-      );
+    const draftCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
     });
     expect(draftCall).toBeDefined();
-    expect(draftCall?.[1]).toEqual(
+    expect(getFetchCallHeaders(draftCall)).toEqual(
       expect.objectContaining({
-        method: 'PUT',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-draft-user.900',
-        }),
+        Authorization: 'Bearer access.platform-draft-user.900',
       }),
     );
-    expect(JSON.parse(String(draftCall?.[1]?.body))).toMatchObject({
+    expect(getFetchCallBody(draftCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '宝安平台草稿仓',
       },
@@ -13290,7 +13445,7 @@ test('keeps platform draft save queued when saving has no auth token', async () 
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13304,11 +13459,11 @@ test('keeps platform draft save queued when saving has no auth token', async () 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/order-draft',
-      expect.objectContaining({ method: 'GET' }),
-    );
+    const draftLoadCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'GET',
+    });
+    expect(draftLoadCall).toBeDefined();
 
     clearAuthSession();
 
@@ -13323,7 +13478,12 @@ test('keeps platform draft save queued when saving has no auth token', async () 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/order-draft',
+        method: 'PUT',
+      }),
+    ).toHaveLength(0);
     expect(getDraftStorageSnapshot()?.syncState).toMatchObject({
       status: 'failed',
       message: '平台发单草稿保存需要重新登录后再同步。',
@@ -13394,7 +13554,7 @@ test('loads the latest platform draft and shows a conflict when saving a stale d
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13421,18 +13581,23 @@ test('loads the latest platform draft and shows a conflict when saving a stale d
     expect(
       app.root.findByProps({ testID: 'draft-pickup-address' }).props.value,
     ).toBe('本地保存冲突仓');
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    const draftSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(draftSaveCall).toBeDefined();
+    expect(getFetchCallBody(draftSaveCall)).toMatchObject({
       baseUpdatedAtIso: '2026-07-02T08:30:01.000Z',
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/order-draft',
+    const draftLoadCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'GET',
+    });
+    expect(draftLoadCalls.length).toBeGreaterThanOrEqual(2);
+    expect(getFetchCallHeaders(draftLoadCalls[draftLoadCalls.length - 1])).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization:
-            'Bearer access.platform-draft-save-conflict-user.900',
-        }),
+        Authorization:
+          'Bearer access.platform-draft-save-conflict-user.900',
       }),
     );
     expect(getRenderedText(app)).toContain(
@@ -13498,7 +13663,7 @@ test('keeps platform draft conflict handling queued when auth token is missing',
       );
     });
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13522,7 +13687,18 @@ test('keeps platform draft conflict handling queued when auth token is missing',
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/order-draft',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/order-draft',
+        method: 'PUT',
+      }),
+    ).toHaveLength(1);
     expect(getDraftStorageSnapshot()?.syncState).toMatchObject({
       status: 'failed',
       message: '平台发单草稿冲突处理需要重新登录后再同步。',
@@ -13577,7 +13753,7 @@ test('retries a failed local draft sync through the platform order draft api', a
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13604,24 +13780,17 @@ test('retries a failed local draft sync through the platform order draft api', a
       await flushMicrotasks();
     });
 
-    const retryDraftCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (url !== 'http://localhost:3000/api/shipper/order-draft') {
-        return false;
-      }
-
-      return init?.method === 'PUT';
+    const retryDraftCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
     });
-
     expect(retryDraftCall).toBeDefined();
-    expect(retryDraftCall?.[1]).toEqual(
+    expect(getFetchCallHeaders(retryDraftCall)).toEqual(
       expect.objectContaining({
-        method: 'PUT',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-draft-retry-user.900',
-        }),
+        Authorization: 'Bearer access.platform-draft-retry-user.900',
       }),
     );
-    expect(JSON.parse(String(retryDraftCall?.[1]?.body))).toMatchObject({
+    expect(getFetchCallBody(retryDraftCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '宝安重试草稿仓',
       },
@@ -13663,7 +13832,7 @@ test('keeps platform draft retry queued when retry has no auth token', async () 
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13693,7 +13862,12 @@ test('keeps platform draft retry queued when retry has no auth token', async () 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/order-draft',
+        method: 'PUT',
+      }),
+    ).toHaveLength(0);
     expect(getDraftStorageSnapshot()?.syncState).toMatchObject({
       status: 'failed',
       message: '平台发单草稿重试需要重新登录后再同步。',
@@ -13731,9 +13905,10 @@ test('keeps platform draft restore queued when opening draft has no auth token',
           expiresIn: 900,
         },
       }),
-    );
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13763,7 +13938,12 @@ test('keeps platform draft restore queued when opening draft has no auth token',
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/order-draft',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
     expect(
       app.root.findByProps({ testID: 'draft-pickup-address' }).props.value,
     ).toBe('宝安恢复缺登录草稿仓');
@@ -13850,7 +14030,7 @@ test('keeps platform draft restore queued when opening draft load fails', async 
     )
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -13864,15 +14044,14 @@ test('keeps platform draft restore queued when opening draft load fails', async 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/order-draft',
+    const draftLoadCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'GET',
+    });
+    expect(draftLoadCall).toBeDefined();
+    expect(getFetchCallHeaders(draftLoadCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization:
-            'Bearer access.platform-draft-restore-load-failure.900',
-        }),
+        Authorization: 'Bearer access.platform-draft-restore-load-failure.900',
       }),
     );
     expect(
@@ -13941,7 +14120,7 @@ test('restores the current platform order draft when opening the draft screen', 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-02T08:30:00.000Z').getTime(), {
@@ -13955,14 +14134,14 @@ test('restores the current platform order draft when opening the draft screen', 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/order-draft',
+    const draftLoadCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'GET',
+    });
+    expect(draftLoadCall).toBeDefined();
+    expect(getFetchCallHeaders(draftLoadCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-draft-restore-user.900',
-        }),
+        Authorization: 'Bearer access.platform-draft-restore-user.900',
       }),
     );
     expect(
@@ -14038,7 +14217,7 @@ test('keeps the newer local draft and shows a conflict notice when the platform 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14149,7 +14328,7 @@ test('keeps the newer local draft and syncs it over the older platform draft on 
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14168,17 +14347,17 @@ test('keeps the newer local draft and syncs it over the older platform draft on 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/order-draft',
+    const keepLocalDraftCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(keepLocalDraftCall).toBeDefined();
+    expect(getFetchCallHeaders(keepLocalDraftCall)).toEqual(
       expect.objectContaining({
-        method: 'PUT',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-draft-keep-local-user.900',
-        }),
+        Authorization: 'Bearer access.platform-draft-keep-local-user.900',
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    expect(getFetchCallBody(keepLocalDraftCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '本地覆盖草稿仓',
         deliveryAddress: '本地覆盖门店',
@@ -14264,7 +14443,7 @@ test('merges missing local draft fields from an older platform draft without rep
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14367,7 +14546,7 @@ test('shows draft conflict field differences and applies one platform field with
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14485,7 +14664,7 @@ test('shows draft conflict boolean differences and applies one platform field wi
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14514,7 +14693,12 @@ test('shows draft conflict boolean differences and applies one platform field wi
       await flushMicrotasks();
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    const draftSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(draftSaveCall).toBeDefined();
+    expect(getFetchCallBody(draftSaveCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '本地尾板装货仓',
         deliveryAddress: '本地尾板卸货门店',
@@ -14609,7 +14793,7 @@ test('shows draft conflict enum differences and applies one platform field witho
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14641,7 +14825,12 @@ test('shows draft conflict enum differences and applies one platform field witho
       await flushMicrotasks();
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    const draftSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(draftSaveCall).toBeDefined();
+    expect(getFetchCallBody(draftSaveCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '本地车型装货仓',
         deliveryAddress: '本地车型卸货门店',
@@ -14736,7 +14925,7 @@ test('shows draft conflict array differences and applies one platform field with
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14765,7 +14954,12 @@ test('shows draft conflict array differences and applies one platform field with
       await flushMicrotasks();
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    const draftSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(draftSaveCall).toBeDefined();
+    expect(getFetchCallBody(draftSaveCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '本地增值服务装货仓',
         deliveryAddress: '本地增值服务卸货门店',
@@ -14860,7 +15054,7 @@ test('shows draft conflict number differences and applies one platform field wit
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -14889,7 +15083,12 @@ test('shows draft conflict number differences and applies one platform field wit
       await flushMicrotasks();
     });
 
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    const draftSaveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
+    });
+    expect(draftSaveCall).toBeDefined();
+    expect(getFetchCallBody(draftSaveCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '本地装卸人数装货仓',
         deliveryAddress: '本地装卸人数卸货门店',
@@ -14972,7 +15171,7 @@ test('resolves the draft conflict after applying the last differing platform fie
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(now, {
@@ -15016,16 +15215,12 @@ test('resolves the draft conflict after applying the last differing platform fie
       await flushMicrotasks();
     });
 
-    const retryDraftCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (url !== 'http://localhost:3000/api/shipper/order-draft') {
-        return false;
-      }
-
-      return init?.method === 'PUT';
+    const retryDraftCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/order-draft',
+      method: 'PUT',
     });
-
     expect(retryDraftCall).toBeDefined();
-    expect(JSON.parse(String(retryDraftCall?.[1]?.body))).toMatchObject({
+    expect(getFetchCallBody(retryDraftCall)).toMatchObject({
       draftSnapshot: {
         pickupAddress: '服务端唯一差异装货仓',
       },
@@ -15095,7 +15290,7 @@ test('uses platform order api when publishing and keeps local fallback on failur
     .mockResolvedValueOnce(createPlatformApiResponse(null))
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15117,9 +15312,13 @@ test('uses platform order api when publishing and keeps local fallback on failur
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/orders',
+    const createCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+
+    expect(createCall).toBeDefined();
+    expect(createCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -15128,7 +15327,11 @@ test('uses platform order api when publishing and keeps local fallback on failur
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toMatchObject({
+    expect(
+      getFetchCallBody<{ cargoType: string; vehicleRequirement: string }>(
+        createCall,
+      ),
+    ).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
     });
@@ -15211,7 +15414,7 @@ test('persists the create key before sending a platform order request', async ()
     throw new Error('AsyncStorage.setItem mock implementation is required');
   }
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15262,15 +15465,16 @@ test('persists the create key before sending a platform order request', async ()
       await flushMicrotasks();
     });
 
-    const createCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith('/shipper/orders'),
-    );
+    const createCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
     const storedSnapshot = JSON.parse(
       String(await AsyncStorage.getItem('@vireCodeing/app-runtime-state')),
     );
     const storedKey =
       storedSnapshot.state.orders[0].syncState.createContext.idempotencyKey;
-    const requestHeaders = createCall?.[1]?.headers as Record<string, string>;
+    const requestHeaders = getFetchCallHeaders(createCall);
 
     expect(storedKey).toMatch(uuidV4Pattern);
     expect(requestHeaders['Idempotency-Key']).toBe(storedKey);
@@ -15325,7 +15529,7 @@ test('does not send a platform create when durable runtime storage fails', async
     throw new Error('AsyncStorage.setItem mock implementation is required');
   }
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15431,7 +15635,7 @@ test.each([
         }),
       );
 
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    installPlatformFetchMock(fetchMock);
 
     try {
       const app = await renderApp(
@@ -15452,9 +15656,12 @@ test.each([
 
       expect(createCalls).toHaveLength(1);
       expect(originalCreateKey).toMatch(uuidV4Pattern);
-      expect(fetchMock).toHaveBeenNthCalledWith(
-        5,
-        'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      const refreshCall = findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+        method: 'GET',
+      });
+
+      expect(refreshCall?.[1]).toEqual(
         expect.objectContaining({ method: 'GET' }),
       );
       expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
@@ -15506,7 +15713,7 @@ test('blocks create retry without mutation refresh when create returns ORDER_CON
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(
@@ -15517,18 +15724,24 @@ test('blocks create retry without mutation refresh when create returns ORDER_CON
     await loginToHomeWithPlatformAuth(app);
     await publishDigitalPlatformOrderFromHome(app);
 
-    const createCall = fetchMock.mock.calls[3];
-    const originalCreateKey = createCall?.[1]?.headers?.[
-      'Idempotency-Key'
-    ] as string;
+    const createCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+    const originalCreateKey = getFetchCallHeaders(createCall)['Idempotency-Key'];
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(
-      fetchMock.mock.calls.filter(
-        ([url, init]) =>
-          String(url).includes('/shipper/orders?') && init?.method === 'GET',
-      ),
-    ).toHaveLength(0);
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders',
+        method: 'POST',
+      }),
+    ).toHaveLength(1);
+    expect(
+      findFetchCall(fetchMock, {
+        urlIncludes: '/shipper/orders?',
+        method: 'GET',
+      }),
+    ).toBeUndefined();
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
       status: 'failed',
       operation: 'create',
@@ -15587,7 +15800,7 @@ test('refreshes and blocks create retry when a replayed create key expires', asy
       }),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(
@@ -15598,25 +15811,32 @@ test('refreshes and blocks create retry when a replayed create key expires', asy
     await loginToHomeWithPlatformAuth(app);
     await publishDigitalPlatformOrderFromHome(app);
 
-    const originalCreateKey = fetchMock.mock.calls[3]?.[1]?.headers?.[
+    const createCallsBeforeRetry = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+    const originalCreateKey = getFetchCallHeaders(createCallsBeforeRetry[0])[
       'Idempotency-Key'
-    ] as string;
+    ];
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
       await flushMicrotasks();
     });
 
-    const retryCreateKey = fetchMock.mock.calls[4]?.[1]?.headers?.[
-      'Idempotency-Key'
-    ] as string;
+    const createCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+    const retryCreateKey = getFetchCallHeaders(createCalls[1])['Idempotency-Key'];
 
     expect(retryCreateKey).toBe(originalCreateKey);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
-      expect.objectContaining({ method: 'GET' }),
-    );
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+        method: 'GET',
+      })?.[1],
+    ).toEqual(expect.objectContaining({ method: 'GET' }));
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
       status: 'failed',
       operation: 'create',
@@ -15713,7 +15933,7 @@ test('reuses a persisted create key when retrying after a cold start', async () 
       },
     }),
   );
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(
@@ -15732,9 +15952,12 @@ test('reuses a persisted create key when retrying after a cold start', async () 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders',
+    const createCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+
+    expect(createCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -15859,7 +16082,7 @@ test('attaches platform file objects to cargo photo vouchers when publishing', a
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15940,7 +16163,7 @@ test('keeps a new platform order creation queued when publish has no auth token'
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -15965,7 +16188,12 @@ test('keeps a new platform order creation queued when publish has no auth token'
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders',
+        method: 'POST',
+      }),
+    ).toBeUndefined();
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
       status: 'failed',
       operation: 'create',
@@ -16015,7 +16243,7 @@ test('keeps reorder source when publishing a reordered platform order', async ()
     )
     .mockResolvedValueOnce(createPlatformApiResponse(reorderedPlatformOrder));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16047,9 +16275,12 @@ test('keeps reorder source when publishing a reordered platform order', async ()
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders',
+    const createCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+
+    expect(createCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16117,7 +16348,7 @@ test('replays a failed platform order creation from the order sync queue', async
       ),
     );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16151,9 +16382,14 @@ test('replays a failed platform order creation from the order sync queue', async
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders',
+    const createCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+    const retryCreateCall = createCalls[1];
+
+    expect(createCalls).toHaveLength(2);
+    expect(retryCreateCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16162,7 +16398,18 @@ test('replays a failed platform order creation from the order sync queue', async
         }),
       }),
     );
-    expect(JSON.parse(String(fetchMock.mock.calls[4][1]?.body))).toMatchObject({
+    expect(
+      getFetchCallBody<{
+        cargoType: string;
+        vehicleRequirement: string;
+        weightText: string;
+        quantityText: string;
+        pickupAddress: string;
+        deliveryAddress: string;
+        pricingMode: string;
+        priceCents: number;
+      }>(retryCreateCall),
+    ).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
       weightText: '1.8 吨',
@@ -16179,14 +16426,8 @@ test('replays a failed platform order creation from the order sync queue', async
       platformOrderId: 'order-platform-retry-888',
       syncState: { status: 'synced' },
     });
-    const firstCreateHeaders = fetchMock.mock.calls[3][1]?.headers as Record<
-      string,
-      string
-    >;
-    const retryCreateHeaders = fetchMock.mock.calls[4][1]?.headers as Record<
-      string,
-      string
-    >;
+    const firstCreateHeaders = getFetchCallHeaders(createCalls[0]);
+    const retryCreateHeaders = getFetchCallHeaders(retryCreateCall);
 
     expect(firstCreateHeaders['Idempotency-Key']).toBe(
       retryCreateHeaders['Idempotency-Key'],
@@ -16274,7 +16515,7 @@ test('fails closed for legacy platform order creations without a create key', as
     }),
   );
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16293,9 +16534,12 @@ test('fails closed for legacy platform order creations without a create key', as
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+    const refreshCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      method: 'GET',
+    });
+
+    expect(refreshCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -16366,7 +16610,7 @@ test('keeps a failed platform order creation queued when retry has no auth token
     .mockRejectedValueOnce(new Error('NETWORK_ERROR'))
     .mockResolvedValueOnce(createPlatformApiResponse(retriedPlatformOrder));
 
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  installPlatformFetchMock(fetchMock);
 
   try {
     const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
@@ -16392,9 +16636,13 @@ test('keeps a failed platform order creation queued when retry has no auth token
       status: 'failed',
       operation: 'create',
     });
-    const originalCreateKey = fetchMock.mock.calls[3]?.[1]?.headers?.[
+    const createCallsBeforeRetry = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+    const originalCreateKey = getFetchCallHeaders(createCallsBeforeRetry[0])[
       'Idempotency-Key'
-    ] as string;
+    ];
 
     clearAuthSession();
 
@@ -16402,7 +16650,7 @@ test('keeps a failed platform order creation queued when retry has no auth token
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(createCallsBeforeRetry).toHaveLength(1);
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
       status: 'failed',
       operation: 'create',
@@ -16422,9 +16670,12 @@ test('keeps a failed platform order creation queued when retry has no auth token
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders',
+    const createCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
+    });
+
+    expect(createCalls[1]?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16544,11 +16795,12 @@ test('cancels a platform order through the shipper order api', async () => {
       await flushMicrotasks();
     });
 
-    const cancelRequest = fetchMock.mock.calls[4][1];
+    const cancelCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-cancel-777/cancel',
+      method: 'POST',
+    });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-cancel-777/cancel',
+    expect(cancelCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16557,7 +16809,7 @@ test('cancels a platform order through the shipper order api', async () => {
         }),
       }),
     );
-    expect(JSON.parse(String(cancelRequest?.body))).toEqual({
+    expect(getFetchCallBody(cancelCall)).toEqual({
       baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
       reasonText: '计划有变',
       description: '客户临时调整发货计划',
@@ -16658,7 +16910,13 @@ test('keeps a platform order cancellation queued when action has no auth token',
       app.root.findByProps({ testID: 'cancel-submit' }).props.onPress();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      findFetchCall(fetchMock, {
+        url:
+          'http://localhost:3000/api/shipper/orders/order-platform-cancel-missing-token-777/cancel',
+        method: 'POST',
+      }),
+    ).toBeUndefined();
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
       platformOrderId: 'order-platform-cancel-missing-token-777',
@@ -16814,11 +17072,15 @@ test('retries a failed platform order cancellation through the cancel api', asyn
       await flushMicrotasks();
     });
 
-    const retryCancelRequest = fetchMock.mock.calls[5][1];
+    const cancelCalls = findFetchCalls(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-cancel-retry-777/cancel',
+      method: 'POST',
+    });
+    const retryCancelCall = cancelCalls[cancelCalls.length - 1];
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-cancel-retry-777/cancel',
+    expect(cancelCalls).toHaveLength(2);
+    expect(retryCancelCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16827,7 +17089,7 @@ test('retries a failed platform order cancellation through the cancel api', asyn
         }),
       }),
     );
-    expect(JSON.parse(String(retryCancelRequest?.body))).toEqual({
+    expect(getFetchCallBody(retryCancelCall)).toEqual({
       baseUpdatedAtIso: cancelRetryContext?.baseUpdatedAtIso,
       reasonText: '计划有变',
       description: '客户临时调整发货计划',
@@ -16938,11 +17200,13 @@ test('completes a platform order through the shipper order api', async () => {
       await flushMicrotasks();
     });
 
-    const completeRequest = fetchMock.mock.calls[4][1];
+    const completeCall = findFetchCall(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-complete-777/complete',
+      method: 'POST',
+    });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-complete-777/complete',
+    expect(completeCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -16951,7 +17215,7 @@ test('completes a platform order through the shipper order api', async () => {
         }),
       }),
     );
-    expect(JSON.parse(String(completeRequest?.body))).toEqual({
+    expect(getFetchCallBody(completeCall)).toEqual({
       baseUpdatedAtIso: '2026-07-01T08:00:00.000Z',
     });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
@@ -17082,11 +17346,15 @@ test('retries a failed platform order completion through the complete api', asyn
       await flushMicrotasks();
     });
 
-    const retryCompleteRequest = fetchMock.mock.calls[5][1];
+    const completeCalls = findFetchCalls(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-complete-retry-777/complete',
+      method: 'POST',
+    });
+    const retryCompleteCall = completeCalls[completeCalls.length - 1];
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-complete-retry-777/complete',
+    expect(completeCalls).toHaveLength(2);
+    expect(retryCompleteCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -17095,7 +17363,7 @@ test('retries a failed platform order completion through the complete api', asyn
         }),
       }),
     );
-    expect(JSON.parse(String(retryCompleteRequest?.body))).toEqual({
+    expect(getFetchCallBody(retryCompleteCall)).toEqual({
       baseUpdatedAtIso: completeRetryContext?.baseUpdatedAtIso,
     });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
@@ -17209,11 +17477,12 @@ test('updates a waiting platform order through the shipper order api', async () 
       await flushMicrotasks();
     });
 
-    const updateRequest = fetchMock.mock.calls[4][1];
+    const updateCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-update-777',
+      method: 'PUT',
+    });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-update-777',
+    expect(updateCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'PUT',
         headers: expect.objectContaining({
@@ -17222,7 +17491,7 @@ test('updates a waiting platform order through the shipper order api', async () 
         }),
       }),
     );
-    expect(JSON.parse(String(updateRequest?.body))).toMatchObject({
+    expect(getFetchCallBody(updateCall)).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
       pickupAddress: '宝安平台新仓',
@@ -17326,7 +17595,13 @@ test('keeps a waiting platform order update queued when publish has no auth toke
       app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      findFetchCall(fetchMock, {
+        url:
+          'http://localhost:3000/api/shipper/orders/order-platform-update-missing-token-777',
+        method: 'PUT',
+      }),
+    ).toBeUndefined();
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607010777',
       platformOrderId: 'order-platform-update-missing-token-777',
@@ -17473,11 +17748,15 @@ test('retries a failed platform order update through the update api', async () =
       await flushMicrotasks();
     });
 
-    const retryUpdateRequest = fetchMock.mock.calls[5][1];
+    const updateCalls = findFetchCalls(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-update-retry-777',
+      method: 'PUT',
+    });
+    const retryUpdateCall = updateCalls[updateCalls.length - 1];
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-update-retry-777',
+    expect(updateCalls).toHaveLength(2);
+    expect(retryUpdateCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'PUT',
         headers: expect.objectContaining({
@@ -17486,7 +17765,7 @@ test('retries a failed platform order update through the update api', async () =
         }),
       }),
     );
-    expect(JSON.parse(String(retryUpdateRequest?.body))).toMatchObject({
+    expect(getFetchCallBody(retryUpdateCall)).toMatchObject({
       cargoType: 'digital',
       vehicleRequirement: 'medium',
       pickupAddress: '宝安重试新仓',
@@ -17614,9 +17893,13 @@ test('refreshes the latest platform order when an update mutation hits ORDER_CON
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-update-conflict-777',
+    const refreshCall = findFetchCall(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-update-conflict-777',
+      method: 'GET',
+    });
+
+    expect(refreshCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -17766,9 +18049,18 @@ test('refreshes latest platform order and clears retry context when the retry ke
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+    const retryUpdateCalls = findFetchCalls(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+      method: 'PUT',
+    });
+    const refreshCall = findFetchCall(fetchMock, {
+      url:
+        'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+      method: 'GET',
+    });
+
+    expect(retryUpdateCalls[retryUpdateCalls.length - 1]?.[1]).toEqual(
       expect.objectContaining({
         method: 'PUT',
         headers: expect.objectContaining({
@@ -17777,9 +18069,7 @@ test('refreshes latest platform order and clears retry context when the retry ke
         }),
       }),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      7,
-      'http://localhost:3000/api/shipper/orders/order-platform-update-expired-777',
+    expect(refreshCall?.[1]).toEqual(
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -17905,14 +18195,14 @@ test('refreshes platform order detail with backend order id when opening detail'
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-777',
+    const orderDetailCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-777',
+      method: 'GET',
+    });
+    expect(orderDetailCall).toBeDefined();
+    expect(getFetchCallHeaders(orderDetailCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-user.900',
-        }),
+        Authorization: 'Bearer access.platform-user.900',
       }),
     );
     expect(getAppRuntimeState().orders[0]).toMatchObject({
@@ -18014,14 +18304,14 @@ test('keeps the current platform order detail selected when refresh changes the 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders/order-platform-temp-detail',
+    const orderDetailCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-temp-detail',
+      method: 'GET',
+    });
+    expect(orderDetailCall).toBeDefined();
+    expect(getFetchCallHeaders(orderDetailCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-detail-id-change.900',
-        }),
+        Authorization: 'Bearer access.platform-detail-id-change.900',
       }),
     );
     expect(getAppRuntimeState().orders).toEqual(
@@ -18112,14 +18402,14 @@ test('uses platform order list query when opening a filtered status list', async
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders?status=confirming&page=1&pageSize=20',
+    const filteredListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?status=confirming&page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(filteredListCall).toBeDefined();
+    expect(getFetchCallHeaders(filteredListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-list-user.900',
-        }),
+        Authorization: 'Bearer access.platform-list-user.900',
       }),
     );
     expect(getRenderedText(app)).toContain('平台筛选卸货地');
@@ -18198,39 +18488,42 @@ test('uses platform order list query when changing order list filters', async ()
 
     const todayRange = createLocalDayIsoRange(now);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+    const initialListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(initialListCall).toBeDefined();
+    expect(getFetchCallHeaders(initialListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-filter-user.900',
-        }),
+        Authorization: 'Bearer access.platform-filter-user.900',
       }),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/orders?keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&page=1&pageSize=20',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      `http://localhost:3000/api/shipper/orders?keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&createdFromIso=${encodeURIComponent(
-        todayRange.createdFromIso,
-      )}&createdToIso=${encodeURIComponent(
-        todayRange.createdToIso,
-      )}&page=1&pageSize=20`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      `http://localhost:3000/api/shipper/orders?status=completed&keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&createdFromIso=${encodeURIComponent(
-        todayRange.createdFromIso,
-      )}&createdToIso=${encodeURIComponent(
-        todayRange.createdToIso,
-      )}&page=1&pageSize=20`,
-      expect.objectContaining({ method: 'GET' }),
-    );
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders?keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&page=1&pageSize=20',
+        method: 'GET',
+      }),
+    ).toBeDefined();
+    expect(
+      findFetchCall(fetchMock, {
+        url: `http://localhost:3000/api/shipper/orders?keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&createdFromIso=${encodeURIComponent(
+          todayRange.createdFromIso,
+        )}&createdToIso=${encodeURIComponent(
+          todayRange.createdToIso,
+        )}&page=1&pageSize=20`,
+        method: 'GET',
+      }),
+    ).toBeDefined();
+    expect(
+      findFetchCall(fetchMock, {
+        url: `http://localhost:3000/api/shipper/orders?status=completed&keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&createdFromIso=${encodeURIComponent(
+          todayRange.createdFromIso,
+        )}&createdToIso=${encodeURIComponent(
+          todayRange.createdToIso,
+        )}&page=1&pageSize=20`,
+        method: 'GET',
+      }),
+    ).toBeDefined();
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -18287,14 +18580,14 @@ test('uses platform status collection query for the active order list filter', a
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/orders?statuses=loading%2Ctransporting&page=1&pageSize=20',
+    const activeListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?statuses=loading%2Ctransporting&page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(activeListCall).toBeDefined();
+    expect(getFetchCallHeaders(activeListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-active-user.900',
-        }),
+        Authorization: 'Bearer access.platform-active-user.900',
       }),
     );
   } finally {
@@ -18373,24 +18666,24 @@ test('loads the next platform order list page and appends it locally', async () 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+    const firstPageCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(firstPageCall).toBeDefined();
+    expect(getFetchCallHeaders(firstPageCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-paged-user.900',
-        }),
+        Authorization: 'Bearer access.platform-paged-user.900',
       }),
     );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/orders?page=2&pageSize=20',
+    const secondPageCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=2&pageSize=20',
+      method: 'GET',
+    });
+    expect(secondPageCall).toBeDefined();
+    expect(getFetchCallHeaders(secondPageCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-paged-user.900',
-        }),
+        Authorization: 'Bearer access.platform-paged-user.900',
       }),
     );
     expect(getRenderedText(app)).toContain('第一页平台卸货地');
@@ -18441,14 +18734,14 @@ test('shows a local notice when platform order list refresh fails', async () => 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+    const orderListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(orderListCall).toBeDefined();
+    expect(getFetchCallHeaders(orderListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-list-user.900',
-        }),
+        Authorization: 'Bearer access.platform-list-user.900',
       }),
     );
     expect(getRenderedText(app)).toContain(
@@ -18493,7 +18786,12 @@ test('shows a relogin notice when platform order list refresh has no auth token'
     });
 
     await loginToHomeWithPlatformAuth(app);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+        method: 'GET',
+      }),
+    ).toHaveLength(0);
 
     clearAuthSession();
 
@@ -18502,7 +18800,12 @@ test('shows a relogin notice when platform order list refresh has no auth token'
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+        method: 'GET',
+      }),
+    ).toHaveLength(0);
     expect(getRenderedText(app)).toContain(
       '平台订单列表刷新需要重新登录后再同步。',
     );
@@ -18581,14 +18884,14 @@ test('clears stale platform pagination when a new order list refresh fails', asy
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      'http://localhost:3000/api/shipper/orders?keyword=%E5%A4%B1%E8%B4%A5%E7%9A%84%E6%96%B0%E6%9F%A5%E8%AF%A2&page=1&pageSize=20',
+    const refreshedListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?keyword=%E5%A4%B1%E8%B4%A5%E7%9A%84%E6%96%B0%E6%9F%A5%E8%AF%A2&page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(refreshedListCall).toBeDefined();
+    expect(getFetchCallHeaders(refreshedListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-stale-paging-user.900',
-        }),
+        Authorization: 'Bearer access.platform-stale-paging-user.900',
       }),
     );
     expect(getRenderedText(app)).toContain(
@@ -18684,14 +18987,14 @@ test('keeps failed local order creations when platform order list refresh succee
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+    const orderListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(orderListCall).toBeDefined();
+    expect(getFetchCallHeaders(orderListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-list-local-failed-order.900',
-        }),
+        Authorization: 'Bearer access.platform-list-local-failed-order.900',
       }),
     );
     expect(getAppRuntimeState().orders).toEqual(
@@ -18800,15 +19103,15 @@ test('keeps platform pagination available when local failed order creations are 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders?page=2&pageSize=20',
+    const secondPageCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?page=2&pageSize=20',
+      method: 'GET',
+    });
+    expect(secondPageCall).toBeDefined();
+    expect(getFetchCallHeaders(secondPageCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization:
-            'Bearer access.platform-list-local-failed-order-paged.900',
-        }),
+        Authorization:
+          'Bearer access.platform-list-local-failed-order-paged.900',
       }),
     );
     expect(getRenderedText(app)).toContain('平台第二页仍可加载');
@@ -18909,14 +19212,14 @@ test('keeps failed local order creations when opening a filtered platform order 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders?status=completed&page=1&pageSize=20',
+    const filteredListCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders?status=completed&page=1&pageSize=20',
+      method: 'GET',
+    });
+    expect(filteredListCall).toBeDefined();
+    expect(getFetchCallHeaders(filteredListCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-filter-local-failed-order.900',
-        }),
+        Authorization: 'Bearer access.platform-filter-local-failed-order.900',
       }),
     );
     expect(getAppRuntimeState().orders).toEqual(
@@ -19031,14 +19334,14 @@ test('marks the current order sync state when platform order detail refresh fail
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-778',
+    const initialDetailRefreshCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-778',
+      method: 'GET',
+    });
+    expect(initialDetailRefreshCall).toBeDefined();
+    expect(getFetchCallHeaders(initialDetailRefreshCall)).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-detail-user.900',
-        }),
+        Authorization: 'Bearer access.platform-detail-user.900',
       }),
     );
     expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
@@ -19055,23 +19358,23 @@ test('marks the current order sync state when platform order detail refresh fail
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-778',
+    const retriedDetailRefreshCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-778',
+      method: 'GET',
+    });
+    expect(retriedDetailRefreshCalls).toHaveLength(2);
+    expect(getFetchCallHeaders(findLastFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-778',
+      method: 'GET',
+    }))).toEqual(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-detail-user.900',
-        }),
+        Authorization: 'Bearer access.platform-detail-user.900',
       }),
     );
-    const orderCreateCalls = fetchMock.mock.calls.filter(([url, init]) => {
-      return (
-        url === 'http://localhost:3000/api/shipper/orders' &&
-        init?.method === 'POST'
-      );
+    const orderCreateCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders',
+      method: 'POST',
     });
-
     expect(orderCreateCalls).toHaveLength(1);
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       from: '平台刷新后装货仓',
@@ -19287,21 +19590,21 @@ test('advances a platform order status through the status api', async () => {
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-status-1/status',
+    const statusAdvanceCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-status-1/status',
+      method: 'POST',
+    });
+    expect(statusAdvanceCall).toBeDefined();
+    expect(getFetchCallHeaders(statusAdvanceCall)).toEqual(
       expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-status.900',
-          'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
-        }),
-        body: JSON.stringify({
-          baseUpdatedAtIso: '2026-07-01T09:00:00.000Z',
-          nextStatus: 'loading',
-        }),
+        Authorization: 'Bearer access.platform-order-status.900',
+        'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
       }),
     );
+    expect(getFetchCallBody(statusAdvanceCall)).toMatchObject({
+      baseUpdatedAtIso: '2026-07-01T09:00:00.000Z',
+      nextStatus: 'loading',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030001',
       platformOrderId: 'order-platform-status-1',
@@ -19407,21 +19710,33 @@ test('retries a failed platform order status advance through the status api', as
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-status-retry/status',
-      expect.objectContaining({
+    const statusRetryCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-status-retry/status',
+      method: 'POST',
+    });
+    expect(statusRetryCalls).toHaveLength(2);
+    expect(
+      getFetchCallHeaders(findLastFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-status-retry/status',
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-status-retry.900',
-          'Idempotency-Key': statusRetryContext?.idempotencyKey,
-        }),
-        body: JSON.stringify({
-          baseUpdatedAtIso: statusRetryContext?.baseUpdatedAtIso,
-          nextStatus: 'loading',
-        }),
+      })),
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access.platform-order-status-retry.900',
+        'Idempotency-Key': statusRetryContext?.idempotencyKey,
       }),
     );
+    expect(
+      getFetchCallBody(
+        findLastFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/shipper/orders/order-platform-status-retry/status',
+          method: 'POST',
+        }),
+      ),
+    ).toMatchObject({
+      baseUpdatedAtIso: statusRetryContext?.baseUpdatedAtIso,
+      nextStatus: 'loading',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030002',
       platformOrderId: 'order-platform-status-retry',
@@ -19965,20 +20280,32 @@ test('retries a failed platform order exception report through the exception api
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-exception-retry/exception',
-      expect.objectContaining({
+    const exceptionRetryCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-exception-retry/exception',
+      method: 'POST',
+    });
+    expect(exceptionRetryCalls).toHaveLength(2);
+    expect(
+      getFetchCallHeaders(findLastFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-exception-retry/exception',
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-exception-retry.900',
-        }),
-        body: JSON.stringify({
-          typeLabel: '司机延误',
-          description: '司机反馈高速拥堵，预计晚到 40 分钟',
-        }),
+      })),
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access.platform-order-exception-retry.900',
       }),
     );
+    expect(
+      getFetchCallBody(
+        findLastFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/shipper/orders/order-platform-exception-retry/exception',
+          method: 'POST',
+        }),
+      ),
+    ).toMatchObject({
+      typeLabel: '司机延误',
+      description: '司机反馈高速拥堵，预计晚到 40 分钟',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030004',
       platformOrderId: 'order-platform-exception-retry',
@@ -20485,22 +20812,34 @@ test('retries a failed platform order evaluation through the evaluation api', as
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-evaluation-retry/evaluation',
-      expect.objectContaining({
+    const evaluationRetryCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-evaluation-retry/evaluation',
+      method: 'POST',
+    });
+    expect(evaluationRetryCalls).toHaveLength(2);
+    expect(
+      getFetchCallHeaders(findLastFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-evaluation-retry/evaluation',
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-evaluation-retry.900',
-        }),
-        body: JSON.stringify({
-          rating: 5,
-          tags: ['准时'],
-          content: '司机服务细致，整体运输体验很好',
-          anonymous: false,
-        }),
+      })),
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access.platform-order-evaluation-retry.900',
       }),
     );
+    expect(
+      getFetchCallBody(
+        findLastFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/shipper/orders/order-platform-evaluation-retry/evaluation',
+          method: 'POST',
+        }),
+      ),
+    ).toMatchObject({
+      rating: 5,
+      tags: ['准时'],
+      content: '司机服务细致，整体运输体验很好',
+      anonymous: false,
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030006',
       platformOrderId: 'order-platform-evaluation-retry',
@@ -20597,19 +20936,19 @@ test('submits a platform order change request through the change request api', a
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
-      'http://localhost:3000/api/shipper/orders/order-platform-change-request-1/change-request',
+    const changeRequestCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-change-request-1/change-request',
+      method: 'POST',
+    });
+    expect(changeRequestCall).toBeDefined();
+    expect(getFetchCallHeaders(changeRequestCall)).toEqual(
       expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-change-request.900',
-        }),
-        body: JSON.stringify({
-          description: '请把卸货地址改到南山门店二期',
-        }),
+        Authorization: 'Bearer access.platform-order-change-request.900',
       }),
     );
+    expect(getFetchCallBody(changeRequestCall)).toMatchObject({
+      description: '请把卸货地址改到南山门店二期',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030007',
       platformOrderId: 'order-platform-change-request-1',
@@ -20725,19 +21064,31 @@ test('retries a failed platform order change request through the change request 
       await flushMicrotasks();
     });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      6,
-      'http://localhost:3000/api/shipper/orders/order-platform-change-request-retry/change-request',
-      expect.objectContaining({
+    const changeRequestRetryCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-change-request-retry/change-request',
+      method: 'POST',
+    });
+    expect(changeRequestRetryCalls).toHaveLength(2);
+    expect(
+      getFetchCallHeaders(findLastFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-change-request-retry/change-request',
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer access.platform-order-change-request-retry.900',
-        }),
-        body: JSON.stringify({
-          description: '请把卸货地址改到南山门店二期',
-        }),
+      })),
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access.platform-order-change-request-retry.900',
       }),
     );
+    expect(
+      getFetchCallBody(
+        findLastFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/shipper/orders/order-platform-change-request-retry/change-request',
+          method: 'POST',
+        }),
+      ),
+    ).toMatchObject({
+      description: '请把卸货地址改到南山门店二期',
+    });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030008',
       platformOrderId: 'order-platform-change-request-retry',
