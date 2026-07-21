@@ -68,7 +68,13 @@ export function renderFinanceAdminConsole() {
             <div class="muted">先看支付、退款、结算、提现和 refund outbox 的关键水位，再决定往哪补火。</div>
           </div>
           <button id="loadFinanceReportButton" type="button" class="secondary-button" onclick="loadFinanceReport()">刷新财务报表</button>
+          <button id="loadFinanceReconciliationButton" type="button" class="secondary-button" onclick="loadFinanceReconciliation()">刷新一致性对账</button>
         </div>
+        <div id="financeReconciliationStatus" class="muted">当前还没拉一致性对账</div>
+        <div id="financeReconciliationSummary" class="detail-grid">
+          <div class="detail-card muted">先刷新一致性对账，别拿汇总当核验。</div>
+        </div>
+        <div id="financeReconciliationFindings" class="detail-card muted">对账差异待加载</div>
         <div id="financeReportStatus" class="muted">当前还没拉财务报表</div>
         <div id="financeReportSummary" class="detail-grid">
           <div class="detail-card muted">先刷新财务报表，别看着空气脑补趋势。</div>
@@ -294,6 +300,45 @@ export function renderFinanceAdminConsole() {
         '<div class="kv"><strong>结算总额</strong>' + escapeHtml(formatMoney(settlement.grossAmountCents)) + '</div>' +
         '<div class="kv"><strong>平台服务费</strong>' + escapeHtml(formatMoney(settlement.platformFeeCents)) + '</div>' +
         '<div class="kv"><strong>司机净收入</strong>' + escapeHtml(formatMoney(settlement.driverNetAmountCents)) + '</div>';
+    }
+
+
+    function resetFinanceReconciliation(message = '当前还没拉一致性对账') {
+      document.getElementById('financeReconciliationStatus').textContent = message;
+      document.getElementById('financeReconciliationSummary').innerHTML =
+        '<div class="detail-card muted">先刷新一致性对账，别拿汇总当核验。</div>';
+      document.getElementById('financeReconciliationFindings').innerHTML = '对账差异待加载';
+    }
+
+    function renderFinanceReconciliation(report) {
+      const summary = report && report.summary ? report.summary : {};
+      document.getElementById('financeReconciliationStatus').textContent =
+        '对账时间：' + (report && report.generatedAtIso ? report.generatedAtIso : '-');
+      document.getElementById('financeReconciliationSummary').innerHTML = [
+        { label: '差异总数', value: formatCount(summary.findingCount) },
+        { label: '错误', value: formatCount(summary.errorCount) },
+        { label: '警告', value: formatCount(summary.warningCount) },
+      ].map(item =>
+        '<div class="detail-card"><strong>' + escapeHtml(item.label) + '</strong><div style="margin-top:8px;font-size:24px;font-weight:700;">' + escapeHtml(item.value) + '</div></div>'
+      ).join('');
+      const findings = Array.isArray(report && report.findings) ? report.findings : [];
+      document.getElementById('financeReconciliationFindings').innerHTML = findings.length
+        ? findings.map(item =>
+            '<div class="kv"><strong>' + escapeHtml(item.severity || '-') + ' · ' + escapeHtml(item.code || '-') + '</strong>' +
+            escapeHtml(item.entityType || '-') + ' / ' + escapeHtml(item.entityId || '-') +
+            (item.amountCents === undefined ? '' : ' / ' + formatMoney(item.amountCents)) +
+            '<div class="muted">' + escapeHtml(item.message || '') + '</div></div>'
+          ).join('')
+        : '<div class="muted">当前没有发现一致性差异。</div>';
+    }
+
+    async function loadFinanceReconciliation() {
+      try {
+        const report = await api('/admin/finance/reconciliation');
+        renderFinanceReconciliation(report);
+      } catch (error) {
+        resetFinanceReconciliation('一致性对账加载失败：' + error.message);
+      }
     }
 
     async function loadFinanceReport() {
@@ -744,6 +789,7 @@ export function renderFinanceAdminConsole() {
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadFinanceReport();
+      loadFinanceReconciliation();
       loadFinanceList(currentFinancePage);
     }
   </script>

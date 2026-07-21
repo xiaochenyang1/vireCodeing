@@ -143,6 +143,9 @@ export type DriverWithdrawalRecord = {
   bankAccountMasked: string;
   status: DriverWithdrawalStatus;
   rejectionReason?: string;
+  payoutChannel?: string;
+  providerPayoutNo?: string;
+  payoutExecutedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
 };

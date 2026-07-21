@@ -30,6 +30,10 @@ export class AdminFinanceService {
     return this.repository.getReport();
   }
 
+  getReconciliation() {
+    return this.repository.getReconciliation();
+  }
+
   listPayments(query: AdminFinanceListQuery) {
     return this.repository.listPayments(query);
   }

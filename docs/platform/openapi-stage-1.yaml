@@ -5060,6 +5060,20 @@ paths:
               schema: { $ref: '#/components/schemas/AdminPermissionMatrixResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/reconciliation:
+    get:
+      summary: Get finance consistency reconciliation findings
+      description: First-slice read-only consistency checks for wallets, settlements, paid withdrawals, ledger links and legacy unverified orders.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      responses:
+        '200':
+          description: Reconciliation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinanceReconciliationResponse'
   /admin/finance/report:
     get:
       summary: Get admin finance report
@@ -10831,6 +10845,40 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DriverNavigationTargets'
+
+    FinanceReconciliationFinding:
+      type: object
+      required: [code, severity, entityType, entityId, message]
+      properties:
+        code: { type: string }
+        severity: { type: string, enum: [warning, error] }
+        entityType: { type: string }
+        entityId: { type: string }
+        amountCents: { type: integer }
+        message: { type: string }
+    FinanceReconciliationReport:
+      type: object
+      required: [generatedAtIso, summary, findings]
+      properties:
+        generatedAtIso: { type: string, format: date-time }
+        summary:
+          type: object
+          required: [findingCount, errorCount, warningCount]
+          properties:
+            findingCount: { type: integer }
+            errorCount: { type: integer }
+            warningCount: { type: integer }
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinanceReconciliationFinding'
+    FinanceReconciliationResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/FinanceReconciliationReport'
     ErrorResponse:
       type: object
       required: [code, message, requestId, timestamp]

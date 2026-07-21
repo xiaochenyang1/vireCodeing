@@ -617,6 +617,9 @@ model DriverWithdrawal {
   rejectionReason        String?
   processedByAdminId     String?
   processedAt            DateTime?
+  payoutChannel          String?
+  providerPayoutNo       String?
+  payoutExecutedAt       DateTime?
   financialTransactionId String?                @unique
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
@@ -627,6 +630,7 @@ model DriverWithdrawal {
   @@index([driverId, createdAt], name: "DriverWithdrawal_driver_created_idx")
   @@unique([driverId, idempotencyKey], name: "DriverWithdrawal_driver_idempotency_key_unique")
   @@index([status, createdAt], name: "DriverWithdrawal_status_created_idx")
+  @@index([providerPayoutNo], name: "DriverWithdrawal_provider_payout_no_idx")
 }
 
 model PaymentOrder {

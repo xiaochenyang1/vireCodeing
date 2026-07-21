@@ -15,6 +15,8 @@ import {
   assertLedgerBalanced,
   createWithdrawalEntries,
 } from './payment-domain';
+import type { PayoutProvider } from './payout-provider';
+import { SandboxPayoutProvider } from './sandbox-payout.provider';
 
 export interface DriverFinanceRepository {
   getIncomeOverview(
@@ -64,6 +66,9 @@ export type ReviewedDriverWithdrawalRecord = DriverWithdrawalRecord & {
   processedByAdminId?: string;
   processedAtIso?: string;
   financialTransactionId?: string;
+  payoutChannel?: string;
+  providerPayoutNo?: string;
+  payoutExecutedAtIso?: string;
 };
 
 export type ReviewDriverWithdrawalResult =
@@ -109,13 +114,20 @@ export class InMemoryDriverFinanceRepository
   private readonly withdrawals: InMemoryDriverWithdrawal[] = [];
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly payoutProvider: PayoutProvider;
 
   constructor(
     private readonly financialStore: InMemoryFinancialStore,
-    options: { now?: () => Date; createId?: () => string } = {},
+    options: {
+      now?: () => Date;
+      createId?: () => string;
+      payoutProvider?: PayoutProvider;
+    } = {},
   ) {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
+    this.payoutProvider =
+      options.payoutProvider ?? new SandboxPayoutProvider(this.now);
   }
 
   async getIncomeOverview(
@@ -232,10 +244,22 @@ export class InMemoryDriverFinanceRepository
     }
 
     const now = this.now();
+    const nowIso = now.toISOString();
     const beforeWithdrawal = structuredClone(withdrawal);
     const beforeWallet = this.financialStore.findDriverWallet(
       withdrawal.driverId,
     );
+    const payoutResult =
+      input.action === 'approve'
+        ? await this.payoutProvider.executePayout({
+            withdrawalId: withdrawal.id,
+            driverId: withdrawal.driverId,
+            amountCents: withdrawal.amountCents,
+            bankAccountName: withdrawal.bankAccountName,
+            bankName: withdrawal.bankName,
+            bankAccountMasked: withdrawal.bankAccountMasked,
+          })
+        : undefined;
     const wallet =
       input.action === 'approve'
         ? this.financialStore.payReservedDriverWallet(
@@ -252,7 +276,6 @@ export class InMemoryDriverFinanceRepository
       return { kind: 'conflict' };
     }
 
-    const nowIso = now.toISOString();
     const financialTransaction =
       input.action === 'approve'
         ? this.createInMemoryWithdrawalTransaction(withdrawal, nowIso)
@@ -261,6 +284,11 @@ export class InMemoryDriverFinanceRepository
     withdrawal.status = input.action === 'approve' ? 'paid' : 'rejected';
     if (input.action === 'reject') {
       withdrawal.rejectionReason = input.reason;
+    }
+    if (payoutResult) {
+      withdrawal.payoutChannel = payoutResult.channel;
+      withdrawal.providerPayoutNo = payoutResult.providerPayoutNo;
+      withdrawal.payoutExecutedAtIso = payoutResult.executedAtIso;
     }
     withdrawal.version += 1;
     withdrawal.processedByAdminId = input.adminId;
@@ -401,6 +429,9 @@ type PrismaDriverWithdrawalRecord = {
   rejectionReason: string | null;
   processedByAdminId: string | null;
   processedAt: Date | null;
+  payoutChannel: string | null;
+  providerPayoutNo: string | null;
+  payoutExecutedAt: Date | null;
   financialTransactionId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -501,13 +532,20 @@ export type PrismaDriverFinanceClient = {
 export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly payoutProvider: PayoutProvider;
 
   constructor(
     private readonly prisma: PrismaDriverFinanceClient,
-    options: { now?: () => Date; createId?: () => string } = {},
+    options: {
+      now?: () => Date;
+      createId?: () => string;
+      payoutProvider?: PayoutProvider;
+    } = {},
   ) {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
+    this.payoutProvider =
+      options.payoutProvider ?? new SandboxPayoutProvider(this.now);
   }
 
   async getIncomeOverview(
@@ -704,6 +742,17 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
         const now = this.now();
         const transactionId =
           input.action === 'approve' ? this.createId() : undefined;
+        const payoutResult =
+          input.action === 'approve'
+            ? await this.payoutProvider.executePayout({
+                withdrawalId: withdrawal.id,
+                driverId: withdrawal.driverId,
+                amountCents: withdrawal.amountCents,
+                bankAccountName: withdrawal.bankAccountName,
+                bankName: withdrawal.bankName,
+                bankAccountMasked: withdrawal.bankAccountMasked,
+              })
+            : undefined;
         const updatedWithdrawal =
           await transaction.driverWithdrawal.updateMany({
             where: {
@@ -718,6 +767,13 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
               processedAt: now,
               ...(input.action === 'reject'
                 ? { rejectionReason: input.reason }
+                : {}),
+              ...(payoutResult
+                ? {
+                    payoutChannel: payoutResult.channel,
+                    providerPayoutNo: payoutResult.providerPayoutNo,
+                    payoutExecutedAt: new Date(payoutResult.executedAtIso),
+                  }
                 : {}),
               updatedAt: now,
             },
@@ -1039,6 +1095,15 @@ function mapPrismaWithdrawal(
     status: withdrawal.status,
     ...(withdrawal.rejectionReason
       ? { rejectionReason: withdrawal.rejectionReason }
+      : {}),
+    ...(withdrawal.payoutChannel
+      ? { payoutChannel: withdrawal.payoutChannel }
+      : {}),
+    ...(withdrawal.providerPayoutNo
+      ? { providerPayoutNo: withdrawal.providerPayoutNo }
+      : {}),
+    ...(withdrawal.payoutExecutedAt
+      ? { payoutExecutedAtIso: withdrawal.payoutExecutedAt.toISOString() }
       : {}),
     createdAtIso: withdrawal.createdAt.toISOString(),
     updatedAtIso: withdrawal.updatedAt.toISOString(),

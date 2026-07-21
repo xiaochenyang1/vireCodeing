@@ -960,6 +960,14 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('EXCEPTION_CASE_APPEAL_NOT_ALLOWED');
   });
 
+  it('documents finance reconciliation endpoint', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/admin/finance/reconciliation:');
+    expect(source).toContain('FinanceReconciliationReport');
+    expect(source).toContain('FinanceReconciliationFinding');
+  });
+
   it('documents maps location first-slice endpoints and optional order coordinates', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

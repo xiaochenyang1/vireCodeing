@@ -3,6 +3,10 @@ import type {
   FinancialAuditLogRecord,
   FinancialTransactionRecord,
 } from './dto';
+import {
+  buildFinanceReconciliationReport,
+  type FinanceReconciliationReport,
+} from './finance-reconciliation';
 
 export type AdminFinanceListQuery = {
   page: number;
@@ -87,6 +91,7 @@ export type RetryRefundResult =
 
 export interface AdminFinanceRepository {
   getReport(): Promise<AdminFinanceReport>;
+  getReconciliation(): Promise<FinanceReconciliationReport>;
   listPayments(
     query: AdminFinanceListQuery,
   ): Promise<AdminFinancePage<AdminPaymentRecord>>;
@@ -171,6 +176,9 @@ type PrismaAdminWithdrawalRecord = {
   rejectionReason: string | null;
   processedByAdminId: string | null;
   processedAt: Date | null;
+  payoutChannel: string | null;
+  providerPayoutNo: string | null;
+  payoutExecutedAt: Date | null;
   financialTransactionId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -265,10 +273,31 @@ export type PrismaAdminFinanceClient = {
   };
   financialTransaction: {
     findUnique(args: unknown): Promise<PrismaAdminLedgerTransactionRecord | null>;
+    findMany(args: unknown): Promise<
+      Array<{
+        id: string;
+        type: string;
+        referenceId: string;
+        amountCents: number;
+      }>
+    >;
+  };
+  driverWallet?: {
+    findMany(args: unknown): Promise<
+      Array<{
+        driverId: string;
+        availableCents: number;
+        reservedCents: number;
+        withdrawnCents: number;
+      }>
+    >;
   };
   driverWithdrawal: {
     findMany(args: unknown): Promise<PrismaAdminWithdrawalRecord[]>;
     count(args: unknown): Promise<number>;
+  };
+  order?: {
+    findMany(args: unknown): Promise<Array<{ id: string; orderNo: string }>>;
   };
   financialAuditLog: {
     findUnique(args: unknown): Promise<PrismaAdminAuditLogRecord | null>;
@@ -325,10 +354,10 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
         settlementPlatformFeeCents: settlementSummary.platformFeeCents,
         settlementDriverNetAmountCents: settlementSummary.driverNetAmountCents,
         pendingWithdrawalCount: withdrawals.filter(
-          item => item.status === 'pending',
+          item => item.status === 'reviewing',
         ).length,
         pendingWithdrawalAmountCents: sumBy(
-          withdrawals.filter(item => item.status === 'pending'),
+          withdrawals.filter(item => item.status === 'reviewing'),
           item => item.amountCents,
         ),
         deadRefundOutboxCount: refundOutboxEvents.filter(
@@ -356,6 +385,55 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
       ),
       settlementSummary,
     };
+  }
+
+  async getReconciliation() {
+    return buildFinanceReconciliationReport(
+      {
+        listWallets: async () =>
+          this.prisma.driverWallet
+            ? this.prisma.driverWallet.findMany({})
+            : [],
+        listSettlements: async () =>
+          (
+            await this.prisma.settlement.findMany({
+              orderBy: { settledAt: 'desc' },
+            })
+          ).map(item => ({
+            id: item.id,
+            driverId: item.driverId,
+            driverNetAmountCents: item.driverNetAmountCents,
+            financialTransactionId: item.financialTransactionId,
+          })),
+        listWithdrawals: async () =>
+          (
+            await this.prisma.driverWithdrawal.findMany({
+              orderBy: { createdAt: 'desc' },
+            })
+          ).map(item => ({
+            id: item.id,
+            driverId: item.driverId,
+            amountCents: item.amountCents,
+            status: item.status,
+            providerPayoutNo: item.providerPayoutNo,
+            financialTransactionId: item.financialTransactionId,
+          })),
+        listFinancialTransactions: async () =>
+          this.prisma.financialTransaction.findMany
+            ? this.prisma.financialTransaction.findMany({
+                orderBy: { occurredAt: 'desc' },
+              })
+            : [],
+        listLegacyUnverifiedOrders: async () =>
+          this.prisma.order
+            ? this.prisma.order.findMany({
+                where: { paymentStatus: 'legacy_unverified' },
+                select: { id: true, orderNo: true },
+              })
+            : [],
+      },
+      this.now,
+    );
   }
 
   async listPayments(query: AdminFinanceListQuery) {
@@ -845,6 +923,13 @@ function mapAdminWithdrawal(record: PrismaAdminWithdrawalRecord) {
       : {}),
     ...(record.processedAt
       ? { processedAtIso: record.processedAt.toISOString() }
+      : {}),
+    ...(record.payoutChannel ? { payoutChannel: record.payoutChannel } : {}),
+    ...(record.providerPayoutNo
+      ? { providerPayoutNo: record.providerPayoutNo }
+      : {}),
+    ...(record.payoutExecutedAt
+      ? { payoutExecutedAtIso: record.payoutExecutedAt.toISOString() }
       : {}),
     ...(record.financialTransactionId
       ? { financialTransactionId: record.financialTransactionId }

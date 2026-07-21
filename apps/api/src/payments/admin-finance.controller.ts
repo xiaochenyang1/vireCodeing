@@ -47,6 +47,14 @@ export class AdminFinanceController {
     );
   }
 
+  @Get('reconciliation')
+  async getReconciliation(@Req() request: AuthenticatedRequest) {
+    return ok(
+      await this.adminFinanceService.getReconciliation(),
+      getRequestId(request),
+    );
+  }
+
   @Get('payments')
   async listPayments(
     @Req() request: AuthenticatedRequest,

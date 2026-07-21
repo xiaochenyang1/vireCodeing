@@ -182,6 +182,8 @@ describe('InMemoryDriverFinanceRepository', () => {
         version: 1,
         processedByAdminId: 'admin-1',
         financialTransactionId: 'finance-id-2',
+        payoutChannel: 'sandbox',
+        providerPayoutNo: 'sandbox-payout-finance-id-1',
       },
       wallet: {
         availableCents: 8000,
@@ -470,6 +472,9 @@ describe('PrismaDriverFinanceRepository', () => {
       processedByAdminId: 'admin-1',
       processedAt: NOW,
       financialTransactionId: 'review-id-1',
+      payoutChannel: 'sandbox',
+      providerPayoutNo: 'sandbox-payout-withdrawal-1',
+      payoutExecutedAt: NOW,
     });
     const walletBefore = createPrismaWallet({
       availableCents: 8000,
@@ -529,6 +534,8 @@ describe('PrismaDriverFinanceRepository', () => {
         status: 'paid',
         version: 1,
         financialTransactionId: 'review-id-1',
+        payoutChannel: 'sandbox',
+        providerPayoutNo: 'sandbox-payout-withdrawal-1',
       },
       wallet: {
         reservedCents: 0,
@@ -555,6 +562,9 @@ describe('PrismaDriverFinanceRepository', () => {
         version: { increment: 1 },
         processedByAdminId: 'admin-1',
         processedAt: NOW,
+        payoutChannel: 'sandbox',
+        providerPayoutNo: 'sandbox-payout-withdrawal-1',
+        payoutExecutedAt: NOW,
         updatedAt: NOW,
       },
     });
@@ -764,6 +774,9 @@ describe('PrismaDriverFinanceRepository', () => {
       processedByAdminId: 'admin-1',
       processedAt: NOW,
       financialTransactionId: 'review-id-1',
+      payoutChannel: 'sandbox',
+      providerPayoutNo: 'sandbox-payout-withdrawal-1',
+      payoutExecutedAt: NOW,
     });
     const auditedWallet = {
       driverId: 'driver-1',
@@ -788,6 +801,9 @@ describe('PrismaDriverFinanceRepository', () => {
           processedByAdminId: 'admin-1',
           processedAtIso: NOW.toISOString(),
           financialTransactionId: 'review-id-1',
+          payoutChannel: 'sandbox',
+          providerPayoutNo: 'sandbox-payout-withdrawal-1',
+          payoutExecutedAtIso: NOW.toISOString(),
           createdAtIso: NOW.toISOString(),
           updatedAtIso: NOW.toISOString(),
         },
@@ -1023,6 +1039,9 @@ function createPrismaWithdrawal(overrides: Record<string, unknown> = {}) {
     rejectionReason: null,
     processedByAdminId: null,
     processedAt: null,
+    payoutChannel: null,
+    providerPayoutNo: null,
+    payoutExecutedAt: null,
     financialTransactionId: null,
     createdAt: NOW,
     updatedAt: NOW,
