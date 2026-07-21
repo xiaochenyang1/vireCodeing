@@ -940,6 +940,15 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  messageHeaderMeta: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  messageCategoryText: {
+    color: colors.tealDark,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   routeAddress: {
     marginTop: 8,
     color: colors.textSecondary,

@@ -95,6 +95,14 @@ export const messageCenterItems: MessageCenterItem[] = [
     timeText: '昨天 18:00',
     unread: false,
   },
+  {
+    id: 'message-finance-1',
+    category: 'finance',
+    title: '财务到账提醒',
+    content: '异常赔付已打入司机钱包，可在收支明细中查看。',
+    timeText: '昨天 10:15',
+    unread: false,
+  },
 ];
 
 export const helpTopics: HelpTopic[] = [

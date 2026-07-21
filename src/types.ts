@@ -348,7 +348,7 @@ export type OrderListFilter =
 
 export type MessageCenterItem = {
   id: string;
-  category: 'order' | 'system' | 'service';
+  category: 'order' | 'system' | 'service' | 'finance';
   title: string;
   content: string;
   timeText: string;

@@ -34,7 +34,7 @@ export function MessageCenterScreen({
     >
       <SupportTopBar
         title="消息中心"
-        subtitle="订单与系统通知"
+        subtitle="订单、系统、客服与财务通知"
         onBackHome={onBackHome}
       />
 
@@ -69,12 +69,20 @@ export function MessageCenterScreen({
           <>
             <View style={styles.routeHeader}>
               <Text style={styles.routeName}>{item.title}</Text>
-              <Text
-                testID={`message-status-${item.id}`}
-                style={styles.routeAction}
-              >
-                {item.unread ? '未读' : '已读'}
-              </Text>
+              <View style={styles.messageHeaderMeta}>
+                <Text
+                  testID={`message-category-${item.id}`}
+                  style={styles.messageCategoryText}
+                >
+                  {getMessageCategoryLabel(item.category)}
+                </Text>
+                <Text
+                  testID={`message-status-${item.id}`}
+                  style={styles.routeAction}
+                >
+                  {item.unread ? '未读' : '已读'}
+                </Text>
+              </View>
             </View>
             <Text style={styles.detailMeta}>{item.content}</Text>
             <Text style={styles.routeMeta}>{item.timeText}</Text>
@@ -113,4 +121,20 @@ export function MessageCenterScreen({
       })}
     </ScrollView>
   );
+}
+
+function getMessageCategoryLabel(category: MessageCenterItem['category']) {
+  if (category === 'order') {
+    return '订单通知';
+  }
+
+  if (category === 'system') {
+    return '系统通知';
+  }
+
+  if (category === 'finance') {
+    return '财务通知';
+  }
+
+  return '客服通知';
 }

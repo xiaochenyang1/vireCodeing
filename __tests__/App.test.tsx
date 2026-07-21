@@ -7637,6 +7637,11 @@ test('opens the local message center from the home screen', async () => {
   expect(renderedText).toContain('司机报价提醒');
   expect(renderedText).toContain('订单 HY20260622001 收到 2 个司机报价');
   expect(renderedText).toContain('系统通知');
+  expect(renderedText).toContain('财务到账提醒');
+  expect(
+    app.root.findByProps({ testID: 'message-category-message-finance-1' }).props
+      .children,
+  ).toBe('财务通知');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'support-back-home' }).props.onPress();

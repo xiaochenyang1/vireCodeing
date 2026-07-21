@@ -20,9 +20,6 @@ export function mapPlatformInboxMessagesToLocal(
 function mapCategory(
   category: PlatformInboxMessage['category'],
 ): MessageCenterItem['category'] {
-  if (category === 'finance') {
-    return 'service';
-  }
   return category;
 }
 

@@ -45,7 +45,7 @@ describe('mapPlatformInboxMessagesToLocal', () => {
       },
       {
         id: 'msg-2',
-        category: 'service',
+        category: 'finance',
         title: '异常赔付已执行',
         content: '赔付已执行到账。',
         timeText: '1 小时前',
