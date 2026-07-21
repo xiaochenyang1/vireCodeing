@@ -172,6 +172,17 @@ const draftRestoreMissingAuthSyncMessage =
 const draftRestoreFailureSyncMessage =
   '平台发单草稿恢复失败，已保留本地草稿。';
 
+function normalizeMessageUnreadCount(
+  unreadCount: number | undefined,
+  messages: MessageCenterItem[],
+) {
+  if (Number.isInteger(unreadCount) && unreadCount !== undefined && unreadCount >= 0) {
+    return unreadCount;
+  }
+
+  return messages.filter(message => message.unread).length;
+}
+
 function shouldClearAuthSessionAfterStartupPlatformAuthError(error: unknown) {
   return (
     error instanceof PlatformApiError &&
@@ -253,6 +264,8 @@ function App({
 }: AppProps = {}) {
   const nowRef = useRef(now);
   nowRef.current = now;
+  const messageRefreshRequestIdRef = useRef(0);
+  const messageMutationVersionRef = useRef(0);
   const isDarkMode = useColorScheme() === 'dark';
   const resolvedPlatformApiBaseUrl =
     resolvePlatformApiBaseUrl(platformApiBaseUrl);
@@ -385,6 +398,7 @@ function App({
   } = useAppNavigation();
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [draftGateNotice, setDraftGateNotice] = useState('');
   const [networkNotice, setNetworkNotice] = useState('');
@@ -427,6 +441,41 @@ function App({
         syncState: createSyncedProfileSyncState(
           '平台认证手机号已同步到本地资料快照。',
         ),
+      });
+    },
+    [],
+  );
+
+  const applyPlatformMessages = useCallback(
+    (
+      result: Awaited<
+        ReturnType<ReturnType<typeof createPlatformMessagesApi>['listMessages']>
+      >,
+      refreshRequestId: number,
+      mutationVersionAtStart: number,
+    ) => {
+      if (
+        refreshRequestId !== messageRefreshRequestIdRef.current ||
+        mutationVersionAtStart !== messageMutationVersionRef.current
+      ) {
+        return;
+      }
+
+      const nextMessages = mapPlatformInboxMessagesToLocal(
+        result.items,
+        new Date(nowRef.current),
+      );
+      const nextMessageUnreadCount = normalizeMessageUnreadCount(
+        result.unreadCount,
+        nextMessages,
+      );
+
+      setMessages(nextMessages);
+      setMessageUnreadCount(nextMessageUnreadCount);
+      saveAppRuntimeState({
+        ...getAppRuntimeState(),
+        messages: nextMessages,
+        messageUnreadCount: nextMessageUnreadCount,
       });
     },
     [],
@@ -496,6 +545,7 @@ function App({
 
       setOrders(hydratedOrders);
       setMessages(runtimeState.messages);
+      setMessageUnreadCount(runtimeState.messageUnreadCount);
       setSelectedOrderId(hydratedOrders[0]?.id ?? '');
       const hydratedDraft = getSavedDraft(now);
       setSavedDraft(hydratedDraft);
@@ -518,21 +568,21 @@ function App({
         platformMessagesApi &&
         getAuthSessionSnapshot()?.accessToken
       ) {
+        const refreshRequestId = messageRefreshRequestIdRef.current + 1;
+        messageRefreshRequestIdRef.current = refreshRequestId;
+        const mutationVersionAtStart = messageMutationVersionRef.current;
+
         platformMessagesApi
           .listMessages({ page: 1, pageSize: 50 })
           .then(result => {
             if (cancelled) {
               return;
             }
-            const nextMessages = mapPlatformInboxMessagesToLocal(
-              result.items,
-              new Date(nowRef.current),
+            applyPlatformMessages(
+              result,
+              refreshRequestId,
+              mutationVersionAtStart,
             );
-            setMessages(nextMessages);
-            saveAppRuntimeState({
-              ...getAppRuntimeState(),
-              messages: nextMessages,
-            });
           })
           .catch(() => undefined);
       }
@@ -543,6 +593,7 @@ function App({
         const runtimeState = getAppRuntimeState();
         setOrders(runtimeState.orders);
         setMessages(runtimeState.messages);
+        setMessageUnreadCount(runtimeState.messageUnreadCount);
         setSelectedOrderId(runtimeState.orders[0]?.id ?? '');
         const hydratedDraft = getSavedDraft(now);
         setSavedDraft(hydratedDraft);
@@ -558,6 +609,7 @@ function App({
       cancelled = true;
     };
   }, [
+    applyPlatformMessages,
     now,
     platformAuthApi,
     platformMessagesApi,
@@ -569,13 +621,16 @@ function App({
   const persistRuntimeState = ({
     nextOrders = orders,
     nextMessages = messages,
+    nextMessageUnreadCount = messageUnreadCount,
   }: {
     nextOrders?: RecentOrder[];
     nextMessages?: MessageCenterItem[];
+    nextMessageUnreadCount?: number;
   }) => {
     saveAppRuntimeState({
       orders: nextOrders,
       messages: nextMessages,
+      messageUnreadCount: nextMessageUnreadCount,
     });
   };
 
@@ -584,21 +639,21 @@ function App({
       return;
     }
 
+    const refreshRequestId = messageRefreshRequestIdRef.current + 1;
+    messageRefreshRequestIdRef.current = refreshRequestId;
+    const mutationVersionAtStart = messageMutationVersionRef.current;
+
     platformMessagesApi
       .listMessages({ page: 1, pageSize: 50 })
       .then(result => {
-        const nextMessages = mapPlatformInboxMessagesToLocal(
-          result.items,
-          new Date(nowRef.current),
+        applyPlatformMessages(
+          result,
+          refreshRequestId,
+          mutationVersionAtStart,
         );
-        setMessages(nextMessages);
-        saveAppRuntimeState({
-          ...getAppRuntimeState(),
-          messages: nextMessages,
-        });
       })
       .catch(() => undefined);
-  }, [platformMessagesApi]);
+  }, [applyPlatformMessages, platformMessagesApi]);
 
   const openHome = (supportView: HomeSupportView = 'home') => {
     navigateHome(supportView);
@@ -745,7 +800,6 @@ function App({
     }
 
     openHome();
-    refreshPlatformMessages();
   };
 
   const handleOnboardingFinished = () => {
@@ -1531,6 +1585,7 @@ function App({
       await saveAppRuntimeStateDurably({
         orders: durableOrders,
         messages,
+        messageUnreadCount,
       });
     } catch {
       const failedOrder = {
@@ -1545,7 +1600,11 @@ function App({
       const failedOrders = [failedOrder, ...orders];
 
       setOrders(failedOrders);
-      saveAppRuntimeState({ orders: failedOrders, messages });
+      saveAppRuntimeState({
+        orders: failedOrders,
+        messages,
+        messageUnreadCount,
+      });
       return;
     }
 
@@ -2462,12 +2521,25 @@ function App({
   };
 
   const markMessageRead = (messageId: string) => {
-    setMessages(currentMessages => {
-      const nextMessages = currentMessages.map(message =>
-        message.id === messageId ? { ...message, unread: false } : message,
-      );
-      persistRuntimeState({ nextMessages });
-      return nextMessages;
+    const targetMessage = messages.find(message => message.id === messageId);
+    if (!targetMessage) {
+      return;
+    }
+
+    const nextMessages = messages.map(message =>
+      message.id === messageId ? { ...message, unread: false } : message,
+    );
+    const nextMessageUnreadCount =
+      targetMessage.unread && messageUnreadCount > 0
+        ? messageUnreadCount - 1
+        : messageUnreadCount;
+
+    messageMutationVersionRef.current += 1;
+    setMessages(nextMessages);
+    setMessageUnreadCount(nextMessageUnreadCount);
+    persistRuntimeState({
+      nextMessages,
+      nextMessageUnreadCount,
     });
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
@@ -2476,16 +2548,20 @@ function App({
   };
 
   const markAllMessagesRead = () => {
-    if (!messages.some(message => message.unread)) {
+    if (messageUnreadCount === 0) {
       return;
     }
 
-    setMessages(currentMessages => {
-      const nextMessages = currentMessages.map(message =>
-        message.unread ? { ...message, unread: false } : message,
-      );
-      persistRuntimeState({ nextMessages });
-      return nextMessages;
+    const nextMessages = messages.map(message =>
+      message.unread ? { ...message, unread: false } : message,
+    );
+
+    messageMutationVersionRef.current += 1;
+    setMessages(nextMessages);
+    setMessageUnreadCount(0);
+    persistRuntimeState({
+      nextMessages,
+      nextMessageUnreadCount: 0,
     });
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
@@ -2599,6 +2675,7 @@ function App({
             now={now}
             orders={orders}
             messages={messages}
+            messageUnreadCount={messageUnreadCount}
             initialSupportView={homeInitialSupportView}
             draftGateNotice={draftGateNotice}
             networkNotice={networkNotice}
@@ -2614,6 +2691,7 @@ function App({
             onOpenOrdersWithFilter={openOrdersWithFilter}
             onMarkMessageRead={markMessageRead}
             onMarkAllMessagesRead={markAllMessagesRead}
+            onOpenMessagesView={refreshPlatformMessages}
             onReuseRoute={route =>
               openDraftWithPrefill({
                 pickupAddress: route.from,

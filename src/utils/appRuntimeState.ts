@@ -18,6 +18,7 @@ type AppRuntimeStateSnapshot = {
 export type AppRuntimeState = {
   orders: RecentOrder[];
   messages: MessageCenterItem[];
+  messageUnreadCount: number;
 };
 
 let appRuntimeStateSnapshot: AppRuntimeStateSnapshot | undefined;
@@ -30,6 +31,7 @@ function createDefaultAppRuntimeState(): AppRuntimeState {
   return {
     orders: cloneData(orderListOrders),
     messages: cloneData(messageCenterItems),
+    messageUnreadCount: countUnreadMessages(messageCenterItems),
   };
 }
 
@@ -40,7 +42,10 @@ function isValidSnapshot(
     Boolean(snapshot) &&
     snapshot?.version === APP_RUNTIME_STATE_VERSION &&
     Array.isArray(snapshot.state?.orders) &&
-    Array.isArray(snapshot.state?.messages)
+    Array.isArray(snapshot.state?.messages) &&
+    (snapshot.state?.messageUnreadCount === undefined ||
+      (Number.isInteger(snapshot.state.messageUnreadCount) &&
+        snapshot.state.messageUnreadCount >= 0))
   );
 }
 
@@ -60,7 +65,7 @@ export async function hydrateAppRuntimeState() {
 
   appRuntimeStateSnapshot = {
     version: storedSnapshot.version,
-    state: cloneData(storedSnapshot.state),
+    state: normalizeAppRuntimeState(storedSnapshot.state),
   };
 }
 
@@ -72,7 +77,7 @@ export function getAppRuntimeState() {
     };
   }
 
-  return cloneData(appRuntimeStateSnapshot.state);
+  return normalizeAppRuntimeState(appRuntimeStateSnapshot.state);
 }
 
 export function saveAppRuntimeState(state: AppRuntimeState) {
@@ -92,11 +97,31 @@ function createAppRuntimeStateSnapshot(
 ): AppRuntimeStateSnapshot {
   return {
     version: APP_RUNTIME_STATE_VERSION,
-    state: cloneData(state),
+    state: normalizeAppRuntimeState(state),
   };
 }
 
 export function clearAppRuntimeState() {
   appRuntimeStateSnapshot = undefined;
   fireAndForget(removeStorageItem(APP_RUNTIME_STATE_STORAGE_KEY));
+}
+
+function normalizeAppRuntimeState(
+  state: Pick<AppRuntimeState, 'orders' | 'messages'> &
+    Partial<Pick<AppRuntimeState, 'messageUnreadCount'>>,
+) {
+  return cloneData({
+    orders: state.orders,
+    messages: state.messages,
+    messageUnreadCount:
+      typeof state.messageUnreadCount === 'number' &&
+      Number.isInteger(state.messageUnreadCount) &&
+      state.messageUnreadCount >= 0
+        ? state.messageUnreadCount
+        : countUnreadMessages(state.messages),
+  });
+}
+
+function countUnreadMessages(messages: MessageCenterItem[]) {
+  return messages.filter(message => message.unread).length;
 }

@@ -10,12 +10,14 @@ import { SupportTopBar } from './SupportTopBar';
 
 export function MessageCenterScreen({
   messages,
+  unreadCount,
   onBackHome,
   onMarkMessageRead,
   onMarkAllMessagesRead,
   onOpenOrderDetail,
 }: {
   messages: MessageCenterItem[];
+  unreadCount: number;
   onBackHome: () => void;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
@@ -24,8 +26,6 @@ export function MessageCenterScreen({
     returnTarget?: OrderDetailReturnTarget,
   ) => void;
 }) {
-  const unreadCount = messages.filter(item => item.unread).length;
-
   return (
     <ScrollView
       style={styles.screen}

@@ -19,7 +19,6 @@ import type {
 import type { createPlatformFileApi } from '../services/platformFileApi';
 import { PlatformApiError } from '../services/platformApiClient';
 import { getAuthSessionSnapshot } from '../utils/authSession';
-import { getAppRuntimeState } from '../utils/appRuntimeState';
 import {
   createLocalProfileAddress,
   createLocalProfileContact,
@@ -89,6 +88,7 @@ type ProfilePlatformFileApi = Pick<
 export function ProfileCenterScreen({
   now,
   orders,
+  unreadMessageCount,
   platformAuthApi,
   platformProfileApi,
   platformFileApi,
@@ -97,6 +97,7 @@ export function ProfileCenterScreen({
 }: {
   now: number;
   orders: RecentOrder[];
+  unreadMessageCount: number;
   platformAuthApi?: ProfilePlatformAuthApi;
   platformProfileApi?: Pick<
     ReturnType<typeof createPlatformProfileApi>,
@@ -150,9 +151,6 @@ export function ProfileCenterScreen({
   } = profileState;
   const evaluationRecords =
     platformEvaluationRecords ?? createEvaluationRecords(orders);
-  const unreadMessageCount = getAppRuntimeState().messages.filter(
-    message => message.unread,
-  ).length;
   const profileOverview = createProfileOverviewModel({
     account,
     identityVerification,

@@ -206,6 +206,7 @@ export function HomeScreen({
   now,
   orders,
   messages,
+  messageUnreadCount,
   initialSupportView,
   platformAuthApi,
   platformProfileApi,
@@ -217,6 +218,7 @@ export function HomeScreen({
   onOpenOrders,
   onOpenOrdersWithFilter,
   onOpenNetworkError,
+  onOpenMessagesView,
   onMarkMessageRead,
   onMarkAllMessagesRead,
   onReuseRoute,
@@ -226,6 +228,7 @@ export function HomeScreen({
   now: number;
   orders: RecentOrder[];
   messages: MessageCenterItem[];
+  messageUnreadCount: number;
   initialSupportView?: HomeSupportView;
   draftGateNotice?: string;
   networkNotice?: string;
@@ -242,6 +245,7 @@ export function HomeScreen({
   onOpenOrders: () => void;
   onOpenOrdersWithFilter: (filter: OrderListFilter) => void;
   onOpenNetworkError: () => void;
+  onOpenMessagesView: () => void;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
   onReuseRoute: (route: FrequentRoute) => void;
@@ -261,7 +265,6 @@ export function HomeScreen({
     initialHomeState.syncState,
   );
   const hasLoadedPlatformFrequentRoutes = useRef(false);
-  const unreadMessageCount = messages.filter(message => message.unread).length;
 
   const getCurrentHomeState = (): HomeDashboardLocalState => ({
     selectedCity,
@@ -494,6 +497,9 @@ export function HomeScreen({
   const openSupportView = (nextSupportView: HomeSupportView) => {
     const supportViewChange = createHomeSupportViewChange(nextSupportView);
     setSupportView(supportViewChange.supportView);
+    if (nextSupportView === 'messages') {
+      onOpenMessagesView();
+    }
   };
 
   const backHome = () => {
@@ -693,6 +699,7 @@ export function HomeScreen({
     return (
       <MessageCenterScreen
         messages={messages}
+        unreadCount={messageUnreadCount}
         onBackHome={backHome}
         onMarkMessageRead={onMarkMessageRead}
         onMarkAllMessagesRead={onMarkAllMessagesRead}
@@ -717,6 +724,7 @@ export function HomeScreen({
       <ProfileCenterScreen
         now={now}
         orders={orders}
+        unreadMessageCount={messageUnreadCount}
         platformAuthApi={platformAuthApi}
         platformProfileApi={platformProfileApi}
         platformFileApi={platformFileApi}
@@ -734,7 +742,7 @@ export function HomeScreen({
     >
       <TopBar
         city={selectedCity}
-        unreadMessageCount={unreadMessageCount}
+        unreadMessageCount={messageUnreadCount}
         onLogout={onLogout}
         onOpenCitySelector={() => setShowCitySelector(current => !current)}
         onOpenMessages={() => openSupportView('messages')}

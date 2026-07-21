@@ -7839,6 +7839,276 @@ test('marks all messages as read and persists the unread count reset', async () 
   ).toBe(0);
 });
 
+test('uses the platform unread count even when the current page has no unread messages', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-1',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-messages-total.900',
+            refreshToken: 'refresh.platform-messages-total.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'msg-platform-1',
+              userId: 'platform-user-1',
+              audience: 'shipper',
+              category: 'order',
+              title: '订单状态更新',
+              content: '司机已接单',
+              orderId: 'order-platform-1',
+              orderNo: 'HY202607210001',
+              unread: false,
+              createdAtIso: '2026-07-21T09:00:00.000Z',
+              updatedAtIso: '2026-07-21T09:00:00.000Z',
+            },
+          ],
+          page: 1,
+          pageSize: 50,
+          total: 51,
+          unreadCount: 3,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/messages/read-all' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          updatedCount: 3,
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('货运发单');
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(3);
+    expect(getAppRuntimeState().messageUnreadCount).toBe(3);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 3 条未读消息');
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-1' }).props
+        .children,
+    ).toBe('已读');
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
+    });
+
+    await flushMicrotasks();
+
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('全部消息都已读');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(0);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(0);
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/me/messages/read-all',
+        method: 'POST',
+      }),
+    ).toBeDefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refreshes platform messages when opening the message center from home', async () => {
+  const originalFetch = globalThis.fetch;
+  let messageListRequestCount = 0;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-2',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-messages-refresh.900',
+            refreshToken: 'refresh.platform-messages-refresh.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      messageListRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          messageListRequestCount === 1
+            ? {
+                items: [
+                  {
+                    id: 'msg-platform-old',
+                    userId: 'platform-user-2',
+                    audience: 'shipper',
+                    category: 'system',
+                    title: '旧消息',
+                    content: '首次登录时的消息',
+                    unread: false,
+                    createdAtIso: '2026-07-21T08:00:00.000Z',
+                    updatedAtIso: '2026-07-21T08:00:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 1,
+              }
+            : {
+                items: [
+                  {
+                    id: 'msg-platform-new',
+                    userId: 'platform-user-2',
+                    audience: 'shipper',
+                    category: 'service',
+                    title: '新的平台消息',
+                    content: '消息中心打开时已刷新',
+                    unread: true,
+                    createdAtIso: '2026-07-21T09:30:00.000Z',
+                    updatedAtIso: '2026-07-21T09:30:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 4,
+              },
+        ),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('货运发单');
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(1);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('新的平台消息');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 4 条未读消息');
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-new' }).props
+        .children,
+    ).toBe('未读');
+    expect(messageListRequestCount).toBe(2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('opens the local help center from the home screen', async () => {
   const app = await renderApp();
 

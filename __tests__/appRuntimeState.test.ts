@@ -31,6 +31,7 @@ const runtimeState: AppRuntimeState = {
     },
   ],
   messages: [],
+  messageUnreadCount: 0,
 };
 
 beforeEach(async () => {
@@ -56,4 +57,38 @@ test('propagates a durable runtime storage failure', async () => {
   await expect(saveAppRuntimeStateDurably(runtimeState)).rejects.toThrow(
     'storage failed',
   );
+});
+
+test('hydrates legacy runtime snapshots by rebuilding the unread count', async () => {
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: {
+        orders: runtimeState.orders,
+        messages: [
+          {
+            id: 'message-1',
+            category: 'system',
+            title: '系统通知',
+            content: '请更新应用',
+            timeText: '刚刚',
+            unread: true,
+          },
+          {
+            id: 'message-2',
+            category: 'order',
+            title: '订单更新',
+            content: '订单已接单',
+            timeText: '1 小时前',
+            unread: false,
+          },
+        ],
+      },
+    }),
+  );
+
+  await hydrateAppRuntimeState();
+
+  expect(getAppRuntimeState().messageUnreadCount).toBe(1);
 });
