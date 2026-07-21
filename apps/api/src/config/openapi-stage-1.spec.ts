@@ -987,6 +987,18 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('DRIVER_LOCATION_ORDER_INVALID');
   });
 
+  it('documents notifications first-slice inbox endpoints', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/me/messages:');
+    expect(source).toContain('/me/messages/read-all:');
+    expect(source).toContain('/me/messages/{messageId}/read:');
+    expect(source).toContain('InboxMessage');
+    expect(source).toContain('InboxMessageListResult');
+    expect(source).toContain('InboxMessageCategory');
+    expect(source).toContain('MESSAGE_NOT_FOUND');
+  });
+
   it('documents driver identity and vehicle certification endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

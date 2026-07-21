@@ -6,6 +6,7 @@ import { DriverOrdersModule } from './driver-orders/driver-orders.module';
 import { FilesModule } from './files/files.module';
 import { HealthController } from './health/health.controller';
 import { MapsModule } from './maps/maps.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OrderDraftsModule } from './order-drafts/order-drafts.module';
 import { OrderExceptionCasesModule } from './order-exception-cases/order-exception-cases.module';
 import { OrdersModule } from './orders/orders.module';
@@ -27,6 +28,7 @@ import { PaymentsModule } from './payments/payments.module';
     DriverOrdersModule,
     FilesModule,
     MapsModule,
+    NotificationsModule,
     OrdersModule,
     PaymentsModule,
     OrderExceptionCasesModule,

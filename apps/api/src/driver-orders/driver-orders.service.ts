@@ -14,6 +14,7 @@ import type {
   OrdersRepository,
   ResolveExistingOrderMutationInput,
 } from '../orders/orders.repository';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { DriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
 import type { DriverWithdrawalsRepository } from './driver-withdrawals.repository';
 import type {
@@ -47,6 +48,7 @@ export class DriverOrdersService {
     private readonly now: () => Date = () => new Date(),
     private readonly orderMutationIdempotencyTtlSeconds = 86400,
     private readonly driverFinanceRepository?: DriverFinanceRepository,
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async listOrderHall(
@@ -227,7 +229,7 @@ export class DriverOrdersService {
       );
     }
 
-    return this.unwrapOrderMutationResult(
+    const acceptedOrder = this.unwrapOrderMutationResult(
       await this.ordersRepository.executeIdempotentOrderMutation({
         actorUserId: currentUser.id,
         orderId,
@@ -243,6 +245,17 @@ export class DriverOrdersService {
       }),
       '当前订单已不可接单',
     ).order;
+
+    await this.safeNotifyOrderEvent({
+      event: 'driver_accepted',
+      orderId: acceptedOrder.id,
+      orderNo: acceptedOrder.orderNo,
+      shipperId: acceptedOrder.shipperId,
+      driverId: acceptedOrder.assignedDriverId ?? currentUser.id,
+      nextStatus: acceptedOrder.status,
+    });
+
+    return acceptedOrder;
   }
 
   async listMyOrders(
@@ -316,7 +329,7 @@ export class DriverOrdersService {
 
     const { baseUpdatedAtIso, ...mutationInput } = input;
 
-    return this.unwrapOrderMutationResult(
+    const advancedOrder = this.unwrapOrderMutationResult(
       await this.ordersRepository.executeIdempotentOrderMutation({
         actorUserId: currentUser.id,
         orderId,
@@ -332,6 +345,17 @@ export class DriverOrdersService {
       }),
       '当前司机订单状态不允许推进到目标状态',
     ).order;
+
+    await this.safeNotifyOrderEvent({
+      event: 'status_advanced',
+      orderId: advancedOrder.id,
+      orderNo: advancedOrder.orderNo,
+      shipperId: advancedOrder.shipperId,
+      driverId: advancedOrder.assignedDriverId ?? currentUser.id,
+      nextStatus: advancedOrder.status,
+    });
+
+    return advancedOrder;
   }
 
   async replyToEvaluation(
@@ -373,11 +397,25 @@ export class DriverOrdersService {
 
     await this.assertExceptionProofFiles(currentUser.id, input.photoFileIds);
 
-    return this.ordersRepository.reportDriverOrderException(
+    const updatedOrder = await this.ordersRepository.reportDriverOrderException(
       order.id,
       currentUser.id,
       input,
     );
+
+    if (updatedOrder.latestExceptionCase) {
+      await this.safeNotifyExceptionEvent({
+        event: 'exception_case_created',
+        caseId: updatedOrder.latestExceptionCase.id,
+        caseNo: updatedOrder.latestExceptionCase.caseNo,
+        orderId: updatedOrder.id,
+        orderNo: updatedOrder.orderNo,
+        shipperId: updatedOrder.shipperId,
+        driverId: updatedOrder.assignedDriverId ?? currentUser.id,
+      });
+    }
+
+    return updatedOrder;
   }
 
   async evaluateShipper(
@@ -539,6 +577,56 @@ export class DriverOrdersService {
     return new Date(
       this.now().getTime() + this.orderMutationIdempotencyTtlSeconds * 1000,
     ).toISOString();
+  }
+
+  private async safeNotifyOrderEvent(input: {
+    event:
+      | 'order_created'
+      | 'driver_accepted'
+      | 'status_advanced'
+      | 'completed'
+      | 'cancelled';
+    orderId: string;
+    orderNo: string;
+    shipperId: string;
+    driverId?: string | null;
+    nextStatus?: string;
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifyOrderEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break driver order mutations.
+    }
+  }
+
+  private async safeNotifyExceptionEvent(input: {
+    event:
+      | 'exception_case_created'
+      | 'exception_case_resolved'
+      | 'exception_compensation_executed'
+      | 'exception_appeal_requested';
+    caseId: string;
+    caseNo?: string;
+    orderId: string;
+    orderNo: string;
+    shipperId: string;
+    driverId?: string | null;
+    compensationTargetRole?: 'shipper' | 'driver' | null;
+    actorRole?: 'shipper' | 'driver';
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifyExceptionEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break exception reporting.
+    }
   }
 
   private async resolveExistingOrderMutation(

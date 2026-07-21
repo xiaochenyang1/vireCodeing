@@ -1,6 +1,7 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { OrdersRepository } from '../orders/orders.repository';
 import { createAdminActionFingerprint } from '../payments/admin-finance.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type {
   AppealOrderExceptionCaseRequest,
   ExecuteOrderExceptionCaseCompensationRequest,
@@ -12,7 +13,10 @@ import type {
 } from './dto';
 
 export class OrderExceptionCasesService {
-  constructor(private readonly repository: OrdersRepository) {}
+  constructor(
+    private readonly repository: OrdersRepository,
+    private readonly notificationsService?: NotificationsService,
+  ) {}
 
   async listForShipper(shipperId: string, orderId: string) {
     const order = await this.repository.findOrderById(orderId);
@@ -119,8 +123,22 @@ export class OrderExceptionCasesService {
     });
 
     switch (result.kind) {
-      case 'success':
+      case 'success': {
+        const order = await this.repository.findOrderById(
+          result.exceptionCase.orderId,
+        );
+        await this.safeNotifyExceptionEvent({
+          event: 'exception_compensation_executed',
+          caseId: result.exceptionCase.id,
+          caseNo: result.exceptionCase.caseNo,
+          orderId: result.exceptionCase.orderId,
+          orderNo: result.exceptionCase.orderNo,
+          shipperId: order?.shipperId ?? '',
+          driverId: order?.assignedDriverId,
+          compensationTargetRole: result.exceptionCase.compensationTargetRole,
+        });
         return result.exceptionCase;
+      }
       case 'not-found':
         throw notFoundError();
       case 'key-reused':
@@ -186,8 +204,22 @@ export class OrderExceptionCasesService {
     });
 
     switch (result.kind) {
-      case 'success':
+      case 'success': {
+        const order = await this.repository.findOrderById(
+          result.exceptionCase.orderId,
+        );
+        await this.safeNotifyExceptionEvent({
+          event: 'exception_appeal_requested',
+          caseId: result.exceptionCase.id,
+          caseNo: result.exceptionCase.caseNo,
+          orderId: result.exceptionCase.orderId,
+          orderNo: result.exceptionCase.orderNo,
+          shipperId: order?.shipperId ?? '',
+          driverId: order?.assignedDriverId,
+          actorRole,
+        });
         return result.exceptionCase;
+      }
       case 'not-found':
         throw notFoundError();
       case 'conflict':
@@ -236,7 +268,46 @@ export class OrderExceptionCasesService {
       );
     }
 
+    if (nextStatus === 'resolved') {
+      const order = await this.repository.findOrderById(result.orderId);
+      await this.safeNotifyExceptionEvent({
+        event: 'exception_case_resolved',
+        caseId: result.id,
+        caseNo: result.caseNo,
+        orderId: result.orderId,
+        orderNo: result.orderNo,
+        shipperId: order?.shipperId ?? '',
+        driverId: order?.assignedDriverId,
+      });
+    }
+
     return result;
+  }
+
+  private async safeNotifyExceptionEvent(input: {
+    event:
+      | 'exception_case_created'
+      | 'exception_case_resolved'
+      | 'exception_compensation_executed'
+      | 'exception_appeal_requested';
+    caseId: string;
+    caseNo?: string;
+    orderId: string;
+    orderNo: string;
+    shipperId: string;
+    driverId?: string | null;
+    compensationTargetRole?: 'shipper' | 'driver' | null;
+    actorRole?: 'shipper' | 'driver';
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifyExceptionEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break exception workflows.
+    }
   }
 }
 

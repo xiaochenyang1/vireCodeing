@@ -51,6 +51,90 @@ paths:
                 message: 验证码发送失败
                 requestId: req_local
                 timestamp: '2026-06-26T06:00:00.000Z'
+  /me/messages:
+    get:
+      summary: List inbox messages for the current user
+      description: First-slice inbox fact source for order and service notifications. Push delivery is sandbox only.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: unreadOnly
+          in: query
+          schema:
+            type: boolean
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/InboxMessageCategory'
+      responses:
+        '200':
+          description: Inbox message list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxMessageListResponse'
+        '401':
+          description: AUTH_ACCESS_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/messages/read-all:
+    post:
+      summary: Mark all inbox messages as read for the current user
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      responses:
+        '200':
+          description: Mark-all-read result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxMarkAllReadResponse'
+        '401':
+          description: AUTH_ACCESS_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/messages/{messageId}/read:
+    post:
+      summary: Mark one inbox message as read
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboxMessageResponse'
+        '404':
+          description: MESSAGE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maps/geocode:
     post:
       summary: Geocode an address through the configured map provider
@@ -10718,6 +10802,99 @@ components:
           type: string
           format: date-time
 
+    InboxMessageCategory:
+      type: string
+      enum: [order, system, service, finance]
+    InboxMessageAudience:
+      type: string
+      enum: [shipper, driver, admin]
+    InboxMessage:
+      type: object
+      required:
+        - id
+        - userId
+        - audience
+        - category
+        - title
+        - content
+        - unread
+        - createdAtIso
+        - updatedAtIso
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        audience:
+          $ref: '#/components/schemas/InboxMessageAudience'
+        category:
+          $ref: '#/components/schemas/InboxMessageCategory'
+        title:
+          type: string
+        content:
+          type: string
+        orderId:
+          type: string
+        orderNo:
+          type: string
+        referenceType:
+          type: string
+        referenceId:
+          type: string
+        unread:
+          type: boolean
+        readAtIso:
+          type: string
+          format: date-time
+        createdAtIso:
+          type: string
+          format: date-time
+        updatedAtIso:
+          type: string
+          format: date-time
+    InboxMessageListResult:
+      type: object
+      required: [items, page, pageSize, total, unreadCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboxMessage'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        unreadCount:
+          type: integer
+    InboxMessageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InboxMessageListResult'
+    InboxMessageResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InboxMessage'
+    InboxMarkAllReadResult:
+      type: object
+      required: [updatedCount]
+      properties:
+        updatedCount:
+          type: integer
+    InboxMarkAllReadResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/InboxMarkAllReadResult'
     GeocodeRequest:
       type: object
       required: [address]

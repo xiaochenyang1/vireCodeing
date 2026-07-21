@@ -353,6 +353,8 @@ export type MessageCenterItem = {
   content: string;
   timeText: string;
   unread: boolean;
+  platformOrderId?: string;
+  orderNo?: string;
 };
 
 export type HelpTopic = {

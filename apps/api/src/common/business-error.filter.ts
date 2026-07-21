@@ -41,6 +41,7 @@ const NOT_FOUND_ERROR_CODES = new Set<string>([
   ApiErrorCode.DRIVER_LOCATION_NOT_FOUND,
   ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
   ApiErrorCode.FILE_NOT_FOUND,
+  ApiErrorCode.MESSAGE_NOT_FOUND,
   ApiErrorCode.ORDER_NOT_FOUND,
 ]);
 const FORBIDDEN_ERROR_CODES = new Set<string>([

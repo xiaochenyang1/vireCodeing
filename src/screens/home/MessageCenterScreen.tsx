@@ -35,7 +35,10 @@ export function MessageCenterScreen({
       />
 
       {messages.map(item => {
-        const orderId = getMessageOrderId(item.content);
+        const orderId = getMessageOrderId(item.content, {
+          orderNo: item.orderNo,
+          platformOrderId: item.platformOrderId,
+        });
         const messageContent = (
           <>
             <View style={styles.routeHeader}>

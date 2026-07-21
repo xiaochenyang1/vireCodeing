@@ -9,7 +9,16 @@ export type SupportTicketChange = {
   supportTickets: SupportTicket[];
 };
 
-export function getMessageOrderId(content: string) {
+export function getMessageOrderId(
+  content: string,
+  options?: { orderNo?: string; platformOrderId?: string },
+) {
+  if (options?.platformOrderId) {
+    return options.platformOrderId;
+  }
+  if (options?.orderNo) {
+    return options.orderNo;
+  }
   return content.match(/HY\d{11}/)?.[0];
 }
 

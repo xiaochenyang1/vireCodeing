@@ -7,6 +7,8 @@ import {
   PrismaOrdersRepository,
   type PrismaOrdersClient,
 } from '../orders/orders.repository';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   AdminOrderExceptionCasesController,
   DriverOrderExceptionCasesController,
@@ -15,7 +17,7 @@ import {
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule],
   controllers: [
     ShipperOrderExceptionCasesController,
     DriverOrderExceptionCasesController,
@@ -32,9 +34,11 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
     },
     {
       provide: OrderExceptionCasesService,
-      useFactory: (repository: PrismaOrdersRepository) =>
-        new OrderExceptionCasesService(repository),
-      inject: [PrismaOrdersRepository],
+      useFactory: (
+        repository: PrismaOrdersRepository,
+        notificationsService: NotificationsService,
+      ) => new OrderExceptionCasesService(repository, notificationsService),
+      inject: [PrismaOrdersRepository, NotificationsService],
     },
     ShipperOnlyGuard,
     DriverOnlyGuard,

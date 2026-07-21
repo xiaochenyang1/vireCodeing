@@ -108,6 +108,8 @@ import {
   type PlatformPaymentSdk,
 } from './src/services/platformPaymentApi';
 import { createPlatformMapsApi } from './src/services/platformMapsApi';
+import { createPlatformMessagesApi } from './src/services/platformMessagesApi';
+import { mapPlatformInboxMessagesToLocal } from './src/utils/platformMessages';
 import { mapPlatformOrderToRecentOrder } from './src/services/platformOrderMapper';
 import { PlatformApiError } from './src/services/platformApiClient';
 import { resolvePlatformApiBaseUrl } from './src/services/platformRuntimeConfig';
@@ -288,6 +290,16 @@ function App({
     () =>
       resolvedPlatformApiBaseUrl
         ? createPlatformMapsApi({
+            baseUrl: resolvedPlatformApiBaseUrl,
+            getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
+          })
+        : undefined,
+    [resolvedPlatformApiBaseUrl],
+  );
+  const platformMessagesApi = useMemo(
+    () =>
+      resolvedPlatformApiBaseUrl
+        ? createPlatformMessagesApi({
             baseUrl: resolvedPlatformApiBaseUrl,
             getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
           })
@@ -500,6 +512,30 @@ function App({
             : 'onboarding',
       );
       setIsHydrated(true);
+      if (
+        isAuthSessionSaved &&
+        startupUserType !== 'driver' &&
+        platformMessagesApi &&
+        getAuthSessionSnapshot()?.accessToken
+      ) {
+        platformMessagesApi
+          .listMessages({ page: 1, pageSize: 50 })
+          .then(result => {
+            if (cancelled) {
+              return;
+            }
+            const nextMessages = mapPlatformInboxMessagesToLocal(
+              result.items,
+              new Date(nowRef.current),
+            );
+            setMessages(nextMessages);
+            saveAppRuntimeState({
+              ...getAppRuntimeState(),
+              messages: nextMessages,
+            });
+          })
+          .catch(() => undefined);
+      }
     };
 
     hydrateApp().catch(() => {
@@ -524,14 +560,11 @@ function App({
   }, [
     now,
     platformAuthApi,
+    platformMessagesApi,
     platformPaymentApi,
     resetScreen,
     syncPlatformAuthenticatedProfile,
   ]);
-
-  const openHome = (supportView: HomeSupportView = 'home') => {
-    navigateHome(supportView);
-  };
 
   const persistRuntimeState = ({
     nextOrders = orders,
@@ -544,6 +577,34 @@ function App({
       orders: nextOrders,
       messages: nextMessages,
     });
+  };
+
+  const refreshPlatformMessages = useCallback(() => {
+    if (!platformMessagesApi || !getAuthSessionSnapshot()?.accessToken) {
+      return;
+    }
+
+    platformMessagesApi
+      .listMessages({ page: 1, pageSize: 50 })
+      .then(result => {
+        const nextMessages = mapPlatformInboxMessagesToLocal(
+          result.items,
+          new Date(nowRef.current),
+        );
+        setMessages(nextMessages);
+        saveAppRuntimeState({
+          ...getAppRuntimeState(),
+          messages: nextMessages,
+        });
+      })
+      .catch(() => undefined);
+  }, [platformMessagesApi]);
+
+  const openHome = (supportView: HomeSupportView = 'home') => {
+    navigateHome(supportView);
+    if (supportView === 'home' || supportView === 'messages') {
+      refreshPlatformMessages();
+    }
   };
 
   const applyPlatformOrderSnapshot = (
@@ -684,6 +745,7 @@ function App({
     }
 
     openHome();
+    refreshPlatformMessages();
   };
 
   const handleOnboardingFinished = () => {
@@ -723,9 +785,13 @@ function App({
     orderId: string,
     returnTarget: OrderDetailReturnTarget = 'home',
   ) => {
-    setSelectedOrderId(orderId);
+    const matchedOrder = orders.find(
+      order => order.id === orderId || order.platformOrderId === orderId,
+    );
+    const resolvedOrderId = matchedOrder?.id ?? orderId;
+    setSelectedOrderId(resolvedOrderId);
     goOrderDetail(returnTarget);
-    refreshPlatformOrderDetail(orderId);
+    refreshPlatformOrderDetail(resolvedOrderId);
   };
 
   const refreshPlatformOrderDetail = (orderId: string) => {
@@ -2403,6 +2469,10 @@ function App({
       persistRuntimeState({ nextMessages });
       return nextMessages;
     });
+
+    if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
+      platformMessagesApi.markMessageRead(messageId).catch(() => undefined);
+    }
   };
 
   if (!isHydrated) {

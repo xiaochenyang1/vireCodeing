@@ -28,11 +28,13 @@ import {
   PrismaDriverFinanceRepository,
   type PrismaDriverFinanceClient,
 } from '../payments/driver-finance.repository';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsService } from '../notifications/notifications.service';
 import { DriverOrdersController } from './driver-orders.controller';
 import { DriverOrdersService } from './driver-orders.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule],
   controllers: [DriverOrdersController],
   providers: [
     {
@@ -92,6 +94,7 @@ import { DriverOrdersService } from './driver-orders.service';
         driverWithdrawalsRepository: PrismaDriverWithdrawalsRepository,
         filesRepository: PrismaFilesRepository,
         driverFinanceRepository: PrismaDriverFinanceRepository,
+        notificationsService: NotificationsService,
       ) =>
         new DriverOrdersService(
           repository,
@@ -102,6 +105,7 @@ import { DriverOrdersService } from './driver-orders.service';
           () => new Date(),
           createOrderMutationIdempotencyConfigFromEnv(process.env).ttlSeconds,
           driverFinanceRepository,
+          notificationsService,
         ),
       inject: [
         PrismaOrdersRepository,
@@ -110,6 +114,7 @@ import { DriverOrdersService } from './driver-orders.service';
         PrismaDriverWithdrawalsRepository,
         PrismaFilesRepository,
         PrismaDriverFinanceRepository,
+        NotificationsService,
       ],
     },
     DriverOnlyGuard,
