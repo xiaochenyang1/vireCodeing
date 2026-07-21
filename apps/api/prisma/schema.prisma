@@ -90,6 +90,25 @@ enum DriverLocationSource {
   sandbox
 }
 
+enum InboxMessageCategory {
+  order
+  system
+  service
+  finance
+}
+
+enum InboxMessageAudience {
+  shipper
+  driver
+  admin
+}
+
+enum PushDeliveryStatus {
+  succeeded
+  skipped
+  failed
+}
+
 model User {
   id                          String                       @id @default(uuid())
   phone                       String                       @unique
@@ -128,6 +147,7 @@ model User {
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
+  inboxMessages                InboxMessage[]             @relation("InboxMessageRecipient")
 }
 
 model AuthSession {
@@ -865,3 +885,43 @@ model DriverCertificationReviewEvent {
   @@index([driverId, createdAt], name: "DriverCertificationReviewEvent_driver_created_idx")
   @@index([reviewerAdminId, createdAt], name: "DriverCertificationReviewEvent_reviewer_created_idx")
 }
+
+
+model InboxMessage {
+  id            String               @id @default(uuid())
+  userId        String
+  audience      InboxMessageAudience
+  category      InboxMessageCategory
+  title         String
+  content       String
+  orderId       String?
+  orderNo       String?
+  referenceType String?
+  referenceId   String?
+  unread        Boolean              @default(true)
+  readAt        DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  user          User                 @relation("InboxMessageRecipient", fields: [userId], references: [id])
+  pushAttempts  PushDeliveryAttempt[]
+
+  @@index([userId, unread, createdAt], name: "InboxMessage_user_unread_created_idx")
+  @@index([userId, createdAt], name: "InboxMessage_user_created_idx")
+  @@index([orderId, createdAt], name: "InboxMessage_order_created_idx")
+  @@index([referenceType, referenceId], name: "InboxMessage_reference_idx")
+}
+
+model PushDeliveryAttempt {
+  id                String             @id @default(uuid())
+  messageId         String
+  channel           String
+  status            PushDeliveryStatus
+  providerMessageId String?
+  errorMessage      String?
+  createdAt         DateTime           @default(now())
+  message           InboxMessage       @relation(fields: [messageId], references: [id])
+
+  @@index([messageId, createdAt], name: "PushDeliveryAttempt_message_created_idx")
+  @@index([status, createdAt], name: "PushDeliveryAttempt_status_created_idx")
+}
+
