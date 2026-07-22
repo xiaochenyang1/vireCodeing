@@ -173,6 +173,10 @@ const draftRestoreFailureSyncMessage =
   '平台发单草稿恢复失败，已保留本地草稿。';
 const platformMessageRefreshFailureNotice =
   '平台消息刷新失败，当前显示本地缓存。';
+const platformMessageReadFailureNotice =
+  '平台消息已读同步失败，已恢复当前状态。';
+const platformMessageReadAllFailureNotice =
+  '平台消息全部已读同步失败，已恢复当前状态。';
 
 function normalizeMessageUnreadCount(
   unreadCount: number | undefined,
@@ -438,7 +442,7 @@ function App({
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [draftGateNotice, setDraftGateNotice] = useState('');
   const [networkNotice, setNetworkNotice] = useState('');
-  const [messageRefreshNotice, setMessageRefreshNotice] = useState('');
+  const [messageCenterNotice, setMessageCenterNotice] = useState('');
   const [platformOrderListNotice, setPlatformOrderListNotice] = useState('');
   const [platformOrderListQuery, setPlatformOrderListQuery] =
     useState<PlatformListShipperOrdersQuery>({ page: 1, pageSize: 20 });
@@ -527,7 +531,7 @@ function App({
         locallyReadOverrideCount,
       );
 
-      setMessageRefreshNotice('');
+      setMessageCenterNotice('');
       setMessages(nextMessages);
       setMessageUnreadCount(nextMessageUnreadCount);
       persistMessageRuntimeState(nextMessages, nextMessageUnreadCount);
@@ -640,7 +644,7 @@ function App({
           })
           .catch(() => {
             if (!cancelled) {
-              setMessageRefreshNotice(platformMessageRefreshFailureNotice);
+              setMessageCenterNotice(platformMessageRefreshFailureNotice);
             }
           });
       }
@@ -694,7 +698,7 @@ function App({
 
   const refreshPlatformMessages = useCallback(() => {
     if (!platformMessagesApi || !getAuthSessionSnapshot()?.accessToken) {
-      setMessageRefreshNotice('');
+      setMessageCenterNotice('');
       return;
     }
 
@@ -712,7 +716,7 @@ function App({
         );
       })
       .catch(() => {
-        setMessageRefreshNotice(platformMessageRefreshFailureNotice);
+        setMessageCenterNotice(platformMessageRefreshFailureNotice);
       });
   }, [applyPlatformMessages, platformMessagesApi]);
   const rollbackMessageMutationIfCurrent = useCallback(
@@ -722,12 +726,13 @@ function App({
       previousMessageUnreadCount: number,
     ) => {
       if (mutationVersion !== messageMutationVersionRef.current) {
-        return;
+        return false;
       }
 
       setMessages(previousMessages);
       setMessageUnreadCount(previousMessageUnreadCount);
       persistMessageRuntimeState(previousMessages, previousMessageUnreadCount);
+      return true;
     },
     [persistMessageRuntimeState],
   );
@@ -899,7 +904,7 @@ function App({
     clearAuthSession();
     setAuthenticatedUser(undefined);
     setNetworkNotice('');
-    setMessageRefreshNotice('');
+    setMessageCenterNotice('');
     goAuth();
   };
 
@@ -2622,11 +2627,15 @@ function App({
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
       platformMessagesApi.markMessageRead(messageId).catch(() => {
-        rollbackMessageMutationIfCurrent(
-          mutationVersion,
-          previousMessages,
-          previousMessageUnreadCount,
-        );
+        if (
+          rollbackMessageMutationIfCurrent(
+            mutationVersion,
+            previousMessages,
+            previousMessageUnreadCount,
+          )
+        ) {
+          setMessageCenterNotice(platformMessageReadFailureNotice);
+        }
       });
     }
   };
@@ -2650,11 +2659,15 @@ function App({
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
       platformMessagesApi.markAllMessagesRead().catch(() => {
-        rollbackMessageMutationIfCurrent(
-          mutationVersion,
-          previousMessages,
-          previousMessageUnreadCount,
-        );
+        if (
+          rollbackMessageMutationIfCurrent(
+            mutationVersion,
+            previousMessages,
+            previousMessageUnreadCount,
+          )
+        ) {
+          setMessageCenterNotice(platformMessageReadAllFailureNotice);
+        }
       });
     }
   };
@@ -2769,7 +2782,7 @@ function App({
             initialSupportView={homeInitialSupportView}
             draftGateNotice={draftGateNotice}
             networkNotice={networkNotice}
-            messageRefreshNotice={messageRefreshNotice}
+            messageCenterNotice={messageCenterNotice}
             platformAuthApi={platformAuthApi}
             platformProfileApi={platformProfileApi}
             platformFrequentRoutesApi={platformFrequentRoutesApi}

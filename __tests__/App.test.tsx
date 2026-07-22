@@ -7988,6 +7988,9 @@ test('rolls back a platform message read when the platform request fails', async
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
     ).toBe('还有 2 条未读消息');
     expect(getAppRuntimeState().messageUnreadCount).toBe(2);
+    expect(
+      app.root.findByProps({ testID: 'message-refresh-notice' }).props.children,
+    ).toBe('平台消息已读同步失败，已恢复当前状态。');
 
     const storedState = await getStoredSnapshot<{
       state: {
@@ -8167,6 +8170,9 @@ test('rolls back mark-all-read when the platform request fails', async () => {
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
     ).toBe('还有 2 条未读消息');
     expect(getAppRuntimeState().messageUnreadCount).toBe(2);
+    expect(
+      app.root.findByProps({ testID: 'message-refresh-notice' }).props.children,
+    ).toBe('平台消息全部已读同步失败，已恢复当前状态。');
 
     const storedState = await getStoredSnapshot<{
       state: {
