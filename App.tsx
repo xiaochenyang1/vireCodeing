@@ -140,6 +140,10 @@ import {
   isOrderDraftConflictError,
   shouldUsePlatformDraft,
 } from './src/utils/platformSyncGuards';
+import {
+  hydrateRecentOrderAttachmentRefs,
+  mergePlatformOrderWithLocalRuntimeState,
+} from './src/utils/platformOrderAttachments';
 import { resumePendingPlatformPayment } from './src/utils/payment';
 
 type AppProps = {
@@ -264,36 +268,6 @@ function createPlatformOrderCreateFailure(
       createContext,
       retryBlocked: true,
     }),
-  };
-}
-
-function mergePlatformOrderWithLocalRuntimeState(
-  platformOrder: RecentOrder,
-  localOrder?: RecentOrder,
-): RecentOrder {
-  if (!localOrder) {
-    return platformOrder;
-  }
-
-  return {
-    ...platformOrder,
-    ...(localOrder.bonusText ? { bonusText: localOrder.bonusText } : {}),
-    ...(localOrder.driverInfo ? { driverInfo: localOrder.driverInfo } : {}),
-    ...(localOrder.driverQuotes ? { driverQuotes: localOrder.driverQuotes } : {}),
-    ...(localOrder.cargoPhotoFiles
-      ? { cargoPhotoFiles: localOrder.cargoPhotoFiles }
-      : {}),
-    ...(localOrder.exceptionReport
-      ? { exceptionReport: localOrder.exceptionReport }
-      : {}),
-    ...(localOrder.modificationRequest
-      ? { modificationRequest: localOrder.modificationRequest }
-      : {}),
-    ...(localOrder.cancellation ? { cancellation: localOrder.cancellation } : {}),
-    ...(localOrder.evaluation ? { evaluation: localOrder.evaluation } : {}),
-    ...(localOrder.reorderSource
-      ? { reorderSource: localOrder.reorderSource }
-      : {}),
   };
 }
 
@@ -744,13 +718,21 @@ function App({
     }
   };
 
-  const applyPlatformOrderSnapshot = (
+  const mapHydratedPlatformOrder = async (
+    platformOrder: PlatformShipperOrder,
+  ) =>
+    hydrateRecentOrderAttachmentRefs(
+      mapPlatformOrderToRecentOrder(platformOrder),
+      platformFileApi,
+    );
+
+  const applyPlatformOrderSnapshot = async (
     orderId: string,
     platformOrder: PlatformShipperOrder,
     overrides: Partial<RecentOrder> = {},
     syncStateOverride?: RecentOrder['syncState'],
   ) => {
-    const platformRecentOrder = mapPlatformOrderToRecentOrder(platformOrder);
+    const platformRecentOrder = await mapHydratedPlatformOrder(platformOrder);
 
     setOrders(currentOrders => {
       const nextOrders = currentOrders.map(currentOrder =>
@@ -797,7 +779,7 @@ function App({
     try {
       const latestPlatformOrder = await platformOrderApi.getOrder(platformOrderId);
 
-      applyPlatformOrderSnapshot(
+      await applyPlatformOrderSnapshot(
         orderId,
         latestPlatformOrder,
         {},
@@ -965,8 +947,8 @@ function App({
 
     platformOrderApi
       .getOrder(platformOrderId)
-      .then(platformOrder => {
-        const platformRecentOrder = mapPlatformOrderToRecentOrder(platformOrder);
+      .then(async platformOrder => {
+        const platformRecentOrder = await mapHydratedPlatformOrder(platformOrder);
 
         setSelectedOrderId(currentSelectedOrderId =>
           currentSelectedOrderId === orderId
@@ -1052,8 +1034,10 @@ function App({
 
     platformOrderApi
       .listOrders(nextQuery)
-      .then(result => {
-        const platformPageOrders = result.items.map(mapPlatformOrderToRecentOrder);
+      .then(async result => {
+        const platformPageOrders = await Promise.all(
+          result.items.map(mapHydratedPlatformOrder),
+        );
 
         setOrders(currentOrders => {
           const pageOrders = platformPageOrders.map(platformOrder =>
@@ -1561,7 +1545,7 @@ function App({
             },
             mutationContext.idempotencyKey,
           );
-          const updatedOrder = applyPlatformOrderSnapshot(
+          const updatedOrder = await applyPlatformOrderSnapshot(
             editingOrderId,
             platformOrder,
           );
@@ -1702,7 +1686,7 @@ function App({
         );
 
         order = mergePlatformOrderWithLocalRuntimeState(
-          mapPlatformOrderToRecentOrder(platformOrder),
+          await mapHydratedPlatformOrder(platformOrder),
           localOrder,
         );
       } catch (error) {
@@ -1860,7 +1844,7 @@ function App({
       platformOrderApi
         .getOrder(order.platformOrderId)
         .then(platformOrder => {
-          applyPlatformOrderSnapshot(order.id, platformOrder);
+          void applyPlatformOrderSnapshot(order.id, platformOrder);
         })
         .catch(() => {
           updateOrder(order.id, {
@@ -1889,7 +1873,7 @@ function App({
           retryMutationContext.idempotencyKey,
         )
         .then(platformOrder => {
-          applyPlatformOrderSnapshot(order.id, platformOrder);
+          void applyPlatformOrderSnapshot(order.id, platformOrder);
         })
         .catch(error => {
           handlePlatformOrderMutationFailure({
@@ -1920,7 +1904,7 @@ function App({
           retryMutationContext.idempotencyKey,
         )
         .then(platformOrder => {
-          applyPlatformOrderSnapshot(order.id, platformOrder, {
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
             cancellation: order.cancellation,
           });
         })
@@ -1950,7 +1934,7 @@ function App({
           retryMutationContext.idempotencyKey,
         )
         .then(platformOrder => {
-          applyPlatformOrderSnapshot(order.id, platformOrder);
+          void applyPlatformOrderSnapshot(order.id, platformOrder);
         })
         .catch(error => {
           handlePlatformOrderMutationFailure({
@@ -1980,7 +1964,7 @@ function App({
           retryMutationContext.idempotencyKey,
         )
         .then(platformOrder => {
-          applyPlatformOrderSnapshot(order.id, platformOrder);
+          void applyPlatformOrderSnapshot(order.id, platformOrder);
         })
         .catch(error => {
           handlePlatformOrderMutationFailure({
@@ -2005,29 +1989,9 @@ function App({
           createPlatformExceptionReportRequest(order.exceptionReport),
         )
         .then(platformOrder => {
-          const syncedPlatformOrder =
-            mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? {
-                    ...mergePlatformOrderWithLocalRuntimeState(
-                      syncedPlatformOrder,
-                      currentOrder,
-                    ),
-                    exceptionReport: order.exceptionReport,
-                  }
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
+            exceptionReport: order.exceptionReport,
           });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? syncedPlatformOrder.id
-              : currentSelectedOrderId,
-          );
         })
         .catch(() => {
           updateOrder(order.id, {
@@ -2052,29 +2016,9 @@ function App({
           createPlatformEvaluationRequest(order.evaluation),
         )
         .then(platformOrder => {
-          const syncedPlatformOrder =
-            mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? {
-                    ...mergePlatformOrderWithLocalRuntimeState(
-                      syncedPlatformOrder,
-                      currentOrder,
-                    ),
-                    evaluation: order.evaluation,
-                  }
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
+            evaluation: order.evaluation,
           });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? syncedPlatformOrder.id
-              : currentSelectedOrderId,
-          );
         })
         .catch(() => {
           updateOrder(order.id, {
@@ -2099,29 +2043,9 @@ function App({
           createPlatformChangeRequest(order.modificationRequest),
         )
         .then(platformOrder => {
-          const syncedPlatformOrder =
-            mapPlatformOrderToRecentOrder(platformOrder);
-
-          setOrders(currentOrders => {
-            const nextOrders = currentOrders.map(currentOrder =>
-              currentOrder.id === order.id
-                ? {
-                    ...mergePlatformOrderWithLocalRuntimeState(
-                      syncedPlatformOrder,
-                      currentOrder,
-                    ),
-                    modificationRequest: order.modificationRequest,
-                  }
-                : currentOrder,
-            );
-            persistRuntimeState({ nextOrders });
-            return nextOrders;
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
+            modificationRequest: order.modificationRequest,
           });
-          setSelectedOrderId(currentSelectedOrderId =>
-            currentSelectedOrderId === order.id
-              ? syncedPlatformOrder.id
-              : currentSelectedOrderId,
-          );
         })
         .catch(() => {
           updateOrder(order.id, {
@@ -2152,25 +2076,7 @@ function App({
         retryCreateContext.idempotencyKey,
       )
       .then(platformOrder => {
-        const syncedOrder = mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? mergePlatformOrderWithLocalRuntimeState(
-                  syncedOrder,
-                  currentOrder,
-                )
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
-        });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? syncedOrder.id
-            : currentSelectedOrderId,
-        );
+        void applyPlatformOrderSnapshot(order.id, platformOrder);
       })
       .catch(error => {
         const failure = createPlatformOrderCreateFailure(
@@ -2255,29 +2161,9 @@ function App({
         createPlatformEvaluationRequest(evaluation),
       )
       .then(platformOrder => {
-        const evaluatedPlatformOrder =
-          mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? {
-                  ...mergePlatformOrderWithLocalRuntimeState(
-                    evaluatedPlatformOrder,
-                    currentOrder,
-                  ),
-                  evaluation,
-                }
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
+          evaluation,
         });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? evaluatedPlatformOrder.id
-            : currentSelectedOrderId,
-        );
       })
       .catch(() => {
         updateOrder(order.id, {
@@ -2325,29 +2211,9 @@ function App({
         createPlatformChangeRequest(modificationRequest),
       )
       .then(platformOrder => {
-        const changedPlatformOrder =
-          mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? {
-                  ...mergePlatformOrderWithLocalRuntimeState(
-                    changedPlatformOrder,
-                    currentOrder,
-                  ),
-                  modificationRequest,
-                }
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
+          modificationRequest,
         });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? changedPlatformOrder.id
-            : currentSelectedOrderId,
-        );
       })
       .catch(() => {
         updateOrder(order.id, {
@@ -2395,29 +2261,9 @@ function App({
         createPlatformExceptionReportRequest(exceptionReport),
       )
       .then(platformOrder => {
-        const reportedPlatformOrder =
-          mapPlatformOrderToRecentOrder(platformOrder);
-
-        setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(currentOrder =>
-            currentOrder.id === order.id
-              ? {
-                  ...mergePlatformOrderWithLocalRuntimeState(
-                    reportedPlatformOrder,
-                    currentOrder,
-                  ),
-                  exceptionReport,
-                }
-              : currentOrder,
-          );
-          persistRuntimeState({ nextOrders });
-          return nextOrders;
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
+          exceptionReport,
         });
-        setSelectedOrderId(currentSelectedOrderId =>
-          currentSelectedOrderId === order.id
-            ? reportedPlatformOrder.id
-            : currentSelectedOrderId,
-        );
       })
       .catch(() => {
         updateOrder(order.id, {
@@ -2475,7 +2321,7 @@ function App({
         mutationContext.idempotencyKey,
       )
       .then(platformOrder => {
-        applyPlatformOrderSnapshot(order.id, platformOrder);
+        void applyPlatformOrderSnapshot(order.id, platformOrder);
       })
       .catch(error => {
         handlePlatformOrderMutationFailure({
@@ -2534,7 +2380,7 @@ function App({
         mutationContext.idempotencyKey,
       )
       .then(platformOrder => {
-        applyPlatformOrderSnapshot(order.id, platformOrder, {
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
           cancellation,
         });
       })
@@ -2589,7 +2435,7 @@ function App({
         mutationContext.idempotencyKey,
       )
       .then(platformOrder => {
-        applyPlatformOrderSnapshot(order.id, platformOrder);
+        void applyPlatformOrderSnapshot(order.id, platformOrder);
       })
       .catch(error => {
         handlePlatformOrderMutationFailure({
