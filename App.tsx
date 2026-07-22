@@ -423,6 +423,19 @@ function App({
   const [draftSyncState, setDraftSyncState] = useState<
     DraftSyncState | undefined
   >(undefined);
+  const persistMessageRuntimeState = useCallback(
+    (
+      nextMessages: MessageCenterItem[],
+      nextMessageUnreadCount: number,
+    ) => {
+      saveAppRuntimeState({
+        ...getAppRuntimeState(),
+        messages: nextMessages,
+        messageUnreadCount: nextMessageUnreadCount,
+      });
+    },
+    [],
+  );
 
   const syncPlatformAuthenticatedProfile = useCallback(
     (user?: PlatformAuthenticatedUser) => {
@@ -472,13 +485,9 @@ function App({
 
       setMessages(nextMessages);
       setMessageUnreadCount(nextMessageUnreadCount);
-      saveAppRuntimeState({
-        ...getAppRuntimeState(),
-        messages: nextMessages,
-        messageUnreadCount: nextMessageUnreadCount,
-      });
+      persistMessageRuntimeState(nextMessages, nextMessageUnreadCount);
     },
-    [],
+    [persistMessageRuntimeState],
   );
 
   useEffect(() => {
@@ -654,6 +663,22 @@ function App({
       })
       .catch(() => undefined);
   }, [applyPlatformMessages, platformMessagesApi]);
+  const rollbackMessageMutationIfCurrent = useCallback(
+    (
+      mutationVersion: number,
+      previousMessages: MessageCenterItem[],
+      previousMessageUnreadCount: number,
+    ) => {
+      if (mutationVersion !== messageMutationVersionRef.current) {
+        return;
+      }
+
+      setMessages(previousMessages);
+      setMessageUnreadCount(previousMessageUnreadCount);
+      persistMessageRuntimeState(previousMessages, previousMessageUnreadCount);
+    },
+    [persistMessageRuntimeState],
+  );
 
   const openHome = (supportView: HomeSupportView = 'home') => {
     navigateHome(supportView);
@@ -2526,6 +2551,8 @@ function App({
       return;
     }
 
+    const previousMessages = messages;
+    const previousMessageUnreadCount = messageUnreadCount;
     const nextMessages = messages.map(message =>
       message.id === messageId ? { ...message, unread: false } : message,
     );
@@ -2534,16 +2561,20 @@ function App({
         ? messageUnreadCount - 1
         : messageUnreadCount;
 
-    messageMutationVersionRef.current += 1;
+    const mutationVersion = messageMutationVersionRef.current + 1;
+    messageMutationVersionRef.current = mutationVersion;
     setMessages(nextMessages);
     setMessageUnreadCount(nextMessageUnreadCount);
-    persistRuntimeState({
-      nextMessages,
-      nextMessageUnreadCount,
-    });
+    persistMessageRuntimeState(nextMessages, nextMessageUnreadCount);
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
-      platformMessagesApi.markMessageRead(messageId).catch(() => undefined);
+      platformMessagesApi.markMessageRead(messageId).catch(() => {
+        rollbackMessageMutationIfCurrent(
+          mutationVersion,
+          previousMessages,
+          previousMessageUnreadCount,
+        );
+      });
     }
   };
 
@@ -2552,20 +2583,26 @@ function App({
       return;
     }
 
+    const previousMessages = messages;
+    const previousMessageUnreadCount = messageUnreadCount;
     const nextMessages = messages.map(message =>
       message.unread ? { ...message, unread: false } : message,
     );
 
-    messageMutationVersionRef.current += 1;
+    const mutationVersion = messageMutationVersionRef.current + 1;
+    messageMutationVersionRef.current = mutationVersion;
     setMessages(nextMessages);
     setMessageUnreadCount(0);
-    persistRuntimeState({
-      nextMessages,
-      nextMessageUnreadCount: 0,
-    });
+    persistMessageRuntimeState(nextMessages, 0);
 
     if (platformMessagesApi && getAuthSessionSnapshot()?.accessToken) {
-      platformMessagesApi.markAllMessagesRead().catch(() => undefined);
+      platformMessagesApi.markAllMessagesRead().catch(() => {
+        rollbackMessageMutationIfCurrent(
+          mutationVersion,
+          previousMessages,
+          previousMessageUnreadCount,
+        );
+      });
     }
   };
 

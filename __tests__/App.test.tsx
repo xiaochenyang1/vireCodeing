@@ -7844,6 +7844,355 @@ test('marks all messages as read and persists the unread count reset', async () 
   ).toBe(0);
 });
 
+test('rolls back a platform message read when the platform request fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-message-read-failure',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-message-read-failure.900',
+            refreshToken: 'refresh.platform-message-read-failure.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'msg-platform-read-fail-1',
+              userId: 'platform-user-message-read-failure',
+              audience: 'shipper',
+              category: 'system',
+              title: '系统提醒',
+              content: '请核对账单',
+              unread: true,
+              createdAtIso: '2026-07-21T09:00:00.000Z',
+              updatedAtIso: '2026-07-21T09:00:00.000Z',
+            },
+            {
+              id: 'msg-platform-read-fail-2',
+              userId: 'platform-user-message-read-failure',
+              audience: 'shipper',
+              category: 'service',
+              title: '客服通知',
+              content: '客服已受理您的问题',
+              unread: true,
+              createdAtIso: '2026-07-21T09:10:00.000Z',
+              updatedAtIso: '2026-07-21T09:10:00.000Z',
+            },
+          ],
+          page: 1,
+          pageSize: 50,
+          total: 2,
+          unreadCount: 2,
+        }),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/me/messages/msg-platform-read-fail-1/read' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiErrorResponse(
+          500,
+          'MESSAGE_READ_FAILED',
+          'message read failed',
+        ),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-read-fail-1' })
+        .props.children,
+    ).toBe('未读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 2 条未读消息');
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'message-mark-read-msg-platform-read-fail-1' })
+        .props.onPress();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-read-fail-1' })
+        .props.children,
+    ).toBe('已读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 1 条未读消息');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(1);
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-read-fail-1' })
+        .props.children,
+    ).toBe('未读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 2 条未读消息');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(2);
+
+    const storedState = await getStoredSnapshot<{
+      state: {
+        messages: Array<{
+          id: string;
+          unread: boolean;
+        }>;
+        messageUnreadCount: number;
+      };
+    }>('@vireCodeing/app-runtime-state');
+
+    expect(
+      storedState.state.messages.find(
+        message => message.id === 'msg-platform-read-fail-1',
+      )?.unread,
+    ).toBe(true);
+    expect(storedState.state.messageUnreadCount).toBe(2);
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/me/messages/msg-platform-read-fail-1/read',
+        method: 'POST',
+      }),
+    ).toBeDefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('rolls back mark-all-read when the platform request fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-message-read-all-failure',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-message-read-all-failure.900',
+            refreshToken: 'refresh.platform-message-read-all-failure.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'msg-platform-read-all-fail-1',
+              userId: 'platform-user-message-read-all-failure',
+              audience: 'shipper',
+              category: 'order',
+              title: '订单更新',
+              content: '司机已到达装货点',
+              orderId: 'order-platform-read-all-fail-1',
+              orderNo: 'HY202607220001',
+              unread: true,
+              createdAtIso: '2026-07-22T08:00:00.000Z',
+              updatedAtIso: '2026-07-22T08:00:00.000Z',
+            },
+            {
+              id: 'msg-platform-read-all-fail-2',
+              userId: 'platform-user-message-read-all-failure',
+              audience: 'shipper',
+              category: 'finance',
+              title: '财务提醒',
+              content: '请确认本月结算单',
+              unread: true,
+              createdAtIso: '2026-07-22T08:10:00.000Z',
+              updatedAtIso: '2026-07-22T08:10:00.000Z',
+            },
+          ],
+          page: 1,
+          pageSize: 50,
+          total: 2,
+          unreadCount: 2,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/messages/read-all' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiErrorResponse(
+          500,
+          'MESSAGE_READ_ALL_FAILED',
+          'message read all failed',
+        ),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 2 条未读消息');
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
+    });
+
+    expect(
+      app.root.findByProps({
+        testID: 'message-status-msg-platform-read-all-fail-1',
+      }).props.children,
+    ).toBe('已读');
+    expect(
+      app.root.findByProps({
+        testID: 'message-status-msg-platform-read-all-fail-2',
+      }).props.children,
+    ).toBe('已读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('全部消息都已读');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(0);
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({
+        testID: 'message-status-msg-platform-read-all-fail-1',
+      }).props.children,
+    ).toBe('未读');
+    expect(
+      app.root.findByProps({
+        testID: 'message-status-msg-platform-read-all-fail-2',
+      }).props.children,
+    ).toBe('未读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 2 条未读消息');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(2);
+
+    const storedState = await getStoredSnapshot<{
+      state: {
+        messages: Array<{
+          id: string;
+          unread: boolean;
+        }>;
+        messageUnreadCount: number;
+      };
+    }>('@vireCodeing/app-runtime-state');
+
+    expect(
+      storedState.state.messages.every(message => message.unread === true),
+    ).toBe(true);
+    expect(storedState.state.messageUnreadCount).toBe(2);
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/me/messages/read-all',
+        method: 'POST',
+      }),
+    ).toBeDefined();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uses the platform unread count even when the current page has no unread messages', async () => {
   const originalFetch = globalThis.fetch;
   const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
