@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 
+import { ImageCredentialCard } from '../components/ImageCredentialCard';
 import { vehicleRequirementOptions } from '../data/mockData';
 import { colors, styles } from '../styles';
 import type {
@@ -32,6 +33,7 @@ import { PlatformApiError } from '../services/platformApiClient';
 import {
   confirmPlatformFileUploadIntent,
   type PlatformFileUploadConfirmationApi,
+  type PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../services/platformFileApi';
 import type {
@@ -70,6 +72,7 @@ import {
   createQuoteRequest,
   createShipperEvaluationRequest,
   canDriverReportException,
+  createDriverCertificationForm,
   driverCertificationFileUploadConfigs,
   driverExceptionTypeOptions,
   emptyAcceptanceSettingsForm,
@@ -112,11 +115,189 @@ type PlatformDriverCertificationApi = ReturnType<
   typeof createPlatformDriverCertificationApi
 >;
 type DriverPlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<ReturnType<typeof createPlatformFileApi>, 'createUploadIntent'>;
+  Pick<ReturnType<typeof createPlatformFileApi>, 'createUploadIntent'> &
+  Partial<Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>>;
 type PlatformMapsApi = Pick<
   ReturnType<typeof createPlatformMapsApi>,
   'getDriverNavigationTargets' | 'reportDriverLocation'
 >;
+type DriverUploadedFileRef = {
+  file: PlatformFileUploadRecord;
+  fileName: string;
+};
+type DriverCertificationAttachmentMap = Partial<
+  Record<DriverCertificationFileFieldName, DriverUploadedFileRef>
+>;
+type DriverCertificationAttachmentSource =
+  | 'file-object'
+  | 'snapshot'
+  | 'manual'
+  | 'empty';
+type DriverExceptionAttachmentState = Record<string, DriverUploadedFileRef[]>;
+type DriverExecutionReceiptAttachmentState = Record<
+  string,
+  {
+    transportingReceiptFiles: DriverUploadedFileRef[];
+    confirmingReceiptFiles: DriverUploadedFileRef[];
+  }
+>;
+
+function getDriverCertificationFileStatusText(
+  status: PlatformFileUploadRecord['status'],
+) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
+function getDriverCertificationSnapshotFileId(
+  certification: PlatformDriverCertificationSnapshot | undefined,
+  fieldName: DriverCertificationFileFieldName,
+) {
+  switch (fieldName) {
+    case 'identityFrontFileId':
+      return certification?.identity.identityFrontFileId;
+    case 'identityBackFileId':
+      return certification?.identity.identityBackFileId;
+    case 'drivingLicenseFileId':
+      return certification?.vehicle.drivingLicenseFileId;
+    case 'driverLicenseFileId':
+      return certification?.vehicle.driverLicenseFileId;
+    case 'transportQualificationFileId':
+      return certification?.vehicle.transportQualificationFileId;
+    case 'operationPermitFileId':
+      return certification?.vehicle.operationPermitFileId;
+    case 'vehiclePhotoFileId':
+      return certification?.vehicle.vehiclePhotoFileId;
+    default:
+      return undefined;
+  }
+}
+
+const driverCertificationAttachmentFieldNames: DriverCertificationFileFieldName[] =
+  [
+    'identityFrontFileId',
+    'identityBackFileId',
+    'drivingLicenseFileId',
+    'driverLicenseFileId',
+    'transportQualificationFileId',
+    'operationPermitFileId',
+    'vehiclePhotoFileId',
+  ];
+
+function createDriverUploadedFileRef(
+  file: PlatformFileUploadRecord,
+  fileName: string,
+): DriverUploadedFileRef {
+  return {
+    file,
+    fileName,
+  };
+}
+
+function mergeDriverUploadedFileRef(
+  primary: DriverUploadedFileRef | undefined,
+  fallback: DriverUploadedFileRef | undefined,
+) {
+  if (!primary) {
+    return fallback;
+  }
+
+  if (!fallback || primary.file.id !== fallback.file.id) {
+    return primary;
+  }
+
+  return {
+    fileName: primary.fileName || fallback.fileName,
+    file: {
+      ...fallback.file,
+      ...primary.file,
+      objectKey: primary.file.objectKey || fallback.file.objectKey,
+      publicUrl: primary.file.publicUrl || fallback.file.publicUrl,
+    },
+  };
+}
+
+async function buildDriverCertificationAttachments(
+  certification: PlatformDriverCertificationSnapshot,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  if (!platformFileApi?.getFileMetadata) {
+    return {};
+  }
+
+  const { getFileMetadata } = platformFileApi;
+  const entries = await Promise.all(
+    driverCertificationAttachmentFieldNames.map(async fieldName => {
+      const fileId =
+        getDriverCertificationSnapshotFileId(certification, fieldName)?.trim() ??
+        '';
+
+      if (!fileId) {
+        return undefined;
+      }
+
+      try {
+        const file = await getFileMetadata(fileId);
+
+        return [
+          fieldName,
+          createDriverUploadedFileRef(
+            file,
+            driverCertificationFileUploadConfigs[fieldName].fileName,
+          ),
+        ] as const;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+
+  return entries.reduce<DriverCertificationAttachmentMap>((result, entry) => {
+    if (entry) {
+      result[entry[0]] = entry[1];
+    }
+
+    return result;
+  }, {});
+}
+
+function mergeDriverCertificationAttachments(
+  current: DriverCertificationAttachmentMap,
+  certification: PlatformDriverCertificationSnapshot,
+  hydrated: DriverCertificationAttachmentMap,
+) {
+  return driverCertificationAttachmentFieldNames.reduce<DriverCertificationAttachmentMap>(
+    (result, fieldName) => {
+      const fileId =
+        getDriverCertificationSnapshotFileId(certification, fieldName)?.trim() ??
+        '';
+
+      if (!fileId) {
+        return result;
+      }
+
+      const currentAttachment =
+        current[fieldName]?.file.id === fileId ? current[fieldName] : undefined;
+      const mergedAttachment = mergeDriverUploadedFileRef(
+        hydrated[fieldName],
+        currentAttachment,
+      );
+
+      if (mergedAttachment) {
+        result[fieldName] = mergedAttachment;
+      }
+
+      return result;
+    },
+    {},
+  );
+}
 
 
 export function DriverHomeScreen({
@@ -167,6 +348,12 @@ export function DriverHomeScreen({
   const withdrawalIdempotencyKeyRef = useRef<string | undefined>(undefined);
   const [certificationForm, setCertificationForm] =
     useState<DriverCertificationFormState>(emptyCertificationForm);
+  const [certificationAttachments, setCertificationAttachments] =
+    useState<DriverCertificationAttachmentMap>({});
+  const [exceptionAttachments, setExceptionAttachments] =
+    useState<DriverExceptionAttachmentState>({});
+  const [executionReceiptAttachments, setExecutionReceiptAttachments] =
+    useState<DriverExecutionReceiptAttachmentState>({});
   const [executionProofs, setExecutionProofs] =
     useState<DriverExecutionProofState>({});
   const [forms, setForms] = useState<Record<string, DriverOrderFormState>>({});
@@ -185,6 +372,25 @@ export function DriverHomeScreen({
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
+
+  const applyCertificationSnapshot = (
+    snapshot: PlatformDriverCertificationSnapshot,
+  ) => {
+    setCertification(snapshot);
+    setCertificationForm(createDriverCertificationForm(snapshot));
+
+    void buildDriverCertificationAttachments(snapshot, platformFileApi).then(
+      hydratedAttachments => {
+        setCertificationAttachments(current =>
+          mergeDriverCertificationAttachments(
+            current,
+            snapshot,
+            hydratedAttachments,
+          ),
+        );
+      },
+    );
+  };
 
   const refreshOrderHall = (
     settingsOverride: PlatformDriverAcceptanceSettings | undefined =
@@ -235,7 +441,7 @@ export function DriverHomeScreen({
     platformDriverCertificationApi
       .getCertification()
       .then(snapshot => {
-        setCertification(snapshot);
+        applyCertificationSnapshot(snapshot);
       })
       .catch(() => {
         setNotice('司机认证状态加载失败，请稍后重试。');
@@ -291,7 +497,7 @@ export function DriverHomeScreen({
     refreshAcceptanceSettings();
     refreshIncome();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platformDriverOrderApi, platformDriverCertificationApi]);
+  }, [platformDriverOrderApi, platformDriverCertificationApi, platformFileApi]);
 
   useEffect(() => {
     let isMounted = true;
@@ -973,6 +1179,15 @@ export function DriverHomeScreen({
           ...currentForms,
           [order.orderNo]: emptyExceptionForm,
         }));
+        setExceptionAttachments(currentAttachments => {
+          if (!currentAttachments[order.orderNo]) {
+            return currentAttachments;
+          }
+
+          const nextAttachments = { ...currentAttachments };
+          delete nextAttachments[order.orderNo];
+          return nextAttachments;
+        });
         setNotice('异常已上报，等待客服跟进。');
       })
       .catch(error => {
@@ -1004,6 +1219,7 @@ export function DriverHomeScreen({
     }
 
     const currentForm = exceptionForms[order.orderNo] ?? emptyExceptionForm;
+    const fileName = `异常凭证-${currentForm.photoFileIds.length + 1}.png`;
 
     if (currentForm.photoFileIds.length >= 6) {
       setNotice('异常图片最多上传 6 张。');
@@ -1013,7 +1229,7 @@ export function DriverHomeScreen({
     try {
       const intent = await platformFileApi.createUploadIntent({
         purpose: 'exception',
-        fileName: `异常凭证-${currentForm.photoFileIds.length + 1}.png`,
+        fileName,
         contentType: 'image/png',
         byteSize: 2048,
       });
@@ -1025,6 +1241,16 @@ export function DriverHomeScreen({
       updateExceptionForm(order.orderNo, {
         photoFileIds: [...currentForm.photoFileIds, uploadedFile.id],
       });
+      setExceptionAttachments(current => ({
+        ...current,
+        [order.orderNo]: [
+          ...(current[order.orderNo] ?? []),
+          {
+            file: uploadedFile,
+            fileName,
+          },
+        ],
+      }));
       setNotice('异常凭证已关联平台文件。');
     } catch {
       setNotice('异常凭证上传失败，请稍后重试。');
@@ -1073,6 +1299,30 @@ export function DriverHomeScreen({
               confirmingReceiptFileIds: [uploadedFile.id],
             },
       }));
+      setExecutionReceiptAttachments(current => ({
+        ...current,
+        [order.id]: isLoadingProof
+          ? {
+              transportingReceiptFiles: [
+                {
+                  file: uploadedFile,
+                  fileName,
+                },
+              ],
+              confirmingReceiptFiles:
+                current[order.id]?.confirmingReceiptFiles ?? [],
+            }
+          : {
+              transportingReceiptFiles:
+                current[order.id]?.transportingReceiptFiles ?? [],
+              confirmingReceiptFiles: [
+                {
+                  file: uploadedFile,
+                  fileName,
+                },
+              ],
+            },
+      }));
       setNotice(
         isLoadingProof
           ? '装货凭证已关联平台文件。'
@@ -1101,7 +1351,7 @@ export function DriverHomeScreen({
         identityBackFileId: certificationForm.identityBackFileId,
       })
       .then(snapshot => {
-        setCertification(snapshot);
+        applyCertificationSnapshot(snapshot);
         setNotice('司机实名认证已提交审核。');
       })
       .catch(() => {
@@ -1130,7 +1380,7 @@ export function DriverHomeScreen({
         vehiclePhotoFileId: certificationForm.vehiclePhotoFileId,
       })
       .then(snapshot => {
-        setCertification(snapshot);
+        applyCertificationSnapshot(snapshot);
         setNotice('车辆认证已提交审核。');
       })
       .catch(() => {
@@ -1269,10 +1519,106 @@ export function DriverHomeScreen({
         ...current,
         [fieldName]: uploadedFile.id,
       }));
+      setCertificationAttachments(current => ({
+        ...current,
+        [fieldName]: {
+          ...createDriverUploadedFileRef(uploadedFile, uploadConfig.fileName),
+        },
+      }));
       setNotice(uploadConfig.successNotice);
     } catch {
       setNotice(uploadConfig.failureNotice);
     }
+  };
+  const createCertificationAttachmentEntry = (
+    fieldName: DriverCertificationFileFieldName,
+  ) => {
+    const fileId = certificationForm[fieldName].trim();
+    const attachmentRef = certificationAttachments[fieldName];
+    const snapshotFileId =
+      getDriverCertificationSnapshotFileId(certification, fieldName)?.trim() ??
+      '';
+    const source: DriverCertificationAttachmentSource = !fileId
+      ? 'empty'
+      : attachmentRef?.file.id === fileId
+        ? 'file-object'
+        : snapshotFileId === fileId
+          ? 'snapshot'
+          : 'manual';
+
+    return {
+      fieldName,
+      label: driverCertificationFileUploadConfigs[fieldName].label,
+      fileId,
+      source,
+      attachmentRef: source === 'file-object' ? attachmentRef : undefined,
+    };
+  };
+  const identityAttachmentEntries = [
+    createCertificationAttachmentEntry('identityFrontFileId'),
+    createCertificationAttachmentEntry('identityBackFileId'),
+  ];
+  const vehicleAttachmentEntries = [
+    createCertificationAttachmentEntry('drivingLicenseFileId'),
+    createCertificationAttachmentEntry('driverLicenseFileId'),
+    createCertificationAttachmentEntry('transportQualificationFileId'),
+    createCertificationAttachmentEntry('operationPermitFileId'),
+    createCertificationAttachmentEntry('vehiclePhotoFileId'),
+  ];
+  const selectedExceptionAttachmentRefs = selectedOrder
+    ? exceptionAttachments[selectedOrder.orderNo] ?? []
+    : [];
+  const selectedExecutionReceiptAttachmentRefs = selectedOrder
+    ? selectedOrder.status === 'loading'
+      ? executionReceiptAttachments[selectedOrder.id]?.transportingReceiptFiles ??
+        []
+      : selectedOrder.status === 'transporting'
+        ? executionReceiptAttachments[selectedOrder.id]?.confirmingReceiptFiles ??
+          []
+      : []
+    : [];
+  const selectedExecutionReceiptLabel = selectedOrder
+    ? selectedOrder.status === 'loading'
+      ? '装货凭证'
+      : selectedOrder.status === 'transporting'
+        ? '到达凭证'
+        : '执行凭证'
+    : '执行凭证';
+  const createUploadedAttachmentMetaLines = (
+    attachmentRef: DriverUploadedFileRef,
+  ) => [
+    `来源：平台文件对象（${getDriverCertificationFileStatusText(
+      attachmentRef.file.status,
+    )}）`,
+    `文件 ID：${attachmentRef.file.id}`,
+    ...(attachmentRef.file.publicUrl
+      ? ['已生成预览地址。']
+      : attachmentRef.file.objectKey
+        ? ['已写入平台对象存储。']
+        : []),
+  ];
+  const createCertificationAttachmentMetaLines = (
+    entry: ReturnType<typeof createCertificationAttachmentEntry>,
+  ) => {
+    if (!entry.fileId) {
+      return ['尚未关联平台认证附件，当前仍为待上传占位。'];
+    }
+
+    return [
+      entry.source === 'file-object'
+        ? `来源：平台文件对象（${getDriverCertificationFileStatusText(
+            entry.attachmentRef?.file.status ?? 'pending',
+          )}）`
+        : entry.source === 'snapshot'
+          ? '来源：平台认证快照'
+          : '来源：手动填写文件 ID',
+      `文件 ID：${entry.fileId}`,
+      ...(entry.attachmentRef?.file.publicUrl
+        ? ['已生成预览地址。']
+        : entry.attachmentRef?.file.objectKey
+          ? ['已写入平台对象存储。']
+          : []),
+    ];
   };
 
   return (
@@ -1592,7 +1938,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-identity-front-file"
           style={styles.ordersSearchInput}
-          placeholder="身份证人像面文件 ID"
+          placeholder="可手动填写身份证人像面文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.identityFrontFileId}
           onChangeText={identityFrontFileId =>
@@ -1614,7 +1960,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-identity-back-file"
           style={styles.ordersSearchInput}
-          placeholder="身份证国徽面文件 ID"
+          placeholder="可手动填写身份证国徽面文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.identityBackFileId}
           onChangeText={identityBackFileId =>
@@ -1633,6 +1979,31 @@ export function DriverHomeScreen({
         >
           <Text style={styles.detailSecondaryButtonText}>上传身份证国徽面</Text>
         </Pressable>
+        <Text style={styles.routeMeta}>
+          上传后会自动回填文件 ID；如已存在平台附件，也可手动填写已有文件 ID。
+        </Text>
+        <Text style={styles.draftSectionTitle}>实名认证附件</Text>
+        {identityAttachmentEntries.map(entry => (
+          <ImageCredentialCard
+            key={entry.fieldName}
+            title={
+              entry.fileId
+                ? `${entry.label}：${
+                    entry.source === 'file-object'
+                      ? entry.attachmentRef?.fileName ?? '已关联平台文件对象'
+                      : entry.source === 'snapshot'
+                        ? '平台已同步文件 ID'
+                        : '本地已填写文件 ID'
+                  }`
+                : `${entry.label}：待上传占位`
+            }
+            publicUrl={entry.attachmentRef?.file.publicUrl}
+            placeholderLabel={entry.label}
+            metaLines={createCertificationAttachmentMetaLines(entry)}
+            imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
+            placeholderTestID={`driver-cert-preview-placeholder-${entry.fieldName}`}
+          />
+        ))}
         <Pressable
           testID="driver-cert-submit-identity"
           style={styles.detailSecondaryButton}
@@ -1690,7 +2061,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-driving-license-file"
           style={styles.ordersSearchInput}
-          placeholder="行驶证文件 ID"
+          placeholder="可手动填写行驶证文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.drivingLicenseFileId}
           onChangeText={drivingLicenseFileId =>
@@ -1712,7 +2083,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-driver-license-file"
           style={styles.ordersSearchInput}
-          placeholder="驾驶证文件 ID"
+          placeholder="可手动填写驾驶证文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.driverLicenseFileId}
           onChangeText={driverLicenseFileId =>
@@ -1734,7 +2105,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-transport-qualification-file"
           style={styles.ordersSearchInput}
-          placeholder="从业资格证文件 ID"
+          placeholder="可手动填写从业资格证文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.transportQualificationFileId}
           onChangeText={transportQualificationFileId =>
@@ -1758,7 +2129,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-operation-permit-file"
           style={styles.ordersSearchInput}
-          placeholder="营运证文件 ID"
+          placeholder="可手动填写营运证文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.operationPermitFileId}
           onChangeText={operationPermitFileId =>
@@ -1782,7 +2153,7 @@ export function DriverHomeScreen({
         <TextInput
           testID="driver-cert-vehicle-photo-file"
           style={styles.ordersSearchInput}
-          placeholder="车辆照片文件 ID"
+          placeholder="可手动填写车辆照片文件 ID"
           placeholderTextColor={colors.textMuted}
           value={certificationForm.vehiclePhotoFileId}
           onChangeText={vehiclePhotoFileId =>
@@ -1801,6 +2172,31 @@ export function DriverHomeScreen({
         >
           <Text style={styles.detailSecondaryButtonText}>上传车辆照片</Text>
         </Pressable>
+        <Text style={styles.routeMeta}>
+          车辆资料上传后会自动回填文件 ID；如已存在平台附件，也可手动填写已有文件 ID。
+        </Text>
+        <Text style={styles.draftSectionTitle}>车辆认证附件</Text>
+        {vehicleAttachmentEntries.map(entry => (
+          <ImageCredentialCard
+            key={entry.fieldName}
+            title={
+              entry.fileId
+                ? `${entry.label}：${
+                    entry.source === 'file-object'
+                      ? entry.attachmentRef?.fileName ?? '已关联平台文件对象'
+                      : entry.source === 'snapshot'
+                        ? '平台已同步文件 ID'
+                        : '本地已填写文件 ID'
+                  }`
+                : `${entry.label}：待上传占位`
+            }
+            publicUrl={entry.attachmentRef?.file.publicUrl}
+            placeholderLabel={entry.label}
+            metaLines={createCertificationAttachmentMetaLines(entry)}
+            imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
+            placeholderTestID={`driver-cert-preview-placeholder-${entry.fieldName}`}
+          />
+        ))}
         <Pressable
           testID="driver-cert-toggle-tailboard"
           style={styles.detailSecondaryButton}
@@ -2105,6 +2501,24 @@ export function DriverHomeScreen({
               >
                 <Text style={styles.detailSecondaryButtonText}>上传异常凭证</Text>
               </Pressable>
+              {selectedExceptionAttachmentRefs.length > 0 ? (
+                <View>
+                  <Text style={styles.draftSectionTitle}>异常凭证清单</Text>
+                  {selectedExceptionAttachmentRefs.map((attachmentRef, index) => (
+                    <ImageCredentialCard
+                      key={`${attachmentRef.file.id}-${index}`}
+                      title={`异常凭证 ${index + 1}：${attachmentRef.fileName}`}
+                      publicUrl={attachmentRef.file.publicUrl}
+                      placeholderLabel={`异常凭证 ${index + 1}`}
+                      metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                      imageTestID={`driver-exception-preview-image-${index + 1}`}
+                      placeholderTestID={
+                        `driver-exception-preview-placeholder-${index + 1}`
+                      }
+                    />
+                  ))}
+                </View>
+              ) : null}
               <Pressable
                 testID={`driver-submit-exception-${selectedOrder.orderNo}`}
                 style={styles.detailPrimaryButton}
@@ -2252,6 +2666,30 @@ export function DriverHomeScreen({
             }{' '}
             张
           </Text>
+          {selectedExecutionReceiptAttachmentRefs.length > 0 ? (
+            <View>
+              <Text style={styles.draftSectionTitle}>
+                {selectedExecutionReceiptLabel}清单
+              </Text>
+              {selectedExecutionReceiptAttachmentRefs.map(
+                (attachmentRef, index) => (
+                  <ImageCredentialCard
+                    key={`${attachmentRef.file.id}-${index}`}
+                    title={
+                      `${selectedExecutionReceiptLabel} ${index + 1}：${attachmentRef.fileName}`
+                    }
+                    publicUrl={attachmentRef.file.publicUrl}
+                    placeholderLabel={selectedExecutionReceiptLabel}
+                    metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                    imageTestID={`driver-receipt-preview-image-${index + 1}`}
+                    placeholderTestID={
+                      `driver-receipt-preview-placeholder-${index + 1}`
+                    }
+                  />
+                ),
+              )}
+            </View>
+          ) : null}
           <Pressable
             testID={`driver-upload-receipt-${selectedOrder.orderNo}`}
             style={styles.detailSecondaryButton}

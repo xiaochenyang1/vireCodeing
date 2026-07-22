@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type {
   PlatformFileUploadConfirmationApi,
@@ -30,6 +31,17 @@ type IdentityPlatformProfileApi = Pick<
   'saveIdentityVerification'
 >;
 
+function getVerificationFileStatusText(status: VerificationFileRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
 function mapPlatformFileToVerificationRef(
   file: PlatformFileUploadRecord,
   fileName: string,
@@ -37,7 +49,7 @@ function mapPlatformFileToVerificationRef(
   return {
     fileId: file.id,
     fileName,
-    purpose: file.purpose,
+    purpose: 'identity',
     status: file.status,
     objectKey: file.objectKey,
     publicUrl: file.publicUrl,
@@ -62,6 +74,14 @@ function getIdentityVerificationStatus(
   return undefined;
 }
 
+function getFaceCheckNoticeText(
+  usesPlatformIdentityVerification: boolean,
+) {
+  return usesPlatformIdentityVerification
+    ? '人脸核验已完成，当前客户端未接入平台人脸 SDK，已使用平台占位校验标记。'
+    : '人脸核验已完成，本地版不会调用第三方 SDK。';
+}
+
 export function IdentityVerificationRecords({
   verification,
   platformProfileApi,
@@ -72,7 +92,13 @@ export function IdentityVerificationRecords({
   verification?: IdentityVerificationRequest;
   platformProfileApi?: IdentityPlatformProfileApi;
   platformFileApi?: IdentityPlatformFileApi;
-  onSubmit: (request: IdentityVerificationRequest) => void;
+  onSubmit: (
+    request: IdentityVerificationRequest,
+    options?: {
+      syncStatus?: 'failed';
+      syncMessage?: string;
+    },
+  ) => void;
   onReject: (reason: string) => void;
 }) {
   const [realName, setRealName] = useState(verification?.realName ?? '');
@@ -96,6 +122,20 @@ export function IdentityVerificationRecords({
   const verificationStatus = getIdentityVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const identityPhotoEntries = [
+    {
+      key: 'front',
+      label: '身份证正面凭证',
+      added: frontPhotoAdded,
+      file: frontPhotoFile,
+    },
+    {
+      key: 'back',
+      label: '身份证反面凭证',
+      added: backPhotoAdded,
+      file: backPhotoFile,
+    },
+  ].filter(entry => entry.added || entry.file);
 
   useEffect(() => {
     setRealName(verification?.realName ?? '');
@@ -154,12 +194,16 @@ export function IdentityVerificationRecords({
         });
         setNotice('实名认证资料已提交到平台审核。');
       } catch (error) {
-        setNotice(
+        const noticeText =
           error instanceof PlatformApiError &&
             error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '实名认证提交需要重新登录后再同步。'
-            : '实名认证资料提交失败，请检查资料后重试。',
-        );
+            : '实名认证资料提交失败，已保留本地资料，请稍后重试。';
+        onSubmit(result.request, {
+          syncStatus: 'failed',
+          syncMessage: noticeText,
+        });
+        setNotice(noticeText);
       }
       return;
     }
@@ -297,7 +341,7 @@ export function IdentityVerificationRecords({
         style={styles.detailSecondaryButton}
         onPress={() => {
           setFaceVerified(true);
-          setNotice('人脸核验已完成，本地版不会调用第三方 SDK。');
+          setNotice(getFaceCheckNoticeText(Boolean(platformProfileApi)));
         }}
       >
         <Text style={styles.detailSecondaryButtonText}>
@@ -306,6 +350,40 @@ export function IdentityVerificationRecords({
       </Pressable>
       {frontPhotoAdded && backPhotoAdded ? (
         <Text style={styles.routeMeta}>身份证正反面凭证 2 张</Text>
+      ) : null}
+      {identityPhotoEntries.length > 0 ? (
+        <View>
+          <Text style={styles.draftSectionTitle}>身份证凭证清单</Text>
+          {identityPhotoEntries.map(entry => (
+            <ImageCredentialCard
+              key={entry.key}
+              title={
+                entry.file
+                  ? `${entry.label}：${entry.file.fileName}`
+                  : `${entry.label}：本地已保存`
+              }
+              publicUrl={entry.file?.publicUrl}
+              placeholderLabel={
+                entry.key === 'front' ? '身份证正面' : '身份证反面'
+              }
+              metaLines={
+                entry.file
+                  ? [
+                      `来源：平台文件对象（${getVerificationFileStatusText(entry.file.status)}）`,
+                      `文件 ID：${entry.file.fileId}`,
+                      ...(entry.file.publicUrl
+                        ? ['已生成预览地址。']
+                        : entry.file.objectKey
+                          ? ['已写入平台对象存储。']
+                          : []),
+                    ]
+                  : ['来源：本地图片凭证占位']
+              }
+              imageTestID={`identity-verification-${entry.key}-preview-image`}
+              placeholderTestID={`identity-verification-${entry.key}-preview-placeholder`}
+            />
+          ))}
+        </View>
       ) : null}
       {faceVerified ? <Text style={styles.routeMeta}>人脸核验已完成</Text> : null}
       {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}

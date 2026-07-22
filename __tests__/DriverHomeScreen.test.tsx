@@ -887,6 +887,115 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('司机实名认证已提交审核。');
   });
 
+  it('hydrates certification snapshot attachments through the platform file metadata api on load', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    const platformDriverCertificationApi = createMockDriverCertificationApi();
+    platformDriverCertificationApi.getCertification.mockResolvedValue({
+      ...createDriverCertificationSnapshot(),
+      identity: {
+        driverId: 'driver-1',
+        realName: '李师傅',
+        identityNumber: '11010119900307201X',
+        identityFrontFileId: 'file-id-front',
+        identityBackFileId: 'file-id-back',
+        status: 'reviewing' as const,
+      },
+      vehicle: {
+        driverId: 'driver-1',
+        vehiclePhotoFileId: 'file-vehicle-photo',
+        status: 'approved' as const,
+      },
+    });
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve({
+          id: fileId,
+          ownerUserId: 'driver-1',
+          purpose: 'identity',
+          objectKey: `driver-1/identity/${fileId}.png`,
+          status: 'uploaded',
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          createdAtIso: '2026-07-07T08:00:00.000Z',
+        }),
+      ),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={platformDriverCertificationApi}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith('file-id-front');
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith('file-id-back');
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-vehicle-photo',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-cert-preview-image-identityFrontFileId',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-id-front.png',
+    });
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-cert-preview-image-vehiclePhotoFileId',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-vehicle-photo.png',
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('身份证人像面：身份证人像面.png');
+    expect(renderedText).toContain('车辆照片：车辆照片.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).not.toContain('平台已同步文件 ID');
+  });
+
+  it('shows manual file id sources when certification attachments are typed without uploaded file objects', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-cert-identity-front-file' })
+        .props.onChangeText('manual-identity-front');
+      renderer.root
+        .findByProps({ testID: 'driver-cert-vehicle-photo-file' })
+        .props.onChangeText('manual-vehicle-photo');
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('身份证人像面：本地已填写文件 ID');
+    expect(renderedText).toContain('车辆照片：本地已填写文件 ID');
+    expect(renderedText).toContain('来源：手动填写文件 ID');
+    expect(renderedText).toContain('文件 ID：manual-identity-front');
+    expect(renderedText).toContain('文件 ID：manual-vehicle-photo');
+  });
+
   it('uploads vehicle certification attachments through the platform file api before submit', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     const platformDriverCertificationApi = createMockDriverCertificationApi();
@@ -1204,6 +1313,7 @@ describe('DriverHomeScreen certification uploads', () => {
         ownerUserId: 'driver-1',
         purpose: 'receipt',
         objectKey: 'driver-1/receipt/file-receipt-1.png',
+        publicUrl: 'https://cdn.example.com/file-receipt-1.png',
         status: 'uploaded',
         createdAtIso: '2026-07-07T08:00:00.000Z',
       }),
@@ -1235,6 +1345,18 @@ describe('DriverHomeScreen certification uploads', () => {
         .findByProps({ testID: 'driver-upload-receipt-HY202607070001' })
         .props.onPress();
       await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('装货凭证清单');
+    expect(getRenderedText(renderer)).toContain('装货凭证 1：装货凭证.png');
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain('文件 ID：file-receipt-1');
+    expect(getRenderedText(renderer)).toContain('已生成预览地址。');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-receipt-preview-image-1' })
+        .props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-receipt-1.png',
     });
 
     await ReactTestRenderer.act(async () => {
@@ -1511,6 +1633,17 @@ describe('DriverHomeScreen certification uploads', () => {
         .props.onPress();
       await flushMicrotasks();
     });
+
+    expect(getRenderedText(renderer)).toContain('异常凭证清单');
+    expect(getRenderedText(renderer)).toContain('异常凭证 1：异常凭证-1.png');
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain('文件 ID：file-exception-1');
+    expect(getRenderedText(renderer)).toContain('已写入平台对象存储。');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-exception-preview-placeholder-1',
+      }).props.children,
+    ).toBe('异常凭证 1');
 
     await ReactTestRenderer.act(async () => {
       renderer.root

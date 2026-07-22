@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type {
   PlatformFileUploadConfirmationApi,
@@ -30,6 +31,17 @@ type EnterprisePlatformProfileApi = Pick<
   'saveEnterpriseVerification'
 >;
 
+function getVerificationFileStatusText(status: VerificationFileRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
 function mapPlatformFileToVerificationRef(
   file: PlatformFileUploadRecord,
   fileName: string,
@@ -37,7 +49,7 @@ function mapPlatformFileToVerificationRef(
   return {
     fileId: file.id,
     fileName,
-    purpose: file.purpose,
+    purpose: 'identity',
     status: file.status,
     objectKey: file.objectKey,
     publicUrl: file.publicUrl,
@@ -72,7 +84,13 @@ export function EnterpriseVerificationRecords({
   verification?: EnterpriseVerificationRequest;
   platformProfileApi?: EnterprisePlatformProfileApi;
   platformFileApi?: EnterprisePlatformFileApi;
-  onSubmit: (request: EnterpriseVerificationRequest) => void;
+  onSubmit: (
+    request: EnterpriseVerificationRequest,
+    options?: {
+      syncStatus?: 'failed';
+      syncMessage?: string;
+    },
+  ) => void;
   onReject: (reason: string) => void;
 }) {
   const [enterpriseName, setEnterpriseName] = useState(
@@ -149,12 +167,16 @@ export function EnterpriseVerificationRecords({
         });
         setNotice('企业认证资料已提交到平台审核。');
       } catch (error) {
-        setNotice(
+        const noticeText =
           error instanceof PlatformApiError &&
             error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '企业认证提交需要重新登录后再同步。'
-            : '企业认证资料提交失败，请检查资料后重试。',
-        );
+            : '企业认证资料提交失败，已保留本地资料，请稍后重试。';
+        onSubmit(result.request, {
+          syncStatus: 'failed',
+          syncMessage: noticeText,
+        });
+        setNotice(noticeText);
       }
       return;
     }
@@ -299,9 +321,42 @@ export function EnterpriseVerificationRecords({
         </Text>
       </Pressable>
       {licensePhotoCount > 0 ? (
-        <Text style={styles.routeMeta}>
-          {`营业执照凭证 ${licensePhotoCount} 张`}
-        </Text>
+        <>
+          <Text style={styles.routeMeta}>
+            {`营业执照凭证 ${licensePhotoCount} 张`}
+          </Text>
+          <View>
+            <Text style={styles.draftSectionTitle}>营业执照凭证清单</Text>
+            {licenseFiles.length > 0 ? (
+              licenseFiles.slice(0, licensePhotoCount).map(file => (
+                <ImageCredentialCard
+                  key={file.fileId}
+                  title={`营业执照凭证：${file.fileName}`}
+                  publicUrl={file.publicUrl}
+                  placeholderLabel="营业执照"
+                  metaLines={[
+                    `来源：平台文件对象（${getVerificationFileStatusText(file.status)}）`,
+                    `文件 ID：${file.fileId}`,
+                    ...(file.publicUrl
+                      ? ['已生成预览地址。']
+                      : file.objectKey
+                        ? ['已写入平台对象存储。']
+                        : []),
+                  ]}
+                  imageTestID="enterprise-verification-license-preview-image"
+                  placeholderTestID="enterprise-verification-license-preview-placeholder"
+                />
+              ))
+            ) : (
+              <ImageCredentialCard
+                title="营业执照凭证：本地已保存"
+                placeholderLabel="营业执照"
+                metaLines={['来源：本地图片凭证占位']}
+                placeholderTestID="enterprise-verification-license-preview-placeholder"
+              />
+            )}
+          </View>
+        </>
       ) : null}
       {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
