@@ -175,12 +175,46 @@ const draftRestoreFailureSyncMessage =
 function normalizeMessageUnreadCount(
   unreadCount: number | undefined,
   messages: MessageCenterItem[],
+  locallyReadOverrideCount = 0,
 ) {
   if (Number.isInteger(unreadCount) && unreadCount !== undefined && unreadCount >= 0) {
-    return unreadCount;
+    return Math.max(
+      messages.filter(message => message.unread).length,
+      unreadCount - locallyReadOverrideCount,
+    );
   }
 
   return messages.filter(message => message.unread).length;
+}
+
+function mergePlatformMessagesWithLocalReadState(
+  platformMessages: MessageCenterItem[],
+  localMessages: MessageCenterItem[],
+) {
+  const localMessageReadStateById = new Map(
+    localMessages.map(message => [message.id, message.unread]),
+  );
+  let locallyReadOverrideCount = 0;
+
+  const nextMessages = platformMessages.map(message => {
+    if (
+      message.unread &&
+      localMessageReadStateById.get(message.id) === false
+    ) {
+      locallyReadOverrideCount += 1;
+      return {
+        ...message,
+        unread: false,
+      };
+    }
+
+    return message;
+  });
+
+  return {
+    nextMessages,
+    locallyReadOverrideCount,
+  };
 }
 
 function shouldClearAuthSessionAfterStartupPlatformAuthError(error: unknown) {
@@ -474,13 +508,20 @@ function App({
         return;
       }
 
-      const nextMessages = mapPlatformInboxMessagesToLocal(
+      const runtimeState = getAppRuntimeState();
+      const mappedMessages = mapPlatformInboxMessagesToLocal(
         result.items,
         new Date(nowRef.current),
       );
+      const { nextMessages, locallyReadOverrideCount } =
+        mergePlatformMessagesWithLocalReadState(
+          mappedMessages,
+          runtimeState.messages,
+        );
       const nextMessageUnreadCount = normalizeMessageUnreadCount(
         result.unreadCount,
         nextMessages,
+        locallyReadOverrideCount,
       );
 
       setMessages(nextMessages);

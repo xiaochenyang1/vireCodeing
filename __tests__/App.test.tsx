@@ -8463,6 +8463,172 @@ test('refreshes platform messages when opening the message center from home', as
   }
 });
 
+test('keeps local read state when a later platform message refresh is stale', async () => {
+  const originalFetch = globalThis.fetch;
+  let messageListRequestCount = 0;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-message-stale-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-message-stale-refresh.900',
+            refreshToken: 'refresh.platform-message-stale-refresh.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      messageListRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'msg-platform-stale-read',
+              userId: 'platform-user-message-stale-refresh',
+              audience: 'shipper',
+              category: 'system',
+              title: '平台消息',
+              content: '服务端刷新仍返回旧未读状态',
+              unread: true,
+              createdAtIso: '2026-07-22T09:00:00.000Z',
+              updatedAtIso: '2026-07-22T09:00:00.000Z',
+            },
+          ],
+          page: 1,
+          pageSize: 50,
+          total: 1,
+          unreadCount: 1,
+        }),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/me/messages/msg-platform-stale-read/read' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'msg-platform-stale-read',
+          userId: 'platform-user-message-stale-refresh',
+          audience: 'shipper',
+          category: 'system',
+          title: '平台消息',
+          content: '服务端已接收已读',
+          unread: false,
+          readAtIso: '2026-07-22T09:05:00.000Z',
+          createdAtIso: '2026-07-22T09:00:00.000Z',
+          updatedAtIso: '2026-07-22T09:05:00.000Z',
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(1);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-stale-read' })
+        .props.children,
+    ).toBe('未读');
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'message-mark-read-msg-platform-stale-read' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-stale-read' })
+        .props.children,
+    ).toBe('已读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('全部消息都已读');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(0);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(0);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'message-status-msg-platform-stale-read' })
+        .props.children,
+    ).toBe('已读');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('全部消息都已读');
+    expect(getAppRuntimeState().messageUnreadCount).toBe(0);
+    expect(messageListRequestCount).toBeGreaterThanOrEqual(3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('opens the local help center from the home screen', async () => {
   const app = await renderApp();
 
