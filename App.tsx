@@ -171,6 +171,8 @@ const draftRestoreMissingAuthSyncMessage =
   '平台发单草稿恢复需要重新登录后再同步。';
 const draftRestoreFailureSyncMessage =
   '平台发单草稿恢复失败，已保留本地草稿。';
+const platformMessageRefreshFailureNotice =
+  '平台消息刷新失败，当前显示本地缓存。';
 
 function normalizeMessageUnreadCount(
   unreadCount: number | undefined,
@@ -436,6 +438,7 @@ function App({
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [draftGateNotice, setDraftGateNotice] = useState('');
   const [networkNotice, setNetworkNotice] = useState('');
+  const [messageRefreshNotice, setMessageRefreshNotice] = useState('');
   const [platformOrderListNotice, setPlatformOrderListNotice] = useState('');
   const [platformOrderListQuery, setPlatformOrderListQuery] =
     useState<PlatformListShipperOrdersQuery>({ page: 1, pageSize: 20 });
@@ -524,6 +527,7 @@ function App({
         locallyReadOverrideCount,
       );
 
+      setMessageRefreshNotice('');
       setMessages(nextMessages);
       setMessageUnreadCount(nextMessageUnreadCount);
       persistMessageRuntimeState(nextMessages, nextMessageUnreadCount);
@@ -634,7 +638,11 @@ function App({
               mutationVersionAtStart,
             );
           })
-          .catch(() => undefined);
+          .catch(() => {
+            if (!cancelled) {
+              setMessageRefreshNotice(platformMessageRefreshFailureNotice);
+            }
+          });
       }
     };
 
@@ -686,6 +694,7 @@ function App({
 
   const refreshPlatformMessages = useCallback(() => {
     if (!platformMessagesApi || !getAuthSessionSnapshot()?.accessToken) {
+      setMessageRefreshNotice('');
       return;
     }
 
@@ -702,7 +711,9 @@ function App({
           mutationVersionAtStart,
         );
       })
-      .catch(() => undefined);
+      .catch(() => {
+        setMessageRefreshNotice(platformMessageRefreshFailureNotice);
+      });
   }, [applyPlatformMessages, platformMessagesApi]);
   const rollbackMessageMutationIfCurrent = useCallback(
     (
@@ -888,6 +899,7 @@ function App({
     clearAuthSession();
     setAuthenticatedUser(undefined);
     setNetworkNotice('');
+    setMessageRefreshNotice('');
     goAuth();
   };
 
@@ -2757,6 +2769,7 @@ function App({
             initialSupportView={homeInitialSupportView}
             draftGateNotice={draftGateNotice}
             networkNotice={networkNotice}
+            messageRefreshNotice={messageRefreshNotice}
             platformAuthApi={platformAuthApi}
             platformProfileApi={platformProfileApi}
             platformFrequentRoutesApi={platformFrequentRoutesApi}

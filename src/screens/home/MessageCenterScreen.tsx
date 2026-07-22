@@ -11,6 +11,7 @@ import { SupportTopBar } from './SupportTopBar';
 export function MessageCenterScreen({
   messages,
   unreadCount,
+  noticeText,
   onBackHome,
   onMarkMessageRead,
   onMarkAllMessagesRead,
@@ -18,6 +19,7 @@ export function MessageCenterScreen({
 }: {
   messages: MessageCenterItem[];
   unreadCount: number;
+  noticeText?: string;
   onBackHome: () => void;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
@@ -58,6 +60,11 @@ export function MessageCenterScreen({
             </Pressable>
           ) : null}
         </View>
+        {noticeText ? (
+          <Text testID="message-refresh-notice" style={styles.draftNotice}>
+            {noticeText}
+          </Text>
+        ) : null}
       </View>
 
       {messages.map(item => {

@@ -224,6 +224,7 @@ export function HomeScreen({
   onReuseRoute,
   draftGateNotice,
   networkNotice,
+  messageRefreshNotice,
 }: {
   now: number;
   orders: RecentOrder[];
@@ -232,6 +233,7 @@ export function HomeScreen({
   initialSupportView?: HomeSupportView;
   draftGateNotice?: string;
   networkNotice?: string;
+  messageRefreshNotice?: string;
   platformAuthApi?: HomePlatformAuthApi;
   platformProfileApi?: HomePlatformProfileApi;
   platformFrequentRoutesApi?: HomePlatformFrequentRoutesApi;
@@ -700,6 +702,7 @@ export function HomeScreen({
       <MessageCenterScreen
         messages={messages}
         unreadCount={messageUnreadCount}
+        noticeText={messageRefreshNotice}
         onBackHome={backHome}
         onMarkMessageRead={onMarkMessageRead}
         onMarkAllMessagesRead={onMarkAllMessagesRead}

@@ -8463,6 +8463,151 @@ test('refreshes platform messages when opening the message center from home', as
   }
 });
 
+test('shows cached message notice when a platform refresh fails and clears it after recovery', async () => {
+  const originalFetch = globalThis.fetch;
+  let messageListRequestCount = 0;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-message-refresh-notice',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-message-refresh-notice.900',
+            refreshToken: 'refresh.platform-message-refresh-notice.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      messageListRequestCount += 1;
+
+      if (messageListRequestCount === 2) {
+        return Promise.reject(new Error('message refresh failed'));
+      }
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          messageListRequestCount === 1
+            ? {
+                items: [
+                  {
+                    id: 'msg-platform-refresh-cached',
+                    userId: 'platform-user-message-refresh-notice',
+                    audience: 'shipper',
+                    category: 'system',
+                    title: '首次加载的消息',
+                    content: '这是启动时拿到的缓存消息',
+                    unread: true,
+                    createdAtIso: '2026-07-22T08:00:00.000Z',
+                    updatedAtIso: '2026-07-22T08:00:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 1,
+              }
+            : {
+                items: [
+                  {
+                    id: 'msg-platform-refresh-recovered',
+                    userId: 'platform-user-message-refresh-notice',
+                    audience: 'shipper',
+                    category: 'service',
+                    title: '重试后同步成功',
+                    content: '平台消息刷新已经恢复',
+                    unread: true,
+                    createdAtIso: '2026-07-22T08:30:00.000Z',
+                    updatedAtIso: '2026-07-22T08:30:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 2,
+                unreadCount: 2,
+              },
+        ),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'home-unread-message-count' }).props
+        .children,
+    ).toBe(1);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('首次加载的消息');
+    expect(
+      app.root.findByProps({ testID: 'message-refresh-notice' }).props.children,
+    ).toBe('平台消息刷新失败，当前显示本地缓存。');
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('重试后同步成功');
+    expect(
+      app.root.findAllByProps({ testID: 'message-refresh-notice' }),
+    ).toHaveLength(0);
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('还有 2 条未读消息');
+    expect(messageListRequestCount).toBe(3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('keeps local read state when a later platform message refresh is stale', async () => {
   const originalFetch = globalThis.fetch;
   let messageListRequestCount = 0;
