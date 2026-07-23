@@ -1693,6 +1693,28 @@ export function DriverHomeScreen({
     setNotice(`已选择银行卡：${card.bankName}（${card.bankAccountMasked}）`);
   };
 
+  const setDefaultBankCard = (cardId: string) => {
+    if (!platformDriverOrderApi) {
+      setNotice('银行卡操作需要平台 API 配置。');
+      return;
+    }
+
+    const card = bankCards.find(item => item.id === cardId);
+    if (!card || card.isDefault) {
+      return;
+    }
+
+    platformDriverOrderApi
+      .updateBankCard(cardId, { isDefault: true })
+      .then(() => {
+        setNotice(`已将 ${card.bankName}（${card.bankAccountMasked}）设为默认银行卡。`);
+        refreshBankCards();
+      })
+      .catch(() => {
+        setNotice('设为默认银行卡失败，请稍后重试。');
+      });
+  };
+
   const maskBankAccountNo = (accountNo: string): string => {
     const digits = accountNo.replace(/\s/g, '');
     if (digits.length <= 8) {
@@ -2320,6 +2342,17 @@ export function DriverHomeScreen({
                       marginTop: 4,
                     }}
                   >
+                    {!card.isDefault ? (
+                      <Pressable
+                        testID={`driver-bank-card-set-default-${card.id}`}
+                        style={styles.detailSecondaryButton}
+                        onPress={() => setDefaultBankCard(card.id)}
+                      >
+                        <Text style={styles.detailSecondaryButtonText}>
+                          设为默认
+                        </Text>
+                      </Pressable>
+                    ) : null}
                     <Pressable
                       testID={`driver-bank-card-select-${card.id}`}
                       style={styles.detailSecondaryButton}
