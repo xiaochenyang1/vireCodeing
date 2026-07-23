@@ -3444,6 +3444,15 @@ export function DriverHomeScreen({
             platformFileApi={platformFileApi as any}
             onNavigate={openDriverNavigation}
             onReportLocation={reportSandboxDriverLocation}
+            onCallContact={(contactType, contactName, phone) => {
+              if (!phone) {
+                setNotice(`${contactType}电话待补充。`);
+                return;
+              }
+              Linking.openURL(`tel:${phone}`).catch(() => {
+                setNotice(`无法打开拨号，请手动联系${contactType}。`);
+              });
+            }}
             onAdvanceStatus={request => {
               const nextStatus = request.nextStatus as 'transporting' | 'confirming';
               const baseUpdatedAtIso = selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';

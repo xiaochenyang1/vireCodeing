@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import {
+  Linking,
   Pressable,
   Text,
   View,
@@ -24,6 +25,7 @@ export type DriverOrderExecutionProps = {
   };
   onNavigate: (target: PlatformNavigationTarget) => void;
   onReportLocation: () => void;
+  onCallContact?: (contactType: '装货联系人' | '卸货联系人', contactName?: string, phone?: string) => void;
   onAdvanceStatus: (request: { nextStatus: string; receiptPhotoFileIds?: string[] }) => void;
   onUploadReceipt: (fileId: string, fieldName: string) => void;
   receiptFiles: {
@@ -75,6 +77,7 @@ export function DriverOrderExecution({
   platformFileApi,
   onNavigate,
   onReportLocation,
+  onCallContact,
   onAdvanceStatus,
   onUploadReceipt,
   receiptFiles,
@@ -202,6 +205,36 @@ export function DriverOrderExecution({
         <Text style={styles.detailMeta}>
           卸货：{order.deliveryContact} {order.deliveryPhone}
         </Text>
+        {onCallContact ? (
+          <View style={styles.draftChoiceGrid}>
+            {order.pickupPhone ? (
+              <Pressable
+                testID={`driver-call-pickup-${order.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() =>
+                  onCallContact('装货联系人', order.pickupContact, order.pickupPhone)
+                }
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  拨打装货联系人
+                </Text>
+              </Pressable>
+            ) : null}
+            {order.deliveryPhone ? (
+              <Pressable
+                testID={`driver-call-delivery-${order.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() =>
+                  onCallContact('卸货联系人', order.deliveryContact, order.deliveryPhone)
+                }
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  拨打卸货联系人
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {navigationTargets.length > 0 ? (
