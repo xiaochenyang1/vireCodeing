@@ -972,4 +972,123 @@ export const styles = StyleSheet.create({
   },
   secondaryButton,
   secondaryButtonText,
+  detailTopBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chatBubbleContainer: {
+    gap: 12,
+  },
+  chatBubbleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  chatBubbleRowUnread: {
+    backgroundColor: '#FFF8E1',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginHorizontal: -8,
+  },
+  chatAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.tealDark,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatAvatarText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  chatBubble: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
+    borderBottomLeftRadius: 4,
+  },
+  chatBubbleUnread: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3F2FD',
+  },
+  chatBubbleRead: {
+    backgroundColor: '#F5F5F5',
+  },
+  chatBubbleTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  chatBubbleContent: {
+    fontSize: 14,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  chatBubbleTime: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 6,
+  },
+  conversationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  conversationAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.tealDark,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  conversationAvatarText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  conversationBody: {
+    flex: 1,
+    gap: 4,
+  },
+  conversationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  conversationTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  conversationTitleUnread: {
+    fontWeight: '800',
+    color: colors.tealDark,
+  },
+  conversationTime: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  conversationPreview: {
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  conversationUnreadBadge: {
+    backgroundColor: colors.tealDark,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  conversationUnreadText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
 });
