@@ -958,6 +958,29 @@ export function OrderDetailScreen({
       {order.evaluation ? (
         <EvaluationRecordCard evaluation={order.evaluation} />
       ) : null}
+      {order.shipperEvaluation ? (
+        <View style={styles.detailCard}>
+          <Text style={styles.detailRoute}>司机评价</Text>
+          <View style={styles.detailInlineGroup}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.detailMeta}>
+                {`评分：${'★'.repeat(order.shipperEvaluation.rating)}${'☆'.repeat(5 - order.shipperEvaluation.rating)}`}
+              </Text>
+            </View>
+            {order.shipperEvaluation.tags.map((tag, index) => (
+              <Text key={index} style={styles.detailMeta}>
+                {`#${tag}`}
+              </Text>
+            ))}
+            <Text style={styles.detailMeta}>
+              {order.shipperEvaluation.content}
+            </Text>
+            {order.shipperEvaluation.anonymous ? (
+              <Text style={styles.detailMeta}>匿名评价</Text>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {localNotice ? (
         <View style={styles.detailNoticeCard}>

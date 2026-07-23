@@ -33,6 +33,7 @@ export function mapPlatformOrderToRecentOrder(
   );
   const exceptionReport = createExceptionReportFromPlatformEvents(order);
   const evaluation = createEvaluationFromPlatformEvents(order);
+  const shipperEvaluation = createShipperEvaluationFromPlatformEvents(order);
   const latestExceptionCase = createLatestExceptionCaseFromPlatformOrder(order);
 
   return {
@@ -89,6 +90,7 @@ export function mapPlatformOrderToRecentOrder(
     driverQuotes: createDriverQuotesFromPlatformEvents(order),
     ...(exceptionReport ? { exceptionReport } : {}),
     ...(evaluation ? { evaluation } : {}),
+    ...(shipperEvaluation ? { shipperEvaluation } : {}),
     ...(latestExceptionCase ? { latestExceptionCase } : {}),
     syncState: {
       status: 'synced',
@@ -313,6 +315,41 @@ function createEvaluationFromPlatformEvents(order: PlatformShipperOrder) {
     anonymous: noteParts.includes('匿名评价'),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
+  };
+}
+
+function createShipperEvaluationFromPlatformEvents(
+  order: PlatformShipperOrder,
+): { rating: number; tags: string[]; content: string; anonymous?: boolean } | undefined {
+  const event = findLatestPlatformEvent(order, 'shipper_evaluation_submitted');
+
+  if (!event?.noteText) {
+    return undefined;
+  }
+
+  const noteParts = event.noteText.split('；');
+  const ratingAndTagsText = noteParts.shift()?.trim();
+  const content = noteParts.pop()?.trim();
+  const ratingMatch = ratingAndTagsText?.match(/^([1-5]) 星：(.*)$/);
+
+  if (!ratingMatch || !content) {
+    return undefined;
+  }
+
+  const tags = ratingMatch[2]
+    .split('、')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+
+  if (tags.length === 0) {
+    return undefined;
+  }
+
+  return {
+    rating: Number(ratingMatch[1]),
+    tags,
+    content,
+    anonymous: noteParts.includes('匿名评价'),
   };
 }
 

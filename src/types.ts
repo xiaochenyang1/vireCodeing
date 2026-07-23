@@ -234,6 +234,12 @@ export type RecentOrder = {
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   };
+  shipperEvaluation?: {
+    rating: number;
+    tags: string[];
+    content: string;
+    anonymous?: boolean;
+  };
   latestExceptionCase?: RecentOrderLatestExceptionCase;
   reorderSource?: {
     orderId: string;
