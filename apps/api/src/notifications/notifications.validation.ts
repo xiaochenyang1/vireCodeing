@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { InboxMessageCategory, InboxMessageListQuery } from './dto';
+import type {
+  DevicePushTokenRecord,
+  InboxMessageCategory,
+  InboxMessageListQuery,
+  RegisterDeviceTokenInput,
+} from './dto';
 
 const categorySchema = z.enum(['order', 'system', 'service', 'finance']);
 
@@ -39,4 +44,21 @@ export function parseListInboxMessagesQuery(
 
 export function parseMessageId(input: unknown) {
   return z.string().trim().min(1, '消息 ID 不能为空').max(120).parse(input);
+}
+
+const devicePlatformSchema = z.enum(['ios', 'android']);
+
+export const registerDeviceTokenBodySchema = z.object({
+  pushToken: z.string().trim().min(1, '推送令牌不能为空').max(512),
+  platform: devicePlatformSchema,
+  deviceId: z.string().trim().min(1, '设备 ID 不能为空').max(120),
+});
+
+export function parseRegisterDeviceTokenBody(input: unknown): RegisterDeviceTokenInput {
+  const parsed = registerDeviceTokenBodySchema.parse(input);
+  return {
+    pushToken: parsed.pushToken,
+    platform: parsed.platform,
+    deviceId: parsed.deviceId,
+  };
 }

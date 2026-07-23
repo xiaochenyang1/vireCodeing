@@ -59,3 +59,21 @@ export type PushDeliveryAttemptRecord = {
   errorMessage?: string;
   createdAtIso: string;
 };
+
+export type DevicePushTokenRecord = {
+  id: string;
+  userId: string;
+  token: string;
+  platform: 'ios' | 'android';
+  deviceId: string;
+  isActive: boolean;
+  lastUsedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type RegisterDeviceTokenInput = {
+  pushToken: string;
+  platform: 'ios' | 'android';
+  deviceId: string;
+};

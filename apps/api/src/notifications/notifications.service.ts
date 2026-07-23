@@ -1,10 +1,12 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
   CreateInboxMessageInput,
+  DevicePushTokenRecord,
   InboxMessageAudience,
   InboxMessageCategory,
   InboxMessageListQuery,
   InboxMessageRecord,
+  RegisterDeviceTokenInput,
 } from './dto';
 import type { NotificationsRepository } from './notifications.repository';
 import type { PushProvider } from './push-provider';
@@ -59,6 +61,44 @@ export class NotificationsService {
 
   async markAllMessagesRead(userId: string) {
     return this.repository.markAllMessagesRead(userId);
+  }
+
+  async registerDeviceToken(
+    userId: string,
+    input: RegisterDeviceTokenInput,
+  ): Promise<DevicePushTokenRecord> {
+    const normalizedInput: RegisterDeviceTokenInput = {
+      pushToken: input.pushToken.trim(),
+      platform: input.platform,
+      deviceId: input.deviceId.trim(),
+    };
+
+    if (normalizedInput.pushToken.length === 0) {
+      throw new BusinessError(
+        ApiErrorCode.PUSH_TOKEN_INVALID,
+        '推送令牌不能为空',
+      );
+    }
+
+    if (normalizedInput.deviceId.length === 0) {
+      throw new BusinessError(
+        ApiErrorCode.DEVICE_ID_INVALID,
+        '设备 ID 不能为空',
+      );
+    }
+
+    return this.repository.registerDeviceToken(userId, normalizedInput);
+  }
+
+  async listDevicePushTokens(userId: string): Promise<DevicePushTokenRecord[]> {
+    return this.repository.listActiveDevicePushTokens(userId);
+  }
+
+  async deactivateDevicePushToken(
+    userId: string,
+    token: string,
+  ): Promise<boolean> {
+    return this.repository.deactivateDevicePushToken(userId, token);
   }
 
   async createAndPush(input: CreateInboxMessageInput): Promise<InboxMessageRecord> {

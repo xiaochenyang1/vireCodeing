@@ -21,6 +21,7 @@ export type SpendingRecordItem = BaseSpendingRecordItem & {
   payablePriceText?: string;
   routeText?: string;
   statusCategory?: 'completed' | 'active' | 'refund' | 'other';
+  platformOrderId?: string;
 };
 
 export function createSpendingRecords(

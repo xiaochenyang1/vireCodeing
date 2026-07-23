@@ -158,6 +158,30 @@ model User {
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
   inboxMessages                InboxMessage[]             @relation("InboxMessageRecipient")
   shipperSupportTickets        ShipperSupportTicket[]
+  devicePushTokens             DevicePushToken[]
+}
+
+model DevicePushToken {
+  id         String         @id @default(uuid())
+  userId     String
+  token      String
+  platform   DevicePlatform
+  deviceId   String
+  isActive   Boolean        @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId, isActive, createdAt], name: "DevicePushToken_user_active_created_idx")
+  @@index([token], name: "DevicePushToken_token_idx")
+}
+
+enum DevicePlatform {
+  ios
+  android
 }
 
 model AuthSession {

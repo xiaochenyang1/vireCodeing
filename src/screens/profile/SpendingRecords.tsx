@@ -19,10 +19,12 @@ export function SpendingRecords({
   orders,
   platformSpendingSnapshot,
   notice,
+  onOpenOrderDetail,
 }: {
   orders: RecentOrder[];
   platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
   notice?: string;
+  onOpenOrderDetail?: (orderId: string) => void;
 }) {
   const isPlatformMode = Boolean(platformSpendingSnapshot);
   const spendingRecords = createSpendingRecords(orders, {
@@ -160,12 +162,28 @@ export function SpendingRecords({
 
       <Text style={styles.draftSectionTitle}>消费明细</Text>
       {filteredRecords.length > 0 ? (
-        filteredRecords.map(item => (
-          <View key={item.id} style={styles.driverInfoCard}>
-            <View style={styles.routeHeader}>
-              <Text style={styles.routeName}>{item.orderId}</Text>
-              <Text style={styles.routeAction}>{item.amountText}</Text>
-            </View>
+        filteredRecords.map(item => {
+          const orderId = item.platformOrderId ?? item.orderId;
+          return (
+            <View key={item.id} style={styles.driverInfoCard}>
+              {onOpenOrderDetail && orderId ? (
+                <Pressable
+                  testID={`spending-open-order-${item.id}`}
+                  style={({ pressed }) => [
+                    styles.routeHeader,
+                    pressed && styles.pressedCard,
+                  ]}
+                  onPress={() => onOpenOrderDetail(orderId)}
+                >
+                  <Text style={styles.routeName}>{item.orderId}</Text>
+                  <Text style={styles.routeAction}>{item.amountText}</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.routeHeader}>
+                  <Text style={styles.routeName}>{item.orderId}</Text>
+                  <Text style={styles.routeAction}>{item.amountText}</Text>
+                </View>
+              )}
             {item.routeText ? (
               <Text style={styles.detailMeta}>{item.routeText}</Text>
             ) : null}
@@ -198,7 +216,8 @@ export function SpendingRecords({
             <Text style={styles.routeMeta}>{item.settlementText}</Text>
             <Text style={styles.routeMeta}>{item.flowText}</Text>
           </View>
-        ))
+        );
+      })
       ) : (
         <Text style={styles.routeMeta}>
           {isPlatformMode ? '暂无平台消费记录' : '暂无消费记录'}

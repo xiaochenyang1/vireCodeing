@@ -1,5 +1,6 @@
-import { StatusBar, useColorScheme } from 'react-native';
+import { Platform, StatusBar, useColorScheme } from 'react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Notifications from 'expo-notifications';
 import {
   initialWindowMetrics,
   SafeAreaProvider,
@@ -127,6 +128,7 @@ import {
 } from './src/services/platformPaymentApi';
 import { createPlatformMapsApi } from './src/services/platformMapsApi';
 import { createPlatformMessagesApi } from './src/services/platformMessagesApi';
+import { createPlatformNotificationsApi } from './src/services/platformNotificationsApi';
 import { createPlatformSupportTicketsApi } from './src/services/platformSupportTicketsApi';
 import { mapPlatformInboxMessagesToLocal } from './src/utils/platformMessages';
 import { mapPlatformOrderToRecentOrder } from './src/services/platformOrderMapper';
@@ -399,6 +401,16 @@ function App({
     () =>
       resolvedPlatformApiBaseUrl
         ? createPlatformMessagesApi({
+            baseUrl: resolvedPlatformApiBaseUrl,
+            getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
+          })
+        : undefined,
+    [resolvedPlatformApiBaseUrl],
+  );
+  const platformNotificationsApi = useMemo(
+    () =>
+      resolvedPlatformApiBaseUrl
+        ? createPlatformNotificationsApi({
             baseUrl: resolvedPlatformApiBaseUrl,
             getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
           })
@@ -766,6 +778,41 @@ function App({
     syncPlatformAuthenticatedProfile,
   ]);
 
+  // Notification response listener: navigate when user taps a notification
+  const notificationResponseRef = useRef<Notifications.NotificationResponse | null>(null);
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      response => {
+        notificationResponseRef.current = response;
+        const data = response.notification.request.content.data;
+        const orderId = data?.orderId as string | undefined;
+        if (orderId && screen !== 'order-detail') {
+          setSelectedOrderId(orderId);
+          goOrderDetail('home');
+        }
+      },
+    );
+
+    return () => subscription.remove();
+  }, [goOrderDetail, screen]);
+
+  // Handle foreground notifications: show an in-app alert or badge update
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener(
+      notification => {
+        const data = notification.request.content.data;
+        const orderId = data?.orderId as string | undefined;
+        if (orderId) {
+          // Refresh the specific order detail if we're viewing it
+          setSelectedOrderId(current => current === orderId ? current : current);
+        }
+      },
+    );
+
+    return () => subscription.remove();
+  }, []);
+
   const persistRuntimeState = useCallback(
     ({
       nextOrders = orders,
@@ -979,6 +1026,19 @@ function App({
     }
 
     openHome();
+
+    // Register push token with the platform if available
+    if (pushToken && platformNotificationsApi && permissionStatus === 'granted') {
+      platformNotificationsApi
+        .registerDeviceToken({
+          pushToken,
+          platform: Platform.OS === 'ios' ? 'ios' : 'android',
+          deviceId: getAuthSessionSnapshot()?.deviceId ?? getDeviceId(),
+        })
+        .catch(() => {
+          // Silently ignore registration failure; user can still use the app
+        });
+    }
 
     if (permissionStatus === 'undetermined') {
       requestPermission().catch(() => undefined);

@@ -8,6 +8,18 @@ export type ProfileSpendingRecordItem = {
   timeBucket: string;
   occurredAtIso?: string;
   statusCategory?: 'completed' | 'active' | 'refund' | 'other';
+  platformOrderId?: string;
+  orderId?: string;
+  routeText?: string;
+  methodText?: string;
+  paymentTimeText?: string;
+  paymentStatusText?: string;
+  originalPriceText?: string;
+  couponTitleText?: string;
+  couponDiscountText?: string;
+  payablePriceText?: string;
+  settlementText?: string;
+  flowText?: string;
 };
 
 export type SpendingTotals = {

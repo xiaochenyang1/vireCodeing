@@ -126,4 +126,133 @@ describe('NotificationsService', () => {
       code: ApiErrorCode.MESSAGE_NOT_FOUND,
     });
   });
+
+  describe('registerDeviceToken', () => {
+    it('registers a new device push token', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      const result = await service.registerDeviceToken('user-1', {
+        pushToken: 'expo-token-abc',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+
+      expect(result).toMatchObject({
+        userId: 'user-1',
+        token: 'expo-token-abc',
+        platform: 'ios',
+        deviceId: 'device-1',
+        isActive: true,
+      });
+      expect(result.id).toBeDefined();
+      expect(result.createdAtIso).toBeDefined();
+    });
+
+    it('reactivates an existing token', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'expo-token-abc',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+      const reactivated = await service.registerDeviceToken('user-1', {
+        pushToken: 'expo-token-abc',
+        platform: 'android',
+        deviceId: 'device-1',
+      });
+
+      expect(reactivated.deviceId).toBe('device-1');
+      expect(reactivated.isActive).toBe(true);
+      expect(reactivated.lastUsedAtIso).toBeDefined();
+    });
+
+    it('deactivates previous tokens on the same device when registering a new one', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'old-token',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'new-token',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+
+      const tokens = await service.listDevicePushTokens('user-1');
+      expect(tokens).toHaveLength(1);
+      expect(tokens[0].token).toBe('new-token');
+      expect(tokens[0].isActive).toBe(true);
+    });
+
+    it('rejects empty push token', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await expect(
+        service.registerDeviceToken('user-1', {
+          pushToken: '   ',
+          platform: 'ios',
+          deviceId: 'device-1',
+        }),
+      ).rejects.toMatchObject({
+        code: ApiErrorCode.PUSH_TOKEN_INVALID,
+      });
+    });
+
+    it('lists active tokens for a user', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'token-1',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'token-2',
+        platform: 'android',
+        deviceId: 'device-2',
+      });
+
+      const tokens = await service.listDevicePushTokens('user-1');
+      expect(tokens).toHaveLength(2);
+    });
+
+    it('deactivates a token', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'token-1',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+
+      const deactivated = await service.deactivateDevicePushToken(
+        'user-1',
+        'token-1',
+      );
+      expect(deactivated).toBe(true);
+
+      const tokens = await service.listDevicePushTokens('user-1');
+      expect(tokens).toHaveLength(0);
+    });
+
+    it('returns false when deactivating a non-existent token', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      const result = await service.deactivateDevicePushToken(
+        'user-1',
+        'nonexistent',
+      );
+      expect(result).toBe(false);
+    });
+  });
 });

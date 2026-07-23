@@ -15,6 +15,22 @@ export type PlatformRegisterDeviceTokenResponse = {
   token: string;
 };
 
+export type PlatformDevicePushTokenRecord = {
+  id: string;
+  userId: string;
+  token: string;
+  platform: 'ios' | 'android';
+  deviceId: string;
+  isActive: boolean;
+  lastUsedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type PlatformListDeviceTokensResponse = {
+  items: PlatformDevicePushTokenRecord[];
+};
+
 export function createPlatformNotificationsApi(config: PlatformApiConfig) {
   return {
     async registerDeviceToken(
@@ -26,6 +42,21 @@ export function createPlatformNotificationsApi(config: PlatformApiConfig) {
         PlatformRegisterDeviceTokenRequest,
         PlatformRegisterDeviceTokenResponse
       >(config, '/me/device-token', normalizedRequest);
+    },
+
+    async listDeviceTokens() {
+      return platformPost<
+        Record<string, never>,
+        PlatformListDeviceTokensResponse
+      >(config, '/me/device-tokens', {});
+    },
+
+    async deactivateDeviceToken(token: string) {
+      return platformPost<{ token: string }, { deactivated: boolean }>(
+        config,
+        '/me/device-tokens/deactivate',
+        { token },
+      );
     },
   };
 }

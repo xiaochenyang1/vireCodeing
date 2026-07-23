@@ -135,6 +135,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /me/device-token:
+    post:
+      summary: Register a device push notification token
+      description: Registers or reactivates the push notification token for the current user's device. Re-registering an existing token updates its device binding and last-used timestamp. Registering a new token on the same device deactivates previous tokens.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceTokenRequest'
+      responses:
+        '200':
+          description: Token registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicePushTokenResponse'
+        '400':
+          description: PUSH_TOKEN_INVALID or DEVICE_ID_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: AUTH_ACCESS_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/device-tokens:
+    get:
+      summary: List active device push tokens for the current user
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      responses:
+        '200':
+          description: Active device tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevicePushTokenListResponse'
+        '401':
+          description: AUTH_ACCESS_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maps/geocode:
     post:
       summary: Geocode an address through the configured map provider
@@ -12251,6 +12302,73 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/InboxMarkAllReadResult'
+    RegisterDeviceTokenRequest:
+      type: object
+      required: [pushToken, platform, deviceId]
+      properties:
+        pushToken:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Expo push token or FCM/APNs token
+        platform:
+          type: string
+          enum: [ios, android]
+          description: Device platform
+        deviceId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Client-side device identifier
+    DevicePushTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DevicePushTokenRecord'
+    DevicePushTokenListResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DevicePushTokenListResult'
+    DevicePushTokenRecord:
+      type: object
+      required: [id, userId, token, platform, deviceId, isActive, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        token:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android]
+        deviceId:
+          type: string
+        isActive:
+          type: boolean
+        lastUsedAtIso:
+          type: string
+          format: date-time
+          nullable: true
+        createdAtIso:
+          type: string
+          format: date-time
+        updatedAtIso:
+          type: string
+          format: date-time
+    DevicePushTokenListResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DevicePushTokenRecord'
     GeocodeRequest:
       type: object
       required: [address]

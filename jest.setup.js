@@ -37,6 +37,29 @@ jest.mock('@react-native-async-storage/async-storage', () => {
   };
 });
 
+jest.mock('expo-notifications', () => ({
+  getPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  requestPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  getExpoPushTokenAsync: jest.fn(() =>
+    Promise.resolve({ data: 'ExponentPushToken[mock-token]' }),
+  ),
+  setNotificationChannelAsync: jest.fn(),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  Notifications: {
+    AndroidImportance: {
+      MAX: 5,
+      MIN: 1,
+      LOW: 2,
+      HIGH: 4,
+    },
+  },
+}));
+
 const originalConsoleError = console.error;
 
 console.error = (...args) => {

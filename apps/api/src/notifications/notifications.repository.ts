@@ -1,10 +1,12 @@
 import { randomUUID } from 'crypto';
 import type {
   CreateInboxMessageInput,
+  DevicePushTokenRecord,
   InboxMessageListQuery,
   InboxMessageListResult,
   InboxMessageRecord,
   PushDeliveryAttemptRecord,
+  RegisterDeviceTokenInput,
 } from './dto';
 
 export interface NotificationsRepository {
@@ -25,6 +27,14 @@ export interface NotificationsRepository {
     providerMessageId?: string;
     errorMessage?: string;
   }): Promise<PushDeliveryAttemptRecord>;
+  registerDeviceToken(
+    userId: string,
+    input: RegisterDeviceTokenInput,
+  ): Promise<DevicePushTokenRecord>;
+  listActiveDevicePushTokens(
+    userId: string,
+  ): Promise<DevicePushTokenRecord[]>;
+  deactivateDevicePushToken(userId: string, token: string): Promise<boolean>;
 }
 
 export class InMemoryNotificationsRepository
@@ -32,6 +42,7 @@ export class InMemoryNotificationsRepository
 {
   private readonly messages: InboxMessageRecord[] = [];
   private readonly pushAttempts: PushDeliveryAttemptRecord[] = [];
+  private readonly deviceTokens: DevicePushTokenRecord[] = [];
   private readonly now: () => Date;
   private readonly createId: () => string;
 
@@ -136,6 +147,68 @@ export class InMemoryNotificationsRepository
     this.pushAttempts.push(record);
     return structuredClone(record);
   }
+
+  async registerDeviceToken(
+    userId: string,
+    input: RegisterDeviceTokenInput,
+  ): Promise<DevicePushTokenRecord> {
+    const existing = this.deviceTokens.find(
+      item => item.userId === userId && item.token === input.pushToken,
+    );
+    if (existing) {
+      existing.deviceId = input.deviceId;
+      existing.isActive = true;
+      existing.lastUsedAtIso = this.now().toISOString();
+      existing.updatedAtIso = this.now().toISOString();
+      return structuredClone(existing);
+    }
+
+    // Deactivate other tokens for this user on the same device
+    const sameDevice = this.deviceTokens.filter(
+      item => item.userId === userId && item.deviceId === input.deviceId && item.isActive,
+    );
+    for (const item of sameDevice) {
+      item.isActive = false;
+      item.updatedAtIso = this.now().toISOString();
+    }
+
+    const record: DevicePushTokenRecord = {
+      id: this.createId(),
+      userId,
+      token: input.pushToken,
+      platform: input.platform,
+      deviceId: input.deviceId,
+      isActive: true,
+      lastUsedAtIso: this.now().toISOString(),
+      createdAtIso: this.now().toISOString(),
+      updatedAtIso: this.now().toISOString(),
+    };
+    this.deviceTokens.push(record);
+    return structuredClone(record);
+  }
+
+  async listActiveDevicePushTokens(
+    userId: string,
+  ): Promise<DevicePushTokenRecord[]> {
+    return this.deviceTokens
+      .filter(item => item.userId === userId && item.isActive)
+      .map(item => structuredClone(item));
+  }
+
+  async deactivateDevicePushToken(
+    userId: string,
+    token: string,
+  ): Promise<boolean> {
+    const item = this.deviceTokens.find(
+      item => item.userId === userId && item.token === token,
+    );
+    if (!item || !item.isActive) {
+      return false;
+    }
+    item.isActive = false;
+    item.updatedAtIso = this.now().toISOString();
+    return true;
+  }
 }
 
 type PrismaInboxMessageRow = {
@@ -163,6 +236,18 @@ type PrismaPushAttemptRow = {
   providerMessageId: string | null;
   errorMessage: string | null;
   createdAt: Date;
+};
+
+type PrismaDevicePushTokenRow = {
+  id: string;
+  userId: string;
+  token: string;
+  platform: 'ios' | 'android';
+  deviceId: string;
+  isActive: boolean;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type PrismaNotificationsClient = {
@@ -228,6 +313,38 @@ export type PrismaNotificationsClient = {
         errorMessage?: string | null;
       };
     }): Promise<PrismaPushAttemptRow>;
+  };
+  devicePushToken: {
+    create(args: {
+      data: {
+        userId: string;
+        token: string;
+        platform: 'ios' | 'android';
+        deviceId: string;
+        isActive?: boolean;
+        lastUsedAt?: Date | null;
+      };
+    }): Promise<PrismaDevicePushTokenRow>;
+    findMany(args: {
+      where: { userId: string; isActive: boolean };
+      orderBy: { createdAt: 'desc' };
+    }): Promise<PrismaDevicePushTokenRow[]>;
+    findFirst(args: {
+      where: { userId: string; token: string };
+    }): Promise<PrismaDevicePushTokenRow | null>;
+    update(args: {
+      where: { id: string };
+      data: {
+        deviceId?: string;
+        isActive: boolean;
+        lastUsedAt?: Date;
+        updatedAt: Date;
+      };
+    }): Promise<PrismaDevicePushTokenRow>;
+    updateMany(args: {
+      where: { userId: string; deviceId: string; isActive: boolean };
+      data: { isActive: boolean; updatedAt: Date };
+    }): Promise<{ count: number }>;
   };
 };
 
@@ -346,6 +463,72 @@ export class PrismaNotificationsRepository implements NotificationsRepository {
       createdAtIso: record.createdAt.toISOString(),
     };
   }
+
+  async registerDeviceToken(
+    userId: string,
+    input: RegisterDeviceTokenInput,
+  ): Promise<DevicePushTokenRecord> {
+    const existing = await this.prisma.devicePushToken.findFirst({
+      where: { userId, token: input.pushToken },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.devicePushToken.update({
+        where: { id: existing.id },
+        data: {
+          deviceId: input.deviceId,
+          isActive: true,
+          lastUsedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+      return mapDevicePushToken(updated);
+    }
+
+    // Deactivate other tokens on the same device
+    await this.prisma.devicePushToken.updateMany({
+      where: { userId, deviceId: input.deviceId, isActive: true },
+      data: { isActive: false, updatedAt: new Date() },
+    });
+
+    const record = await this.prisma.devicePushToken.create({
+      data: {
+        userId,
+        token: input.pushToken,
+        platform: input.platform,
+        deviceId: input.deviceId,
+        isActive: true,
+      },
+    });
+    return mapDevicePushToken(record);
+  }
+
+  async listActiveDevicePushTokens(
+    userId: string,
+  ): Promise<DevicePushTokenRecord[]> {
+    const records = await this.prisma.devicePushToken.findMany({
+      where: { userId, isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return records.map(mapDevicePushToken);
+  }
+
+  async deactivateDevicePushToken(
+    userId: string,
+    token: string,
+  ): Promise<boolean> {
+    const existing = await this.prisma.devicePushToken.findFirst({
+      where: { userId, token },
+    });
+    if (!existing || !existing.isActive) {
+      return false;
+    }
+    await this.prisma.devicePushToken.update({
+      where: { id: existing.id },
+      data: { isActive: false, updatedAt: new Date() },
+    });
+    return true;
+  }
 }
 
 function mapInboxMessage(record: PrismaInboxMessageRow): InboxMessageRecord {
@@ -362,6 +545,20 @@ function mapInboxMessage(record: PrismaInboxMessageRow): InboxMessageRecord {
     ...(record.referenceId ? { referenceId: record.referenceId } : {}),
     unread: record.unread,
     ...(record.readAt ? { readAtIso: record.readAt.toISOString() } : {}),
+    createdAtIso: record.createdAt.toISOString(),
+    updatedAtIso: record.updatedAt.toISOString(),
+  };
+}
+
+function mapDevicePushToken(record: PrismaDevicePushTokenRow): DevicePushTokenRecord {
+  return {
+    id: record.id,
+    userId: record.userId,
+    token: record.token,
+    platform: record.platform,
+    deviceId: record.deviceId,
+    isActive: record.isActive,
+    ...(record.lastUsedAt ? { lastUsedAtIso: record.lastUsedAt.toISOString() } : {}),
     createdAtIso: record.createdAt.toISOString(),
     updatedAtIso: record.updatedAt.toISOString(),
   };

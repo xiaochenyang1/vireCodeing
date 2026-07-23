@@ -6,6 +6,7 @@ import {
   Query,
   Req,
   UseGuards,
+  Body,
 } from '@nestjs/common';
 import {
   AccessTokenGuard,
@@ -20,6 +21,8 @@ import {
   listInboxMessagesQuerySchema,
   parseListInboxMessagesQuery,
   parseMessageId,
+  registerDeviceTokenBodySchema,
+  parseRegisterDeviceTokenBody,
 } from './notifications.validation';
 
 @Controller('me/messages')
@@ -65,6 +68,30 @@ export class NotificationsController {
       ),
       getRequestId(request),
     );
+  }
+
+  @Post('device-token')
+  async registerDeviceToken(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(registerDeviceTokenBodySchema))
+    body: unknown,
+  ) {
+    const currentUser = getCurrentUser(request);
+    const input = parseRegisterDeviceTokenBody(body);
+    const result = await this.notificationsService.registerDeviceToken(
+      currentUser.id,
+      input,
+    );
+    return ok(result, getRequestId(request));
+  }
+
+  @Get('device-tokens')
+  async listDeviceTokens(@Req() request: AuthenticatedRequest) {
+    const currentUser = getCurrentUser(request);
+    const tokens = await this.notificationsService.listDevicePushTokens(
+      currentUser.id,
+    );
+    return ok({ items: tokens }, getRequestId(request));
   }
 }
 
