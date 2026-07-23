@@ -4350,6 +4350,154 @@ paths:
                 message: Idempotency-Key 已被其他提现请求使用
                 requestId: req_local
                 timestamp: '2026-07-15T11:21:00.000Z'
+  /driver/bank-cards:
+    get:
+      summary: List current driver saved bank cards
+      description: Returns all saved bank cards for the current driver in created-desc order.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current driver bank cards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverBankCardListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Save a new bank card for current driver
+      description: Saves a new bank card. If isDefault is true, the current default card is unset first. Duplicate card numbers for the same driver are rejected.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDriverBankCardRequest'
+      responses:
+        '200':
+          description: Bank card saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverBankCardResponse'
+        '400':
+          description: Bank card request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /driver/bank-cards/{cardId}:
+    put:
+      summary: Update a saved bank card
+      description: Updates fields on an existing bank card. Only the owner driver can update. If isDefault is set to true, the current default is unset first.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-bank-card-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverBankCardRequest'
+      responses:
+        '200':
+          description: Bank card updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverBankCardResponse'
+        '400':
+          description: Bank card request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Bank card not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete a saved bank card
+      description: Deletes a saved bank card. Only the owner driver can delete.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-bank-card-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Bank card deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessEnvelope'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not a driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /driver/orders:
     get:
       summary: List accepted orders for current driver
@@ -7866,6 +8014,99 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DriverWithdrawalListResult'
+    DriverBankCard:
+      type: object
+      required: [id, bankAccountName, bankName, bankAccountMasked, isDefault, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+          example: driver-bank-card-1
+        bankAccountName:
+          type: string
+          example: 张三
+        bankName:
+          type: string
+          example: 中国工商银行
+        bankAccountMasked:
+          type: string
+          example: '**** **** **** 1234'
+        isDefault:
+          type: boolean
+          example: true
+        lastUsedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-23T10:00:00.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+        updatedAtIso:
+          type: string
+          format: date-time
+    DriverBankCardListResult:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverBankCard'
+        total:
+          type: integer
+          example: 2
+    DriverBankCardListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverBankCardListResult'
+    DriverBankCardResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/DriverBankCard'
+    CreateDriverBankCardRequest:
+      type: object
+      required: [bankAccountName, bankName, bankAccountNo]
+      properties:
+        bankAccountName:
+          type: string
+          minLength: 2
+          maxLength: 30
+          example: 张三
+        bankName:
+          type: string
+          minLength: 2
+          maxLength: 50
+          example: 中国工商银行
+        bankAccountNo:
+          type: string
+          pattern: '^\d{10,30}$'
+          example: '6222 0000 1111 2222'
+        isDefault:
+          type: boolean
+          example: false
+    UpdateDriverBankCardRequest:
+      type: object
+      properties:
+        bankAccountName:
+          type: string
+          minLength: 2
+          maxLength: 30
+        bankName:
+          type: string
+          minLength: 2
+          maxLength: 50
+        bankAccountNo:
+          type: string
+          pattern: '^\d{10,30}$'
+        isDefault:
+          type: boolean
     CreatePaymentRequest:
       type: object
       required: [channel]

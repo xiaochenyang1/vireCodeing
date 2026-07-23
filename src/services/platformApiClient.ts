@@ -69,6 +69,16 @@ export async function platformGet<TResponse>(
   }, options);
 }
 
+export async function platformDelete(
+  config: PlatformApiConfig,
+  path: string,
+  options: PlatformApiRequestOptions = {},
+): Promise<void> {
+  return platformRequest<void>(config, path, {
+    method: 'DELETE',
+  }, options);
+}
+
 async function platformRequest<TResponse>(
   config: PlatformApiConfig,
   path: string,

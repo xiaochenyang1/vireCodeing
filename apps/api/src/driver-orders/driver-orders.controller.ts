@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Param,
@@ -20,6 +21,7 @@ import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
+  CreateDriverBankCardRequest,
   CreateDriverWithdrawalRequest,
   DriverAcceptOrderRequest,
   DriverAdvanceOrderStatusRequest,
@@ -28,32 +30,37 @@ import type {
   DriverReplyEvaluationRequest,
   DriverReportExceptionRequest,
   SaveDriverAcceptanceSettingsRequest,
+  UpdateDriverBankCardRequest,
 } from './dto';
 import { DriverOrdersService } from './driver-orders.service';
 import { parseOrderIdempotencyKey } from '../orders/order-mutation-idempotency';
 import {
+  createDriverBankCardSchema,
+  createDriverWithdrawalSchema,
   driverAcceptOrderSchema,
   driverAdvanceOrderStatusSchema,
   driverEvaluateShipperSchema,
-  driverReplyEvaluationSchema,
-  createDriverWithdrawalSchema,
   driverMyOrdersQuerySchema,
   driverOrderHallQuerySchema,
-  driverWithdrawalsQuerySchema,
   driverQuoteOrderSchema,
+  driverReplyEvaluationSchema,
   driverReportExceptionSchema,
+  driverWithdrawalsQuerySchema,
+  parseCreateDriverBankCardRequest,
   parseCreateDriverWithdrawalRequest,
-  parseSaveDriverAcceptanceSettingsRequest,
+  parseDriverMyOrdersQuery,
+  parseDriverOrderHallQuery,
+  parseDriverWithdrawalsQuery,
+  parseUpdateDriverBankCardRequest,
   parseDriverAdvanceOrderStatusRequest,
   parseDriverAcceptOrderRequest,
   parseDriverEvaluateShipperRequest,
-  parseDriverMyOrdersQuery,
-  parseDriverOrderHallQuery,
   parseDriverQuoteOrderRequest,
   parseDriverReplyEvaluationRequest,
   parseDriverReportExceptionRequest,
-  parseDriverWithdrawalsQuery,
   saveDriverAcceptanceSettingsSchema,
+  parseSaveDriverAcceptanceSettingsRequest,
+  updateDriverBankCardSchema,
 } from './driver-orders.validation';
 
 @Controller()
@@ -137,6 +144,59 @@ export class DriverOrdersController {
       ),
       getRequestId(request),
     );
+  }
+
+  @Get('driver/bank-cards')
+  async listBankCards(@Req() request: AuthenticatedRequest) {
+    return ok(
+      await this.driverOrdersService.listBankCards(getCurrentDriver(request)),
+      getRequestId(request),
+    );
+  }
+
+  @Post('driver/bank-cards')
+  async createBankCard(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(createDriverBankCardSchema))
+    body: CreateDriverBankCardRequest,
+  ) {
+    return ok(
+      await this.driverOrdersService.createBankCard(
+        getCurrentDriver(request),
+        parseCreateDriverBankCardRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Put('driver/bank-cards/:cardId')
+  async updateBankCard(
+    @Req() request: AuthenticatedRequest,
+    @Param('cardId') cardId: string,
+    @Body(new ZodValidationPipe(updateDriverBankCardSchema))
+    body: UpdateDriverBankCardRequest,
+  ) {
+    return ok(
+      await this.driverOrdersService.updateBankCard(
+        getCurrentDriver(request),
+        cardId,
+        parseUpdateDriverBankCardRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Delete('driver/bank-cards/:cardId')
+  async deleteBankCard(
+    @Req() request: AuthenticatedRequest,
+    @Param('cardId') cardId: string,
+  ) {
+    await this.driverOrdersService.deleteBankCard(
+      getCurrentDriver(request),
+      cardId,
+    );
+
+    return ok(null, getRequestId(request));
   }
 
   @Post('driver/orders/:orderId/quote')

@@ -12,6 +12,10 @@ import {
   type PrismaDriverAcceptanceSettingsClient,
 } from './driver-acceptance-settings.repository';
 import {
+  PrismaDriverBankCardsRepository,
+  type PrismaDriverBankCardsClient,
+} from './driver-bank-cards.repository';
+import {
   PrismaDriverWithdrawalsRepository,
   type PrismaDriverWithdrawalsClient,
 } from './driver-withdrawals.repository';
@@ -64,6 +68,14 @@ import { DriverOrdersService } from './driver-orders.service';
       inject: [PrismaService],
     },
     {
+      provide: PrismaDriverBankCardsRepository,
+      useFactory: (prismaService: PrismaService) =>
+        new PrismaDriverBankCardsRepository(
+          prismaService as unknown as PrismaDriverBankCardsClient,
+        ),
+      inject: [PrismaService],
+    },
+    {
       provide: PrismaFilesRepository,
       useFactory: (prismaService: PrismaService) =>
         new PrismaFilesRepository(
@@ -93,6 +105,7 @@ import { DriverOrdersService } from './driver-orders.service';
         repository: PrismaOrdersRepository,
         certificationRepository: PrismaDriverCertificationRepository,
         acceptanceSettingsRepository: PrismaDriverAcceptanceSettingsRepository,
+        driverBankCardsRepository: PrismaDriverBankCardsRepository,
         driverWithdrawalsRepository: PrismaDriverWithdrawalsRepository,
         filesRepository: PrismaFilesRepository,
         driverFinanceRepository: PrismaDriverFinanceRepository,
@@ -103,6 +116,7 @@ import { DriverOrdersService } from './driver-orders.service';
           repository,
           certificationRepository,
           acceptanceSettingsRepository,
+          driverBankCardsRepository,
           driverWithdrawalsRepository,
           filesRepository,
           () => new Date(),
@@ -115,6 +129,7 @@ import { DriverOrdersService } from './driver-orders.service';
         PrismaOrdersRepository,
         PrismaDriverCertificationRepository,
         PrismaDriverAcceptanceSettingsRepository,
+        PrismaDriverBankCardsRepository,
         PrismaDriverWithdrawalsRepository,
         PrismaFilesRepository,
         PrismaDriverFinanceRepository,

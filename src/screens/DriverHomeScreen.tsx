@@ -15,6 +15,7 @@ import type {
   PlatformDriverAcceptanceSettings,
   PlatformDriverAcceptOrderRequest,
   PlatformDriverAdvanceOrderStatusRequest,
+  PlatformDriverBankCardRecord,
   PlatformDriverIncomeOverview,
   PlatformDriverReplyEvaluationRequest,
   PlatformDriverWithdrawalRecord,
@@ -102,6 +103,7 @@ import {
   omitDriverEvaluationReplyQueueItem,
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
+  type DriverBankCardFormState,
   type DriverCertificationFileFieldName,
   type DriverCertificationFormState,
   type DriverExceptionFormState,
@@ -352,6 +354,15 @@ export function DriverHomeScreen({
   const [withdrawalForm, setWithdrawalForm] =
     useState<DriverWithdrawalFormState>(emptyWithdrawalForm);
   const withdrawalIdempotencyKeyRef = useRef<string | undefined>(undefined);
+  const [bankCards, setBankCards] = useState<PlatformDriverBankCardRecord[]>([]);
+  const [bankCardForm, setBankCardForm] = useState<DriverBankCardFormState>({
+    bankAccountName: '',
+    bankName: '',
+    bankAccountNo: '',
+    isDefault: false,
+  });
+  const [editingBankCardId, setEditingBankCardId] = useState<string | undefined>();
+  const [showBankCardForm, setShowBankCardForm] = useState(false);
   const [certificationForm, setCertificationForm] =
     useState<DriverCertificationFormState>(emptyCertificationForm);
   const [certificationAttachments, setCertificationAttachments] =
@@ -498,12 +509,29 @@ export function DriverHomeScreen({
       });
   };
 
+  const refreshBankCards = () => {
+    if (!platformDriverOrderApi) {
+      setBankCards([]);
+      return;
+    }
+
+    platformDriverOrderApi
+      .listBankCards()
+      .then(result => {
+        setBankCards(Array.isArray(result.items) ? result.items : []);
+      })
+      .catch(() => {
+        setNotice('银行卡列表加载失败，请稍后重试。');
+      });
+  };
+
   useEffect(() => {
     refreshOrderHall();
     refreshMyOrders();
     refreshCertification();
     refreshAcceptanceSettings();
     refreshIncome();
+    refreshBankCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [platformDriverOrderApi, platformDriverCertificationApi, platformFileApi]);
 
@@ -1506,6 +1534,130 @@ export function DriverHomeScreen({
       });
   };
 
+  const openBankCardForm = (editId?: string) => {
+    if (editId) {
+      const card = bankCards.find(item => item.id === editId);
+      if (card) {
+        setBankCardForm({
+          bankAccountName: card.bankAccountMasked.includes('****')
+            ? ''
+            : card.bankAccountName,
+          bankName: card.bankName,
+          bankAccountNo: '',
+          isDefault: card.isDefault,
+        });
+        setEditingBankCardId(editId);
+      }
+    } else {
+      setBankCardForm({
+        bankAccountName: '',
+        bankName: '',
+        bankAccountNo: '',
+        isDefault: bankCards.length === 0,
+      });
+      setEditingBankCardId(undefined);
+    }
+    setShowBankCardForm(true);
+  };
+
+  const closeBankCardForm = () => {
+    setShowBankCardForm(false);
+    setEditingBankCardId(undefined);
+    setBankCardForm({
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNo: '',
+      isDefault: false,
+    });
+  };
+
+  const submitBankCard = () => {
+    if (!platformDriverOrderApi) {
+      setNotice('银行卡操作需要平台 API 配置。');
+      return;
+    }
+
+    const { bankAccountName, bankName, bankAccountNo, isDefault } = bankCardForm;
+
+    if (!bankAccountName.trim() || !bankName.trim() || !bankAccountNo.trim()) {
+      setNotice('请填写完整的银行卡信息。');
+      return;
+    }
+
+    if (bankAccountNo.replace(/\s/g, '').length < 16) {
+      setNotice('请输入有效的银行卡号。');
+      return;
+    }
+
+    const submitPromise = editingBankCardId
+      ? platformDriverOrderApi.updateBankCard(editingBankCardId, {
+          bankAccountName: bankAccountName.trim(),
+          bankName: bankName.trim(),
+          bankAccountNo: bankAccountNo.replace(/\s/g, ''),
+          isDefault,
+        })
+      : platformDriverOrderApi.createBankCard({
+          bankAccountName: bankAccountName.trim(),
+          bankName: bankName.trim(),
+          bankAccountNo: bankAccountNo.replace(/\s/g, ''),
+          isDefault,
+        });
+
+    submitPromise
+      .then(() => {
+        setNotice(editingBankCardId ? '银行卡已更新。' : '银行卡已添加。');
+        closeBankCardForm();
+        refreshBankCards();
+      })
+      .catch(() => {
+        setNotice(
+          editingBankCardId
+            ? '银行卡更新失败，请稍后重试。'
+            : '银行卡添加失败，请稍后重试。',
+        );
+      });
+  };
+
+  const deleteBankCardHandler = (cardId: string) => {
+    if (!platformDriverOrderApi) {
+      return;
+    }
+
+    const card = bankCards.find(item => item.id === cardId);
+    if (!card) {
+      return;
+    }
+
+    platformDriverOrderApi
+      .deleteBankCard(cardId)
+      .then(() => {
+        setNotice(`银行卡 ${card.bankName}（${card.bankAccountMasked}）已删除。`);
+        refreshBankCards();
+      })
+      .catch(() => {
+        setNotice('银行卡删除失败，请稍后重试。');
+      });
+  };
+
+  const selectBankCard = (card: PlatformDriverBankCardRecord) => {
+    setWithdrawalForm(current => ({
+      ...current,
+      bankName: card.bankName,
+      bankAccountName: card.bankAccountName,
+      bankAccountNo: '',
+      bankCardId: card.id,
+    }));
+    setNotice(`已选择银行卡：${card.bankName}（${card.bankAccountMasked}）`);
+  };
+
+  const maskBankAccountNo = (accountNo: string): string => {
+    const digits = accountNo.replace(/\s/g, '');
+    if (digits.length <= 8) {
+      return digits;
+    }
+    return `${digits.slice(0, 4)} **** **** ${digits.slice(-4)}`;
+  };
+
   const visibleOrders = filterDriverOrderHallOrders(
     orderHallOrders,
     acceptanceSettings,
@@ -1688,6 +1840,7 @@ export function DriverHomeScreen({
           refreshMyOrders();
           refreshAcceptanceSettings();
           refreshIncome();
+          refreshBankCards();
         }}
       >
         <Text style={styles.detailPrimaryButtonText}>刷新订单</Text>
@@ -1940,6 +2093,222 @@ export function DriverHomeScreen({
         ) : (
           <Text style={styles.detailMeta}>暂无提现记录。</Text>
         )}
+      </View>
+
+      <View style={styles.detailCard}>
+        <Text testID="driver-bank-cards-title" style={styles.detailRoute}>
+          我的银行卡
+        </Text>
+        {bankCards.length ? (
+          bankCards.map(card => (
+            <View
+              key={card.id}
+              style={
+                editingBankCardId === card.id
+                  ? styles.detailNoticeCard
+                  : styles.detailInlineGroup
+              }
+            >
+              {editingBankCardId === card.id ? (
+                <>
+                  <TextInput
+                    testID={`driver-bank-card-edit-name-${card.id}`}
+                    style={styles.ordersSearchInput}
+                    placeholder="开户银行"
+                    placeholderTextColor={colors.textMuted}
+                    value={bankCardForm.bankName}
+                    onChangeText={bankName =>
+                      setBankCardForm(current => ({
+                        ...current,
+                        bankName: bankName,
+                      }))
+                    }
+                  />
+                  <TextInput
+                    testID={`driver-bank-card-edit-account-name-${card.id}`}
+                    style={styles.ordersSearchInput}
+                    placeholder="收款人姓名"
+                    placeholderTextColor={colors.textMuted}
+                    value={bankCardForm.bankAccountName}
+                    onChangeText={bankAccountName =>
+                      setBankCardForm(current => ({
+                        ...current,
+                        bankAccountName: bankAccountName,
+                      }))
+                    }
+                  />
+                  <TextInput
+                    testID={`driver-bank-card-edit-account-no-${card.id}`}
+                    style={styles.ordersSearchInput}
+                    placeholder="银行卡号（留空不修改）"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="numeric"
+                    value={bankCardForm.bankAccountNo}
+                    onChangeText={bankAccountNo =>
+                      setBankCardForm(current => ({
+                        ...current,
+                        bankAccountNo: bankAccountNo,
+                      }))
+                    }
+                  />
+                  <Pressable
+                    testID={`driver-bank-card-edit-submit-${card.id}`}
+                    style={styles.detailSecondaryButton}
+                    onPress={submitBankCard}
+                  >
+                    <Text style={styles.detailSecondaryButtonText}>
+                      保存修改
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`driver-bank-card-edit-cancel-${card.id}`}
+                    style={styles.detailSecondaryButton}
+                    onPress={closeBankCardForm}
+                  >
+                    <Text style={styles.detailSecondaryButtonText}>
+                      取消
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.detailRoute}>
+                      {`${card.bankName} · ${card.bankAccountMasked}`}
+                    </Text>
+                    {card.isDefault ? (
+                      <Text
+                        style={[
+                          styles.detailMeta,
+                          { marginLeft: 8, color: colors.teal },
+                        ]}
+                      >
+                        默认
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      marginTop: 4,
+                    }}
+                  >
+                    <Pressable
+                      testID={`driver-bank-card-select-${card.id}`}
+                      style={styles.detailSecondaryButton}
+                      onPress={() => selectBankCard(card)}
+                    >
+                      <Text style={styles.detailSecondaryButtonText}>
+                        用于提现
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      testID={`driver-bank-card-edit-${card.id}`}
+                      style={styles.detailSecondaryButton}
+                      onPress={() => openBankCardForm(card.id)}
+                    >
+                      <Text style={styles.detailSecondaryButtonText}>
+                        编辑
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      testID={`driver-bank-card-delete-${card.id}`}
+                      style={[
+                        styles.detailSecondaryButton,
+                        { backgroundColor: '#FF3B30' },
+                      ]}
+                      onPress={() => deleteBankCardHandler(card.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.detailSecondaryButtonText,
+                          { color: '#FFF' },
+                        ]}
+                      >
+                        删除
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
+            </View>
+          ))
+        ) : (
+          <Text style={styles.detailMeta}>暂无绑定银行卡。</Text>
+        )}
+        {showBankCardForm && editingBankCardId === undefined ? (
+          <View style={styles.detailNoticeCard}>
+            <TextInput
+              testID="driver-bank-card-bank-name"
+              style={styles.ordersSearchInput}
+              placeholder="开户银行"
+              placeholderTextColor={colors.textMuted}
+              value={bankCardForm.bankName}
+              onChangeText={bankName =>
+                setBankCardForm(current => ({
+                  ...current,
+                  bankName: bankName,
+                }))
+              }
+            />
+            <TextInput
+              testID="driver-bank-card-account-name"
+              style={styles.ordersSearchInput}
+              placeholder="收款人姓名"
+              placeholderTextColor={colors.textMuted}
+              value={bankCardForm.bankAccountName}
+              onChangeText={bankAccountName =>
+                setBankCardForm(current => ({
+                  ...current,
+                  bankAccountName: bankAccountName,
+                }))
+              }
+            />
+            <TextInput
+              testID="driver-bank-card-account-no"
+              style={styles.ordersSearchInput}
+              placeholder="银行卡号"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="numeric"
+              value={bankCardForm.bankAccountNo}
+              onChangeText={bankAccountNo =>
+                setBankCardForm(current => ({
+                  ...current,
+                  bankAccountNo: bankAccountNo,
+                }))
+              }
+            />
+            <Pressable
+              testID="driver-bank-card-submit"
+              style={styles.detailPrimaryButton}
+              onPress={submitBankCard}
+            >
+              <Text style={styles.detailPrimaryButtonText}>
+                添加银行卡
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="driver-bank-card-cancel"
+              style={styles.detailSecondaryButton}
+              onPress={closeBankCardForm}
+            >
+              <Text style={styles.detailSecondaryButtonText}>取消</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {!showBankCardForm ? (
+          <Pressable
+            testID="driver-bank-card-add"
+            style={styles.detailSecondaryButton}
+            onPress={() => openBankCardForm()}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              添加银行卡
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.detailCard}>

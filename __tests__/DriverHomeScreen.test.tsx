@@ -111,6 +111,10 @@ function createMockDriverOrderApi() {
       .fn()
       .mockResolvedValue(createDriverWithdrawalsPage()),
     createWithdrawal: jest.fn(),
+    listBankCards: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+    createBankCard: jest.fn(),
+    updateBankCard: jest.fn(),
+    deleteBankCard: jest.fn(),
     getAcceptanceSettings: jest
       .fn()
       .mockResolvedValue(createDriverAcceptanceSettingsSnapshot()),

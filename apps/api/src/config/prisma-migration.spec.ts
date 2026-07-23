@@ -323,6 +323,25 @@ describe('Prisma initial migration', () => {
     );
   });
 
+  it('contains driver bank cards storage', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TABLE "DriverBankCard"');
+    expect(sql).toContain('"bankAccountName" TEXT NOT NULL');
+    expect(sql).toContain('"bankName" TEXT NOT NULL');
+    expect(sql).toContain('"bankAccountNo" TEXT NOT NULL');
+    expect(sql).toContain('"isDefault" BOOLEAN NOT NULL DEFAULT false');
+    expect(sql).toContain(
+      'CREATE INDEX "DriverBankCard_driver_created_idx"',
+    );
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "DriverBankCard_driver_account_unique"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "DriverBankCard_driverId_fkey"',
+    );
+  });
+
   it('contains payment settlement and financial ledger storage', () => {
     const sql = readAllMigrations();
 

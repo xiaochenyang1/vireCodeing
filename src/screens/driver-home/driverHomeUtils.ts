@@ -1,13 +1,16 @@
 import { vehicleRequirementOptions } from '../../data/mockData';
 import type {
+  PlatformCreateDriverBankCardRequest,
+  PlatformCreateDriverWithdrawalRequest,
   PlatformDriverAcceptanceSettings,
   PlatformDriverAdvanceOrderStatusRequest,
-  PlatformCreateDriverWithdrawalRequest,
+  PlatformDriverBankCardRecord,
   PlatformDriverEvaluateShipperRequest,
   PlatformDriverExecutingOrderStatus,
   PlatformDriverQuoteOrderRequest,
   PlatformDriverReportExceptionRequest,
   PlatformSaveDriverAcceptanceSettingsRequest,
+  PlatformUpdateDriverBankCardRequest,
   PlatformDriverWithdrawalRecord,
 } from '../../services/platformDriverOrderApi';
 import type { PlatformDriverCertificationSnapshot } from '../../services/platformDriverCertificationApi';
@@ -57,6 +60,22 @@ export type DriverWithdrawalFormState = {
   bankAccountName: string;
   bankName: string;
   bankAccountNo: string;
+  selectedBankCardId?: string;
+};
+
+export type DriverBankCardFormState = {
+  bankAccountName: string;
+  bankName: string;
+  bankAccountNo: string;
+  isDefault: boolean;
+};
+
+export type DriverBankCardsState = {
+  items: PlatformDriverBankCardRecord[];
+  total: number;
+  editingCardId?: string;
+  editingForm: DriverBankCardFormState;
+  isFormVisible: boolean;
 };
 
 export type DriverShipperEvaluationFormState = {

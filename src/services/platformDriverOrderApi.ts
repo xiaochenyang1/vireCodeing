@@ -1,5 +1,6 @@
 import {
   PlatformApiError,
+  platformDelete,
   platformGet,
   platformPost,
   platformPut,
@@ -117,6 +118,7 @@ export type PlatformCreateDriverWithdrawalRequest = {
   bankAccountName: string;
   bankName: string;
   bankAccountNo: string;
+  bankCardId?: string;
 };
 
 export type PlatformDriverWithdrawalStatus = 'reviewing' | 'paid' | 'rejected';
@@ -130,6 +132,9 @@ export type PlatformDriverWithdrawalRecord = {
   bankAccountMasked: string;
   status: PlatformDriverWithdrawalStatus;
   rejectionReason?: string;
+  payoutChannel?: string;
+  providerPayoutNo?: string;
+  payoutExecutedAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
 };
@@ -138,6 +143,36 @@ export type PlatformDriverWithdrawalsResult = {
   items: PlatformDriverWithdrawalRecord[];
   page: number;
   pageSize: number;
+  total: number;
+};
+
+export type PlatformDriverBankCardRecord = {
+  id: string;
+  bankAccountName: string;
+  bankName: string;
+  bankAccountMasked: string;
+  isDefault: boolean;
+  lastUsedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type PlatformCreateDriverBankCardRequest = {
+  bankAccountName: string;
+  bankName: string;
+  bankAccountNo: string;
+  isDefault?: boolean;
+};
+
+export type PlatformUpdateDriverBankCardRequest = {
+  bankAccountName?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  isDefault?: boolean;
+};
+
+export type PlatformDriverBankCardsResult = {
+  items: PlatformDriverBankCardRecord[];
   total: number;
 };
 
@@ -210,6 +245,38 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         normalizedRequest,
         createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
+    },
+    async listBankCards() {
+      return platformGet<PlatformDriverBankCardsResult>(
+        config,
+        '/driver/bank-cards',
+      );
+    },
+    async createBankCard(request: PlatformCreateDriverBankCardRequest) {
+      const normalizedRequest = normalizeDriverBankCardRequest(request);
+      return platformPost<
+        PlatformCreateDriverBankCardRequest,
+        PlatformDriverBankCardRecord
+      >(config, '/driver/bank-cards', normalizedRequest);
+    },
+    async updateBankCard(
+      cardId: string,
+      request: PlatformUpdateDriverBankCardRequest,
+    ) {
+      const normalizedCardId = normalizeDriverBankCardId(cardId);
+      const normalizedRequest = normalizeDriverBankCardUpdateRequest(request);
+      return platformPut<
+        PlatformUpdateDriverBankCardRequest,
+        PlatformDriverBankCardRecord
+      >(
+        config,
+        `/driver/bank-cards/${normalizedCardId}`,
+        normalizedRequest,
+      );
+    },
+    async deleteBankCard(cardId: string) {
+      const normalizedCardId = normalizeDriverBankCardId(cardId);
+      return platformDelete(config, `/driver/bank-cards/${normalizedCardId}`);
     },
     getAcceptanceSettings() {
       return platformGet<PlatformDriverAcceptanceSettings>(
@@ -866,7 +933,127 @@ function normalizeDriverWithdrawalRequest(
     bankAccountName,
     bankName,
     bankAccountNo,
+    ...(request.bankCardId ? { bankCardId: request.bankCardId } : {}),
   };
+}
+
+function normalizeDriverBankCardRequest(
+  request: PlatformCreateDriverBankCardRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throwInvalidBankCardRequest(
+      'Platform driver bank card request must be an object',
+    );
+  }
+
+  const bankAccountName = normalizeRequiredDriverString(
+    request.bankAccountName,
+    'bankAccountName',
+    'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID',
+    30,
+  );
+  const bankName = normalizeRequiredDriverString(
+    request.bankName,
+    'bankName',
+    'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID',
+    50,
+  );
+  const bankAccountNo = normalizeRequiredDriverString(
+    request.bankAccountNo,
+    'bankAccountNo',
+    'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID',
+    40,
+  ).replace(/\s+/g, '');
+
+  if (bankAccountName.length < 2) {
+    throwInvalidBankCardRequest('Platform driver bankAccountName is invalid');
+  }
+
+  if (bankName.length < 2) {
+    throwInvalidBankCardRequest('Platform driver bankName is invalid');
+  }
+
+  if (!/^\d{10,30}$/.test(bankAccountNo)) {
+    throwInvalidBankCardRequest('Platform driver bankAccountNo is invalid');
+  }
+
+  return {
+    bankAccountName,
+    bankName,
+    bankAccountNo,
+    ...(typeof request.isDefault === 'boolean' ? { isDefault: request.isDefault } : {}),
+  };
+}
+
+function normalizeDriverBankCardUpdateRequest(
+  request: PlatformUpdateDriverBankCardRequest,
+) {
+  if (
+    request === null ||
+    typeof request !== 'object' ||
+    Array.isArray(request)
+  ) {
+    throwInvalidBankCardRequest(
+      'Platform driver bank card update request must be an object',
+    );
+  }
+
+  const result: Record<string, unknown> = {};
+
+  if (request.bankAccountName !== undefined) {
+    const bankAccountName = typeof request.bankAccountName === 'string'
+      ? request.bankAccountName.trim()
+      : '';
+    if (bankAccountName.length >= 2) {
+      result.bankAccountName = bankAccountName;
+    }
+  }
+
+  if (request.bankName !== undefined) {
+    const bankName = typeof request.bankName === 'string'
+      ? request.bankName.trim()
+      : '';
+    if (bankName.length >= 2) {
+      result.bankName = bankName;
+    }
+  }
+
+  if (request.bankAccountNo !== undefined) {
+    const bankAccountNo = typeof request.bankAccountNo === 'string'
+      ? request.bankAccountNo.replace(/\s+/g, '')
+      : '';
+    if (/^\d{10,30}$/.test(bankAccountNo)) {
+      result.bankAccountNo = bankAccountNo;
+    }
+  }
+
+  if (typeof request.isDefault === 'boolean') {
+    result.isDefault = request.isDefault;
+  }
+
+  return result;
+}
+
+function normalizeDriverBankCardId(cardId: unknown): string {
+  const normalizedId = typeof cardId === 'string' ? cardId.trim() : '';
+  if (!normalizedId) {
+    throw new PlatformApiError(
+      'Platform driver bank card ID is invalid',
+      'PLATFORM_DRIVER_BANK_CARD_ID_INVALID',
+      0,
+    );
+  }
+  return normalizedId;
+}
+
+function throwInvalidBankCardRequest(message: string): never {
+  throw new PlatformApiError(message, 'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID', 0);
 }
 
 function normalizeOptionalDriverFileIds(

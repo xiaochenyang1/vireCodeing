@@ -136,6 +136,7 @@ export type CreateDriverWithdrawalRequest = {
   bankAccountName: string;
   bankName: string;
   bankAccountNo: string;
+  bankCardId?: string;
 };
 
 export type DriverWithdrawalRecord = {
@@ -158,5 +159,35 @@ export type DriverWithdrawalListResult = {
   items: DriverWithdrawalRecord[];
   page: number;
   pageSize: number;
+  total: number;
+};
+
+export type DriverBankCardRecord = {
+  id: string;
+  bankAccountName: string;
+  bankName: string;
+  bankAccountMasked: string;
+  isDefault: boolean;
+  lastUsedAtIso?: string;
+  createdAtIso: string;
+  updatedAtIso: string;
+};
+
+export type CreateDriverBankCardRequest = {
+  bankAccountName: string;
+  bankName: string;
+  bankAccountNo: string;
+  isDefault?: boolean;
+};
+
+export type UpdateDriverBankCardRequest = {
+  bankAccountName?: string;
+  bankName?: string;
+  bankAccountNo?: string;
+  isDefault?: boolean;
+};
+
+export type DriverBankCardListResult = {
+  items: DriverBankCardRecord[];
   total: number;
 };

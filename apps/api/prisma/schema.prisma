@@ -141,6 +141,7 @@ model User {
   driverAcceptanceSettings    DriverAcceptanceSettings?
   driverWithdrawals           DriverWithdrawal[]            @relation("DriverWithdrawals")
   processedDriverWithdrawals  DriverWithdrawal[]            @relation("DriverWithdrawalProcessor")
+  driverBankCards             DriverBankCard[]              @relation("DriverBankCards")
   assignedDriverOrders        Order[]                       @relation("AssignedDriverOrders")
   paymentOrders               PaymentOrder[]
   refunds                     Refund[]
@@ -685,6 +686,22 @@ model DriverWithdrawal {
   @@unique([driverId, idempotencyKey], name: "DriverWithdrawal_driver_idempotency_key_unique")
   @@index([status, createdAt], name: "DriverWithdrawal_status_created_idx")
   @@index([providerPayoutNo], name: "DriverWithdrawal_provider_payout_no_idx")
+}
+
+model DriverBankCard {
+  id              String   @id @default(uuid())
+  driverId        String
+  bankAccountName String
+  bankName        String
+  bankAccountNo   String
+  isDefault       Boolean  @default(false)
+  lastUsedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  driver          User     @relation("DriverBankCards", fields: [driverId], references: [id])
+
+  @@index([driverId, createdAt], name: "DriverBankCard_driver_created_idx")
+  @@unique([driverId, bankAccountNo], name: "DriverBankCard_driver_account_unique")
 }
 
 model PaymentOrder {

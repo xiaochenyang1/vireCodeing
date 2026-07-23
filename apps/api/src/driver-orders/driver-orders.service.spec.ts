@@ -7,6 +7,7 @@ import { InMemoryDriverFinanceRepository } from '../payments/driver-finance.repo
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import type { DriverLocationSnapshotRecord } from '../maps/dto';
 import { InMemoryDriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
+import { InMemoryDriverBankCardsRepository } from './driver-bank-cards.repository';
 import {
   InMemoryDriverWithdrawalsRepository,
   PrismaDriverWithdrawalsRepository,
@@ -66,6 +67,9 @@ describe('DriverOrdersService', () => {
     });
     const acceptanceSettingsRepository =
       new InMemoryDriverAcceptanceSettingsRepository(() => now);
+    const driverBankCardsRepository = new InMemoryDriverBankCardsRepository(
+      () => now,
+    );
     const filesRepository = new InMemoryFilesRepository(() => now);
     const driverWithdrawalsRepository = new InMemoryDriverWithdrawalsRepository(
       () => now,
@@ -77,6 +81,7 @@ describe('DriverOrdersService', () => {
 
     return {
       acceptanceSettingsRepository,
+      driverBankCardsRepository,
       certificationRepository,
       driverFinanceRepository,
       driverWithdrawalsRepository,
@@ -86,6 +91,7 @@ describe('DriverOrdersService', () => {
         repository,
         certificationRepository,
         acceptanceSettingsRepository,
+        driverBankCardsRepository,
         driverWithdrawalsRepository,
         filesRepository,
         () => now,
@@ -278,6 +284,7 @@ describe('DriverOrdersService', () => {
         vehicleStatus: 'approved',
       }),
       acceptanceSettingsRepository,
+      new InMemoryDriverBankCardsRepository(() => now),
       new InMemoryDriverWithdrawalsRepository(() => now),
       undefined,
       () => now,
@@ -319,6 +326,7 @@ describe('DriverOrdersService', () => {
         vehicleStatus: 'approved',
       }),
       acceptanceSettingsRepository,
+      new InMemoryDriverBankCardsRepository(() => now),
       new InMemoryDriverWithdrawalsRepository(() => now),
       undefined,
       () => now,
@@ -398,6 +406,7 @@ describe('DriverOrdersService', () => {
         vehicleStatus: 'unsubmitted',
       }),
       acceptanceSettingsRepository,
+      new InMemoryDriverBankCardsRepository(() => now),
       new InMemoryDriverWithdrawalsRepository(() => now),
       undefined,
       () => now,
@@ -1316,6 +1325,7 @@ describe('DriverOrdersService', () => {
         vehicleStatus: 'approved',
       }),
       new InMemoryDriverAcceptanceSettingsRepository(() => now),
+      new InMemoryDriverBankCardsRepository(() => now),
       new InMemoryDriverWithdrawalsRepository(() => now),
       undefined,
       () => now,

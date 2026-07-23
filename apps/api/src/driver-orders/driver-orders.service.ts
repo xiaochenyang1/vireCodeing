@@ -17,17 +17,21 @@ import type {
 } from '../orders/orders.repository';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { DriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
+import type { DriverBankCardsRepository } from './driver-bank-cards.repository';
 import type { DriverWithdrawalsRepository } from './driver-withdrawals.repository';
 import type {
-  DriverAcceptOrderEventPayload,
+  CreateDriverBankCardRequest,
   CreateDriverWithdrawalRequest,
+  DriverAcceptOrderEventPayload,
   DriverAcceptOrderRequest,
   DriverAdvanceOrderStatusRequest,
-  DriverOrderEventSnapshot,
+  DriverBankCardListResult,
+  DriverBankCardRecord,
   DriverEvaluateShipperRequest,
   DriverIncomeOverview,
   DriverMyOrdersQuery,
   DriverMyOrdersResult,
+  DriverOrderEventSnapshot,
   DriverOrderHallQuery,
   DriverOrderHallResult,
   DriverQuoteOrderEventPayload,
@@ -37,6 +41,7 @@ import type {
   DriverWithdrawalListResult,
   DriverWithdrawalsQuery,
   SaveDriverAcceptanceSettingsRequest,
+  UpdateDriverBankCardRequest,
 } from './dto';
 
 export class DriverOrdersService {
@@ -44,6 +49,7 @@ export class DriverOrdersService {
     private readonly ordersRepository: OrdersRepository,
     private readonly certificationRepository: DriverCertificationRepository,
     private readonly acceptanceSettingsRepository: DriverAcceptanceSettingsRepository,
+    private readonly driverBankCardsRepository: DriverBankCardsRepository,
     private readonly driverWithdrawalsRepository: DriverWithdrawalsRepository,
     private readonly filesRepository?: FilesRepository,
     private readonly now: () => Date = () => new Date(),
@@ -174,6 +180,49 @@ export class DriverOrdersService {
           '可提现余额不足',
         );
     }
+  }
+
+  async listBankCards(
+    currentUser: AuthenticatedUser,
+  ): Promise<DriverBankCardListResult> {
+    this.assertDriver(currentUser);
+
+    return this.driverBankCardsRepository.listBankCards(currentUser.id);
+  }
+
+  async createBankCard(
+    currentUser: AuthenticatedUser,
+    input: CreateDriverBankCardRequest,
+  ): Promise<DriverBankCardRecord> {
+    this.assertDriver(currentUser);
+
+    return this.driverBankCardsRepository.createBankCard(
+      currentUser.id,
+      input,
+    );
+  }
+
+  async updateBankCard(
+    currentUser: AuthenticatedUser,
+    cardId: string,
+    input: UpdateDriverBankCardRequest,
+  ): Promise<DriverBankCardRecord> {
+    this.assertDriver(currentUser);
+
+    return this.driverBankCardsRepository.updateBankCard(
+      currentUser.id,
+      cardId,
+      input,
+    );
+  }
+
+  async deleteBankCard(
+    currentUser: AuthenticatedUser,
+    cardId: string,
+  ): Promise<void> {
+    this.assertDriver(currentUser);
+
+    await this.driverBankCardsRepository.deleteBankCard(currentUser.id, cardId);
   }
 
   async quoteOrder(

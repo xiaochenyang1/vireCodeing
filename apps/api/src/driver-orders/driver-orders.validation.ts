@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  CreateDriverBankCardRequest,
   CreateDriverWithdrawalRequest,
   DriverAcceptOrderRequest,
   DriverAdvanceOrderStatusRequest,
@@ -11,6 +12,7 @@ import type {
   DriverReportExceptionRequest,
   DriverWithdrawalsQuery,
   SaveDriverAcceptanceSettingsRequest,
+  UpdateDriverBankCardRequest,
 } from './dto';
 
 const driverExecutingOrderStatuses = [
@@ -214,7 +216,58 @@ export const createDriverWithdrawalSchema = z.object({
     .min(2, '开户银行不能为空')
     .max(50, '开户银行最多 50 个字符'),
   bankAccountNo: normalizedBankAccountNoSchema,
+  bankCardId: z.string().trim().uuid().optional(),
 });
+
+export const createDriverBankCardSchema = z.object({
+  bankAccountName: z
+    .string()
+    .trim()
+    .min(2, '收款人姓名不能为空')
+    .max(30, '收款人姓名最多 30 个字符'),
+  bankName: z
+    .string()
+    .trim()
+    .min(2, '开户银行不能为空')
+    .max(50, '开户银行最多 50 个字符'),
+  bankAccountNo: normalizedBankAccountNoSchema,
+  isDefault: z.boolean().optional(),
+});
+
+export const updateDriverBankCardSchema = z.object({
+  bankAccountName: z
+    .string()
+    .trim()
+    .min(2, '收款人姓名不能为空')
+    .max(30, '收款人姓名最多 30 个字符')
+    .optional(),
+  bankName: z
+    .string()
+    .trim()
+    .min(2, '开户银行不能为空')
+    .max(50, '开户银行最多 50 个字符')
+    .optional(),
+  bankAccountNo: normalizedBankAccountNoSchema.optional(),
+  isDefault: z.boolean().optional(),
+});
+
+export function parseCreateDriverWithdrawalRequest(
+  input: unknown,
+): CreateDriverWithdrawalRequest {
+  return createDriverWithdrawalSchema.parse(input);
+}
+
+export function parseCreateDriverBankCardRequest(
+  input: unknown,
+): CreateDriverBankCardRequest {
+  return createDriverBankCardSchema.parse(input);
+}
+
+export function parseUpdateDriverBankCardRequest(
+  input: unknown,
+): UpdateDriverBankCardRequest {
+  return updateDriverBankCardSchema.parse(input);
+}
 
 export function parseDriverOrderHallQuery(
   input: unknown,
@@ -272,10 +325,4 @@ export function parseSaveDriverAcceptanceSettingsRequest(
   input: unknown,
 ): SaveDriverAcceptanceSettingsRequest {
   return saveDriverAcceptanceSettingsSchema.parse(input);
-}
-
-export function parseCreateDriverWithdrawalRequest(
-  input: unknown,
-): CreateDriverWithdrawalRequest {
-  return createDriverWithdrawalSchema.parse(input);
 }
