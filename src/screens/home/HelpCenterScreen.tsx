@@ -21,17 +21,22 @@ export function HelpCenterScreen({
   ticketsTitle = '本地工单',
   modeBadgeText = '本地版',
   canUpdateTicketStatus = true,
+  canRefreshPlatformTickets = false,
   isSubmittingTicket = false,
+  isRefreshingPlatformTickets = false,
   onBackHome,
   onSubmitTicket,
   onUpdateTicketStatus,
+  onRefreshPlatformTickets,
 }: {
   supportTickets: SupportTicket[];
   noticeText?: string;
   ticketsTitle?: string;
   modeBadgeText?: string;
   canUpdateTicketStatus?: boolean;
+  canRefreshPlatformTickets?: boolean;
   isSubmittingTicket?: boolean;
+  isRefreshingPlatformTickets?: boolean;
   onBackHome: () => void;
   onSubmitTicket: (ticketDraft: SupportTicketDraft) => void;
   onUpdateTicketStatus: (
@@ -39,6 +44,7 @@ export function HelpCenterScreen({
     statusText: string,
     historyItem: SupportTicketStatusHistoryItem,
   ) => void;
+  onRefreshPlatformTickets?: () => void;
 }) {
   const [selectedChannel, setSelectedChannel] = useState<ServiceChannel>();
   const [ticketDescription, setTicketDescription] = useState('');
@@ -202,10 +208,29 @@ export function HelpCenterScreen({
         {ticketNotice ? (
           <Text style={styles.draftNotice}>{ticketNotice}</Text>
         ) : null}
+        {canRefreshPlatformTickets && onRefreshPlatformTickets ? (
+          <Pressable
+            testID="support-ticket-refresh-platform"
+            disabled={isRefreshingPlatformTickets}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              { marginTop: 8 },
+              pressed && styles.pressedButton,
+            ]}
+            onPress={() => onRefreshPlatformTickets()}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshingPlatformTickets ? '刷新中...' : '刷新平台工单'}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           testID="support-ticket-submit"
           disabled={isSubmittingTicket}
           style={({ pressed }) => [
+            canRefreshPlatformTickets && onRefreshPlatformTickets
+              ? { marginTop: 8 }
+              : null,
             styles.detailPrimaryButton,
             pressed && styles.pressedButton,
           ]}

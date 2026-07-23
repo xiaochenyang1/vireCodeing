@@ -9908,6 +9908,137 @@ test('loads platform support tickets when opening the help center', async () => 
   }
 });
 
+test('refreshes platform support tickets from the help center', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-refresh',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.refresh',
+          refreshToken: 'refresh.support-ticket.refresh',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-refresh',
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440020',
+            shipperId: 'user-support-ticket-refresh',
+            channelName: '投诉建议',
+            description: '平台工单初始状态',
+            status: 'pending',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+            ],
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:30:00.000Z',
+          },
+        ],
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-refresh',
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440020',
+            shipperId: 'user-support-ticket-refresh',
+            channelName: '投诉建议',
+            description: '平台工单刷新后状态',
+            status: 'resolved',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+              {
+                actionText: '客服已受理',
+                timestampIso: '2026-07-22T08:35:00.000Z',
+              },
+              {
+                actionText: '客服已处理',
+                timestampIso: '2026-07-22T08:38:00.000Z',
+              },
+            ],
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:38:00.000Z',
+          },
+        ],
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      getRenderedText(app),
+    ).toContain('刷新平台工单');
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-ticket-refresh-platform' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    const refreshedCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/support-tickets',
+      method: 'GET',
+    });
+
+    expect(refreshedCalls).toHaveLength(2);
+    expect(getFetchCallHeaders(refreshedCalls[0])).toMatchObject({
+      Authorization: 'Bearer access.support-ticket.refresh',
+    });
+    expect(getFetchCallHeaders(refreshedCalls[1])).toMatchObject({
+      Authorization: 'Bearer access.support-ticket.refresh',
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台工单刷新后状态');
+    expect(renderedText).toContain('处理状态：已处理');
+    expect(renderedText).toContain('处理记录：客服已处理 · 2 分钟前');
+    expect(getHomeLocalState().supportTickets[0]).toMatchObject({
+      id: '550e8400-e29b-41d4-a716-446655440020',
+      statusText: '已处理',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('keeps local fallback support tickets when platform help-center refresh succeeds', async () => {
   const originalFetch = globalThis.fetch;
   const now = new Date('2026-07-22T08:40:00.000Z').getTime();

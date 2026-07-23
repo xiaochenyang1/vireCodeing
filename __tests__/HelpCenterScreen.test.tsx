@@ -114,4 +114,37 @@ describe('HelpCenterScreen', () => {
       },
     );
   });
+
+  it('shows a manual platform ticket refresh action when enabled', async () => {
+    const onRefreshPlatformTickets = jest.fn();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <HelpCenterScreen
+          supportTickets={mixedTickets}
+          ticketsTitle="平台工单（含本地兜底）"
+          modeBadgeText="平台同步"
+          canUpdateTicketStatus={false}
+          canRefreshPlatformTickets
+          onBackHome={jest.fn()}
+          onSubmitTicket={jest.fn()}
+          onUpdateTicketStatus={jest.fn()}
+          onRefreshPlatformTickets={onRefreshPlatformTickets}
+        />,
+      );
+    });
+
+    expect(
+      getRenderedText(renderer),
+    ).toContain('刷新平台工单');
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'support-ticket-refresh-platform' })
+        .props.onPress();
+    });
+
+    expect(onRefreshPlatformTickets).toHaveBeenCalledTimes(1);
+  });
 });

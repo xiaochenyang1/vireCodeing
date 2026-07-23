@@ -362,8 +362,11 @@ export function HomeScreen({
     initialHomeState.syncState,
   );
   const hasLoadedPlatformFrequentRoutes = useRef(false);
-  const supportTicketRequestVersionRef = useRef(0);
+  const supportTicketLoadRequestVersionRef = useRef(0);
+  const supportTicketSubmitRequestVersionRef = useRef(0);
   const [isSubmittingPlatformSupportTicket, setIsSubmittingPlatformSupportTicket] =
+    useState(false);
+  const [isRefreshingPlatformSupportTickets, setIsRefreshingPlatformSupportTickets] =
     useState(false);
 
   const getCurrentHomeState = (): HomeDashboardLocalState => ({
@@ -606,22 +609,28 @@ export function HomeScreen({
       });
   };
 
-  useEffect(() => {
-    if (supportView !== 'help' || !platformSupportTicketsApi) {
+  const refreshPlatformSupportTickets = (source: 'open' | 'manual') => {
+    if (!platformSupportTicketsApi) {
       return;
     }
 
+    const requestVersion = ++supportTicketLoadRequestVersionRef.current;
+
     if (!getAuthSessionSnapshot()?.accessToken) {
+      setIsRefreshingPlatformSupportTickets(false);
       setSupportTicketNotice(supportTicketLoadMissingAuthMessage);
       return;
     }
 
-    const requestVersion = ++supportTicketRequestVersionRef.current;
+    if (source === 'manual') {
+      setSupportTicketNotice('');
+      setIsRefreshingPlatformSupportTickets(true);
+    }
 
     platformSupportTicketsApi
       .getSupportTickets()
       .then(result => {
-        if (requestVersion !== supportTicketRequestVersionRef.current) {
+        if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
           return;
         }
 
@@ -645,7 +654,7 @@ export function HomeScreen({
         );
       })
       .catch(error => {
-        if (requestVersion !== supportTicketRequestVersionRef.current) {
+        if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
           return;
         }
 
@@ -655,7 +664,23 @@ export function HomeScreen({
             ? supportTicketLoadMissingAuthMessage
             : supportTicketLoadFailureMessage,
         );
+      })
+      .finally(() => {
+        if (
+          source === 'manual' &&
+          requestVersion === supportTicketLoadRequestVersionRef.current
+        ) {
+          setIsRefreshingPlatformSupportTickets(false);
+        }
       });
+  };
+
+  useEffect(() => {
+    if (supportView !== 'help') {
+      return;
+    }
+
+    refreshPlatformSupportTickets('open');
   }, [now, platformSupportTicketsApi, supportView]);
 
   const openSupportView = (nextSupportView: HomeSupportView) => {
@@ -672,7 +697,7 @@ export function HomeScreen({
   };
 
   const submitSupportTicket = (ticketDraft: SupportTicketDraft) => {
-    const requestVersion = ++supportTicketRequestVersionRef.current;
+    const requestVersion = ++supportTicketSubmitRequestVersionRef.current;
     const submitLocalSupportTicket = (noticeText: string) => {
       const nextHomeState = createHomeSupportTicketSubmittedState(
         getHomeLocalState(),
@@ -702,7 +727,7 @@ export function HomeScreen({
     platformSupportTicketsApi
       .createSupportTicket(ticketDraft)
       .then(platformTicket => {
-        if (requestVersion !== supportTicketRequestVersionRef.current) {
+        if (requestVersion !== supportTicketSubmitRequestVersionRef.current) {
           return;
         }
 
@@ -727,7 +752,7 @@ export function HomeScreen({
         );
       })
       .catch(error => {
-        if (requestVersion !== supportTicketRequestVersionRef.current) {
+        if (requestVersion !== supportTicketSubmitRequestVersionRef.current) {
           return;
         }
 
@@ -739,7 +764,7 @@ export function HomeScreen({
         );
       })
       .finally(() => {
-        if (requestVersion === supportTicketRequestVersionRef.current) {
+        if (requestVersion === supportTicketSubmitRequestVersionRef.current) {
           setIsSubmittingPlatformSupportTicket(false);
         }
       });
@@ -947,10 +972,13 @@ export function HomeScreen({
         ticketsTitle={getSupportTicketsTitle(supportTicketMode, supportTickets)}
         modeBadgeText={getSupportTicketModeBadgeText(supportTicketMode)}
         canUpdateTicketStatus={supportTicketMode === 'local'}
+        canRefreshPlatformTickets={Boolean(platformSupportTicketsApi)}
         isSubmittingTicket={isSubmittingPlatformSupportTicket}
+        isRefreshingPlatformTickets={isRefreshingPlatformSupportTickets}
         onBackHome={backHome}
         onSubmitTicket={submitSupportTicket}
         onUpdateTicketStatus={updateSupportTicketStatus}
+        onRefreshPlatformTickets={() => refreshPlatformSupportTickets('manual')}
       />
     );
   }
