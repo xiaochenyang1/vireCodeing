@@ -167,6 +167,25 @@ function getDriverCertificationFileStatusText(
   }
 }
 
+function getDriverStatusBadgeColor(status: string): string {
+  switch (status) {
+    case 'loading':
+      return colors.teal;
+    case 'transporting':
+      return '#007AFF';
+    case 'confirming':
+      return '#FF9500';
+    case 'completed':
+      return colors.textMuted;
+    case 'waiting':
+      return colors.textSecondary;
+    case 'cancelled':
+      return '#FF3B30';
+    default:
+      return colors.textSecondary;
+  }
+}
+
 function getDriverCertificationSnapshotFileId(
   certification: PlatformDriverCertificationSnapshot | undefined,
   fieldName: DriverCertificationFileFieldName,
@@ -2851,9 +2870,26 @@ export function DriverHomeScreen({
               <Text style={styles.detailRoute}>
                 {order.pickupAddress} → {order.deliveryAddress}
               </Text>
-              <Text style={styles.detailMeta}>
-                {order.orderNo} · {getDriverStatusText(order.status)}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                <Text style={styles.detailMeta}>
+                  {order.orderNo} · {getDriverStatusText(order.status)}
+                </Text>
+                <View
+                  style={[
+                    {
+                      marginLeft: 8,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 4,
+                      backgroundColor: getDriverStatusBadgeColor(order.status),
+                    },
+                  ]}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>
+                    {getDriverStatusText(order.status)}
+                  </Text>
+                </View>
+              </View>
               {latestExceptionCaseHeadline ? (
                 <View style={styles.orderExceptionSummary}>
                   <Text
