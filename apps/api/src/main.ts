@@ -2,12 +2,15 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { BusinessErrorFilter } from './common/business-error.filter';
+import { ZodValidationPipe } from './common/zod-validation.pipe';
+import { z } from 'zod';
 import { parseEnv } from './config/env';
 
 type ApiApplication = {
   enableCors(options?: Record<string, unknown>): void;
   setGlobalPrefix(prefix: string): void;
   useGlobalFilters(...filters: unknown[]): void;
+  useGlobalPipes(...pipes: unknown[]): void;
   listen(port: number): Promise<unknown> | unknown;
 };
 
@@ -17,6 +20,8 @@ type ApiNestFactory = {
     options?: { rawBody: boolean },
   ): Promise<ApiApplication>;
 };
+
+const globalBodySchema = z.object({}).passthrough();
 
 export async function bootstrapApi({
   env = process.env,
@@ -33,6 +38,7 @@ export async function bootstrapApi({
   });
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new BusinessErrorFilter());
+  app.useGlobalPipes(new ZodValidationPipe(globalBodySchema));
   await app.listen(apiEnv.PORT);
 }
 
