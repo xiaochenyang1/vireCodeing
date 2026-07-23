@@ -351,6 +351,8 @@ export function DriverHomeScreen({
     [],
   );
   const [myOrders, setMyOrders] = useState<PlatformShipperOrder[]>([]);
+  const [myOrdersSearchKeyword, setMyOrdersSearchKeyword] = useState('');
+  const [activeMyOrdersFilter, setActiveMyOrdersFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<PlatformShipperOrder>();
   const [exceptionCases, setExceptionCases] = useState<
     PlatformOrderExceptionCase[]
@@ -2848,10 +2850,61 @@ export function DriverHomeScreen({
         <Text style={styles.detailMeta}>
           展示已接单、运输中和待货主确认订单
         </Text>
-        {myOrders.length === 0 ? (
-          <Text style={styles.detailMeta}>暂无执行中的订单。</Text>
-        ) : null}
-        {myOrders.map(order => {
+        <TextInput
+          testID="driver-my-orders-search"
+          style={styles.ordersSearchInput}
+          placeholder="搜索订单号、装货地址或卸货地址"
+          placeholderTextColor={colors.textMuted}
+          value={myOrdersSearchKeyword}
+          onChangeText={setMyOrdersSearchKeyword}
+        />
+        <View style={styles.ordersTabs}>
+          {[
+            { id: 'all', label: '全部' },
+            { id: 'loading', label: '待装货' },
+            { id: 'transporting', label: '运输中' },
+            { id: 'confirming', label: '待确认' },
+            { id: 'completed', label: '已完成' },
+          ].map(tab => {
+            const active = activeMyOrdersFilter === tab.id;
+            return (
+              <Pressable
+                key={tab.id}
+                testID={`driver-my-orders-tab-${tab.id}`}
+                style={[styles.ordersTab, active && styles.ordersTabActive]}
+                onPress={() => setActiveMyOrdersFilter(tab.id)}
+              >
+                <Text
+                  style={[
+                    styles.ordersTabText,
+                    active && styles.ordersTabTextActive,
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {(() => {
+          const keyword = myOrdersSearchKeyword.trim().toLowerCase();
+          const statusFiltered =
+            activeMyOrdersFilter === 'all'
+              ? myOrders
+              : myOrders.filter(order => order.status === activeMyOrdersFilter);
+          const filtered = keyword
+            ? statusFiltered.filter(
+                order =>
+                  order.orderNo.toLowerCase().includes(keyword) ||
+                  order.pickupAddress.toLowerCase().includes(keyword) ||
+                  order.deliveryAddress.toLowerCase().includes(keyword) ||
+                  order.cargoType.toLowerCase().includes(keyword),
+              )
+            : statusFiltered;
+          if (filtered.length === 0) {
+            return <Text style={styles.detailMeta}>暂无执行中的订单。</Text>;
+          }
+          return filtered.map(order => {
           const latestExceptionCaseHeadline =
             order.latestExceptionCase
               ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
@@ -2917,7 +2970,7 @@ export function DriverHomeScreen({
               </Pressable>
             </View>
           );
-        })}
+        })})()}
       </View>
 
       <View style={styles.detailCard}>
