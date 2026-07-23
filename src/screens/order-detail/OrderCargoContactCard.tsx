@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { styles } from '../../styles';
 import type { RecentOrder } from '../../types';
 import { maskPhone } from '../../utils/order';
@@ -102,9 +103,30 @@ export function OrderCargoContactCard({
           <Text style={styles.detailMeta}>{`体积：${order.volumeText}`}</Text>
         ) : null}
         {order.cargoPhotoCount ? (
-          <Text style={styles.detailMeta}>
-            {`货物图片凭证 ${order.cargoPhotoCount} 张`}
-          </Text>
+          <>
+            <Text style={styles.detailMeta}>
+              {`货物图片凭证 ${order.cargoPhotoCount} 张`}
+            </Text>
+            {order.cargoPhotoFiles?.map((file, index) => (
+              <ImageCredentialCard
+                key={file.fileId}
+                title={`货物图片凭证 ${index + 1}：${file.fileName}`}
+                publicUrl={file.publicUrl}
+                placeholderLabel="货物图片"
+                metaLines={[
+                  `来源：平台文件对象（${file.status === 'uploaded' ? '已上传' : file.status === 'pending' ? '待上传' : '已驳回'}）`,
+                  `文件 ID：${file.fileId}`,
+                  ...(file.publicUrl
+                    ? ['已生成预览地址。']
+                    : file.objectKey
+                      ? ['已写入平台对象存储。']
+                      : []),
+                ]}
+                imageTestID={`order-cargo-photo-image-${index + 1}`}
+                placeholderTestID={`order-cargo-photo-placeholder-${index + 1}`}
+              />
+            ))}
+          </>
         ) : null}
         {order.valueAddedServicesText ? (
           <Text style={styles.detailMeta}>
