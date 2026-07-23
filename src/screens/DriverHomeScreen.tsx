@@ -351,6 +351,7 @@ export function DriverHomeScreen({
   const [orderHallOrders, setOrderHallOrders] = useState<PlatformShipperOrder[]>(
     [],
   );
+  const [orderHallSearchKeyword, setOrderHallSearchKeyword] = useState('');
   const [myOrders, setMyOrders] = useState<PlatformShipperOrder[]>([]);
   const [myOrdersSearchKeyword, setMyOrdersSearchKeyword] = useState('');
   const [activeMyOrdersFilter, setActiveMyOrdersFilter] = useState<string>('all');
@@ -2761,7 +2762,46 @@ export function DriverHomeScreen({
         </Pressable>
       </View>
 
-      {visibleOrders.map(order => {
+      <View style={styles.detailCard}>
+        <Text testID="driver-order-hall-title" style={styles.detailRoute}>
+          待接单订单
+        </Text>
+        <Text style={styles.detailMeta}>
+          根据您的车型和接单范围筛选的附近订单
+        </Text>
+        <TextInput
+          testID="driver-order-hall-search"
+          style={styles.ordersSearchInput}
+          placeholder="搜索订单号、装货地址或卸货地址"
+          placeholderTextColor={colors.textMuted}
+          value={orderHallSearchKeyword}
+          onChangeText={setOrderHallSearchKeyword}
+        />
+      </View>
+
+      {(() => {
+        const keyword = orderHallSearchKeyword.trim().toLowerCase();
+        const filtered = keyword
+          ? visibleOrders.filter(
+              order =>
+                order.orderNo.toLowerCase().includes(keyword) ||
+                order.pickupAddress.toLowerCase().includes(keyword) ||
+                order.deliveryAddress.toLowerCase().includes(keyword) ||
+                order.cargoType.toLowerCase().includes(keyword),
+            )
+          : visibleOrders;
+
+        if (filtered.length === 0) {
+          return (
+            <View style={styles.detailCard}>
+              <Text style={styles.detailMeta}>
+                {keyword ? '没有匹配的待接单订单。' : '暂无可接订单，请调整接单设置。'}
+              </Text>
+            </View>
+          );
+        }
+
+        return filtered.map(order => {
         const form = getForm(order.orderNo);
         const latestExceptionCaseHeadline =
           order.latestExceptionCase
@@ -2858,7 +2898,7 @@ export function DriverHomeScreen({
             </Pressable>
           </View>
         );
-      })}
+      })})()}
 
       <View style={styles.detailCard}>
         <Text testID="driver-my-orders-title" style={styles.detailRoute}>
