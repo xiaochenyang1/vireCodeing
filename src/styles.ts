@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type ViewStyle, type TextStyle } from 'react-native';
 
 export const colors = {
   background: '#F3F6F4',
@@ -14,6 +14,7 @@ export const colors = {
   amber: '#D97904',
   amberSoft: '#FFF2DC',
   blueSoft: '#E4F0FF',
+  overlay: 'rgba(10, 18, 14, 0.86)',
 };
 
 const shadows = {
@@ -24,7 +25,101 @@ const shadows = {
   elevation: 3,
 };
 
+export { shadows };
+
+// ── Card base patterns ──────────────────────────────────────────────
+const cardBase: ViewStyle = {
+  borderRadius: 8,
+  backgroundColor: colors.surface,
+  borderWidth: 1,
+  borderColor: colors.border,
+  ...shadows,
+};
+
+const cardPadding: ViewStyle = { padding: 16 };
+const cardPaddingCompact: ViewStyle = { padding: 14 };
+
+const cardWithGap: ViewStyle = {
+  ...cardBase,
+  padding: 16,
+  gap: 12,
+};
+
+const cardWithGapCompact: ViewStyle = {
+  ...cardBase,
+  padding: 14,
+  gap: 12,
+};
+
+const cardWithGapSmall: ViewStyle = {
+  ...cardBase,
+  padding: 12,
+  gap: 10,
+};
+
+// ── Button base patterns ────────────────────────────────────────────
+const buttonBase: ViewStyle = {
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 8,
+};
+
+const primaryButton: ViewStyle = {
+  ...buttonBase,
+  minHeight: 48,
+  backgroundColor: colors.tealDark,
+};
+
+const secondaryButton: ViewStyle = {
+  ...buttonBase,
+  minHeight: 40,
+  backgroundColor: colors.surfaceMuted,
+  borderWidth: 1,
+  borderColor: colors.border,
+};
+
+const secondaryButtonText: TextStyle = {
+  color: colors.textSecondary,
+  fontSize: 13,
+  fontWeight: '900',
+};
+
+const pressedOverlay: ViewStyle = { opacity: 0.82 };
+
+// ── Pill base pattern ───────────────────────────────────────────────
+const pillBase: ViewStyle = {
+  minHeight: 28,
+  justifyContent: 'center',
+  borderRadius: 8,
+  paddingHorizontal: 10,
+};
+
+// ── Row layout base patterns ────────────────────────────────────────
+const spaceBetweenRow: ViewStyle = {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+};
+
+// ── Content padding base patterns ───────────────────────────────────
+const screenContent: ViewStyle = {
+  paddingHorizontal: 16,
+  paddingTop: 12,
+  paddingBottom: 32,
+};
+
+const screenContentWithGap14: ViewStyle = {
+  ...screenContent,
+  gap: 14,
+};
+
+const screenContentWithGap16: ViewStyle = {
+  ...screenContent,
+  gap: 16,
+};
+
 export const styles = StyleSheet.create({
+  // ── Screen wrappers ───────────────────────────────────────────────
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -37,16 +132,14 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+
+  // ── Auth ─────────────────────────────────────────────────────────
   authContent: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 24,
+    ...screenContentWithGap16,
     justifyContent: 'center',
-    gap: 16,
   },
-  authHero: {
-    gap: 8,
-  },
+  authHero: { gap: 8 },
   authKicker: {
     color: colors.textMuted,
     fontSize: 12,
@@ -63,12 +156,8 @@ export const styles = StyleSheet.create({
     lineHeight: 20,
   },
   authCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows,
+    ...cardBase,
+    ...cardPadding,
   },
   authTabRow: {
     flexDirection: 'row',
@@ -97,12 +186,8 @@ export const styles = StyleSheet.create({
   authTabTextActive: {
     color: colors.surface,
   },
-  authForm: {
-    gap: 12,
-  },
-  authField: {
-    gap: 6,
-  },
+  authForm: { gap: 12 },
+  authField: { gap: 6 },
   authLabel: {
     color: colors.textSecondary,
     fontSize: 13,
@@ -127,15 +212,11 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  authInlineInput: {
-    flex: 1,
-  },
+  authInlineInput: { flex: 1 },
   authInlineButton: {
     minWidth: 100,
     minHeight: 46,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.tealSoft,
     paddingHorizontal: 12,
   },
@@ -179,43 +260,33 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  authPrimaryButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.tealDark,
-  },
+  primaryButton,
+  authPrimaryButton: primaryButton,
   authPrimaryButtonText: {
     color: colors.surface,
     fontSize: 16,
     fontWeight: '900',
   },
+
+  // ── Content padding ───────────────────────────────────────────────
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 32,
-    gap: 16,
+    ...screenContentWithGap16,
   },
   draftContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 32,
+    ...screenContent,
     gap: 14,
   },
+
+  // ── Draft ────────────────────────────────────────────────────────
   draftTopBar: {
+    ...spaceBetweenRow,
     minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
   draftBackButton: {
     minHeight: 40,
     minWidth: 76,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -226,9 +297,7 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  draftTitleGroup: {
-    flex: 1,
-  },
+  draftTitleGroup: { flex: 1 },
   draftKicker: {
     color: colors.textMuted,
     fontSize: 12,
@@ -240,8 +309,7 @@ export const styles = StyleSheet.create({
   },
   draftBadge: {
     minHeight: 28,
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.amberSoft,
     paddingHorizontal: 10,
   },
@@ -261,9 +329,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    ...buttonBase,
     paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   draftStepActive: {
     backgroundColor: colors.tealSoft,
@@ -277,15 +344,7 @@ export const styles = StyleSheet.create({
   draftStepTextActive: {
     color: colors.tealDark,
   },
-  draftCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-    ...shadows,
-  },
+  draftCard: cardWithGap,
   draftSectionTitle: {
     color: colors.text,
     fontSize: 17,
@@ -302,9 +361,8 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
+    ...buttonBase,
     paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   draftChoiceButtonActive: {
     backgroundColor: colors.tealDark,
@@ -323,9 +381,7 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  draftInlineSection: {
-    gap: 8,
-  },
+  draftInlineSection: { gap: 8 },
   draftFieldLabel: {
     color: colors.text,
     fontSize: 13,
@@ -347,61 +403,32 @@ export const styles = StyleSheet.create({
   draftPrefillNoticeAction: {
     marginTop: 10,
   },
-  draftPrimaryButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.tealDark,
-  },
+  draftPrimaryButton: primaryButton,
   draftPrimaryButtonText: {
     color: colors.surface,
     fontSize: 16,
     fontWeight: '900',
   },
-  draftSecondaryButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  draftSecondaryButtonText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  detailContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 32,
-    gap: 14,
-  },
+  draftSecondaryButton: secondaryButton,
+  draftSecondaryButtonText: secondaryButtonText,
+
+  // ── Detail ───────────────────────────────────────────────────────
+  detailContent: screenContentWithGap14,
   detailTopBar: {
+    ...spaceBetweenRow,
     minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
-  detailTitleGroup: {
-    flex: 1,
-  },
+  detailTitleGroup: { flex: 1 },
   detailTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: '800',
   },
   detailCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
+    ...cardBase,
     padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
     gap: 12,
-    ...shadows,
   },
   detailRoute: {
     color: colors.text,
@@ -419,9 +446,7 @@ export const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  detailTimeline: {
-    gap: 10,
-  },
+  detailTimeline: { gap: 10 },
   detailTimelineItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -449,13 +474,10 @@ export const styles = StyleSheet.create({
     gap: 10,
   },
   detailInfoCard: {
-    flex: 1,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
+    ...cardBase,
     padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
     gap: 6,
+    flex: 1,
   },
   detailInfoLabel: {
     color: colors.textMuted,
@@ -472,32 +494,14 @@ export const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
   },
-  detailPrimaryButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.tealDark,
-  },
+  detailPrimaryButton: primaryButton,
   detailPrimaryButtonText: {
     color: colors.surface,
     fontSize: 16,
     fontWeight: '900',
   },
-  detailSecondaryButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  detailSecondaryButtonText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    fontWeight: '800',
-  },
+  detailSecondaryButton: secondaryButton,
+  detailSecondaryButtonText: secondaryButtonText,
   detailNoticeCard: {
     borderRadius: 8,
     backgroundColor: colors.amberSoft,
@@ -511,18 +515,16 @@ export const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 18,
   },
+
+  // ── Driver ───────────────────────────────────────────────────────
   driverInfoCard: {
-    borderRadius: 8,
+    ...cardBase,
     backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
     padding: 12,
     gap: 10,
   },
   driverInfoHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 10,
   },
   driverName: {
@@ -536,11 +538,8 @@ export const styles = StyleSheet.create({
     lineHeight: 18,
   },
   driverRatingPill: {
-    minHeight: 26,
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...pillBase,
     backgroundColor: colors.tealSoft,
-    paddingHorizontal: 8,
   },
   driverRatingText: {
     color: colors.tealDark,
@@ -553,18 +552,12 @@ export const styles = StyleSheet.create({
     gap: 8,
   },
   driverQuoteCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    gap: 12,
+    ...cardWithGapCompact,
   },
   driverQuoteFooter: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 12,
+    alignItems: 'flex-end',
   },
   driverQuoteTextGroup: {
     flex: 1,
@@ -577,9 +570,7 @@ export const styles = StyleSheet.create({
   },
   driverQuoteButton: {
     minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.tealDark,
     paddingHorizontal: 12,
   },
@@ -588,22 +579,15 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  ordersContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 32,
-    gap: 14,
-  },
+
+  // ── Orders ───────────────────────────────────────────────────────
+  ordersContent: screenContentWithGap14,
   ordersTopBar: {
+    ...spaceBetweenRow,
     minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
-  ordersTitleGroup: {
-    flex: 1,
-  },
+  ordersTitleGroup: { flex: 1 },
   ordersTitle: {
     color: colors.text,
     fontSize: 20,
@@ -620,6 +604,7 @@ export const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    ...buttonBase,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -647,12 +632,7 @@ export const styles = StyleSheet.create({
     fontSize: 14,
   },
   ordersEmptyState: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: 16,
-    gap: 6,
+    ...cardWithGapSmall,
   },
   ordersEmptyTitle: {
     color: colors.text,
@@ -664,19 +644,17 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+
+  // ── Shared top bar / title / section ─────────────────────────────
   topBar: {
+    ...spaceBetweenRow,
     minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: 12,
   },
   cityPill: {
     minHeight: 40,
     minWidth: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -686,9 +664,7 @@ export const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  topTitleGroup: {
-    flex: 1,
-  },
+  topTitleGroup: { flex: 1 },
   pageKicker: {
     color: colors.textMuted,
     fontSize: 12,
@@ -705,9 +681,7 @@ export const styles = StyleSheet.create({
   iconButton: {
     minHeight: 40,
     minWidth: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...buttonBase,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -723,9 +697,7 @@ export const styles = StyleSheet.create({
     right: -4,
     minWidth: 18,
     height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
+    ...buttonBase,
     backgroundColor: colors.amber,
     paddingHorizontal: 4,
   },
@@ -741,9 +713,7 @@ export const styles = StyleSheet.create({
     ...shadows,
   },
   panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 12,
   },
   greeting: {
@@ -758,21 +728,17 @@ export const styles = StyleSheet.create({
     gap: 12,
   },
   profileAvatar: {
-    width: 44,
-    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 22,
     backgroundColor: colors.tealSoft,
+    overflow: 'hidden',
   },
   profileAvatarImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: '100%',
+    height: '100%',
   },
   profileAvatarText: {
     color: colors.tealDark,
-    fontSize: 18,
     fontWeight: '800',
   },
   profileBadgeColumn: {
@@ -786,11 +752,8 @@ export const styles = StyleSheet.create({
     lineHeight: 18,
   },
   verifiedBadge: {
-    minHeight: 28,
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...pillBase,
     backgroundColor: colors.tealSoft,
-    paddingHorizontal: 10,
   },
   verifiedBadgeText: {
     color: colors.tealDark,
@@ -804,9 +767,7 @@ export const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.16)',
     paddingTop: 14,
   },
-  metricItem: {
-    flex: 1,
-  },
+  metricItem: { flex: 1 },
   metricValue: {
     color: colors.surface,
     fontSize: 17,
@@ -818,21 +779,12 @@ export const styles = StyleSheet.create({
     fontSize: 12,
   },
   primaryPanel: {
-    minHeight: 118,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...cardBase,
+    ...cardPadding,
+    ...spaceBetweenRow,
     gap: 14,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows,
   },
-  primaryTextGroup: {
-    flex: 1,
-  },
+  primaryTextGroup: { flex: 1 },
   primaryTitle: {
     color: colors.text,
     fontSize: 24,
@@ -850,30 +802,16 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  primaryButton: {
-    minWidth: 76,
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.amber,
-  },
   primaryButtonText: {
     color: colors.surface,
     fontSize: 16,
     fontWeight: '900',
   },
-  pressedButton: {
-    opacity: 0.82,
-  },
-  section: {
-    gap: 10,
-  },
+  pressedButton: pressedOverlay,
+  section: { gap: 10 },
   sectionHeader: {
+    ...spaceBetweenRow,
     minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   sectionTitle: {
     color: colors.text,
@@ -891,18 +829,13 @@ export const styles = StyleSheet.create({
     gap: 10,
   },
   statusCard: {
+    ...cardBase,
+    ...cardPaddingCompact,
     width: '48.5%',
     minHeight: 112,
     justifyContent: 'space-between',
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  pressedCard: {
-    opacity: 0.76,
-  },
+  pressedCard: pressedOverlay,
   statusCount: {
     color: colors.tealDark,
     fontSize: 26,
@@ -917,20 +850,13 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
-  routeList: {
-    gap: 10,
-  },
+  routeList: { gap: 10 },
   routeCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...cardBase,
+    ...cardPaddingCompact,
   },
   routeHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 12,
   },
   routeName: {
@@ -965,28 +891,18 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
-  orderList: {
-    gap: 10,
-  },
+  orderList: { gap: 10 },
   orderCard: {
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
+    ...cardBase,
+    ...cardPaddingCompact,
   },
   orderTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 10,
   },
   statusPill: {
-    minHeight: 28,
-    justifyContent: 'center',
-    borderRadius: 8,
+    ...pillBase,
     backgroundColor: colors.blueSoft,
-    paddingHorizontal: 10,
   },
   statusPillText: {
     color: colors.tealDark,
@@ -1040,10 +956,9 @@ export const styles = StyleSheet.create({
   },
   orderBottomRow: {
     marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    ...spaceBetweenRow,
     gap: 12,
+    alignItems: 'flex-end',
   },
   orderPrice: {
     color: colors.amber,
@@ -1055,18 +970,6 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
-  secondaryButton: {
-    minHeight: 40,
-    minWidth: 82,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: colors.tealSoft,
-    paddingHorizontal: 12,
-  },
-  secondaryButtonText: {
-    color: colors.tealDark,
-    fontSize: 13,
-    fontWeight: '900',
-  },
+  secondaryButton,
+  secondaryButtonText,
 });

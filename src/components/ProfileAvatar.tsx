@@ -1,6 +1,6 @@
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 
-import { colors } from '../styles';
+import { styles as globalStyles } from '../styles';
 
 type ProfileAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -50,17 +50,17 @@ export function ProfileAvatar({
   } as const;
 
   return (
-    <View style={[styles.avatar, avatarStyle]}>
+    <View style={[globalStyles.profileAvatar, avatarStyle]}>
       {publicUrl ? (
         <Image
           testID={imageTestID}
           source={{ uri: publicUrl }}
-          style={styles.avatarImage}
+          style={globalStyles.profileAvatarImage}
         />
       ) : (
         <Text
           testID={textTestID}
-          style={[styles.avatarText, { fontSize: avatarSize.fontSize }]}
+          style={[globalStyles.profileAvatarText, { fontSize: avatarSize.fontSize }]}
         >
           {initial}
         </Text>
@@ -68,20 +68,3 @@ export function ProfileAvatar({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  avatar: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.tealSoft,
-    overflow: 'hidden',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  avatarText: {
-    color: colors.tealDark,
-    fontWeight: '800',
-  },
-});

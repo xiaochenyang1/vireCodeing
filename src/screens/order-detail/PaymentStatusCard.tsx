@@ -4,7 +4,7 @@ import type {
   PlatformPaymentChannel,
   PlatformPaymentRecord,
 } from '../../services/platformPaymentApi';
-import { colors } from '../../styles';
+import { colors, shadows } from '../../styles';
 import type { OrderPaymentStatus, PaymentChannel } from '../../types';
 
 const paymentStatusCopy: Record<
@@ -377,11 +377,11 @@ const cardStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: 12,
-    shadowColor: '#17372E',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 3,
+    shadowColor: shadows.shadowColor,
+    shadowOffset: shadows.shadowOffset,
+    shadowOpacity: shadows.shadowOpacity,
+    shadowRadius: shadows.shadowRadius,
+    elevation: shadows.elevation,
   },
   header: {
     minHeight: 44,

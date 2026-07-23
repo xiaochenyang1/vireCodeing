@@ -325,7 +325,7 @@ const citySelectorStyles = StyleSheet.create({
     lineHeight: 15,
   },
   detailTextActive: {
-    color: '#DDF1EC',
+    color: colors.tealSoft,
   },
 });
 

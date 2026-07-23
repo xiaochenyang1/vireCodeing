@@ -1,5 +1,5 @@
 import { ScrollView, Text } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 import { styles } from '../styles';
 import type {
@@ -609,71 +609,77 @@ export function HomeScreen({
       });
   };
 
-  const refreshPlatformSupportTickets = (source: 'open' | 'manual') => {
-    if (!platformSupportTicketsApi) {
-      return;
-    }
+  const refreshPlatformSupportTickets = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformSupportTicketsApi) {
+        return;
+      }
 
-    const requestVersion = ++supportTicketLoadRequestVersionRef.current;
+      const requestVersion = ++supportTicketLoadRequestVersionRef.current;
 
-    if (!getAuthSessionSnapshot()?.accessToken) {
-      setIsRefreshingPlatformSupportTickets(false);
-      setSupportTicketNotice(supportTicketLoadMissingAuthMessage);
-      return;
-    }
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setIsRefreshingPlatformSupportTickets(false);
+        setSupportTicketNotice(supportTicketLoadMissingAuthMessage);
+        return;
+      }
 
-    if (source === 'manual') {
-      setSupportTicketNotice('');
-      setIsRefreshingPlatformSupportTickets(true);
-    }
+      if (source === 'manual') {
+        setSupportTicketNotice('');
+        setIsRefreshingPlatformSupportTickets(true);
+      }
 
-    platformSupportTicketsApi
-      .getSupportTickets()
-      .then(result => {
-        if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
-          return;
-        }
+      platformSupportTicketsApi
+        .getSupportTickets()
+        .then(result => {
+          if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
+            return;
+          }
 
-        const currentHomeState = getHomeLocalState();
-        const nextSupportTickets = mergeSupportTicketsWithLocalFallback(
-          mapPlatformSupportTicketsToLocal(result.items, new Date(now)),
-          currentHomeState.supportTickets,
-        );
+          const currentHomeState = getHomeLocalState();
+          const nextSupportTickets = mergeSupportTicketsWithLocalFallback(
+            mapPlatformSupportTicketsToLocal(result.items, new Date(now)),
+            currentHomeState.supportTickets,
+          );
 
-        applyHomeLocalState(
-          createHomeLocalStateSnapshot(currentHomeState, {
-            supportTickets: nextSupportTickets,
-          }),
-        );
-        setSupportTicketMode('platform');
-        setSupportTicketNotice(
-          getPlatformSupportTicketLoadNotice(
-            result.items.length,
-            nextSupportTickets,
-          ),
-        );
-      })
-      .catch(error => {
-        if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
-          return;
-        }
+          applyHomeLocalState(
+            createHomeLocalStateSnapshot(currentHomeState, {
+              supportTickets: nextSupportTickets,
+            }),
+          );
+          setSupportTicketMode('platform');
+          setSupportTicketNotice(
+            getPlatformSupportTicketLoadNotice(
+              result.items.length,
+              nextSupportTickets,
+            ),
+          );
+        })
+        .catch(error => {
+          if (requestVersion !== supportTicketLoadRequestVersionRef.current) {
+            return;
+          }
 
-        setSupportTicketNotice(
-          error instanceof PlatformApiError &&
-            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-            ? supportTicketLoadMissingAuthMessage
-            : supportTicketLoadFailureMessage,
-        );
-      })
-      .finally(() => {
-        if (
-          source === 'manual' &&
-          requestVersion === supportTicketLoadRequestVersionRef.current
-        ) {
-          setIsRefreshingPlatformSupportTickets(false);
-        }
-      });
-  };
+          setSupportTicketNotice(
+            error instanceof PlatformApiError &&
+              error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? supportTicketLoadMissingAuthMessage
+              : supportTicketLoadFailureMessage,
+          );
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === supportTicketLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformSupportTickets(false);
+          }
+        });
+    },
+    [
+      now,
+      platformSupportTicketsApi,
+    ],
+  );
 
   useEffect(() => {
     if (supportView !== 'help') {
@@ -681,7 +687,7 @@ export function HomeScreen({
     }
 
     refreshPlatformSupportTickets('open');
-  }, [now, platformSupportTicketsApi, supportView]);
+  }, [now, platformSupportTicketsApi, refreshPlatformSupportTickets, supportView]);
 
   const openSupportView = (nextSupportView: HomeSupportView) => {
     const supportViewChange = createHomeSupportViewChange(nextSupportView);

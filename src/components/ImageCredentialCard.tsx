@@ -159,7 +159,7 @@ const cardStyles = StyleSheet.create({
   },
   previewModalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(10, 18, 14, 0.86)',
+    backgroundColor: colors.overlay,
     paddingHorizontal: 20,
     justifyContent: 'center',
   },
