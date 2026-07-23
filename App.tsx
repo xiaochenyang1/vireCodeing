@@ -76,6 +76,7 @@ import {
   saveHomeLocalState,
 } from './src/utils/homeLocalState';
 import { useAppNavigation } from './src/navigation/appNavigation';
+import { usePushNotifications } from './src/hooks/usePushNotifications';
 import {
   createFailedProfileSyncState,
   createPendingProfileSyncState,
@@ -495,6 +496,11 @@ function App({
     goOrders,
     goOrderDetail,
   } = useAppNavigation();
+  const {
+    pushToken,
+    permissionStatus,
+    requestPermission,
+  } = usePushNotifications();
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
@@ -973,6 +979,10 @@ function App({
     }
 
     openHome();
+
+    if (permissionStatus === 'undetermined') {
+      requestPermission().catch(() => undefined);
+    }
   };
 
   const handleOnboardingFinished = () => {
