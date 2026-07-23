@@ -21,6 +21,9 @@ export function PriceSection({
   paymentMethod,
   onPaymentMethodChange,
   usesPlatformOrderApi = false,
+  onEstimatePrice,
+  estimateBreakdown,
+  isEstimating = false,
 }: {
   pricingMode: PricingMode;
   onPricingModeChange: (value: PricingMode) => void;
@@ -32,6 +35,9 @@ export function PriceSection({
   paymentMethod: PaymentMethod;
   onPaymentMethodChange: (value: PaymentMethod) => void;
   usesPlatformOrderApi?: boolean;
+  onEstimatePrice?: () => void;
+  estimateBreakdown?: string[];
+  isEstimating?: boolean;
 }) {
   const pricingCopy = getDraftPricingCapabilityCopy(usesPlatformOrderApi);
 
@@ -66,14 +72,45 @@ export function PriceSection({
           })}
         </View>
         {pricingMode === 'fixed' ? (
-          <AuthField
-            testID="draft-price"
-            label="一口价"
-            placeholder="例如 760"
-            value={priceText}
-            onChangeText={onPriceTextChange}
-            keyboardType="number-pad"
-          />
+          <>
+            <AuthField
+              testID="draft-price"
+              label="一口价"
+              placeholder="例如 760"
+              value={priceText}
+              onChangeText={onPriceTextChange}
+              keyboardType="number-pad"
+            />
+            {onEstimatePrice ? (
+              <Pressable
+                testID="draft-smart-estimate-button"
+                style={[styles.detailSecondaryButton, { marginTop: 8 }]}
+                onPress={onEstimatePrice}
+                disabled={isEstimating}
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  {isEstimating ? '估价中...' : '智能估价'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {estimateBreakdown && estimateBreakdown.length > 0 ? (
+              <View
+                style={[
+                  styles.draftInlineSection,
+                  { backgroundColor: '#F0F8FF', padding: 12, marginTop: 8 },
+                ]}
+              >
+                <Text style={[styles.draftNotice, { fontWeight: '600' }]}>
+                  智能估价明细：
+                </Text>
+                {estimateBreakdown.map((line, index) => (
+                  <Text key={index} style={styles.draftNotice}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </>
         ) : (
           <Text style={styles.draftNotice}>
             议价模式发布后，司机可在待接单阶段提交报价。

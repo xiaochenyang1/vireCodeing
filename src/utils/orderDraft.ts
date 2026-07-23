@@ -692,6 +692,7 @@ export function createLocalValueAddedServiceEstimate(
     if (serviceId === 'protection') {
       lineTexts.push('防震包装：￥30（固定附加费）');
       feeItems.push(30);
+      return;
     }
   });
 
@@ -708,6 +709,127 @@ export function createLocalValueAddedServiceEstimate(
       ? '补全保价货值后会生成完整附加费预估；当前不会自动叠加到一口价。'
       : '本地参考附加费不会自动叠加到一口价，请按实际需求自行计入报价。',
   };
+}
+
+export function estimateOrderPrice(params: {
+  cargoType: string;
+  weightText: string;
+  vehicleRequirement: string;
+  pickupAddress: string;
+  deliveryAddress: string;
+  valueAddedServiceIds: string[];
+  loadingWorkerCount?: number;
+}): { estimatedPrice: number; breakdown: string[] } | null {
+  const weight = parseFloat(params.weightText.replace(/[^\d.]/g, '')) || 0;
+  if (weight <= 0) {
+    return null;
+  }
+
+  const vehicleBasePrice: Record<string, number> = {
+    small: 120,
+    medium: 200,
+    large: 320,
+    box: 280,
+    flat: 260,
+  };
+
+  const cargoMultiplier: Record<string, number> = {
+    build: 1.2,
+    food: 1.0,
+    home: 1.0,
+    chemistry: 1.5,
+    digital: 1.1,
+    daily: 1.0,
+    other: 1.0,
+  };
+
+  const weightPerTonRate: Record<string, number> = {
+    small: 80,
+    medium: 120,
+    large: 180,
+    box: 160,
+    flat: 150,
+  };
+
+  const basePrice = vehicleBasePrice[params.vehicleRequirement] ?? 200;
+  const multiplier = cargoMultiplier[params.cargoType] ?? 1.0;
+  const perTonRate = weightPerTonRate[params.vehicleRequirement] ?? 120;
+  const weightTons = Math.max(weight / 1000, 0.1);
+  const weightFee = perTonRate * weightTons;
+
+  let distanceFee = 0;
+  const addressSimilarity =
+    params.pickupAddress.length > 0 && params.deliveryAddress.length > 0
+      ? calculateAddressSimilarity(params.pickupAddress, params.deliveryAddress)
+      : 0;
+  if (addressSimilarity > 0.3) {
+    const estimatedDistanceKm = Math.max(Math.round(addressSimilarity * 50), 5);
+    const perKmRate = params.vehicleRequirement === 'large' ? 6 : 4;
+    distanceFee = estimatedDistanceKm * perKmRate;
+  }
+
+  const valueAddedFee = params.valueAddedServiceIds.includes('loading')
+    ? Math.max(1, params.loadingWorkerCount || 1) * 40
+    : 0;
+
+  const subtotal = basePrice + weightFee + distanceFee + valueAddedFee;
+  const estimatedPrice = Math.round(subtotal * multiplier);
+  const roundedPrice = Math.round(estimatedPrice / 10) * 10;
+
+  const breakdown: string[] = [];
+  breakdown.push(`基础运费：${formatLocalCurrency(basePrice)}（${getVehicleLabel(params.vehicleRequirement)}）`);
+  breakdown.push(
+    `重量费：${formatLocalCurrency(Math.round(weightFee))}（${weightTons.toFixed(1)}吨 × ￥${perTonRate}/吨）`,
+  );
+  if (distanceFee > 0) {
+    breakdown.push(`距离费：${formatLocalCurrency(distanceFee)}（预估约${Math.round(distanceFee / (params.vehicleRequirement === 'large' ? 6 : 4))}公里）`);
+  }
+  if (valueAddedFee > 0) {
+    const workerCount = Math.max(1, params.loadingWorkerCount || 1);
+    breakdown.push(`装卸协助：${formatLocalCurrency(valueAddedFee)}（${workerCount}人 × ￥40/人）`);
+  }
+  if (multiplier > 1) {
+    breakdown.push(`货物类型加价：×${multiplier}（${getCargoTypeLabel(params.cargoType)}）`);
+  }
+  breakdown.push(`预估总价：${formatLocalCurrency(roundedPrice)}`);
+
+  return { estimatedPrice: roundedPrice, breakdown };
+}
+
+function calculateAddressSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const charsA = new Set(a.replace(/[^一-龥a-zA-Z0-9]/g, ''));
+  const charsB = new Set(b.replace(/[^一-龥a-zA-Z0-9]/g, ''));
+  if (charsA.size === 0 || charsB.size === 0) return 0;
+  let common = 0;
+  charsA.forEach(c => {
+    if (charsB.has(c)) common++;
+  });
+  return common / Math.sqrt(charsA.size * charsB.size);
+}
+
+function getVehicleLabel(vehicleId: string): string {
+  const map: Record<string, string> = {
+    small: '小货车',
+    medium: '中型货车',
+    large: '大货车',
+    box: '厢式货车',
+    flat: '平板车',
+  };
+  return map[vehicleId] ?? '货车';
+}
+
+function getCargoTypeLabel(cargoTypeId: string): string {
+  const map: Record<string, string> = {
+    build: '建材',
+    food: '食品',
+    home: '家电',
+    chemistry: '化工品',
+    digital: '电子产品',
+    daily: '日用品',
+    other: '其他',
+  };
+  return map[cargoTypeId] ?? cargoTypeId;
 }
 
 function parseLocalAmount(value: string) {

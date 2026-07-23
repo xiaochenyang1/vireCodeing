@@ -50,6 +50,7 @@ import {
   createRemoveLatestCargoPhotoVoucherChange,
   getSaveDraftNotice,
   toggleDraftValueAddedService,
+  estimateOrderPrice,
   type DraftOrderFormState,
 } from '../utils/orderDraft';
 import {
@@ -221,6 +222,8 @@ export function OrderDraftScreen({
   );
   const [notice, setNotice] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isEstimating, setIsEstimating] = useState(false);
+  const [estimateBreakdown, setEstimateBreakdown] = useState<string[]>([]);
   const [editingOrderId, setEditingOrderId] = useState(
     initialDraftFormState.editingOrderId,
   );
@@ -375,6 +378,45 @@ export function OrderDraftScreen({
     });
     setNotice(draftPreviewState.notice);
     setIsConfirming(draftPreviewState.isConfirming);
+  };
+
+  const handleEstimatePrice = () => {
+    if (!weightText.trim() || parseFloat(weightText.replace(/[^\d.]/g, '')) <= 0) {
+      setNotice('请先填写货物重量（kg），再使用智能估价。');
+      return;
+    }
+    if (!pickupAddress.trim() || !deliveryAddress.trim()) {
+      setNotice('请先填写装货地址和卸货地址，再使用智能估价。');
+      return;
+    }
+
+    setIsEstimating(true);
+    setEstimateBreakdown([]);
+
+    setTimeout(() => {
+      const result = estimateOrderPrice({
+        cargoType,
+        weightText,
+        vehicleRequirement,
+        pickupAddress,
+        deliveryAddress,
+        valueAddedServiceIds,
+        loadingWorkerCount,
+      });
+
+      if (result) {
+        setPriceText(String(result.estimatedPrice));
+        setEstimateBreakdown(result.breakdown);
+        setNotice(
+          `智能估价完成：预估 ${result.breakdown[result.breakdown.length - 1]}。` +
+            '此价格为算法估算，实际价格请根据市场行情调整。',
+        );
+      } else {
+        setNotice('智能估价失败，请检查填写的信息后重试。');
+      }
+
+      setIsEstimating(false);
+    }, 600);
   };
 
   const confirmPublish = () => {
@@ -851,6 +893,9 @@ export function OrderDraftScreen({
             paymentMethod={paymentMethod}
             onPaymentMethodChange={setPaymentMethod}
             usesPlatformOrderApi={usesPlatformOrderApi}
+            onEstimatePrice={handleEstimatePrice}
+            estimateBreakdown={estimateBreakdown}
+            isEstimating={isEstimating}
           />
 
           <DraftPublishActionsCard
