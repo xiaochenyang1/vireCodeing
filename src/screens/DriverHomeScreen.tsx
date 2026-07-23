@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -932,16 +933,32 @@ export function DriverHomeScreen({
     }
   };
 
-  const openDriverNavigation = (target: PlatformNavigationTarget) => {
+  const openDriverNavigation = async (target: PlatformNavigationTarget) => {
     const urls = buildExternalNavigationUrls({
       label: target.type === 'pickup' ? '装货点' : '卸货点',
       address: target.address,
       latitude: target.latitude,
       longitude: target.longitude,
     });
-    Linking.openURL(urls.geo).catch(() => {
+
+    const preferredUrl =
+      Platform.OS === 'ios' ? urls.amapIos : urls.amapAndroid;
+
+    try {
+      const canOpenAmap = await Linking.canOpenURL(preferredUrl);
+      if (canOpenAmap) {
+        await Linking.openURL(preferredUrl);
+        return;
+      }
+    } catch {
+      // Amap not available, fall through to geo
+    }
+
+    try {
+      await Linking.openURL(urls.geo);
+    } catch {
       setNotice('无法打开导航应用，请检查本机是否安装地图 App。');
-    });
+    }
   };
 
   const reportDriverHallSandboxLocation = () => {
