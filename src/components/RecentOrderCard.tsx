@@ -12,9 +12,11 @@ import {
 export function RecentOrderCard({
   order,
   onOpenOrderDetail,
+  onReorder,
 }: {
   order: RecentOrder;
   onOpenOrderDetail: (orderId: string) => void;
+  onReorder?: (prefill: { orderId: string }) => void;
 }) {
   const status = recentOrderStatusCopy[order.status];
   const vehicleRequirementText = formatVehicleRequirementText(order);
@@ -66,8 +68,20 @@ export function RecentOrderCard({
           <Text style={styles.orderPrice}>{order.priceText}</Text>
           <Text style={styles.orderTime}>{order.updatedAtText}</Text>
         </View>
-        <View style={styles.secondaryButton}>
-          <Text style={styles.secondaryButtonText}>{status.action}</Text>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          {(order.status === 'completed' || order.status === 'cancelled') &&
+          onReorder ? (
+            <Pressable
+              testID={`home-reorder-${order.id}`}
+              style={styles.secondaryButton}
+              onPress={() => onReorder({ orderId: order.id })}
+            >
+              <Text style={styles.secondaryButtonText}>重新下单</Text>
+            </Pressable>
+          ) : null}
+          <View style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>{status.action}</Text>
+          </View>
         </View>
       </View>
     </Pressable>

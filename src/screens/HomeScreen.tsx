@@ -307,6 +307,7 @@ export function HomeScreen({
   onMarkMessageRead,
   onMarkAllMessagesRead,
   onReuseRoute,
+  onReorder,
   draftGateNotice,
   networkNotice,
   networkStatusSummaryText,
@@ -342,6 +343,7 @@ export function HomeScreen({
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
   onReuseRoute: (route: FrequentRoute) => void;
+  onReorder?: (prefill: { orderId: string }) => void;
 }) {
   const initialHomeState = getHomeLocalState();
   const [supportView, setSupportView] = useState<HomeSupportView>(
@@ -1069,6 +1071,7 @@ export function HomeScreen({
         orders={orders.slice(0, 3)}
         onOpenOrderDetail={onOpenOrderDetail}
         onOpenOrders={onOpenOrders}
+        onReorder={onReorder}
       />
     </ScrollView>
   );

@@ -26,6 +26,7 @@ export function OrdersScreen({
   onOpenOrderDetail,
   onPlatformQueryChange,
   onLoadMorePlatformOrders,
+  onReorder,
 }: {
   now: number;
   orders: RecentOrder[];
@@ -41,6 +42,7 @@ export function OrdersScreen({
   onOpenOrderDetail: (orderId: string) => void;
   onPlatformQueryChange?: (query: PlatformListShipperOrdersQuery) => void;
   onLoadMorePlatformOrders?: () => void;
+  onReorder?: (prefill: { orderId: string }) => void;
 }) {
   const [activeFilter, setActiveFilter] =
     useState<OrderListFilter>(initialFilter);
@@ -259,6 +261,7 @@ export function OrdersScreen({
             key={order.id}
             order={order}
             onOpenOrderDetail={onOpenOrderDetail}
+            onReorder={onReorder}
           />
         ))}
       </View>

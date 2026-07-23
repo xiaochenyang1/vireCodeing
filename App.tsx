@@ -1300,6 +1300,24 @@ function App({
     return true;
   };
 
+  const handleReorder = (prefillRequest: { orderId: string }) => {
+    if (!canOpenOrderDraft()) {
+      return;
+    }
+
+    const matchedOrder = orders.find(
+      order => order.id === prefillRequest.orderId,
+    );
+
+    if (!matchedOrder) {
+      return;
+    }
+
+    openDraftWithPrefill(
+      createPrefillFromOrder(matchedOrder, now),
+    );
+  };
+
   const openOrderDraft = () => {
     if (!canOpenOrderDraft()) {
       return;
@@ -2861,6 +2879,7 @@ function App({
             onOpenOrderDetail={orderId => openOrderDetail(orderId, 'orders')}
             onPlatformQueryChange={refreshPlatformOrders}
             onLoadMorePlatformOrders={loadMorePlatformOrders}
+            onReorder={handleReorder}
           />
         ) : (
           <HomeScreen
@@ -2898,6 +2917,7 @@ function App({
                 noticeText: `已带入常用路线：${route.name}`,
               })
             }
+            onReorder={handleReorder}
           />
         )}
       </SafeAreaView>

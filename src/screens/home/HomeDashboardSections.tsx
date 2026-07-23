@@ -415,10 +415,12 @@ export function RecentOrdersSection({
   orders,
   onOpenOrderDetail,
   onOpenOrders,
+  onReorder,
 }: {
   orders: RecentOrder[];
   onOpenOrderDetail: (orderId: string) => void;
   onOpenOrders: () => void;
+  onReorder?: (prefill: { orderId: string }) => void;
 }) {
   return (
     <View style={styles.section}>
@@ -434,6 +436,7 @@ export function RecentOrdersSection({
             key={order.id}
             order={order}
             onOpenOrderDetail={onOpenOrderDetail}
+            onReorder={onReorder}
           />
         ))}
       </View>
