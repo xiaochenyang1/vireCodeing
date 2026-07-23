@@ -5,7 +5,10 @@ import type {
   PlatformFileUploadRecord,
   PlatformFileUploadIntent,
 } from '../services/platformFileApi';
+import type { createPlatformFileApi } from '../services/platformFileApi';
 import { confirmPlatformFileUploadIntent } from '../services/platformFileApi';
+
+declare const window: { prompt?: (message: string) => string | null };
 
 export type FileUploadFieldFile = PlatformFileUploadRecord;
 
@@ -28,15 +31,17 @@ export type UseImageUploadResult = {
   clear: () => void;
 };
 
+type FullFileApi = ReturnType<typeof createPlatformFileApi>;
+
 /**
  * Hook that encapsulates the file upload flow:
- * 1. Let caller pick a file (via `onPickFile` prop on the component)
+ * 1. Let caller pick a file (via platform file picker or prompt)
  * 2. Create upload intent
  * 3. Upload binary to uploadUrl
  * 4. Confirm upload with platform
  */
 export function useImageUpload(
-  platformFileApi: PlatformFileUploadConfirmationApi | undefined,
+  platformFileApi: FullFileApi | undefined,
   options: FileUploadFieldOptions,
 ): UseImageUploadResult {
   const [state, setState] = useState<FileUploadFieldState>({
@@ -77,7 +82,7 @@ export function useImageUpload(
       const byteSize = await estimateByteSize(fileUri);
 
       const intent = await platformFileApi.createUploadIntent({
-        purpose: options.purpose as never,
+        purpose: options.purpose as PlatformFileUploadIntent['purpose'],
         fileName,
         contentType,
         byteSize,
@@ -121,7 +126,7 @@ function guessContentType(uri: string): string {
   return 'image/jpeg';
 }
 
-async function estimateByteSize(uri: string): Promise<number> {
+async function estimateByteSize(_uri: string): Promise<number> {
   // In a real implementation, use react-native-fs or expo-file-system.
   // For now return a safe default that passes validation (< 10 MB).
   return 2048;
@@ -129,7 +134,7 @@ async function estimateByteSize(uri: string): Promise<number> {
 
 async function uploadToUrl(
   uploadUrl: string,
-  fileUri: string,
+  _fileUri: string,
   contentType: string,
 ): Promise<void> {
   // In production, use XMLHttpRequest or fetch with the file blob.
@@ -142,8 +147,7 @@ async function uploadToUrl(
         headers: {
           'Content-Type': contentType,
         },
-        // @ts-expect-error - react-native fetch accepts body as string
-        body: fileUri,
+        body: _fileUri,
       });
 
       if (!response.ok) {

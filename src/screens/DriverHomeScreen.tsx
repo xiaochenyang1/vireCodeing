@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 
 import { ImageCredentialCard } from '../components/ImageCredentialCard';
+import { IncomeChart } from '../components/IncomeChart';
 import { vehicleRequirementOptions } from '../data/mockData';
 import { colors, styles } from '../styles';
 import type {
@@ -104,6 +105,7 @@ import {
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
   type DriverBankCardFormState,
+  type DailyIncomePoint,
   type DriverCertificationFileFieldName,
   type DriverCertificationFormState,
   type DriverExceptionFormState,
@@ -112,6 +114,7 @@ import {
   type DriverShipperEvaluationFormState,
   type DriverWithdrawalFormState,
 } from './driver-home/driverHomeUtils';
+import { aggregateIncomeRecordsByDay } from './driver-home/driverHomeUtils';
 
 type PlatformDriverOrderApi = ReturnType<typeof createPlatformDriverOrderApi>;
 type PlatformDriverCertificationApi = ReturnType<
@@ -1680,6 +1683,7 @@ export function DriverHomeScreen({
   const incomeRecords = Array.isArray(incomeOverview?.records)
     ? incomeOverview.records
     : [];
+  const incomeChartData = aggregateIncomeRecordsByDay(incomeRecords, 7);
   const withdrawalRecords = Array.isArray(withdrawals) ? withdrawals : [];
 
   const uploadCertificationFile = async (
@@ -2023,6 +2027,11 @@ export function DriverHomeScreen({
         ) : (
           <Text style={styles.detailMeta}>暂无已完成收入记录。</Text>
         )}
+        <IncomeChart
+          data={incomeChartData}
+          daysToShow={7}
+          testID="driver-income-chart"
+        />
         <TextInput
           testID="driver-withdrawal-amount"
           style={styles.ordersSearchInput}

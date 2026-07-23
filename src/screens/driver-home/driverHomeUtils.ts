@@ -12,6 +12,7 @@ import type {
   PlatformSaveDriverAcceptanceSettingsRequest,
   PlatformUpdateDriverBankCardRequest,
   PlatformDriverWithdrawalRecord,
+  PlatformDriverIncomeOverview,
 } from '../../services/platformDriverOrderApi';
 import type { PlatformDriverCertificationSnapshot } from '../../services/platformDriverCertificationApi';
 import { PlatformApiError } from '../../services/platformApiClient';
@@ -98,6 +99,47 @@ export type DriverExecutionProofState = Record<
     confirmingReceiptFileIds: string[];
   }
 >;
+
+export type DailyIncomePoint = {
+  dateText: string;
+  incomeCents: number;
+  orderCount: number;
+};
+
+export function aggregateIncomeRecordsByDay(
+  records: PlatformDriverIncomeOverview['records'],
+  daysToShow = 7,
+): DailyIncomePoint[] {
+  if (!Array.isArray(records) || records.length === 0) {
+    return [];
+  }
+
+  const dayMap = new Map<string, { incomeCents: number; orderCount: number }>();
+
+  for (const record of records.slice(-daysToShow * 2)) {
+    const date = new Date(record.completedAtIso);
+    const dateText = `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+
+    const existing = dayMap.get(dateText);
+    if (existing) {
+      existing.incomeCents += record.netIncomeCents;
+      existing.orderCount += 1;
+    } else {
+      dayMap.set(dateText, {
+        incomeCents: record.netIncomeCents,
+        orderCount: 1,
+      });
+    }
+  }
+
+  return Array.from(dayMap.entries())
+    .map(([dateText, values]) => ({
+      dateText,
+      incomeCents: values.incomeCents,
+      orderCount: values.orderCount,
+    }))
+    .slice(-daysToShow);
+}
 
 export const emptyForm: DriverOrderFormState = {
   quoteText: '',
