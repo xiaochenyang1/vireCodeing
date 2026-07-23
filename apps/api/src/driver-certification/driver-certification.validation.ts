@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  BatchReviewDriverCertificationRequest,
   ListDriverCertificationQuery,
   ReviewDriverCertificationRequest,
   SubmitDriverIdentityCertificationRequest,
@@ -90,6 +91,61 @@ export const reviewDriverCertificationSchema = z
         },
   );
 
+export const batchReviewDriverCertificationSchema = z
+  .object({
+    driverIds: z
+      .array(
+        z.string().trim().min(1, '司机 ID 不能为空').max(120, '司机 ID 最多 120 字'),
+      )
+      .min(1, '至少选择 1 个司机')
+      .max(50, '单次最多批量审核 50 个司机'),
+    certificationType: z.enum(['identity', 'vehicle'], {
+      error: '批量审核类型只能是 identity 或 vehicle',
+    }),
+    status: z.enum(['approved', 'rejected'], {
+      error: '审核状态只能是 approved 或 rejected',
+    }),
+    rejectionReason: z
+      .string()
+      .trim()
+      .max(200, '驳回原因最多 200 字')
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    const normalizedIds = value.driverIds.map(driverId => driverId.trim());
+    const uniqueDriverIds = new Set(normalizedIds);
+
+    if (uniqueDriverIds.size !== normalizedIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['driverIds'],
+        message: '批量审核司机 ID 不能重复',
+      });
+    }
+
+    if (value.status === 'rejected' && !value.rejectionReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rejectionReason'],
+        message: '驳回原因不能为空',
+      });
+    }
+  })
+  .transform(value =>
+    value.status === 'approved'
+      ? {
+          driverIds: value.driverIds.map(driverId => driverId.trim()),
+          certificationType: value.certificationType,
+          status: 'approved' as const,
+        }
+      : {
+          driverIds: value.driverIds.map(driverId => driverId.trim()),
+          certificationType: value.certificationType,
+          status: 'rejected' as const,
+          rejectionReason: value.rejectionReason as string,
+        },
+  );
+
 const listDriverCertificationQuerySchema = z.object({
   status: z
     .string()
@@ -121,6 +177,12 @@ export function parseReviewDriverCertificationRequest(
   input: unknown,
 ): ReviewDriverCertificationRequest {
   return reviewDriverCertificationSchema.parse(input);
+}
+
+export function parseBatchReviewDriverCertificationRequest(
+  input: unknown,
+): BatchReviewDriverCertificationRequest {
+  return batchReviewDriverCertificationSchema.parse(input);
 }
 
 export function parseListDriverCertificationQuery(

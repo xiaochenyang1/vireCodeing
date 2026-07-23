@@ -8,6 +8,7 @@ import {
 import { styles } from '../../styles';
 import type { PaymentMethod, PricingMode } from '../../types';
 import type { CouponItem } from '../../utils/profileLocalState';
+import { getDraftPricingCapabilityCopy } from '../../utils/orderDraft';
 
 export function PriceSection({
   pricingMode,
@@ -19,6 +20,7 @@ export function PriceSection({
   onSelectedCouponChange,
   paymentMethod,
   onPaymentMethodChange,
+  usesPlatformOrderApi = false,
 }: {
   pricingMode: PricingMode;
   onPricingModeChange: (value: PricingMode) => void;
@@ -29,7 +31,10 @@ export function PriceSection({
   onSelectedCouponChange: (value: string | undefined) => void;
   paymentMethod: PaymentMethod;
   onPaymentMethodChange: (value: PaymentMethod) => void;
+  usesPlatformOrderApi?: boolean;
 }) {
+  const pricingCopy = getDraftPricingCapabilityCopy(usesPlatformOrderApi);
+
   return (
     <>
       <View style={styles.draftCard}>
@@ -77,10 +82,10 @@ export function PriceSection({
       </View>
 
       <View style={styles.draftCard}>
-        <Text style={styles.draftSectionTitle}>本地优惠券</Text>
-        <Text style={styles.draftNotice}>
-          仅做本地计价预览，真实优惠券核销和支付抵扣后续接入。
+        <Text style={styles.draftSectionTitle}>
+          {pricingCopy.couponSectionTitle}
         </Text>
+        <Text style={styles.draftNotice}>{pricingCopy.couponNotice}</Text>
         {pricingMode === 'fixed' && coupons.length > 0 ? (
           <>
             <View style={styles.draftChoiceGrid}>
@@ -122,17 +127,15 @@ export function PriceSection({
         ) : (
           <Text style={styles.draftNotice}>
             {pricingMode === 'fixed'
-              ? '暂无可用本地优惠券。'
-              : '议价订单暂不使用优惠券，等待司机报价后再接入真实计价。'}
+              ? pricingCopy.fixedPricingEmptyCouponNotice
+              : pricingCopy.negotiableCouponNotice}
           </Text>
         )}
       </View>
 
       <View style={styles.draftCard}>
         <Text style={styles.draftSectionTitle}>支付方式</Text>
-        <Text style={styles.draftNotice}>
-          当前只记录本地选择，真实微信/支付宝支付后续接入。
-        </Text>
+        <Text style={styles.draftNotice}>{pricingCopy.paymentNotice}</Text>
         <View style={styles.draftChoiceGrid}>
           {paymentMethodOptions.map(option => {
             const isActive = paymentMethod === option.id;

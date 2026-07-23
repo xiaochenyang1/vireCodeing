@@ -40,7 +40,7 @@ type DraftStorageSnapshot = {
 let storedDraftSnapshot: DraftStorageSnapshot | undefined;
 
 export function createPendingDraftSyncState(
-  message = '草稿已在本地更新，等待真实草稿 API 接入后同步。',
+  message = '草稿已在本地更新，等待平台草稿同步。',
   now = Date.now(),
   platformUpdatedAtIso?: string,
 ): DraftSyncState {
@@ -55,7 +55,7 @@ export function createPendingDraftSyncState(
     queueItems: [
       createDraftSyncQueueItem(
         '待同步',
-        '真实草稿 API 未接入，本地先记录待同步草稿。',
+        '草稿已保留在本地，待平台草稿同步。',
         updatedAtIso,
       ),
     ],
@@ -63,7 +63,7 @@ export function createPendingDraftSyncState(
 }
 
 export function createSyncedDraftSyncState(
-  message = '本地草稿已记录，等待真实草稿 API 接入。',
+  message = '本地草稿已记录，等待平台草稿同步。',
   now = Date.now(),
 ): DraftSyncState {
   const updatedAtIso = new Date(now).toISOString();
@@ -94,7 +94,7 @@ export function createFailedDraftSyncState(
     queueItems: [
       createDraftSyncQueueItem(
         '同步失败',
-        '真实草稿 API 未接入，本地仅记录失败队列。',
+        '草稿同步未完成，已保留本地草稿队列。',
         updatedAtIso,
       ),
     ],

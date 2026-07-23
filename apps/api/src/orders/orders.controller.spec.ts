@@ -40,6 +40,39 @@ describe('OrdersController', () => {
     );
   }
 
+  function batchCancelAdminOrdersForTest(
+    controller: AdminOrdersController,
+    request: AuthenticatedRequest,
+    idempotencyKeyValue: unknown,
+    body: {
+      items: Array<{
+        orderId: string;
+        baseUpdatedAtIso: string;
+      }>;
+      reasonText: string;
+      description?: string;
+    },
+  ) {
+    return Promise.resolve().then(() =>
+      (
+        controller as unknown as {
+          batchCancelAdminOrders: (
+            request: AuthenticatedRequest,
+            idempotencyKeyValue: unknown,
+            body: {
+              items: Array<{
+                orderId: string;
+                baseUpdatedAtIso: string;
+              }>;
+              reasonText: string;
+              description?: string;
+            },
+          ) => Promise<unknown>;
+        }
+      ).batchCancelAdminOrders(request, idempotencyKeyValue, body),
+    );
+  }
+
   it('creates an order for the authenticated shipper', async () => {
     const service = {
       createOrder: jest.fn().mockResolvedValue({ id: 'order-1' }),
@@ -597,6 +630,67 @@ describe('OrdersController', () => {
         reasonText: '后台取消',
         description: '运营按筛选结果批量清理 waiting 单',
         baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      },
+    );
+  });
+
+  it('batch cancels waiting orders for the authenticated admin', async () => {
+    const service = {
+      batchCancelAdminOrders: jest.fn().mockResolvedValue({
+        orderIds: ['order-2', 'order-1'],
+        updatedCount: 2,
+        items: [
+          { id: 'order-2', status: 'cancelled' },
+          { id: 'order-1', status: 'cancelled' },
+        ],
+      }),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      batchCancelAdminOrdersForTest(
+        controller,
+        createRequest('admin-1', 'admin'),
+        IDEMPOTENCY_KEY,
+        {
+          items: [
+            {
+              orderId: ' order-2 ',
+              baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+            },
+            {
+              orderId: 'order-1',
+              baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+            },
+          ],
+          reasonText: '后台取消',
+          description: '运营按筛选结果批量清理 waiting 单',
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        orderIds: ['order-2', 'order-1'],
+        updatedCount: 2,
+      },
+      requestId: 'req_order_test',
+    });
+    expect(service.batchCancelAdminOrders).toHaveBeenCalledWith(
+      'admin-1',
+      IDEMPOTENCY_KEY,
+      {
+        items: [
+          {
+            orderId: 'order-2',
+            baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+          },
+          {
+            orderId: 'order-1',
+            baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+          },
+        ],
+        reasonText: '后台取消',
+        description: '运营按筛选结果批量清理 waiting 单',
       },
     );
   });

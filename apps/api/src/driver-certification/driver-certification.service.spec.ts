@@ -3,6 +3,7 @@ import { InMemoryFilesRepository } from '../files/files.repository';
 import {
   InMemoryDriverCertificationRepository,
   PrismaDriverCertificationRepository,
+  type PrismaDriverIdentityCertificationRecord,
 } from './driver-certification.repository';
 import { DriverCertificationService } from './driver-certification.service';
 
@@ -336,6 +337,139 @@ describe('DriverCertificationService', () => {
     ]);
   });
 
+  it('allows admins to batch approve identity certifications', async () => {
+    const { filesRepository, service } = createService();
+    const driver1FrontFile = await createUploadedFile(filesRepository, 'driver-1');
+    const driver1BackFile = await createUploadedFile(filesRepository, 'driver-1');
+    const driver2FrontFile = await createUploadedFile(filesRepository, 'driver-2');
+    const driver2BackFile = await createUploadedFile(filesRepository, 'driver-2');
+    await service.submitIdentity(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      {
+        realName: '张三',
+        identityNumber: '110101199003071234',
+        identityFrontFileId: driver1FrontFile.id,
+        identityBackFileId: driver1BackFile.id,
+      },
+    );
+    await service.submitIdentity(
+      { id: 'driver-2', phone: '13900139010', userType: 'driver' },
+      {
+        realName: '李四',
+        identityNumber: '110101199003071235',
+        identityFrontFileId: driver2FrontFile.id,
+        identityBackFileId: driver2BackFile.id,
+      },
+    );
+
+    await expect(
+      service.batchReviewCertifications(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        {
+          driverIds: ['driver-2', 'driver-1'],
+          certificationType: 'identity',
+          status: 'approved',
+        },
+      ),
+    ).resolves.toEqual({
+      certificationType: 'identity',
+      status: 'approved',
+      driverIds: ['driver-2', 'driver-1'],
+      updatedCount: 2,
+      items: [
+        {
+          driver: {
+            id: 'driver-2',
+            phone: '13900139010',
+          },
+          identity: expect.objectContaining({
+            driverId: 'driver-2',
+            status: 'approved',
+            rejectionReason: undefined,
+          }),
+          vehicle: { driverId: 'driver-2', status: 'unsubmitted' },
+        },
+        {
+          driver: {
+            id: 'driver-1',
+            phone: '13900139009',
+          },
+          identity: expect.objectContaining({
+            driverId: 'driver-1',
+            status: 'approved',
+            rejectionReason: undefined,
+          }),
+          vehicle: { driverId: 'driver-1', status: 'unsubmitted' },
+        },
+      ],
+    });
+
+    await expect(
+      service.listReviewEvents(
+        { id: 'admin-2', phone: '13900139001', userType: 'admin' },
+        'driver-2',
+      ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        driverId: 'driver-2',
+        reviewerAdminId: 'admin-1',
+        certificationType: 'identity',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+      }),
+    ]);
+  });
+
+  it('keeps batch certification review atomic when any record is missing', async () => {
+    const { filesRepository, service } = createService();
+    const frontFile = await createUploadedFile(filesRepository, 'driver-1');
+    const backFile = await createUploadedFile(filesRepository, 'driver-1');
+    await service.submitIdentity(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      {
+        realName: '张三',
+        identityNumber: '110101199003071234',
+        identityFrontFileId: frontFile.id,
+        identityBackFileId: backFile.id,
+      },
+    );
+
+    await expect(
+      service.batchReviewCertifications(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        {
+          driverIds: ['driver-1', 'driver-missing'],
+          certificationType: 'identity',
+          status: 'approved',
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+        '司机认证记录不存在：driver-missing',
+      ),
+    );
+
+    await expect(
+      service.getCertification({
+        id: 'driver-1',
+        phone: '13900139009',
+        userType: 'driver',
+      }),
+    ).resolves.toMatchObject({
+      identity: {
+        driverId: 'driver-1',
+        status: 'reviewing',
+      },
+    });
+    await expect(
+      service.listReviewEvents(
+        { id: 'admin-2', phone: '13900139001', userType: 'admin' },
+        'driver-1',
+      ),
+    ).resolves.toEqual([]);
+  });
+
   it('rejects non-admin certification reviews', async () => {
     const { service } = createService();
 
@@ -344,6 +478,23 @@ describe('DriverCertificationService', () => {
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         'driver-1',
         { status: 'approved' },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+  });
+
+  it('rejects non-admin batch certification reviews', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.batchReviewCertifications(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        {
+          driverIds: ['driver-1'],
+          certificationType: 'identity',
+          status: 'approved',
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
@@ -797,6 +948,228 @@ describe('PrismaDriverCertificationRepository', () => {
         status: 'reviewing',
       },
     });
+  });
+
+  it('batch reviews identity certifications in input order and records original statuses', async () => {
+    const createdAt = new Date('2026-07-06T08:00:00.000Z');
+    const updatedAt = new Date('2026-07-06T09:00:00.000Z');
+    const identityByDriverId = {
+      'driver-1': {
+        driverId: 'driver-1',
+        realName: '张三',
+        identityNumber: '110101199003071234',
+        identityFrontFileId: 'file-front-1',
+        identityBackFileId: 'file-back-1',
+        status: 'reviewing' as const,
+        rejectionReason: null,
+        createdAt,
+        updatedAt: createdAt,
+      },
+      'driver-2': {
+        driverId: 'driver-2',
+        realName: '李四',
+        identityNumber: '110101199003071235',
+        identityFrontFileId: 'file-front-2',
+        identityBackFileId: 'file-back-2',
+        status: 'rejected' as const,
+        rejectionReason: '证件模糊',
+        createdAt,
+        updatedAt: createdAt,
+      },
+    };
+    const updatedIdentityByDriverId: Record<
+      string,
+      PrismaDriverIdentityCertificationRecord
+    > = {
+      'driver-1': {
+        ...identityByDriverId['driver-1'],
+        status: 'approved' as const,
+        rejectionReason: null,
+        updatedAt,
+      },
+      'driver-2': {
+        ...identityByDriverId['driver-2'],
+        status: 'approved' as const,
+        rejectionReason: null,
+        updatedAt,
+      },
+    };
+    const prisma = {
+      user: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'driver-1', phone: '13900139009' },
+          { id: 'driver-2', phone: '13900139010' },
+        ]),
+      },
+      driverIdentityCertification: {
+        findUnique: jest.fn(),
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            identityByDriverId['driver-1'],
+            identityByDriverId['driver-2'],
+          ]),
+        upsert: jest.fn(),
+        update: jest
+          .fn()
+          .mockImplementation(({ where }: { where: { driverId: string } }) =>
+            Promise.resolve(updatedIdentityByDriverId[where.driverId]),
+          ),
+      },
+      driverVehicleCertification: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(),
+        update: jest.fn(),
+      },
+      driverCertificationReviewEvent: {
+        findMany: jest.fn(),
+        create: jest.fn().mockResolvedValue(undefined),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(
+      async (
+        callback: (
+          transactionPrisma: typeof prisma,
+        ) => Promise<unknown>,
+      ) => callback(prisma),
+    );
+    const repository = new PrismaDriverCertificationRepository(
+      prisma as unknown as ConstructorParameters<
+        typeof PrismaDriverCertificationRepository
+      >[0],
+    );
+
+    await expect(
+      repository.batchReviewCertifications('admin-1', {
+        driverIds: ['driver-2', 'driver-1'],
+        certificationType: 'identity',
+        status: 'approved',
+      }),
+    ).resolves.toMatchObject({
+      certificationType: 'identity',
+      status: 'approved',
+      driverIds: ['driver-2', 'driver-1'],
+      updatedCount: 2,
+      items: [
+        {
+          driver: { id: 'driver-2', phone: '13900139010' },
+          identity: { driverId: 'driver-2', status: 'approved' },
+        },
+        {
+          driver: { id: 'driver-1', phone: '13900139009' },
+          identity: { driverId: 'driver-1', status: 'approved' },
+        },
+      ],
+    });
+    expect(prisma.driverIdentityCertification.update).toHaveBeenNthCalledWith(1, {
+      where: { driverId: 'driver-2' },
+      data: {
+        status: 'approved',
+        rejectionReason: null,
+      },
+    });
+    expect(prisma.driverIdentityCertification.update).toHaveBeenNthCalledWith(2, {
+      where: { driverId: 'driver-1' },
+      data: {
+        status: 'approved',
+        rejectionReason: null,
+      },
+    });
+    expect(prisma.driverCertificationReviewEvent.create).toHaveBeenNthCalledWith(
+      1,
+      {
+        data: expect.objectContaining({
+          driverId: 'driver-2',
+          reviewerAdminId: 'admin-1',
+          certificationType: 'identity',
+          fromStatus: 'rejected',
+          toStatus: 'approved',
+          rejectionReason: null,
+        }),
+      },
+    );
+    expect(prisma.driverCertificationReviewEvent.create).toHaveBeenNthCalledWith(
+      2,
+      {
+        data: expect.objectContaining({
+          driverId: 'driver-1',
+          reviewerAdminId: 'admin-1',
+          certificationType: 'identity',
+          fromStatus: 'reviewing',
+          toStatus: 'approved',
+          rejectionReason: null,
+        }),
+      },
+    );
+  });
+
+  it('fails batch review before writing when any prisma certification record is missing', async () => {
+    const createdAt = new Date('2026-07-06T08:00:00.000Z');
+    const prisma = {
+      user: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'driver-1', phone: '13900139009' },
+        ]),
+      },
+      driverIdentityCertification: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            driverId: 'driver-1',
+            realName: '张三',
+            identityNumber: '110101199003071234',
+            identityFrontFileId: 'file-front-1',
+            identityBackFileId: 'file-back-1',
+            status: 'reviewing',
+            rejectionReason: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        ]),
+        upsert: jest.fn(),
+        update: jest.fn(),
+      },
+      driverVehicleCertification: {
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn(),
+        update: jest.fn(),
+      },
+      driverCertificationReviewEvent: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(
+      async (
+        callback: (
+          transactionPrisma: typeof prisma,
+        ) => Promise<unknown>,
+      ) => callback(prisma),
+    );
+    const repository = new PrismaDriverCertificationRepository(
+      prisma as unknown as ConstructorParameters<
+        typeof PrismaDriverCertificationRepository
+      >[0],
+    );
+
+    await expect(
+      repository.batchReviewCertifications('admin-1', {
+        driverIds: ['driver-1', 'driver-missing'],
+        certificationType: 'identity',
+        status: 'approved',
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+        '司机认证记录不存在：driver-missing',
+      ),
+    );
+    expect(prisma.driverIdentityCertification.update).not.toHaveBeenCalled();
+    expect(prisma.driverCertificationReviewEvent.create).not.toHaveBeenCalled();
   });
 });
 

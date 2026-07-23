@@ -13,10 +13,11 @@ import {
   createHomeSupportTicketStatusUpdatedState,
   createHomeSupportTicketSubmittedState,
   getHomeCityOptions,
+  getHomeCitySuggestionOptions,
   getHomeSummaryMetrics,
   getOrderListFilterForSummaryStatus,
 } from '../src/utils/homeDashboard';
-import type { FrequentRoute, SupportTicket } from '../src/types';
+import type { FrequentRoute, RecentOrder, SupportTicket } from '../src/types';
 import type { HomeSyncState } from '../src/utils/homeLocalState';
 
 test('returns local home city options', () => {
@@ -28,16 +29,98 @@ test('returns local home city options', () => {
   ]);
 });
 
+test('derives home city suggestions from selected city, routes, and order routes', () => {
+  const routes: FrequentRoute[] = [
+    {
+      id: 'route-1',
+      name: '宝安仓库到南山门店',
+      from: '宝安区福永物流园',
+      to: '南山区科技园门店',
+      lastUsedText: '昨天使用',
+    },
+    {
+      id: 'route-2',
+      name: '番禺仓库到天河门店',
+      from: '番禺区临时仓',
+      to: '天河区体育西门店',
+      lastUsedText: '上周使用',
+    },
+  ];
+  const orders: RecentOrder[] = [
+    {
+      id: 'HY20260722001',
+      status: 'waiting',
+      from: '顺德区北滘仓库',
+      to: '南海区狮山门店',
+      cargoType: '建材',
+      weightText: '2 吨',
+      vehicleRequirement: '中型货车',
+      priceText: '￥860',
+      updatedAtText: '刚刚',
+    },
+    {
+      id: 'HY20260722002',
+      status: 'transporting',
+      from: '宝安区沙井仓',
+      to: '东莞市长安镇门店',
+      cargoType: '日用品',
+      weightText: '1 吨',
+      vehicleRequirement: '面包车',
+      priceText: '￥280',
+      updatedAtText: '刚刚',
+    },
+  ];
+
+  expect(
+    getHomeCitySuggestionOptions({
+      selectedCity: '广州',
+      routes,
+      orders,
+    }),
+  ).toEqual([
+    expect.objectContaining({
+      id: 'guangzhou',
+      label: '广州',
+      badgeText: '当前城市',
+      routeMatchCount: 1,
+      orderMatchCount: 0,
+      detailText: '当前展示已命中常用路线 1 条。',
+    }),
+    expect.objectContaining({
+      id: 'shenzhen',
+      badgeText: '已有关联',
+      routeMatchCount: 1,
+      orderMatchCount: 1,
+      detailText: '关联：常用路线 1 条、订单路线 1 单。',
+    }),
+    expect.objectContaining({
+      id: 'dongguan',
+      badgeText: '已有关联',
+      routeMatchCount: 0,
+      orderMatchCount: 1,
+      detailText: '关联：订单路线 1 单。',
+    }),
+    expect.objectContaining({
+      id: 'foshan',
+      badgeText: '已有关联',
+      routeMatchCount: 0,
+      orderMatchCount: 1,
+      detailText: '关联：订单路线 1 单。',
+    }),
+  ]);
+});
+
 test('returns home summary metrics from current order and route counts', () => {
   expect(
     getHomeSummaryMetrics({
       orderCount: 4,
       routeCount: 3,
+      creditScore: 98,
     }),
   ).toEqual([
     { label: '本月发单', value: '4 单' },
     { label: '常用路线', value: '3 条' },
-    { label: '综合信用', value: '96 分' },
+    { label: '综合信用', value: '98 分' },
   ]);
 });
 
@@ -81,7 +164,7 @@ test('merges home local state snapshots without mutating the current state', () 
   };
   const syncState: HomeSyncState = {
     status: 'pending',
-    message: '等待真实路线 API 接入后同步。',
+    message: '等待平台常用路线同步。',
     updatedAtText: '刚刚',
     queueItems: [],
   };
@@ -131,7 +214,7 @@ test('creates home local state patches from route and sync changes', () => {
   ];
   const syncState: HomeSyncState = {
     status: 'pending',
-    message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+    message: '常用路线已在本地更新，等待平台常用路线同步。',
     updatedAtText: '刚刚',
     queueItems: [],
   };
@@ -256,7 +339,7 @@ test('creates next home state for route sync retry and failure', () => {
     ...currentState,
     syncState: {
       status: 'synced',
-      message: '本地常用路线已记录，等待真实路线 API 接入。',
+      message: '本地常用路线已记录，等待平台常用路线同步。',
       updatedAtText: '刚刚',
       updatedAtIso: expectedIso,
       queueItems: [],

@@ -39,7 +39,7 @@ const MIN_PICKUP_TIME_OFFSET_MS = 2 * 60 * 60 * 1000;
 const MAX_PICKUP_TIME_OFFSET_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function createPendingOrderSyncState(
-  message = '本地订单已保存，等待真实后端 API 接入后同步。',
+  message = '订单已在本地更新，等待平台订单同步。',
   operation: OrderSyncOperation = 'local',
   now = Date.now(),
   options: OrderSyncStateOptions = {},
@@ -55,7 +55,7 @@ export function createPendingOrderSyncState(
     queueItems: [
       createOrderSyncQueueItem(
         '待同步',
-        '真实订单 API 未接入，本地先记录待同步订单。',
+        '订单已保留在本地，待平台订单同步。',
         updatedAtIso,
       ),
     ],
@@ -67,7 +67,7 @@ export function createPendingOrderSyncState(
 }
 
 export function createSyncedOrderSyncState(
-  message = '本地状态已记录，等待真实 API 接入。',
+  message = '本地订单已记录，等待平台订单同步。',
   operation: OrderSyncOperation = 'local',
   now = Date.now(),
   options: OrderSyncStateOptions = {},
@@ -105,7 +105,7 @@ export function createFailedOrderSyncState(
     queueItems: [
       createOrderSyncQueueItem(
         '同步失败',
-        '真实订单 API 未接入，本地仅记录失败队列。',
+        '订单同步未完成，已保留本地订单队列。',
         updatedAtIso,
       ),
     ],
@@ -214,7 +214,7 @@ export function createLocalOrder(
         }
       : {}),
     syncState: createPendingOrderSyncState(
-      '本地订单已保存，等待真实后端 API 接入后同步。',
+      '本地订单已保存，等待平台订单同步。',
       'create',
       now,
       syncStateOptions,
@@ -263,7 +263,7 @@ export function createOrderUpdateFromDraft(
     expectedDeliveryTimeText: draftOrder.expectedDeliveryTimeText,
     valueAddedServicesText: getValueAddedServiceText(draftOrder),
     syncState: createPendingOrderSyncState(
-      '订单修改已保存在本地，等待真实后端 API 接入后同步。',
+      '订单修改已保存在本地，等待平台订单同步。',
       'update',
       now,
       syncStateOptions,

@@ -1,4 +1,7 @@
-import { createPlatformPaymentApi } from '../src/services/platformPaymentApi';
+import {
+  createPlatformPaymentApi,
+  createSandboxPlatformPaymentSdk,
+} from '../src/services/platformPaymentApi';
 
 describe('platform payment api', () => {
   const originalFetch = globalThis.fetch;
@@ -57,6 +60,14 @@ describe('platform payment api', () => {
       'http://localhost:3000/api/shipper/orders/order-1/payments',
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('provides a sandbox sdk that resolves client handoff as succeeded', async () => {
+    const sdk = createSandboxPlatformPaymentSdk();
+
+    await expect(
+      sdk.openPayment('wechat', { prepayId: 'prepay-1' }),
+    ).resolves.toEqual({ status: 'succeeded' });
   });
 });
 

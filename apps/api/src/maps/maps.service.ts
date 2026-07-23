@@ -106,6 +106,12 @@ export class MapsService {
     return snapshot;
   }
 
+  async getDriverLocation(
+    driverId: string,
+  ): Promise<DriverLocationSnapshotRecord | null> {
+    return this.repository.findDriverLocation(driverId);
+  }
+
   async getDriverNavigationTargets(
     driverId: string,
     orderId: string,

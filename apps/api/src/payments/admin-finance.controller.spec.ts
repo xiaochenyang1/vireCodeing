@@ -155,6 +155,56 @@ describe('AdminFinanceController', () => {
     },
   );
 
+  it('rejects batch withdrawal review without a key before service I/O', async () => {
+    const service = createAdminFinanceServiceMock();
+    const controller = new AdminFinanceController(service);
+
+    await expect(
+      controller.batchReviewWithdrawals(createRequest(), undefined, {
+        items: [{ withdrawalId: 'withdrawal-1', expectedVersion: 0 }],
+        action: 'approve',
+        reason: '财务复核后统一放款',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID });
+    expect(service.batchReviewWithdrawals).not.toHaveBeenCalled();
+  });
+
+  it('forwards batch withdrawal review items, action, reason and request id', async () => {
+    const service = createAdminFinanceServiceMock();
+    service.batchReviewWithdrawals.mockResolvedValue({
+      kind: 'success',
+      replayed: false,
+      action: 'approve',
+      withdrawalIds: ['withdrawal-1', 'withdrawal-2'],
+      updatedCount: 2,
+      items: [],
+    } as never);
+    const controller = new AdminFinanceController(service);
+    const key = '550e8400-e29b-41d4-a716-446655440002';
+
+    await expect(
+      controller.batchReviewWithdrawals(createRequest(), key, {
+        items: [
+          { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+          { withdrawalId: 'withdrawal-2', expectedVersion: 3 },
+        ],
+        action: 'approve',
+        reason: '财务复核后统一放款',
+      }),
+    ).resolves.toMatchObject({ code: 'OK' });
+    expect(service.batchReviewWithdrawals).toHaveBeenCalledWith({
+      adminId: 'admin-1',
+      idempotencyKey: key,
+      requestId: 'request-admin-1',
+      items: [
+        { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+        { withdrawalId: 'withdrawal-2', expectedVersion: 3 },
+      ],
+      action: 'approve',
+      reason: '财务复核后统一放款',
+    });
+  });
+
   it('forwards an audited refund retry with attempt baseline', async () => {
     const service = createAdminFinanceServiceMock();
     service.retryRefund.mockResolvedValue({ refund: { id: 'refund-1' } } as never);
@@ -187,6 +237,7 @@ function createAdminFinanceServiceMock() {
     getLedgerTransaction: jest.fn(),
     listWithdrawals: jest.fn(),
     reviewWithdrawal: jest.fn(),
+    batchReviewWithdrawals: jest.fn(),
   } as unknown as jest.Mocked<AdminFinanceService>;
 }
 

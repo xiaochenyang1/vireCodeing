@@ -18,10 +18,13 @@ import {
   type IdentityVerificationRequest,
   type InvoiceApplicationDetails,
   type InvoiceItem,
+  type ProfileInvoiceApplicationSyncMode,
+  type ProfileInvoiceApplicationSyncRequest,
   type InvoiceRejectionReasons,
   type InvoiceTitleOption,
   type InvoiceTypeOption,
   type ProfileLocalState,
+  type ProfileSyncMutationOptions,
   type SavedAccountSettings,
   type SavedPasswordSettings,
   type SettingItem,
@@ -40,7 +43,13 @@ import { SpendingRecords } from './SpendingRecords';
 export type ProfilePlatformAuthApi = Pick<
   ReturnType<typeof createPlatformAuthApi>,
   'changePassword'
->;
+> &
+  Partial<
+    Pick<
+      ReturnType<typeof createPlatformAuthApi>,
+      'listSessions' | 'revokeOtherSessions'
+    >
+  >;
 export type ProfilePlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
   | 'saveAccountProfile'
@@ -98,6 +107,8 @@ export function ProfileDetailScreen({
   onUpdateInvoiceRejectionReasons,
   onUpdateInvoiceSelections,
   onUpdateInvoiceMeta,
+  onRefreshPlatformInvoices,
+  onMarkInvoiceApplicationSyncFailed,
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
@@ -134,10 +145,20 @@ export function ProfileDetailScreen({
   onAddContact: (contact: ContactInput) => void;
   onDeleteContact: (contactId: string) => void;
   onUpdateContact: (contactId: string, changes: ContactInput) => void;
-  onSubmitIdentityVerification: (request: IdentityVerificationRequest) => void;
+  onSubmitIdentityVerification: (
+    request: IdentityVerificationRequest,
+    options?: {
+      syncStatus?: 'failed';
+      syncMessage?: string;
+    },
+  ) => void;
   onRejectIdentityVerification: (reason: string) => void;
   onSubmitEnterpriseVerification: (
     request: EnterpriseVerificationRequest,
+    options?: {
+      syncStatus?: 'failed';
+      syncMessage?: string;
+    },
   ) => void;
   onRejectEnterpriseVerification: (reason: string) => void;
   onUpdateCoupons: (coupons: CouponItem[]) => void;
@@ -157,9 +178,29 @@ export function ProfileDetailScreen({
       >
     >,
   ) => void;
-  onUpdateSettings: (settings: SettingItem[]) => void;
-  onUpdateAccount: (account: SavedAccountSettings) => void;
-  onUpdatePassword: (password: SavedPasswordSettings) => void;
+  onRefreshPlatformInvoices: (options?: {
+    clearSelectedInvoiceOrderIds?: boolean;
+    resolveSyncFailureMode?: 'none' | 'auto' | 'always';
+    successMessage?: string;
+  }) => Promise<boolean>;
+  onMarkInvoiceApplicationSyncFailed: (options: {
+    message: string;
+    mode: ProfileInvoiceApplicationSyncMode;
+    request?: ProfileInvoiceApplicationSyncRequest;
+    clearSelectedInvoiceOrderIds?: boolean;
+  }) => void;
+  onUpdateSettings: (
+    settings: SettingItem[],
+    options?: ProfileSyncMutationOptions,
+  ) => void;
+  onUpdateAccount: (
+    account: SavedAccountSettings,
+    options?: ProfileSyncMutationOptions,
+  ) => void;
+  onUpdatePassword: (
+    password: SavedPasswordSettings,
+    options?: ProfileSyncMutationOptions,
+  ) => void;
   onBackOverview: () => void;
   onLogout: () => void;
 }) {
@@ -187,6 +228,8 @@ export function ProfileDetailScreen({
         onBack={onBackOverview}
         backTestID="profile-back-overview"
         backText="返回个人中心"
+        account={account}
+        modeBadgeText={platformProfileApi ? '平台同步' : '本地版'}
       />
 
       {sectionId === 'addresses' ? (
@@ -253,6 +296,10 @@ export function ProfileDetailScreen({
           onUpdateInvoiceRejectionReasons={onUpdateInvoiceRejectionReasons}
           onUpdateInvoiceSelections={onUpdateInvoiceSelections}
           onUpdateInvoiceMeta={onUpdateInvoiceMeta}
+          onRefreshPlatformInvoices={onRefreshPlatformInvoices}
+          onMarkInvoiceApplicationSyncFailed={
+            onMarkInvoiceApplicationSyncFailed
+          }
         />
       ) : null}
       {sectionId === 'coupons' ? (
@@ -266,6 +313,7 @@ export function ProfileDetailScreen({
           password={password}
           platformAuthApi={platformAuthApi}
           platformProfileApi={platformProfileApi}
+          platformFileApi={platformFileApi}
           onUpdateSettings={onUpdateSettings}
           onUpdateAccount={onUpdateAccount}
           onUpdatePassword={onUpdatePassword}

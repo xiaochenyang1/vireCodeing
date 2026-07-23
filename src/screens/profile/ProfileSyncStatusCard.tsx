@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { styles } from '../../styles';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import {
   createSyncedProfileSyncState,
   type ProfileSyncState,
@@ -29,7 +30,7 @@ export function ProfileSyncStatusCard({
 }) {
   const effectiveSyncState =
     syncState ??
-    createSyncedProfileSyncState('本地资料已初始化，等待真实账号中心 API 接入。');
+    createSyncedProfileSyncState('本地资料已初始化，等待平台资料同步。');
   const canRetry =
     effectiveSyncState.status === 'pending' ||
     effectiveSyncState.status === 'failed';
@@ -58,6 +59,13 @@ export function ProfileSyncStatusCard({
       <Text style={styles.detailMeta}>
         {`同步时间：${effectiveSyncState.updatedAtText}`}
       </Text>
+      {effectiveSyncState.platformUpdatedAtIso ? (
+        <Text style={styles.detailMeta}>
+          {`服务端地址簿版本：${formatPlatformIsoMinute(
+            effectiveSyncState.platformUpdatedAtIso,
+          )}`}
+        </Text>
+      ) : null}
       {effectiveSyncState.conflictSummaryText ? (
         <Text style={styles.detailMeta}>
           {effectiveSyncState.conflictSummaryText}

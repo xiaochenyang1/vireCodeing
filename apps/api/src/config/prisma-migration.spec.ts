@@ -148,6 +148,28 @@ describe('Prisma initial migration', () => {
     );
   });
 
+  it('contains the current shipper support tickets table', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TYPE "SupportTicketStatus"');
+    expect(sql).toContain('CREATE TABLE "ShipperSupportTicket"');
+    expect(sql).toContain('"channelName" TEXT NOT NULL');
+    expect(sql).toContain('"description" TEXT NOT NULL');
+    expect(sql).toContain(
+      '"status" "SupportTicketStatus" NOT NULL DEFAULT \'pending\'',
+    );
+    expect(sql).toContain('"statusHistory" JSONB NOT NULL DEFAULT \'[]\'');
+    expect(sql).toContain(
+      'CREATE INDEX "ShipperSupportTicket_shipper_created_idx"',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX "ShipperSupportTicket_shipper_status_created_idx"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperSupportTicket_shipperId_fkey"',
+    );
+  });
+
   it('contains the current shipper invoice application table', () => {
     const sql = readAllMigrations();
 
@@ -171,6 +193,52 @@ describe('Prisma initial migration', () => {
     const sql = readAllMigrations();
 
     expect(sql).toContain('ALTER TYPE "FilePurpose" ADD VALUE \'evaluation\'');
+  });
+
+  it('contains the shipper avatar file purpose and profile reference migration', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('ALTER TYPE "FilePurpose" ADD VALUE \'avatar\'');
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "avatarFileId" TEXT',
+    );
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "ShipperProfile_avatarFileId_key"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperProfile_avatarFileId_fkey"',
+    );
+  });
+
+  it('contains the shipper account settings snapshot migration', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "phoneProtectionEnabled" BOOLEAN NOT NULL DEFAULT true',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "loginProtectionEnabled" BOOLEAN NOT NULL DEFAULT true',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "orderNotificationEnabled" BOOLEAN NOT NULL DEFAULT true',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "promotionNotificationEnabled" BOOLEAN NOT NULL DEFAULT false',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "privacyConfirmedAt" TIMESTAMP(3)',
+    );
+  });
+
+  it('contains the shipper privacy policy version snapshot migration', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "privacyPolicyVersion" TEXT',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "ShipperProfile" ADD COLUMN "privacyPolicyVersionTitle" TEXT',
+    );
   });
 
   it('stores declared file content metadata for upload confirmation checks', () => {

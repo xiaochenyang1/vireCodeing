@@ -39,6 +39,8 @@ export type ProfileOverviewModelInput = {
 
 export type ProfileOverviewModel = {
   avatarInitial: string;
+  avatarPhotoCount: number;
+  avatarPublicUrl?: string;
   displayName: string;
   accountTypeLabel: string;
   maskedPhone: string;
@@ -49,7 +51,7 @@ export type ProfileOverviewModel = {
   unreadMessageCount: number;
 };
 
-export const profileEntryConfigs: ProfileEntryConfig[] = [
+const localProfileEntryConfigs: ProfileEntryConfig[] = [
   {
     id: 'addresses',
     title: '常用地址',
@@ -83,7 +85,7 @@ export const profileEntryConfigs: ProfileEntryConfig[] = [
   {
     id: 'invoices',
     title: '发票管理',
-    description: '企业认证后可申请电子发票',
+    description: '个人可申请普通发票，企业认证后可申请企业发票',
   },
   {
     id: 'coupons',
@@ -96,6 +98,39 @@ export const profileEntryConfigs: ProfileEntryConfig[] = [
     description: '账号安全、通知和隐私设置入口',
   },
 ];
+
+export const profileEntryConfigs = localProfileEntryConfigs;
+
+export function getProfileEntryConfigs(usesPlatformProfileApi = false) {
+  if (!usesPlatformProfileApi) {
+    return localProfileEntryConfigs.map(entry => ({ ...entry }));
+  }
+
+  return localProfileEntryConfigs.map(entry => {
+    if (entry.id === 'addresses') {
+      return {
+        ...entry,
+        description: '管理装货和卸货地址，并同步平台地址簿快照',
+      };
+    }
+
+    if (entry.id === 'contacts') {
+      return {
+        ...entry,
+        description: '保存装卸联系人，并同步平台地址簿快照',
+      };
+    }
+
+    if (entry.id === 'coupons') {
+      return {
+        ...entry,
+        description: '查看平台优惠券状态、锁定和使用结果',
+      };
+    }
+
+    return { ...entry };
+  });
+}
 
 export function createProfileOverviewModel({
   account,
@@ -119,7 +154,11 @@ export function createProfileOverviewModel({
       : baseSummary.accountType;
 
   return {
-    avatarInitial: account.displayName.trim().charAt(0) || '货',
+    avatarInitial: getProfileAvatarInitial(account.displayName),
+    avatarPhotoCount: account.avatarPhotoCount,
+    ...(account.avatarPublicUrl
+      ? { avatarPublicUrl: account.avatarPublicUrl }
+      : {}),
     displayName: account.displayName,
     accountTypeLabel: accountTypeCopy[accountType],
     maskedPhone: maskProfilePhoneNumber(account.boundPhone),
@@ -133,6 +172,10 @@ export function createProfileOverviewModel({
     monthlyOrderCount,
     unreadMessageCount,
   };
+}
+
+export function getProfileAvatarInitial(displayName: string) {
+  return displayName.trim().charAt(0) || '货';
 }
 
 export function maskProfilePhoneNumber(phoneNumber: string) {

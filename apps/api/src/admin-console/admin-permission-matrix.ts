@@ -93,7 +93,7 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     title: '订单管理台',
     route: '/api/admin/order-management-console',
     summary:
-      '按状态、时间和关键字检索后台订单列表/详情、读取筛选报表和导出 CSV，并可按当前筛选结果顺序批量取消 waiting 订单。',
+      '按状态、时间和关键字检索后台订单列表/详情、读取筛选报表和导出 CSV，并可原子批量取消当前筛选结果里的 waiting 订单。',
   },
   {
     key: 'session-governance',
@@ -106,7 +106,7 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     title: '账号管理台',
     route: '/api/admin/account-management-console',
     summary:
-      '查看平台账号目录、活跃会话、治理审计、筛选报表，并可导出 CSV、冻结、解冻和按账号撤销会话。',
+      '查看平台账号目录、活跃会话、治理审计、筛选报表，并可导出 CSV、单账号治理和后端原子批量冻结解冻/撤销会话。',
   },
   {
     key: 'order-attachment',
@@ -119,6 +119,12 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     title: '文件维护台',
     route: '/api/admin/file-maintenance-console',
     summary: '查看文件积压、用途报表并执行 expired pending / rejected 对象治理。',
+  },
+  {
+    key: 'support-ticket',
+    title: '帮助中心工单台',
+    route: '/api/admin/support-ticket-console',
+    summary: '查看帮助中心工单列表/详情，并推进 pending / processing / resolved 流程。',
   },
   {
     key: 'order-exception-case',
@@ -142,7 +148,7 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     key: 'finance',
     title: '财务操作台',
     route: '/api/admin/finance-console',
-    summary: '读取支付/退款/结算/提现、财务报表和资金流水，并执行退款重试、提现审核。',
+    summary: '读取支付/退款/结算/提现、财务报表和资金流水，并执行退款重试、单条或原子批量提现审核。',
   },
 ];
 
@@ -168,6 +174,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/driver-certifications',
       '/admin/driver-certifications/{driverId}/attachments',
       '/admin/driver-certifications/{driverId}/review-events',
+      '/admin/driver-certifications/batch-review',
       '/admin/driver-certifications/{driverId}/identity/review',
       '/admin/driver-certifications/{driverId}/vehicle/review',
     ],
@@ -177,7 +184,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '查看并取消待接单后台订单',
     moduleKey: 'order-management',
     summary:
-      '按状态、时间和关键字检索订单列表，查看单笔详情、筛选报表、导出当前筛选 CSV，并可取消 waiting 订单。',
+      '按状态、时间和关键字检索订单列表，查看单笔详情、筛选报表、导出当前筛选 CSV，并可单条取消或原子批量取消 waiting 订单。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
@@ -185,6 +192,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/orders/report',
       '/admin/orders/export',
       '/admin/orders/{orderId}',
+      '/admin/orders/batch-cancel',
       '/admin/orders/{orderId}/cancel',
     ],
   },
@@ -208,13 +216,15 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '查看并治理平台账号',
     moduleKey: 'account-management',
     summary:
-      '读取平台账号目录、账号详情、筛选报表和治理审计，并能导出 CSV、执行冻结、解冻和按账号撤销会话。',
+      '读取平台账号目录、账号详情、筛选报表和治理审计，并能导出 CSV、执行冻结、解冻，以及后端原子批量冻结解冻/按账号撤销会话。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/auth/accounts',
       '/admin/auth/accounts/report',
       '/admin/auth/accounts/export',
+      '/admin/auth/accounts/batch-status',
+      '/admin/auth/accounts/batch-revoke-sessions',
       '/admin/auth/accounts/{userId}',
       '/admin/auth/accounts/{userId}/status',
       '/admin/auth/accounts/{userId}/revoke-sessions',
@@ -244,6 +254,20 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/files/maintenance/reject-expired-pending',
       '/files/maintenance/delete-rejected-objects',
       '/files/maintenance/batch-governance',
+    ],
+  },
+  {
+    key: 'support_ticket_manage',
+    title: '处理帮助中心工单',
+    moduleKey: 'support-ticket',
+    summary: '读取帮助中心工单列表/详情，并能执行 process、resolve 状态流转。',
+    actions: ['read', 'write'],
+    riskLevel: 'high',
+    apiPaths: [
+      '/admin/support-tickets',
+      '/admin/support-tickets/{ticketId}',
+      '/admin/support-tickets/{ticketId}/process',
+      '/admin/support-tickets/{ticketId}/resolve',
     ],
   },
   {
@@ -289,7 +313,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '读取并操作财务流水',
     moduleKey: 'finance',
     summary:
-      '读取支付/退款/结算/提现、财务报表和资金流水，并能执行退款重试、提现通过/驳回。',
+      '读取支付/退款/结算/提现、财务报表和资金流水，并能执行退款重试、提现单条通过/驳回和原子批量审核。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
@@ -299,6 +323,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/finance/refunds/{refundId}/retry',
       '/admin/finance/settlements',
       '/admin/finance/withdrawals',
+      '/admin/finance/withdrawals/batch-review',
       '/admin/finance/withdrawals/{withdrawalId}/approve',
       '/admin/finance/withdrawals/{withdrawalId}/reject',
       '/admin/finance/ledger-transactions/{transactionId}',

@@ -3,13 +3,29 @@ import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { styles } from '../../styles';
+import {
+  getAccumulatedBonusText,
+  getBonusAmountValue,
+} from '../../utils/orderDetail';
 
-export function BonusForm({ onSubmit }: { onSubmit: (amount: string) => void }) {
+export function BonusForm({
+  currentBonusText,
+  onSubmit,
+}: {
+  currentBonusText?: string;
+  onSubmit: (amount: string) => void;
+}) {
   const bonusOptions = ['20', '50', '100'];
   const [selectedAmount, setSelectedAmount] = useState('20');
   const [customAmount, setCustomAmount] = useState('');
   const [notice, setNotice] = useState('');
   const amount = customAmount.trim() || selectedAmount;
+  const currentBonusAmount = getBonusAmountValue(currentBonusText);
+  const currentBonusLabel =
+    currentBonusAmount > 0 ? currentBonusText?.trim() ?? '未追加' : '未追加';
+  const totalBonusLabel = isValidBonusAmount(amount)
+    ? getAccumulatedBonusText(currentBonusText, amount)
+    : '待输入有效金额';
 
   const submit = () => {
     if (!isValidBonusAmount(amount)) {
@@ -25,8 +41,10 @@ export function BonusForm({ onSubmit }: { onSubmit: (amount: string) => void }) 
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>追加赏金</Text>
       <Text style={styles.detailMeta}>
-        本地演示：赏金会记录在订单详情中，用于提高待接单订单曝光。
+        当前会基于已追加赏金继续累加，本地记录总赏金用于提高待接单订单曝光。
       </Text>
+      <Text style={styles.detailMeta}>{`当前曝光赏金：${currentBonusLabel}`}</Text>
+      <Text style={styles.routeMeta}>{`追加后总赏金：${totalBonusLabel}`}</Text>
       <View style={styles.draftChoiceGrid}>
         {bonusOptions.map(option => {
           const isActive = !customAmount && selectedAmount === option;

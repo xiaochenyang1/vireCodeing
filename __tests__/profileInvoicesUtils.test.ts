@@ -269,7 +269,9 @@ describe('profile invoice utils', () => {
         receiverEmail: 'bad-email',
         selectedOrderCount: 0,
         invoiceType: 'vat-special',
+        invoiceTitle: 'enterprise',
         canRequestVatSpecialInvoice: false,
+        canUseEnterpriseInvoiceTitle: false,
       }),
     ).toEqual({
       trimmedEmail: 'bad-email',
@@ -280,7 +282,9 @@ describe('profile invoice utils', () => {
         receiverEmail: 'finance@example.com',
         selectedOrderCount: 0,
         invoiceType: 'normal',
+        invoiceTitle: 'personal',
         canRequestVatSpecialInvoice: false,
+        canUseEnterpriseInvoiceTitle: false,
       }),
     ).toEqual({
       trimmedEmail: 'finance@example.com',
@@ -291,7 +295,9 @@ describe('profile invoice utils', () => {
         receiverEmail: ' finance@example.com ',
         selectedOrderCount: 1,
         invoiceType: 'vat-special',
+        invoiceTitle: 'enterprise',
         canRequestVatSpecialInvoice: false,
+        canUseEnterpriseInvoiceTitle: false,
       }),
     ).toEqual({
       trimmedEmail: 'finance@example.com',
@@ -302,11 +308,26 @@ describe('profile invoice utils', () => {
         receiverEmail: ' finance@example.com ',
         selectedOrderCount: 1,
         invoiceType: 'vat-special',
+        invoiceTitle: 'enterprise',
         canRequestVatSpecialInvoice: true,
+        canUseEnterpriseInvoiceTitle: true,
       }),
     ).toEqual({
       trimmedEmail: 'finance@example.com',
       notice: '',
+    });
+    expect(
+      validateInvoiceSubmission({
+        receiverEmail: 'finance@example.com',
+        selectedOrderCount: 1,
+        invoiceType: 'normal',
+        invoiceTitle: 'enterprise',
+        canRequestVatSpecialInvoice: false,
+        canUseEnterpriseInvoiceTitle: false,
+      }),
+    ).toEqual({
+      trimmedEmail: 'finance@example.com',
+      notice: '企业抬头需先提交企业认证资料',
     });
   });
 
@@ -318,7 +339,6 @@ describe('profile invoice utils', () => {
         invoiceTitle: 'enterprise',
         currentInvoiceTitle: '原抬头',
         accountDisplayName: '晨星货主',
-        fallbackDisplayName: '默认货主',
         enterpriseVerification: {
           enterpriseName: '深圳星河物流有限公司',
           creditCode: '91440300MA0000000X',
@@ -334,7 +354,6 @@ describe('profile invoice utils', () => {
         invoiceTitle: 'enterprise',
         currentInvoiceTitle: '原抬头',
         accountDisplayName: '晨星货主',
-        fallbackDisplayName: '默认货主',
         enterpriseVerification: {
           enterpriseName: '深圳星河物流有限公司',
           creditCode: '91440300MA0000000X',
@@ -351,9 +370,8 @@ describe('profile invoice utils', () => {
         invoiceTitle: 'personal',
         currentInvoiceTitle: '原抬头',
         accountDisplayName: ' ',
-        fallbackDisplayName: '默认货主',
       }),
-    ).toBe('默认货主');
+    ).toBe('个人货主');
   });
 
   it('recognizes platform invoice snapshots and maps them into local invoice state', () => {

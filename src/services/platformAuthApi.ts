@@ -76,9 +76,30 @@ export type PlatformChangePasswordResult = {
   changed: true;
 };
 
+export type PlatformAuthSessionRecord = {
+  id: string;
+  deviceId: string;
+  createdAtIso: string;
+  expiresAtIso: string;
+};
+
+export type PlatformAuthSessionListResult = {
+  sessions: PlatformAuthSessionRecord[];
+  total: number;
+};
+
 export type PlatformRefreshRequest = {
   refreshToken: string;
   deviceId: string;
+};
+
+export type PlatformRevokeOtherSessionsRequest = {
+  currentDeviceId: string;
+};
+
+export type PlatformRevokeOtherSessionsResult = {
+  currentDeviceId: string;
+  revokedCount: number;
 };
 
 export type PlatformLogoutRequest = {
@@ -134,6 +155,17 @@ export function createPlatformAuthApi(config: PlatformApiConfig) {
         PlatformChangePasswordResult
       >(config, '/auth/change-password', request);
     },
+    listSessions() {
+      return platformGet<PlatformAuthSessionListResult>(config, '/auth/sessions');
+    },
+    async revokeOtherSessions(request: PlatformRevokeOtherSessionsRequest) {
+      const normalizedRequest = normalizeRevokeOtherSessionsRequest(request);
+
+      return platformPost<
+        PlatformRevokeOtherSessionsRequest,
+        PlatformRevokeOtherSessionsResult
+      >(config, '/auth/sessions/revoke-other-sessions', normalizedRequest);
+    },
     async refresh(request: PlatformRefreshRequest) {
       const normalizedRequest = normalizeTokenSessionRequest(request);
 
@@ -172,6 +204,21 @@ function normalizeTokenSessionRequest(
     deviceId: normalizeRequiredTrimmedString(
       request.deviceId,
       'Auth token session device id is invalid',
+    ),
+  };
+}
+
+function normalizeRevokeOtherSessionsRequest(
+  request: PlatformRevokeOtherSessionsRequest,
+): PlatformRevokeOtherSessionsRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidTokenSessionRequest('Revoke other sessions request is invalid');
+  }
+
+  return {
+    currentDeviceId: normalizeRequiredTrimmedString(
+      request.currentDeviceId,
+      'Current auth device id is invalid',
     ),
   };
 }

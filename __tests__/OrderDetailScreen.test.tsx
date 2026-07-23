@@ -4,6 +4,7 @@ import ReactTestRenderer from 'react-test-renderer';
 
 import { orderListOrders } from '../src/data/mockData';
 import { OrderDetailScreen } from '../src/screens/OrderDetailScreen';
+import { PlatformApiError } from '../src/services/platformApiClient';
 import type {
   PlatformPaymentRecord,
   PlatformPaymentSdk,
@@ -152,6 +153,155 @@ describe('OrderDetailScreen payment status', () => {
       renderer.root.findAllByProps({ testID: 'payment-submit' }),
     ).toHaveLength(0);
   });
+
+  it('shows local online payment guidance and hides the payment action when the order is not synced to platform', async () => {
+    const order = createOnlineOrder({
+      platformOrderId: undefined,
+      paymentStatus: undefined,
+    });
+    const renderer = await renderOrderDetail({ order });
+
+    expect(getRenderedText(renderer)).toContain(
+      '当前仍是本地演示订单，切到平台模式后可继续在线支付。',
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '当前仍是本地演示订单，切到平台模式后可在订单页继续在线支付。',
+    );
+    expect(
+      renderer.root.findAllByProps({ testID: 'payment-submit' }),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'payment-refresh' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain(
+      '当前订单还未同步到平台，暂不能刷新支付状态。',
+    );
+  });
+
+  it('shows platform payment creation guidance when the order is synced but no payment exists yet', async () => {
+    const order = createOnlineOrder({ paymentStatus: undefined });
+    const platformPaymentApi = {
+      createPayment: jest.fn(),
+      getLatestPayment: jest.fn().mockRejectedValue(
+        new PlatformApiError(
+          'payment order not available',
+          'PAYMENT_ORDER_NOT_AVAILABLE',
+          404,
+          undefined,
+        ),
+      ),
+    };
+    const renderer = await renderOrderDetail({
+      order,
+      platformPaymentApi,
+      platformPaymentSdk: {
+        openPayment: jest.fn(),
+      },
+    });
+
+    expect(getRenderedText(renderer)).toContain(
+      '暂未创建支付单，可选择渠道后支付。',
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '当前尚未创建支付单，可在资金状态卡选择渠道后发起支付。',
+    );
+    expect(getRenderedText(renderer)).not.toContain(
+      '当前仍是本地演示订单，切到平台模式后可在订单页继续在线支付。',
+    );
+    expect(
+      renderer.root.findAllByProps({ testID: 'payment-submit' }),
+    ).not.toHaveLength(0);
+  });
+
+  it('syncs the latest payment snapshot into order state without turning it into a local pending sync', async () => {
+    const order = createOnlineOrder({
+      paymentStatus: 'pending',
+      syncState: {
+        status: 'synced',
+        message: '订单已从平台 API 同步。',
+        updatedAtText: '刚刚',
+        updatedAtIso: '2026-07-15T08:00:00.000Z',
+        queueItems: [],
+      },
+    });
+    const settledPayment = createPayment({
+      channel: 'alipay',
+      status: 'settled',
+      paymentNo: 'PAY-SETTLED-1',
+      providerTradeNo: 'ALI-TRADE-1',
+      paidAtIso: '2026-07-15T08:10:00.000Z',
+      settledAtIso: '2026-07-15T08:30:00.000Z',
+      updatedAtIso: '2026-07-15T08:30:00.000Z',
+    });
+    const onUpdateOrder = jest.fn();
+    const platformPaymentApi = {
+      createPayment: jest.fn(),
+      getLatestPayment: jest.fn().mockResolvedValue(settledPayment),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      onUpdateOrder,
+      platformPaymentApi,
+    });
+
+    expect(onUpdateOrder).toHaveBeenCalledWith(order.id, {
+      paymentStatus: 'settled',
+      paymentChannel: 'alipay',
+      paymentSettledAtIso: '2026-07-15T08:30:00.000Z',
+      syncState: order.syncState,
+    });
+    expect(getRenderedText(renderer)).toContain('支付单号 PAY-SETTLED-1');
+    expect(getRenderedText(renderer)).toContain('渠道流水 ALI-TRADE-1');
+    expect(getRenderedText(renderer)).toContain('结算时间 2026-07-15 16:30');
+    expect(getRenderedText(renderer)).toContain('支付时间 2026-07-15 16:10');
+  });
+
+  it('syncs refundedAtIso from the latest payment snapshot into order state', async () => {
+    const order = createOnlineOrder({
+      paymentStatus: 'refund_pending',
+      syncState: {
+        status: 'synced',
+        message: '订单已从平台 API 同步。',
+        updatedAtText: '刚刚',
+        updatedAtIso: '2026-07-15T08:00:00.000Z',
+        queueItems: [],
+      },
+    });
+    const refundedPayment = createPayment({
+      channel: 'alipay',
+      status: 'refunded',
+      paymentNo: 'PAY-REFUND-1',
+      providerTradeNo: 'ALI-REFUND-1',
+      paidAtIso: '2026-07-15T08:10:00.000Z',
+      settledAtIso: '2026-07-15T08:30:00.000Z',
+      refundedAtIso: '2026-07-15T10:00:00.000Z',
+      updatedAtIso: '2026-07-15T10:00:00.000Z',
+    });
+    const onUpdateOrder = jest.fn();
+    const platformPaymentApi = {
+      createPayment: jest.fn(),
+      getLatestPayment: jest.fn().mockResolvedValue(refundedPayment),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      onUpdateOrder,
+      platformPaymentApi,
+    });
+
+    expect(onUpdateOrder).toHaveBeenCalledWith(order.id, {
+      paymentStatus: 'refunded',
+      paymentChannel: 'alipay',
+      paymentSettledAtIso: '2026-07-15T08:30:00.000Z',
+      refundedAtIso: '2026-07-15T10:00:00.000Z',
+      syncState: order.syncState,
+    });
+    expect(getRenderedText(renderer)).toContain('退款时间 2026-07-15 18:00');
+  });
 });
 
 function createOnlineOrder(
@@ -161,6 +311,7 @@ function createOnlineOrder(
     ...orderListOrders[0],
     platformOrderId: 'order-platform-payment-1',
     paymentMethod: 'online',
+    paymentMethodText: '在线支付',
     paymentStatus: 'pending',
     ...overrides,
   };
@@ -189,12 +340,19 @@ function createPayment(
 async function renderOrderDetail({
   order,
   onUpdateOrder = jest.fn(),
+  onCompleteOrder,
+  platformOrderApi,
   platformPaymentApi,
   platformPaymentSdk,
   platformMapsApi,
 }: {
   order: RecentOrder;
   onUpdateOrder?: jest.Mock;
+  onCompleteOrder?: jest.Mock;
+  platformOrderApi?: {
+    listExceptionCases: jest.Mock;
+    appealExceptionCase: jest.Mock;
+  };
   platformPaymentApi?: {
     createPayment: jest.Mock;
     getLatestPayment: jest.Mock;
@@ -216,6 +374,8 @@ async function renderOrderDetail({
         onUpdateOrder={onUpdateOrder}
         onReorder={jest.fn()}
         onEditOrder={jest.fn()}
+        onCompleteOrder={onCompleteOrder}
+        platformOrderApi={platformOrderApi}
         platformPaymentApi={platformPaymentApi}
         platformMapsApi={platformMapsApi}
         platformPaymentSdk={platformPaymentSdk}
@@ -238,6 +398,55 @@ async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
+describe('OrderDetailScreen status actions', () => {
+  it('uses platform completion copy and callback from the status action card', async () => {
+    const order = {
+      ...orderListOrders[0],
+      status: 'confirming' as const,
+      platformOrderId: 'order-platform-complete-action',
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({ items: [] }),
+      appealExceptionCase: jest.fn(),
+    };
+    const onCompleteOrder = jest.fn();
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+      onCompleteOrder,
+    });
+
+    expect(getRenderedText(renderer)).toContain('订单状态操作');
+    expect(getRenderedText(renderer)).not.toContain('本地状态操作');
+    expect(getRenderedText(renderer)).toContain(
+      '当前订单已接平台确认送达接口，点击后会把完成态提交到平台。',
+    );
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-progress-action' })
+        .props.onPress();
+    });
+
+    expect(onCompleteOrder).toHaveBeenCalledWith(order);
+    expect(getRenderedText(renderer)).toContain(
+      '已提交平台确认送达请求，订单进入已完成。',
+    );
+  });
+});
 
 describe('OrderDetailScreen exception case progress', () => {
   it('treats a malformed empty exception case response as an empty list', async () => {
@@ -348,6 +557,50 @@ describe('OrderDetailScreen exception case progress', () => {
 });
 
 describe('OrderDetailScreen tracking', () => {
+  it('shows a platform tracking loading state before the latest location snapshot returns', async () => {
+    const order = {
+      ...orderListOrders[1],
+      platformOrderId: 'order-platform-tracking-loading',
+    };
+    const pendingSnapshot = createDeferred<{
+      driverId: string;
+      orderId: string;
+      latitude: number;
+      longitude: number;
+      source: 'sandbox';
+      recordedAtIso: string;
+      updatedAtIso: string;
+    }>();
+    const platformMapsApi = {
+      getShipperDriverLocation: jest
+        .fn()
+        .mockImplementation(() => pendingSnapshot.promise),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformMapsApi,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('位置跟踪');
+    expect(renderedText).toContain('司机位置：等待平台定位');
+    expect(renderedText).toContain('正在读取最新上报位置...');
+    expect(renderedText).toContain('正在读取司机最新上报位置。');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+        .children,
+    ).toBe('定位同步');
+  });
+
   it('shows a reverse geocoded driver location when available', async () => {
     const order = {
       ...orderListOrders[1],
@@ -397,7 +650,7 @@ describe('OrderDetailScreen tracking', () => {
     expect(renderedText).toContain(
       '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:00:00.000Z',
     );
-    expect(renderedText).toContain('已读取司机最新上报位置。');
+    expect(renderedText).toContain('已读取司机最新上报位置，30 秒自动刷新中。');
     expect(
       renderer.root.findByProps({ testID: 'order-tracking-source' }).props
         .children,
@@ -443,5 +696,226 @@ describe('OrderDetailScreen tracking', () => {
       renderer.root.findByProps({ testID: 'order-tracking-source' }).props
         .children,
     ).toBe('沙箱位置');
+  });
+
+  it('retries platform tracking automatically after the initial platform location is missing', async () => {
+    jest.useFakeTimers();
+    try {
+      const order = {
+        ...orderListOrders[1],
+        platformOrderId: 'order-platform-tracking-retry',
+      };
+      const platformMapsApi = {
+        getShipperDriverLocation: jest
+          .fn()
+          .mockRejectedValueOnce(
+            new PlatformApiError(
+              'driver location not found',
+              'DRIVER_LOCATION_NOT_FOUND',
+              404,
+              undefined,
+            ),
+          )
+          .mockResolvedValueOnce({
+            driverId: 'driver-1',
+            orderId: 'order-platform-tracking-retry',
+            latitude: 22.61,
+            longitude: 113.91,
+            source: 'device' as const,
+            recordedAtIso: '2026-07-21T10:10:00.000Z',
+            updatedAtIso: '2026-07-21T10:10:00.000Z',
+          }),
+        reverseGeocode: jest.fn().mockResolvedValue({
+          latitude: 22.61,
+          longitude: 113.91,
+          provider: 'amap',
+          formattedAddress: '深圳市宝安区福永街道平台司机新位置',
+        }),
+      };
+
+      const renderer = await renderOrderDetail({
+        order,
+        platformMapsApi,
+      });
+
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({ testID: 'order-detail-primary-action' })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+
+      expect(getRenderedText(renderer)).toContain(
+        '司机尚未上报平台位置，当前展示路线兜底位置。',
+      );
+      expect(getRenderedText(renderer)).not.toContain('本地演示轨迹');
+
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(30 * 1000);
+        await flushMicrotasks();
+      });
+
+      const renderedText = getRenderedText(renderer);
+
+      expect(platformMapsApi.getShipperDriverLocation).toHaveBeenCalledTimes(2);
+      expect(renderedText).toContain('司机位置：深圳市宝安区福永街道平台司机新位置');
+      expect(renderedText).toContain(
+        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:10:00.000Z',
+      );
+      expect(renderedText).toContain('已同步司机最新位置，30 秒自动刷新中。');
+      expect(
+        renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+          .children,
+      ).toBe('设备定位');
+
+      renderer.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the last platform location when a later platform tracking refresh fails', async () => {
+    jest.useFakeTimers();
+    try {
+      const order = {
+        ...orderListOrders[1],
+        platformOrderId: 'order-platform-tracking-stale',
+      };
+      const platformMapsApi = {
+        getShipperDriverLocation: jest
+          .fn()
+          .mockResolvedValueOnce({
+            driverId: 'driver-1',
+            orderId: 'order-platform-tracking-stale',
+            latitude: 22.61,
+            longitude: 113.91,
+            source: 'device' as const,
+            recordedAtIso: '2026-07-21T10:15:00.000Z',
+            updatedAtIso: '2026-07-21T10:15:00.000Z',
+          })
+          .mockRejectedValueOnce(new Error('tracking refresh failed')),
+        reverseGeocode: jest.fn().mockResolvedValue({
+          latitude: 22.61,
+          longitude: 113.91,
+          provider: 'amap',
+          formattedAddress: '深圳市宝安区福永街道平台司机稳定位置',
+        }),
+      };
+
+      const renderer = await renderOrderDetail({
+        order,
+        platformMapsApi,
+      });
+
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({ testID: 'order-detail-primary-action' })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(30 * 1000);
+        await flushMicrotasks();
+      });
+
+      const renderedText = getRenderedText(renderer);
+
+      expect(platformMapsApi.getShipperDriverLocation).toHaveBeenCalledTimes(2);
+      expect(renderedText).toContain(
+        '司机位置：深圳市宝安区福永街道平台司机稳定位置',
+      );
+      expect(renderedText).toContain(
+        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:15:00.000Z',
+      );
+      expect(renderedText).toContain(
+        '司机位置刷新失败，当前保留上一条平台位置。',
+      );
+      expect(
+        renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+          .children,
+      ).toBe('设备定位');
+
+      renderer.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('falls back to local tracking when the driver has not reported a platform location yet', async () => {
+    const order = {
+      ...orderListOrders[1],
+      platformOrderId: 'order-platform-tracking-missing',
+    };
+    const platformMapsApi = {
+      getShipperDriverLocation: jest.fn().mockRejectedValue(
+        new PlatformApiError(
+          'driver location not found',
+          'DRIVER_LOCATION_NOT_FOUND',
+          404,
+          undefined,
+        ),
+      ),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformMapsApi,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain(`当前位置：${order.from} → ${order.to}途中`);
+    expect(renderedText).toContain(`预计到达：${order.updatedAtText}`);
+    expect(renderedText).toContain(
+      '司机尚未上报平台位置，当前展示路线兜底位置。',
+    );
+    expect(renderedText).not.toContain('本地演示轨迹');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+        .children,
+    ).toBe('定位兜底');
+  });
+
+  it('falls back to local tracking when loading the platform driver location fails', async () => {
+    const order = {
+      ...orderListOrders[1],
+      platformOrderId: 'order-platform-tracking-error',
+    };
+    const platformMapsApi = {
+      getShipperDriverLocation: jest
+        .fn()
+        .mockRejectedValue(new Error('tracking load failed')),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformMapsApi,
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain(`当前位置：${order.from} → ${order.to}途中`);
+    expect(renderedText).toContain(`预计到达：${order.updatedAtText}`);
+    expect(renderedText).toContain('司机位置加载失败，当前展示路线兜底位置。');
+    expect(renderedText).not.toContain('本地演示轨迹');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-source' }).props
+        .children,
+    ).toBe('定位兜底');
   });
 });

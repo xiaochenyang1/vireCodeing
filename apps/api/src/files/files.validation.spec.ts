@@ -41,6 +41,22 @@ describe('files validation', () => {
     });
   });
 
+  it('accepts avatar files as first-class upload intent purpose', () => {
+    expect(
+      parseCreateFileUploadIntentRequest({
+        purpose: 'avatar',
+        fileName: '头像.png',
+        contentType: 'image/png',
+        byteSize: 2048,
+      }),
+    ).toEqual({
+      purpose: 'avatar',
+      fileName: '头像.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+  });
+
   it('rejects invalid file upload intent requests', () => {
     const validRequest = {
       purpose: 'cargo',
@@ -50,7 +66,7 @@ describe('files validation', () => {
     };
 
     for (const request of [
-      { ...validRequest, purpose: 'avatar' },
+      { ...validRequest, purpose: 'unknown-purpose' },
       { ...validRequest, fileName: ' ' },
       { ...validRequest, contentType: 'text/plain' },
       { ...validRequest, byteSize: 0 },
@@ -160,7 +176,7 @@ describe('files validation', () => {
       { pageSize: 0 },
       { pageSize: 51 },
       { status: 'archived' },
-      { purpose: 'avatar' },
+      { purpose: 'unknown-purpose' },
       { ownerUserId: 'u'.repeat(121) },
       { keyword: 'k'.repeat(121) },
     ]) {

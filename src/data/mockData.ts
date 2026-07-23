@@ -210,7 +210,7 @@ export const spendingRecordItems = [
     orderId: 'HY20260621008',
     amountValue: 520,
     amountText: '￥520',
-    methodText: '在线支付待接入',
+    methodText: '在线支付',
     statusText: '运输中',
     timeText: '今天 13:00',
     paymentTimeText: '支付时间：今天 13:00',
@@ -238,7 +238,7 @@ export const spendingRecordItems = [
 export const invoiceRecordItems = [
   {
     id: 'invoice-1',
-    title: '深圳晨星贸易有限公司',
+    title: shipperSummary.displayName,
     typeText: '电子普通发票',
     amountText: '可开票 ￥310',
     statusText: '待提交',
@@ -295,13 +295,13 @@ export const profileSettingItems = [
   {
     id: 'setting-phone',
     title: '手机号保护',
-    description: '向司机展示脱敏号码，真实拨号后续接入系统能力。',
+    description: '向司机展示脱敏号码，平台会同步保护开关快照；真实拨号后续接入系统能力。',
     statusText: '已开启',
   },
   {
     id: 'setting-login-protection',
     title: '异地登录保护',
-    description: '本地记录账号安全偏好，真实异地登录风控和多设备管理尚未接入。',
+    description: '平台会同步登录保护开关快照，真实异地登录风控和多设备管理尚未接入。',
     statusText: '已开启',
   },
   {
@@ -325,7 +325,7 @@ export const profileSettingItems = [
   {
     id: 'setting-privacy',
     title: '隐私政策',
-    description: '查看平台数据使用、位置权限和订单信息说明。',
+    description: '查看平台数据使用、位置权限和订单信息说明，并同步确认时间与版本快照。',
     statusText: '本地摘要',
   },
   {

@@ -1,4 +1,5 @@
 import {
+  parseBatchReviewDriverCertificationRequest,
   parseListDriverCertificationQuery,
   parseReviewDriverCertificationRequest,
   parseSubmitDriverIdentityCertificationRequest,
@@ -147,6 +148,54 @@ describe('driver certification validation', () => {
 
     expect(() =>
       parseReviewDriverCertificationRequest({
+        status: 'rejected',
+        rejectionReason: '  ',
+      }),
+    ).toThrow('驳回原因不能为空');
+  });
+
+  it('normalizes admin batch certification review requests', () => {
+    expect(
+      parseBatchReviewDriverCertificationRequest({
+        driverIds: [' driver-1 ', 'driver-2'],
+        certificationType: 'identity',
+        status: 'approved',
+        rejectionReason: '  多余原因会被忽略  ',
+      }),
+    ).toEqual({
+      driverIds: ['driver-1', 'driver-2'],
+      certificationType: 'identity',
+      status: 'approved',
+    });
+
+    expect(
+      parseBatchReviewDriverCertificationRequest({
+        driverIds: [' driver-1 ', ' driver-2 '],
+        certificationType: 'vehicle',
+        status: 'rejected',
+        rejectionReason: '  资料不完整  ',
+      }),
+    ).toEqual({
+      driverIds: ['driver-1', 'driver-2'],
+      certificationType: 'vehicle',
+      status: 'rejected',
+      rejectionReason: '资料不完整',
+    });
+  });
+
+  it('rejects invalid admin batch certification review requests', () => {
+    expect(() =>
+      parseBatchReviewDriverCertificationRequest({
+        driverIds: ['driver-1', ' driver-1 '],
+        certificationType: 'identity',
+        status: 'approved',
+      }),
+    ).toThrow('批量审核司机 ID 不能重复');
+
+    expect(() =>
+      parseBatchReviewDriverCertificationRequest({
+        driverIds: ['driver-1'],
+        certificationType: 'vehicle',
         status: 'rejected',
         rejectionReason: '  ',
       }),

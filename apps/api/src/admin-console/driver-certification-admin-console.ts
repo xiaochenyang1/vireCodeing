@@ -187,7 +187,7 @@ export function renderDriverCertificationAdminConsole() {
       <div id="notice" class="notice"></div>
       <section class="card">
         <h2>批量审核</h2>
-        <div class="meta">这片先按当前筛选结果勾选司机，再顺序调用单条实名/车辆审核接口做批量通过或驳回。它能真下手，但不是原子事务，别拿一页静态台要求它像银行总账。</div>
+        <div class="meta">这片现在会把当前勾选司机一次性提交到后端 batch-review 接口，后端会整批校验并原子写入；只要有一条认证记录缺失或请求不合法，整批都会失败，不再前端顺序循环凑事务。</div>
         <div class="toolbar" style="margin-top:10px;">
           <label class="checkbox-label"><input id="selectAllDriversInput" type="checkbox" onclick="toggleSelectAllCurrentDrivers(this.checked)" />全选当前结果</label>
           <button id="clearSelectedDriversButton" type="button" class="secondary-button" onclick="clearSelectedDrivers()">清空勾选</button>
@@ -225,7 +225,8 @@ export function renderDriverCertificationAdminConsole() {
       attachments: '/attachments',
       reviewEvents: '/review-events',
       identityReview: '/identity/review',
-      vehicleReview: '/vehicle/review'
+      vehicleReview: '/vehicle/review',
+      batchReview: '/batch-review'
     };
     const statusText = { unsubmitted: '未提交', reviewing: '待审核', approved: '已通过', rejected: '已驳回' };
     const certificationText = { identity: '实名认证', vehicle: '车辆认证' };
@@ -530,54 +531,49 @@ export function renderDriverCertificationAdminConsole() {
         return;
       }
 
-      const reviewPath =
-        certificationType === 'identity'
-          ? apiPaths.identityReview
-          : apiPaths.vehicleReview;
       const actionLabel =
         certificationType === 'identity'
           ? (status === 'approved' ? '实名批量通过' : '实名批量驳回')
           : (status === 'approved' ? '车辆批量通过' : '车辆批量驳回');
-      let successCount = 0;
-      const failures = [];
       const selectedDriverId = state.selected ? getDriverId(state.selected) : '';
+      const payload =
+        status === 'approved'
+          ? {
+              driverIds,
+              certificationType,
+              status: 'approved'
+            }
+          : {
+              driverIds,
+              certificationType,
+              status: 'rejected',
+              rejectionReason
+            };
 
       try {
         setNotice('');
         document.getElementById('batchActionStatus').textContent =
-          actionLabel + '执行中，共 ' + driverIds.length + ' 个司机。';
+          actionLabel + '执行中，共 ' + driverIds.length + ' 个司机；后端会整批校验并原子写入。';
+        const result = await request(apiPaths.list + apiPaths.batchReview, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
 
-        for (const driverId of driverIds) {
-          try {
-            await request(
-              apiPaths.list + '/' + encodeURIComponent(driverId) + reviewPath,
-              {
-                method: 'POST',
-                body: JSON.stringify(
-                  status === 'approved'
-                    ? { status: 'approved' }
-                    : {
-                        status: 'rejected',
-                        rejectionReason,
-                      },
-                ),
-              },
-            );
-            successCount += 1;
-            selectedDriverIds.delete(driverId);
-          } catch (error) {
-            failures.push(driverId + '（' + error.message + '）');
-          }
-        }
+        result.driverIds.forEach(function(driverId) {
+          selectedDriverIds.delete(driverId);
+        });
 
         document.getElementById('batchActionStatus').textContent =
-          actionLabel + '完成：成功 ' + successCount + ' 个，失败 ' + failures.length + ' 个。' +
-          (failures.length ? ' 失败详情：' + failures.join('；') : '');
+          actionLabel + '完成：一次性更新 ' + result.updatedCount + ' 个司机。';
         await loadQueue();
         if (selectedDriverId && state.items.some(item => getDriverId(item) === selectedDriverId)) {
           await selectDriver(selectedDriverId);
+        } else {
+          renderEmptyDetail();
         }
       } catch (error) {
+        document.getElementById('batchActionStatus').textContent =
+          actionLabel + '失败：整批未写入。';
         setNotice(error.message);
       }
     }

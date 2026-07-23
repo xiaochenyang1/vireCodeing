@@ -124,12 +124,16 @@ export function validateInvoiceSubmission({
   receiverEmail,
   selectedOrderCount,
   invoiceType,
+  invoiceTitle,
   canRequestVatSpecialInvoice: canRequestVatSpecial,
+  canUseEnterpriseInvoiceTitle,
 }: {
   receiverEmail: string;
   selectedOrderCount: number;
   invoiceType: InvoiceTypeOption;
+  invoiceTitle: InvoiceTitleOption;
   canRequestVatSpecialInvoice: boolean;
+  canUseEnterpriseInvoiceTitle: boolean;
 }) {
   const trimmedEmail = receiverEmail.trim();
 
@@ -151,6 +155,13 @@ export function validateInvoiceSubmission({
     return {
       trimmedEmail,
       notice: '增值税专用发票需先提交企业认证资料',
+    };
+  }
+
+  if (invoiceTitle === 'enterprise' && !canUseEnterpriseInvoiceTitle) {
+    return {
+      trimmedEmail,
+      notice: '企业抬头需先提交企业认证资料',
     };
   }
 
@@ -213,22 +224,23 @@ export function getInvoiceTitleText({
   invoiceTitle,
   currentInvoiceTitle,
   accountDisplayName,
-  fallbackDisplayName,
   enterpriseVerification,
 }: {
   invoiceTitle: InvoiceTitleOption;
   currentInvoiceTitle: string;
   accountDisplayName: string;
-  fallbackDisplayName: string;
   enterpriseVerification?: EnterpriseVerificationRequest;
 }) {
+  const trimmedAccountDisplayName = accountDisplayName.trim();
+  const trimmedCurrentInvoiceTitle = currentInvoiceTitle.trim();
+
   if (invoiceTitle === 'enterprise') {
     return enterpriseVerification && !enterpriseVerification.rejectionReason
       ? enterpriseVerification.enterpriseName
-      : currentInvoiceTitle;
+      : trimmedCurrentInvoiceTitle || trimmedAccountDisplayName || '个人货主';
   }
 
-  return accountDisplayName.trim() || fallbackDisplayName;
+  return trimmedAccountDisplayName || '个人货主';
 }
 
 export function createLocalInvoiceStateFromPlatformApplications(

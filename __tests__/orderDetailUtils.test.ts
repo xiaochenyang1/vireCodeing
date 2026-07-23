@@ -45,6 +45,25 @@ test('returns local progress action metadata for active order statuses', () => {
   });
 });
 
+test('returns platform progress action metadata for synced platform orders', () => {
+  expect(getOrderProgressAction('waiting', true)).toEqual({
+    label: '推进平台订单进入待装货',
+    nextStatus: 'loading',
+    updatedAtText: '司机已接单 · 刚刚',
+    description:
+      '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；真实司机接单仍待后续闭环。',
+    noticeText: '已提交平台状态推进请求，订单进入待装货。',
+  });
+
+  expect(getOrderProgressAction('confirming', true)).toEqual({
+    label: '确认送达并完成平台订单',
+    nextStatus: 'completed',
+    updatedAtText: '订单已完成 · 刚刚',
+    description: '当前订单已接平台确认送达接口，点击后会把完成态提交到平台。',
+    noticeText: '已提交平台确认送达请求，订单进入已完成。',
+  });
+});
+
 test('does not create local progress actions for terminal statuses', () => {
   expect(getOrderProgressAction('completed')).toBeUndefined();
   expect(getOrderProgressAction('cancelled')).toBeUndefined();
@@ -67,6 +86,24 @@ test('returns assigned cancellation settlement for driver-involved orders', () =
     refundText: '支付资金暂不变更，客服确认后更新退款状态',
     reviewStatusText: '待客服确认',
     driverNoticeText: '已生成司机取消通知，等待客服确认后同步',
+  });
+});
+
+test('returns platform cancellation settlement copy for platform orders', () => {
+  expect(getCancellationSettlement('waiting', true)).toEqual({
+    feeText: '待接单取消已提交平台，当前不产生违约费用。',
+    settlementText: '无违约金',
+    refundText: '无需退款',
+    reviewStatusText: '系统自动通过',
+    driverNoticeText: '订单尚未分配司机，无需通知',
+  });
+
+  expect(getCancellationSettlement('loading', true)).toEqual({
+    feeText: '司机已接单，平台取消已提交，违约费用待客服确认。',
+    settlementText: '待平台客服确认违约金',
+    refundText: '支付资金暂不变更，平台客服确认后更新退款状态',
+    reviewStatusText: '待客服确认',
+    driverNoticeText: '已生成平台司机取消通知，等待客服确认后同步',
   });
 });
 
@@ -113,6 +150,16 @@ test('creates bonus order change and local notice', () => {
   });
 });
 
+test('accumulates an existing bonus when appending another local bonus', () => {
+  expect(createBonusOrderChange('50', '￥20')).toEqual({
+    changes: {
+      bonusText: '￥70',
+      updatedAtText: '已追加赏金 · 刚刚',
+    },
+    noticeText: '已追加赏金 ￥50，当前总赏金 ￥70，待接单订单曝光权重本地提升。',
+  });
+});
+
 test('creates exception report change with optional photo notice', () => {
   expect(
     createExceptionReportOrderChange({
@@ -143,6 +190,25 @@ test('creates non-waiting change request metadata and notice', () => {
         costImpactText: '待客服重新核算费用，当前订单金额暂不变更。',
         refundText: '支付资金暂不变更，审核通过后再同步差额。',
         driverNoticeText: '已生成司机修改确认通知，等待客服确认后同步。',
+      },
+    },
+    noticeText: '修改申请已提交：卸货地址改到二号门',
+  });
+});
+
+test('creates platform change request metadata with platform-specific guidance', () => {
+  expect(
+    createChangeRequestOrderChange('卸货地址改到二号门', true),
+  ).toEqual({
+    changes: {
+      modificationRequest: {
+        description: '卸货地址改到二号门',
+        statusText: '待客服确认',
+        impactText:
+          '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。',
+        costImpactText: '待平台重新核算费用，当前订单金额暂不变更。',
+        refundText: '支付资金暂不变更，平台审核通过后再同步差额。',
+        driverNoticeText: '已生成平台修改确认通知，等待客服确认后同步。',
       },
     },
     noticeText: '修改申请已提交：卸货地址改到二号门',

@@ -59,6 +59,15 @@ describe('platform profile api', () => {
           shipperId: 'shipper-1',
           displayName: '晨星货主',
           phone: '13900139001',
+          phoneProtectionEnabled: true,
+          loginProtectionEnabled: true,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: false,
+          privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+          privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+          privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+          avatarFileId: 'file-avatar-1',
+          avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
         },
         requestId: 'req-test',
         timestamp: '2026-07-09T08:30:00.000Z',
@@ -74,6 +83,15 @@ describe('platform profile api', () => {
       shipperId: 'shipper-1',
       displayName: '晨星货主',
       phone: '13900139001',
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: false,
+      privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+      privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+      privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+      avatarFileId: 'file-avatar-1',
+      avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -421,7 +439,16 @@ describe('platform profile api', () => {
         data: {
           shipperId: 'shipper-1',
           displayName: '晨星货主',
-          phone: '13900139001',
+          phone: '13900139999',
+          phoneProtectionEnabled: false,
+          loginProtectionEnabled: false,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: true,
+          privacyConfirmedAtIso: '2026-07-22T08:35:00.000Z',
+          privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+          privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+          avatarFileId: 'file-avatar-1',
+          avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
         },
         requestId: 'req-test',
         timestamp: '2026-07-09T08:35:00.000Z',
@@ -436,11 +463,29 @@ describe('platform profile api', () => {
     await expect(
       api.saveAccountProfile({
         displayName: ' 晨星货主 ',
+        avatarFileId: ' file-avatar-1 ',
+        phone: ' 13900139999 ',
+        phoneProtectionEnabled: false,
+        loginProtectionEnabled: false,
+        orderNotificationEnabled: true,
+        promotionNotificationEnabled: true,
+        privacyConfirmedAtIso: ' 2026-07-22T08:35:00.000Z ',
+        privacyPolicyVersion: ' privacy-policy-v2026-07-22 ',
+        privacyPolicyVersionTitle: ' 隐私政策 v2026.07.22 ',
       }),
     ).resolves.toEqual({
       shipperId: 'shipper-1',
       displayName: '晨星货主',
-      phone: '13900139001',
+      phone: '13900139999',
+      phoneProtectionEnabled: false,
+      loginProtectionEnabled: false,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: true,
+      privacyConfirmedAtIso: '2026-07-22T08:35:00.000Z',
+      privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+      privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+      avatarFileId: 'file-avatar-1',
+      avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -452,6 +497,81 @@ describe('platform profile api', () => {
         }),
         body: JSON.stringify({
           displayName: '晨星货主',
+          avatarFileId: 'file-avatar-1',
+          phone: '13900139999',
+          phoneProtectionEnabled: false,
+          loginProtectionEnabled: false,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: true,
+          privacyConfirmedAtIso: '2026-07-22T08:35:00.000Z',
+          privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+          privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+        }),
+      }),
+    );
+  });
+
+  it('sends avatarFileId as null when clearing the current shipper avatar snapshot', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          shipperId: 'shipper-1',
+          displayName: '晨星货主',
+          phone: '13900139999',
+          phoneProtectionEnabled: false,
+          loginProtectionEnabled: false,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: true,
+        },
+        requestId: 'req-test',
+        timestamp: '2026-07-09T08:35:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.saveAccountProfile({
+        displayName: ' 晨星货主 ',
+        avatarFileId: null,
+        phone: ' 13900139999 ',
+        phoneProtectionEnabled: false,
+        loginProtectionEnabled: false,
+        orderNotificationEnabled: true,
+        promotionNotificationEnabled: true,
+      }),
+    ).resolves.toEqual({
+      shipperId: 'shipper-1',
+      displayName: '晨星货主',
+      phone: '13900139999',
+      phoneProtectionEnabled: false,
+      loginProtectionEnabled: false,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/account',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          displayName: '晨星货主',
+          avatarFileId: null,
+          phone: '13900139999',
+          phoneProtectionEnabled: false,
+          loginProtectionEnabled: false,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: true,
         }),
       }),
     );
@@ -1029,7 +1149,23 @@ describe('platform profile api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    for (const request of [null, 'bad-request', { displayName: ' ' }, { displayName: '晨'.repeat(31) }]) {
+    for (const request of [
+      null,
+      'bad-request',
+      { displayName: ' ' },
+      { displayName: '晨'.repeat(31) },
+      { displayName: '晨星货主', avatarFileId: ' ' },
+      { displayName: '晨星货主', phone: '12345' },
+      { displayName: '晨星货主', phoneProtectionEnabled: 'true' },
+      { displayName: '晨星货主', privacyConfirmedAtIso: 123 },
+      { displayName: '晨星货主', privacyConfirmedAtIso: 'not-a-date' },
+      { displayName: '晨星货主', privacyPolicyVersion: 'privacy-policy-v2026-07-22' },
+      {
+        displayName: '晨星货主',
+        privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+        privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+      },
+    ]) {
       await expect(
         api.saveAccountProfile(
           request as Parameters<typeof api.saveAccountProfile>[0],

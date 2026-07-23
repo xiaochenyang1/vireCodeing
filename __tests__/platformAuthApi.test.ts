@@ -324,6 +324,99 @@ describe('platform auth api', () => {
     );
   });
 
+  it('lists current user auth sessions with bearer token', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          sessions: [
+            {
+              id: 'session-current',
+              deviceId: 'mobile-device-current',
+              createdAtIso: '2026-07-22T08:00:00.000Z',
+              expiresAtIso: '2026-07-29T08:00:00.000Z',
+            },
+          ],
+          total: 1,
+        },
+        requestId: 'req_test',
+        timestamp: '2026-07-22T08:30:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.local-user-13800138000.900',
+    });
+
+    await expect(api.listSessions()).resolves.toEqual({
+      sessions: [
+        {
+          id: 'session-current',
+          deviceId: 'mobile-device-current',
+          createdAtIso: '2026-07-22T08:00:00.000Z',
+          expiresAtIso: '2026-07-29T08:00:00.000Z',
+        },
+      ],
+      total: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/auth/sessions',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.local-user-13800138000.900',
+        }),
+      }),
+    );
+  });
+
+  it('revokes other sessions through the auth api', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          currentDeviceId: 'mobile-device-current',
+          revokedCount: 2,
+        },
+        requestId: 'req_test',
+        timestamp: '2026-07-22T08:30:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.local-user-13800138000.900',
+    });
+
+    await expect(
+      api.revokeOtherSessions({
+        currentDeviceId: ' mobile-device-current ',
+      }),
+    ).resolves.toEqual({
+      currentDeviceId: 'mobile-device-current',
+      revokedCount: 2,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/auth/sessions/revoke-other-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          currentDeviceId: 'mobile-device-current',
+        }),
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.local-user-13800138000.900',
+        }),
+      }),
+    );
+  });
+
   it('refreshes auth tokens', async () => {
     const tokens: PlatformAuthTokens = {
       accessToken: 'access.local-user-13800138000.900',

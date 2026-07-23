@@ -464,6 +464,8 @@ describe('BusinessErrorFilter', () => {
     ApiErrorCode.EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE,
     ApiErrorCode.EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED,
     ApiErrorCode.EXCEPTION_CASE_APPEAL_NOT_ALLOWED,
+    ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+    ApiErrorCode.SUPPORT_TICKET_CONFLICT,
   ])('maps %s to conflict', code => {
     const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
     const { host, status } = createHost();
@@ -471,5 +473,20 @@ describe('BusinessErrorFilter', () => {
     filter.catch(new BusinessError(code, '异常工单状态冲突'), host);
 
     expect(status).toHaveBeenCalledWith(409);
+  });
+
+  it('maps missing support tickets to not found', () => {
+    const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
+    const { host, status } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_NOT_FOUND,
+        '帮助中心工单不存在',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(404);
   });
 });

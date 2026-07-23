@@ -105,7 +105,7 @@ function createModules(
       route: '/api/admin/order-management-console',
       stage: 'first_slice',
       summary:
-        '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、按当前筛选结果顺序批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，但真实赔付执行 / 退款联动还没补齐。',
+        '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，但真实赔付执行 / 退款联动还没补齐。',
       metrics: [
         {
           label: '订单总数',
@@ -157,7 +157,7 @@ function createModules(
       route: '/api/admin/account-management-console',
       stage: 'first_slice',
       summary:
-        '平台账号目录、详情、单账号与批量冻结解冻、按账号撤销会话、筛选报表和 CSV 导出已经能跑，admin-facing 手机号和设备标识也补了第一片脱敏；但还没实名解绑/注销和更严格的角色审批。',
+        '平台账号目录、详情、单账号治理、后端原子批量冻结解冻/撤销会话、筛选报表和 CSV 导出已经能跑，admin-facing 手机号和设备标识也补了第一片脱敏；但还没实名解绑/注销和更严格的角色审批。',
       metrics: [
         {
           label: '平台账号',
@@ -261,6 +261,32 @@ function createModules(
       pendingGaps: ['真实对象存储联调', '病毒扫描 / 缩略图', '深度对账 / 生命周期治理'],
     },
     {
+      key: 'support-ticket',
+      title: '帮助中心工单台',
+      route: '/api/admin/support-ticket-console',
+      stage: 'first_slice',
+      summary:
+        '帮助中心工单后台列表、详情和 pending -> processing -> resolved 状态流转已经能跑，但还没 SLA、坐席分配、在线会话和通知联动。',
+      metrics: [
+        {
+          label: '待处理工单',
+          value: stats.supportTickets.openCount,
+          tone: queueTone(stats.supportTickets.openCount),
+        },
+        {
+          label: '待受理',
+          value: stats.supportTickets.pendingCount,
+          tone: queueTone(stats.supportTickets.pendingCount),
+        },
+        {
+          label: '处理中',
+          value: stats.supportTickets.processingCount,
+          tone: queueTone(stats.supportTickets.processingCount),
+        },
+      ],
+      pendingGaps: ['SLA / 超时升级', '坐席分配', '在线客服会话', '通知联动'],
+    },
+    {
       key: 'order-exception-case',
       title: '异常客服工单台',
       route: '/api/admin/order-exception-case-console',
@@ -344,7 +370,7 @@ function createModules(
       route: '/api/admin/finance-console',
       stage: 'first_slice',
       summary:
-        '支付/退款/结算/提现第一片已经能查能操作，财务报表第一片也能看，但还没正式支付 / 打款、生产对账和批量审核。',
+        '支付/退款/结算/提现第一片已经能查能操作，财务报表和原子批量提现审核第一片也能跑，但还没正式支付 / 打款和生产对账。',
       metrics: [
         {
           label: '支付处理中',
@@ -372,7 +398,7 @@ function createModules(
           tone: 'positive',
         },
       ],
-      pendingGaps: ['正式支付 / 打款', '生产对账', '批量审核'],
+      pendingGaps: ['正式支付 / 打款', '生产对账'],
     },
   ];
 }

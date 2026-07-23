@@ -22,6 +22,7 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
   AdvanceShipperOrderStatusRequest,
+  BatchCancelAdminOrdersRequest,
   CancelShipperOrderRequest,
   CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
@@ -38,6 +39,7 @@ import {
   adminOrderFiltersSchema,
   adminOrderReportQuerySchema,
   advanceShipperOrderStatusSchema,
+  batchCancelAdminOrdersSchema,
   completeShipperOrderSchema,
   createShipperOrderSchema,
   listShipperOrdersQuerySchema,
@@ -48,6 +50,7 @@ import {
   submitShipperOrderEvaluationSchema,
   parseAdvanceShipperOrderStatusRequest,
   parseAdminOrderAttachmentAuditListQuery,
+  parseBatchCancelAdminOrdersRequest,
   parseCancelShipperOrderRequest,
   parseCompleteShipperOrderRequest,
   parseCreateShipperOrderRequest,
@@ -308,6 +311,23 @@ export class AdminOrdersController {
 
     return ok(
       await this.ordersService.getAdminOrderAttachmentAudit(orderId),
+      getRequestId(request),
+    );
+  }
+
+  @Post('batch-cancel')
+  async batchCancelAdminOrders(
+    @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(batchCancelAdminOrdersSchema))
+    body: BatchCancelAdminOrdersRequest,
+  ) {
+    return ok(
+      await this.ordersService.batchCancelAdminOrders(
+        getCurrentAdmin(request),
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseBatchCancelAdminOrdersRequest(body),
+      ),
       getRequestId(request),
     );
   }

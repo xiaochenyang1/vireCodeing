@@ -11,6 +11,9 @@ export const ORDER_MUTATION_OPERATIONS = [
   'driver_status',
 ] as const;
 
+export const ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION =
+  'admin_batch_cancel' as const;
+
 export const ORDER_IDEMPOTENCY_OPERATIONS = [
   'shipper_create',
   ...ORDER_MUTATION_OPERATIONS,
@@ -45,6 +48,19 @@ export function createOrderMutationFingerprint(
 ) {
   return createHash('sha256')
     .update(JSON.stringify(sortJsonValue({ orderId, request })))
+    .digest('hex');
+}
+
+export function createAdminOrderBatchCancelFingerprint(request: unknown) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        sortJsonValue({
+          operation: ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION,
+          request,
+        }),
+      ),
+    )
     .digest('hex');
 }
 

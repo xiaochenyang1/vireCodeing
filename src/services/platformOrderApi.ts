@@ -160,6 +160,7 @@ export type PlatformShipperOrder = PlatformCreateShipperOrderRequest & {
   orderNo: string;
   shipperId: string;
   status: PlatformShipperOrderStatus;
+  pickupDistanceMeters?: number;
   paymentStatus?: OrderPaymentStatus;
   assignedDriverId?: string;
   paymentSettledAtIso?: string;

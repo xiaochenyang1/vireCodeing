@@ -7,6 +7,8 @@ import {
 import type { FilesRepository } from '../files/files.repository';
 import type {
   AdvanceShipperOrderStatusRequest,
+  BatchCancelAdminOrdersRequest,
+  BatchCancelAdminOrdersResult,
   AdminOrderFilters,
   AdminOrderAttachmentAudit,
   AdminOrderAttachmentAuditEvent,
@@ -30,6 +32,7 @@ import type {
   UpdateShipperOrderRequest,
 } from './dto';
 import {
+  createAdminOrderBatchCancelFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
 } from './order-mutation-idempotency';
@@ -290,6 +293,34 @@ export class OrdersService {
       }),
       '当前订单状态不允许后台取消',
     ).order;
+  }
+
+  async batchCancelAdminOrders(
+    adminUserId: string,
+    idempotencyKey: string,
+    input: BatchCancelAdminOrdersRequest,
+  ): Promise<BatchCancelAdminOrdersResult> {
+    const requestFingerprint = createAdminOrderBatchCancelFingerprint(input);
+    const existingResult =
+      await this.repository.resolveExistingAdminBatchCancel({
+        actorUserId: adminUserId,
+        operation: 'admin_batch_cancel',
+        idempotencyKey,
+        requestFingerprint,
+      });
+
+    if (existingResult) {
+      return existingResult;
+    }
+
+    return this.repository.executeIdempotentAdminBatchCancel({
+      actorUserId: adminUserId,
+      operation: 'admin_batch_cancel',
+      idempotencyKey,
+      requestFingerprint,
+      expiresAtIso: this.createOrderMutationExpiresAtIso(),
+      input,
+    });
   }
 
   async getAdminOrderAttachmentAudit(

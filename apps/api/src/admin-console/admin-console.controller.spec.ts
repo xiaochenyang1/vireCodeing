@@ -15,6 +15,7 @@ import { renderOrderManagementAdminConsole } from './order-management-admin-cons
 import { renderAccountManagementAdminConsole } from './account-management-admin-console';
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
+import { renderSupportTicketAdminConsole } from './support-ticket-admin-console';
 
 describe('driver certification admin console page', () => {
   it('renders the review console shell and API hooks', () => {
@@ -30,6 +31,7 @@ describe('driver certification admin console page', () => {
     expect(html).toContain('/api/admin/driver-certifications');
     expect(html).toContain('/attachments');
     expect(html).toContain('/review-events');
+    expect(html).toContain('/batch-review');
     expect(html).toContain('/identity/review');
     expect(html).toContain('/vehicle/review');
     expect(html).toContain('approveIdentity');
@@ -54,6 +56,7 @@ describe('driver certification admin console page', () => {
     expect(html).toContain('暂无认证记录');
     expect(html).toContain('暂无附件');
     expect(html).toContain('暂无审核事件');
+    expect(html).toContain('原子写入');
     expect(html).toContain('请填写驳回原因');
     expect(html).toContain('先勾选司机再批量审核');
     expect(html).toContain('批量驳回必须填写原因');
@@ -109,6 +112,7 @@ describe('finance admin console page', () => {
     expect(html).toContain('/admin/finance/refunds?');
     expect(html).toContain('/admin/finance/settlements?');
     expect(html).toContain('/admin/finance/withdrawals?');
+    expect(html).toContain('/admin/finance/withdrawals/batch-review');
     expect(html).toContain('/admin/finance/ledger-transactions/');
     expect(html).toContain('stage1AdminSession');
     expect(html).toContain('后台登录页');
@@ -142,10 +146,18 @@ describe('finance admin console page', () => {
     expect(html).toContain('retryRefundAction');
     expect(html).toContain('approveWithdrawalAction');
     expect(html).toContain('rejectWithdrawalAction');
+    expect(html).toContain('approveBatchWithdrawalsButton');
+    expect(html).toContain('rejectBatchWithdrawalsButton');
+    expect(html).toContain('selectAllReviewingWithdrawalsInput');
+    expect(html).toContain('withdrawalBatchSelectionStatus');
+    expect(html).toContain('runBatchWithdrawalReview');
+    expect(html).toContain('toggleSelectAllReviewingWithdrawals');
+    expect(html).toContain('toggleWithdrawalBatchSelection');
     expect(html).toContain('expectedVersionInput');
     expect(html).toContain('reasonInput');
     expect(html).toContain('请先填写 admin access token');
     expect(html).toContain('请选择一条财务记录');
+    expect(html).toContain('先勾选提现再批量审核');
     expect(html).toContain('class="console-shell"');
     expect(html).not.toContain('hero');
   });
@@ -162,6 +174,43 @@ describe('finance admin console page', () => {
     expect(html).toContain('resetFinanceReport');
     expect(html).toContain('clearFinanceSelection()');
     expect(html).toContain('clearLedgerDetail()');
+  });
+});
+
+describe('support ticket admin console page', () => {
+  it('renders help-center support ticket filters and admin workflow hooks', () => {
+    const html = renderSupportTicketAdminConsole();
+
+    expect(html).toContain('帮助中心工单台');
+    expect(html).toContain('/admin/support-tickets?');
+    expect(html).toContain('/admin/support-tickets/');
+    expect(html).toContain('/process');
+    expect(html).toContain('/resolve');
+    expect(html).toContain('loadSupportTickets');
+    expect(html).toContain('loadSupportTicketDetail');
+    expect(html).toContain('mutateSupportTicket');
+    expect(html).toContain('supportTicketStatusInput');
+    expect(html).toContain('supportTicketKeywordInput');
+    expect(html).toContain('supportTicketPageSizeInput');
+    expect(html).toContain('supportTicketActionContent');
+    expect(html).toContain('supportTicketBaseUpdatedAtIso');
+    expect(html).toContain('/api/admin/order-exception-case-console');
+    expect(html).toContain('/api/admin/finance-console');
+    expect(html).not.toContain('hero');
+  });
+
+  it('ignores stale support ticket requests and syncs route state', () => {
+    const html = renderSupportTicketAdminConsole();
+
+    expect(html).toContain('let latestSupportTicketRequestId = 0');
+    expect(html).toContain('let latestSupportTicketDetailRequestId = 0');
+    expect(html).toContain('const requestId = ++latestSupportTicketRequestId');
+    expect(html).toContain('const requestId = ++latestSupportTicketDetailRequestId');
+    expect(html).toContain('if (requestId !== latestSupportTicketRequestId) return');
+    expect(html).toContain('if (requestId !== latestSupportTicketDetailRequestId) return');
+    expect(html).toContain('applySupportTicketRouteState');
+    expect(html).toContain('syncSupportTicketRouteState');
+    expect(html).toContain('clearSupportTicketSelection()');
   });
 });
 
@@ -228,6 +277,8 @@ describe('account management admin console page', () => {
     expect(html).toContain('/admin/auth/accounts/report?');
     expect(html).toContain('/admin/auth/accounts/export?');
     expect(html).toContain('/admin/auth/accounts/');
+    expect(html).toContain('/admin/auth/accounts/batch-status');
+    expect(html).toContain('/admin/auth/accounts/batch-revoke-sessions');
     expect(html).toContain('/status');
     expect(html).toContain('/revoke-sessions');
     expect(html).toContain('loadAdminAuthAccounts');
@@ -260,6 +311,8 @@ describe('account management admin console page', () => {
     expect(html).toContain('stage1AdminSession');
     expect(html).toContain('/api/admin/session-governance-console');
     expect(html).toContain('/api/admin/permission-matrix-console');
+    expect(html).toContain('整批校验和原子写入');
+    expect(html).not.toContain('顺序调用单账号治理接口');
     expect(html).not.toContain('hero');
   });
 
@@ -422,7 +475,7 @@ describe('order management admin console page', () => {
     expect(html).toContain('runBatchCancelWaitingOrders');
     expect(html).toContain('orderBatchSelectionStatus');
     expect(html).toContain('orderBatchActionStatus');
-    expect(html).toContain('/cancel');
+    expect(html).toContain('/admin/orders/batch-cancel');
     expect(html).toContain('orderReportTopShippersLimitInput');
     expect(html).toContain('orderReportSummary');
     expect(html).toContain('orderTopShippersReport');
@@ -455,10 +508,12 @@ describe('order management admin console page', () => {
     expect(html).toContain('const requestId = ++latestReportRequestId');
     expect(html).toContain('if (requestId !== latestReportRequestId) return');
     expect(html).toContain('renderOrderListPagination');
-    expect(html).toContain('当前批量动作会按当前筛选结果顺序调用单条后台取消接口');
+    expect(html).toContain('后端会先整批校验状态和版本，再原子写入');
     expect(html).toContain('只支持取消 waiting 订单');
     expect(html).toContain('先勾选 waiting 订单再批量取消');
     expect(html).toContain('createBatchCancelIdempotencyKey');
+    expect(html).toContain('正在请求后端整批校验并原子写入');
+    expect(html).toContain('后端已整批校验并原子写入');
   });
 
   it('renders a selected-order finance drill-down action', () => {
@@ -526,6 +581,7 @@ describe('admin console home page', () => {
     expect(html).toContain('/api/admin/account-management-console');
     expect(html).toContain('/api/admin/permission-matrix-console');
     expect(html).toContain('/api/admin/file-maintenance-console');
+    expect(html).toContain('/api/admin/support-ticket-console');
     expect(html).toContain('/api/admin/shipper-coupon-console');
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/evaluation-audit-console');
@@ -839,6 +895,30 @@ describe('AdminConsoleController', () => {
     expect(html).not.toContain('hero');
   });
 
+  it('serves the help-center support ticket console html', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getSupportTicketConsole: () => string;
+      }
+    ).getSupportTicketConsole();
+
+    expect(html).toContain('帮助中心工单台');
+    expect(html).toContain('adminToken');
+    expect(html).toContain('/admin/support-tickets');
+    expect(html).toContain('/process');
+    expect(html).toContain('/resolve');
+    expect(html).toContain('supportTicketStatusInput');
+    expect(html).toContain('supportTicketKeywordInput');
+    expect(html).toContain('supportTicketPageSizeInput');
+    expect(html).toContain('supportTicketActionContent');
+    expect(html).toContain('supportTicketBaseUpdatedAtIso');
+    expect(html).toContain('applySupportTicketRouteState');
+    expect(html).toContain('/api/admin/order-exception-case-console');
+    expect(html).toContain('/api/admin/finance-console');
+    expect(html).not.toContain('hero');
+  });
+
   it('serves the evaluation audit console html', () => {
     const controller = new AdminConsoleController();
 
@@ -903,8 +983,8 @@ describe('AdminConsoleController', () => {
     const service = createOverviewServiceMock();
     service.getOverview.mockResolvedValue({
       generatedAtIso: '2026-07-18T03:00:00.000Z',
-      implementedConsoleCount: 11,
-      liveMetricModuleCount: 11,
+      implementedConsoleCount: 12,
+      liveMetricModuleCount: 12,
       remainingCapabilityCount: 5,
       modules: [],
       remainingPlatformGaps: [],
@@ -917,8 +997,8 @@ describe('AdminConsoleController', () => {
       code: 'OK',
       requestId: 'request-admin-1',
       data: expect.objectContaining({
-        implementedConsoleCount: 11,
-        liveMetricModuleCount: 11,
+        implementedConsoleCount: 12,
+        liveMetricModuleCount: 12,
       }),
     });
     expect(service.getOverview).toHaveBeenCalledTimes(1);
@@ -930,10 +1010,10 @@ describe('AdminConsoleController', () => {
       generatedAtIso: '2026-07-18T04:00:00.000Z',
       defaultProfileKey: 'platform_admin',
       profileCount: 1,
-      moduleCount: 11,
-      capabilityCount: 11,
-      writeCapabilityCount: 7,
-      highRiskCapabilityCount: 7,
+      moduleCount: 12,
+      capabilityCount: 12,
+      writeCapabilityCount: 9,
+      highRiskCapabilityCount: 9,
       profiles: [],
       modules: [],
       capabilities: [],
@@ -951,8 +1031,8 @@ describe('AdminConsoleController', () => {
       requestId: 'request-admin-1',
       data: expect.objectContaining({
         defaultProfileKey: 'platform_admin',
-        moduleCount: 11,
-        capabilityCount: 11,
+        moduleCount: 12,
+        capabilityCount: 12,
       }),
     });
     expect(service.getMatrix).toHaveBeenCalledTimes(1);

@@ -5,6 +5,7 @@ import { InMemoryOrdersRepository } from '../orders/orders.repository';
 import { InMemoryProfileCouponsStore } from '../profile-coupons/profile-coupons.repository';
 import { InMemoryDriverFinanceRepository } from '../payments/driver-finance.repository';
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
+import type { DriverLocationSnapshotRecord } from '../maps/dto';
 import { InMemoryDriverAcceptanceSettingsRepository } from './driver-acceptance-settings.repository';
 import {
   InMemoryDriverWithdrawalsRepository,
@@ -48,7 +49,11 @@ describe('DriverOrdersService', () => {
 
   const now = new Date('2026-07-06T08:00:00.000Z');
 
-  function createService() {
+  type DriverLocationLookup = {
+    getDriverLocation(driverId: string): Promise<DriverLocationSnapshotRecord | null>;
+  };
+
+  function createService(options: { mapsService?: DriverLocationLookup } = {}) {
     const financialStore = new InMemoryFinancialStore();
     const repository = new InMemoryOrdersRepository(
       () => now,
@@ -84,9 +89,11 @@ describe('DriverOrdersService', () => {
         driverWithdrawalsRepository,
         filesRepository,
         () => now,
-        86400,
-        driverFinanceRepository,
-      ),
+          86400,
+          driverFinanceRepository,
+          undefined,
+          options.mapsService,
+        ),
     };
   }
 
@@ -126,6 +133,55 @@ describe('DriverOrdersService', () => {
       items: [expect.objectContaining({ id: waitingOrder.id })],
       total: 1,
     });
+  });
+
+  it('filters and sorts the order hall by the driver latest location and acceptance range', async () => {
+    const mapsService = {
+      getDriverLocation: jest.fn().mockResolvedValue({
+        driverId: 'driver-1',
+        latitude: 22.6,
+        longitude: 113.9,
+        source: 'device' as const,
+        recordedAtIso: now.toISOString(),
+        updatedAtIso: now.toISOString(),
+      }),
+    };
+    const { acceptanceSettingsRepository, repository, service } = createService({
+      mapsService,
+    });
+    await acceptanceSettingsRepository.saveAcceptanceSettings('driver-1', {
+      isOnline: true,
+      maxDistanceKm: 30,
+      vehicleTypePreferences: ['medium'],
+    });
+    const farOrder = await repository.seedOrderForTest('shipper-1', {
+      ...createOrderInput('惠州远郊仓'),
+      pickupLatitude: 23.15,
+      pickupLongitude: 114.4,
+    });
+    const nearOrder = await repository.seedOrderForTest('shipper-1', {
+      ...createOrderInput('宝安区福永物流园'),
+      pickupLatitude: 22.61,
+      pickupLongitude: 113.91,
+    });
+    const unknownDistanceOrder = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput('临时中转仓'),
+    );
+
+    const hall = await service.listOrderHall(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      { page: 1, pageSize: 20 },
+    );
+
+    expect(hall.items.map(order => order.id)).toEqual([
+      nearOrder.id,
+      unknownDistanceOrder.id,
+    ]);
+    expect(hall.items[0].pickupDistanceMeters).toEqual(expect.any(Number));
+    expect(hall.items.some(order => order.id === farOrder.id)).toBe(false);
+    expect(hall.total).toBe(2);
+    expect(mapsService.getDriverLocation).toHaveBeenCalledWith('driver-1');
   });
 
   it('returns default driver acceptance settings before the first save', async () => {
@@ -1515,6 +1571,9 @@ function createDriverCertificationRepository({
       throw new Error('Not implemented in driver order tests');
     },
     async reviewVehicle() {
+      throw new Error('Not implemented in driver order tests');
+    },
+    async batchReviewCertifications() {
       throw new Error('Not implemented in driver order tests');
     },
   };

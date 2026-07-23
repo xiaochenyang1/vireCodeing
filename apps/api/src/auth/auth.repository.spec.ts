@@ -1,3 +1,4 @@
+import { ApiErrorCode, BusinessError } from '../common/errors';
 import { InMemoryAuthRepository } from './auth.repository';
 
 describe('InMemoryAuthRepository', () => {
@@ -476,5 +477,203 @@ describe('InMemoryAuthRepository', () => {
         updatedAt: new Date('2026-06-26T06:10:00.000Z'),
       }),
     ]);
+  });
+
+  it('batch updates platform user statuses and revokes staged sessions atomically', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+    const firstUser = await repository.upsertMobileUser({
+      phone: '13800138000',
+      userType: 'shipper',
+    });
+    const secondUser = await repository.upsertMobileUser({
+      phone: '13800138001',
+      userType: 'driver',
+    });
+
+    await repository.saveRefreshSession({
+      userId: firstUser.id,
+      refreshToken: 'refresh.first-device-1',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: secondUser.id,
+      refreshToken: 'refresh.second-device-1',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+
+    await expect(
+      (repository as unknown as {
+        batchUpdateUserStatuses: (input: {
+          items: { userId: string }[];
+          status: 'active' | 'disabled';
+        }) => Promise<unknown>;
+      }).batchUpdateUserStatuses({
+        items: [{ userId: firstUser.id }, { userId: secondUser.id }],
+        status: 'disabled',
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          user: {
+            id: firstUser.id,
+            phone: '13800138000',
+            userType: 'shipper',
+            status: 'disabled',
+          },
+          revokedSessions: [
+            expect.objectContaining({
+              id: 'session-1',
+              userId: firstUser.id,
+              deviceId: 'device-1',
+            }),
+          ],
+        },
+        {
+          user: {
+            id: secondUser.id,
+            phone: '13800138001',
+            userType: 'driver',
+            status: 'disabled',
+          },
+          revokedSessions: [
+            expect.objectContaining({
+              id: 'session-2',
+              userId: secondUser.id,
+              deviceId: 'device-2',
+            }),
+          ],
+        },
+      ],
+    });
+    await expect(repository.findUserById(firstUser.id)).resolves.toMatchObject({
+      status: 'disabled',
+    });
+    await expect(repository.findUserById(secondUser.id)).resolves.toMatchObject({
+      status: 'disabled',
+    });
+    await expect(
+      repository.listActiveUserRefreshSessions(firstUser.id),
+    ).resolves.toEqual([]);
+    await expect(
+      repository.listActiveUserRefreshSessions(secondUser.id),
+    ).resolves.toEqual([]);
+  });
+
+  it('keeps batch account status updates atomic when any target user is missing', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+    const firstUser = await repository.upsertMobileUser({
+      phone: '13800138000',
+      userType: 'shipper',
+    });
+    const secondUser = await repository.upsertMobileUser({
+      phone: '13800138001',
+      userType: 'driver',
+    });
+
+    await repository.saveRefreshSession({
+      userId: firstUser.id,
+      refreshToken: 'refresh.first-device-1',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: secondUser.id,
+      refreshToken: 'refresh.second-device-1',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+
+    await expect(
+      (repository as unknown as {
+        batchUpdateUserStatuses: (input: {
+          items: { userId: string }[];
+          status: 'active' | 'disabled';
+        }) => Promise<unknown>;
+      }).batchUpdateUserStatuses({
+        items: [{ userId: firstUser.id }, { userId: 'missing-user' }],
+        status: 'disabled',
+      }),
+    ).rejects.toEqual(
+      new BusinessError(ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND, '账号不存在'),
+    );
+    await expect(repository.findUserById(firstUser.id)).resolves.toMatchObject({
+      status: 'active',
+    });
+    await expect(repository.findUserById(secondUser.id)).resolves.toMatchObject({
+      status: 'active',
+    });
+    await expect(
+      repository.listActiveUserRefreshSessions(firstUser.id),
+    ).resolves.toHaveLength(1);
+    await expect(
+      repository.listActiveUserRefreshSessions(secondUser.id),
+    ).resolves.toHaveLength(1);
+  });
+
+  it('keeps batch account session revocation atomic when a keep session is invalid', async () => {
+    let currentNow = new Date('2026-06-26T06:00:00.000Z');
+    const repository = new InMemoryAuthRepository(() => currentNow);
+    const firstUser = await repository.upsertMobileUser({
+      phone: '13800138000',
+      userType: 'shipper',
+    });
+    const secondUser = await repository.upsertMobileUser({
+      phone: '13800138001',
+      userType: 'driver',
+    });
+
+    await repository.saveRefreshSession({
+      userId: firstUser.id,
+      refreshToken: 'refresh.first-device-1',
+      deviceId: 'device-1',
+      expiresAt: new Date('2026-07-03T06:00:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:05:00.000Z');
+    await repository.saveRefreshSession({
+      userId: firstUser.id,
+      refreshToken: 'refresh.first-device-2',
+      deviceId: 'device-2',
+      expiresAt: new Date('2026-07-03T06:05:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:10:00.000Z');
+    await repository.saveRefreshSession({
+      userId: secondUser.id,
+      refreshToken: 'refresh.second-device-1',
+      deviceId: 'device-3',
+      expiresAt: new Date('2026-07-03T06:10:00.000Z'),
+    });
+    currentNow = new Date('2026-06-26T06:15:00.000Z');
+
+    await expect(
+      (repository as unknown as {
+        batchRevokeUserRefreshSessions: (input: {
+          items: { userId: string; keepSessionId?: string }[];
+        }) => Promise<unknown>;
+      }).batchRevokeUserRefreshSessions({
+        items: [
+          { userId: firstUser.id, keepSessionId: 'session-3' },
+          { userId: secondUser.id },
+        ],
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.VALIDATION_ERROR,
+        '保留会话不存在或不属于目标账号',
+      ),
+    );
+    await expect(
+      repository.listActiveUserRefreshSessions(firstUser.id),
+    ).resolves.toHaveLength(2);
+    await expect(
+      repository.listActiveUserRefreshSessions(secondUser.id),
+    ).resolves.toHaveLength(1);
   });
 });

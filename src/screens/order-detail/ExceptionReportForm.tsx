@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { exceptionTypeOptions } from '../../data/mockData';
 import type {
   PlatformFileUploadConfirmationApi,
@@ -25,6 +26,17 @@ type ExceptionReportDraft = {
   photoFiles?: FileAttachmentRef[];
 };
 
+function getPhotoFileStatusText(status: FileAttachmentRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
 function mapPlatformFileToAttachmentRef(
   file: PlatformFileUploadRecord,
   fileName: string,
@@ -32,7 +44,7 @@ function mapPlatformFileToAttachmentRef(
   return {
     fileId: file.id,
     fileName,
-    purpose: file.purpose,
+    purpose: 'exception',
     status: file.status,
     objectKey: file.objectKey,
     publicUrl: file.publicUrl,
@@ -53,6 +65,11 @@ export function ExceptionReportForm({
   const [photoCount, setPhotoCount] = useState(0);
   const [photoFiles, setPhotoFiles] = useState<FileAttachmentRef[]>([]);
   const [notice, setNotice] = useState('');
+  const uploadedPhotoFiles = photoFiles.slice(0, photoCount);
+  const localPlaceholderIndexes = Array.from(
+    { length: Math.max(photoCount - uploadedPhotoFiles.length, 0) },
+    (_, index) => uploadedPhotoFiles.length + index + 1,
+  );
 
   const submit = () => {
     const trimmedDescription = description.trim();
@@ -163,6 +180,39 @@ export function ExceptionReportForm({
           {photoCount > 0 ? '图片凭证 1 张' : '添加图片凭证'}
         </Text>
       </Pressable>
+      {photoCount > 0 ? (
+        <View>
+          <Text style={styles.draftSectionTitle}>异常图片凭证清单</Text>
+          {uploadedPhotoFiles.map((file, index) => (
+            <ImageCredentialCard
+              key={file.fileId}
+              title={`异常图片凭证：${file.fileName}`}
+              publicUrl={file.publicUrl}
+              placeholderLabel="异常图片"
+              metaLines={[
+                `来源：平台文件对象（${getPhotoFileStatusText(file.status)}）`,
+                `文件 ID：${file.fileId}`,
+                ...(file.publicUrl
+                  ? ['已生成预览地址。']
+                  : file.objectKey
+                    ? ['已写入平台对象存储。']
+                    : []),
+              ]}
+              imageTestID={`exception-photo-preview-image-${index + 1}`}
+              placeholderTestID={`exception-photo-preview-placeholder-${index + 1}`}
+            />
+          ))}
+          {localPlaceholderIndexes.map(voucherIndex => (
+            <ImageCredentialCard
+              key={voucherIndex}
+              title={`本地图片凭证 ${voucherIndex}：本地已保存`}
+              placeholderLabel={`异常图片 ${voucherIndex}`}
+              metaLines={['来源：本地图片凭证占位']}
+              placeholderTestID={`exception-photo-preview-placeholder-${voucherIndex}`}
+            />
+          ))}
+        </View>
+      ) : null}
       {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
         testID="exception-submit"

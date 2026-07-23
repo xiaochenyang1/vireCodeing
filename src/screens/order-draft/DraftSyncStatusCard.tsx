@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { styles } from '../../styles';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import {
   createSyncedDraftSyncState,
   type DraftSyncState,
@@ -17,7 +18,7 @@ export function DraftSyncStatusCard({
 }) {
   const effectiveSyncState =
     syncState ??
-    createSyncedDraftSyncState('本地草稿尚未变更，等待真实草稿 API 接入。');
+    createSyncedDraftSyncState('本地草稿尚未变更，等待平台草稿同步。');
   const canRetry =
     Boolean(onRetry) &&
     (effectiveSyncState.status === 'pending' ||
@@ -25,6 +26,10 @@ export function DraftSyncStatusCard({
   const canMarkFailed =
     Boolean(onMarkFailed) && effectiveSyncState.status === 'pending';
   const queueItems = effectiveSyncState.queueItems ?? [];
+  const baselineVersionText =
+    effectiveSyncState.platformUpdatedAtIso && queueItems.length > 0
+      ? formatPlatformIsoMinute(effectiveSyncState.platformUpdatedAtIso)
+      : undefined;
 
   return (
     <View>
@@ -38,6 +43,9 @@ export function DraftSyncStatusCard({
       <Text style={styles.detailMeta}>
         {`同步时间：${effectiveSyncState.updatedAtText}`}
       </Text>
+      {baselineVersionText ? (
+        <Text style={styles.detailMeta}>{`草稿基线版本：${baselineVersionText}`}</Text>
+      ) : null}
       <Text style={styles.draftSectionTitle}>草稿同步队列</Text>
       {queueItems.length > 0 ? (
         queueItems.map(queueItem => (

@@ -361,7 +361,7 @@ export function renderAccountManagementAdminConsole() {
       <div id="accountPaginationStatus" class="status-line">默认等你填 token，别拿静态页面当神谕。</div>
       <div class="bulk-panel">
         <h2>批量治理</h2>
-        <p class="muted">当前批量动作会顺序调用单账号治理接口，先把一批明显异常账号成片处理掉，再回头看单账号细节，别高峰期一条条手戳到怀疑人生。</p>
+        <p class="muted">当前批量动作会一次提交给后端做整批校验和原子写入：只要任一账号不满足条件，整批都会失败，不会再留一半成功一半翻车的烂摊子。</p>
         <div class="bulk-actions-row">
           <label class="checkbox-label"><input id="accountSelectAllInput" type="checkbox" onclick="toggleSelectAllCurrentPage(this.checked)" />全选当前页</label>
           <button type="button" class="secondary-button" onclick="clearSelectedAccounts()">清空勾选</button>
@@ -820,30 +820,33 @@ export function renderAccountManagementAdminConsole() {
           '先勾选账号再' + actionLabel + '，别对着空气下命令。';
         return;
       }
-      let successCount = 0;
-      let revokedSessionCount = 0;
-      const failures = [];
       document.getElementById('accountBulkActionStatus').textContent =
-        actionLabel + '执行中，共 ' + userIds.length + ' 个账号。';
-      for (const userId of userIds) {
-        try {
-          const data = await api('/admin/auth/accounts/' + encodeURIComponent(userId) + '/status', {
-            method: 'POST',
-            body: JSON.stringify({ status }),
-          });
-          successCount += 1;
-          revokedSessionCount += Number(data.revokedSessionCount || 0);
+        actionLabel + '执行中，共 ' + userIds.length + ' 个账号，后端会整批校验后一次写入。';
+      try {
+        const data = await api('/admin/auth/accounts/batch-status', {
+          method: 'POST',
+          body: JSON.stringify({
+            items: userIds.map(function(userId) {
+              return { userId: userId };
+            }),
+            status: status,
+          }),
+        });
+        userIds.forEach(function(userId) {
           selectedAccountIds.delete(userId);
-        } catch (error) {
-          failures.push(userId + '（' + error.message + '）');
-        }
+        });
+        document.getElementById('accountBulkActionStatus').textContent =
+          actionLabel + '完成：已原子处理 ' +
+          formatCount(data && data.updatedCount) + ' 个账号' +
+          (status === 'disabled'
+            ? '，累计撤销会话 ' + formatCount(data && data.revokedSessionCount) + ' 条。'
+            : '。');
+        await refreshAccountWorkspaceAfterMutation();
+        updateAccountBulkSelectionUi();
+      } catch (error) {
+        document.getElementById('accountBulkActionStatus').textContent =
+          actionLabel + '失败：' + error.message + '。本批未落任何变更。';
       }
-      document.getElementById('accountBulkActionStatus').textContent =
-        actionLabel + '完成：成功 ' + successCount + ' 个，失败 ' + failures.length + ' 个' +
-        (status === 'disabled' ? '，累计撤销会话 ' + revokedSessionCount + ' 条。' : '。') +
-        (failures.length ? ' 失败详情：' + failures.join('；') : '');
-      await refreshAccountWorkspaceAfterMutation();
-      updateAccountBulkSelectionUi();
     }
 
     async function runBatchRevokeSessions() {
@@ -853,33 +856,30 @@ export function renderAccountManagementAdminConsole() {
           '先勾选账号再批量撤销会话，别拿控制台当许愿池。';
         return;
       }
-      let successCount = 0;
-      let totalRevokedCount = 0;
-      const failures = [];
       document.getElementById('accountBulkActionStatus').textContent =
-        '批量撤销会话执行中，共 ' + userIds.length + ' 个账号。';
-      for (const userId of userIds) {
-        try {
-          const data = await api(
-            '/admin/auth/accounts/' + encodeURIComponent(userId) + '/revoke-sessions',
-            {
-              method: 'POST',
-              body: JSON.stringify({}),
-            },
-          );
-          successCount += 1;
-          totalRevokedCount += Number(data.revokedCount || 0);
+        '批量撤销会话执行中，共 ' + userIds.length + ' 个账号，后端会整批校验后一次写入。';
+      try {
+        const data = await api('/admin/auth/accounts/batch-revoke-sessions', {
+          method: 'POST',
+          body: JSON.stringify({
+            items: userIds.map(function(userId) {
+              return { userId: userId };
+            }),
+          }),
+        });
+        userIds.forEach(function(userId) {
           selectedAccountIds.delete(userId);
-        } catch (error) {
-          failures.push(userId + '（' + error.message + '）');
-        }
+        });
+        document.getElementById('accountBulkActionStatus').textContent =
+          '批量撤销会话完成：已原子处理 ' +
+          formatCount(data && data.updatedCount) + ' 个账号，累计撤销 ' +
+          formatCount(data && data.revokedCount) + ' 条会话。';
+        await refreshAccountWorkspaceAfterMutation();
+        updateAccountBulkSelectionUi();
+      } catch (error) {
+        document.getElementById('accountBulkActionStatus').textContent =
+          '批量撤销会话失败：' + error.message + '。本批未落任何变更。';
       }
-      document.getElementById('accountBulkActionStatus').textContent =
-        '批量撤销会话完成：成功 ' + successCount + ' 个，失败 ' + failures.length +
-        ' 个，累计撤销 ' + totalRevokedCount + ' 条会话。' +
-        (failures.length ? ' 失败详情：' + failures.join('；') : '');
-      await refreshAccountWorkspaceAfterMutation();
-      updateAccountBulkSelectionUi();
     }
 
     function renderAccountSummary(summary) {

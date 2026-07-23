@@ -6,9 +6,13 @@ import type {
   DriverWithdrawalRecord,
 } from '../driver-orders/dto';
 import type {
+  AdminBatchReviewWithdrawalAction,
+  BatchReviewedAdminWithdrawalItem,
+  BatchReviewAdminWithdrawalsResult,
   DriverWalletRecord,
   FinancialAuditLogRecord,
   FinancialTransactionRecord,
+  ReviewedDriverWithdrawalRecord,
 } from './dto';
 import { InMemoryFinancialStore } from './in-memory-financial.store';
 import {
@@ -29,6 +33,9 @@ export interface DriverFinanceRepository {
   reviewWithdrawal(
     input: ReviewDriverWithdrawalInput,
   ): Promise<ReviewDriverWithdrawalResult>;
+  batchReviewWithdrawals(
+    input: BatchReviewDriverWithdrawalsInput,
+  ): Promise<BatchReviewDriverWithdrawalsResult>;
 }
 
 export type ExecuteDriverWithdrawalInput = {
@@ -61,14 +68,13 @@ export type ReviewDriverWithdrawalInput = {
   expectedVersion: number;
 };
 
-export type ReviewedDriverWithdrawalRecord = DriverWithdrawalRecord & {
-  version: number;
-  processedByAdminId?: string;
-  processedAtIso?: string;
-  financialTransactionId?: string;
-  payoutChannel?: string;
-  providerPayoutNo?: string;
-  payoutExecutedAtIso?: string;
+export type BatchReviewDriverWithdrawalsInput = Omit<
+  ReviewDriverWithdrawalInput,
+  'withdrawalId' | 'expectedVersion'
+> & {
+  items: Array<
+    Pick<ReviewDriverWithdrawalInput, 'withdrawalId' | 'expectedVersion'>
+  >;
 };
 
 export type ReviewDriverWithdrawalResult =
@@ -80,6 +86,12 @@ export type ReviewDriverWithdrawalResult =
       financialTransaction?: FinancialTransactionRecord;
       auditLog: FinancialAuditLogRecord;
     }
+  | { kind: 'key-reused' }
+  | { kind: 'not-found' }
+  | { kind: 'conflict' };
+
+export type BatchReviewDriverWithdrawalsResult =
+  | BatchReviewAdminWithdrawalsResult
   | { kind: 'key-reused' }
   | { kind: 'not-found' }
   | { kind: 'conflict' };
@@ -107,6 +119,20 @@ type InMemoryDriverWithdrawal = DriverWithdrawalRecord & {
   processedAtIso?: string;
   financialTransactionId?: string;
 };
+
+type InMemoryReviewMutationSuccess = {
+  kind: 'success';
+  beforeWithdrawal: InMemoryDriverWithdrawal;
+  beforeWallet: DriverWalletRecord;
+  withdrawal: ReviewedDriverWithdrawalRecord;
+  wallet: DriverWalletRecord;
+  financialTransaction?: FinancialTransactionRecord;
+};
+
+type InMemoryReviewMutationResult =
+  | InMemoryReviewMutationSuccess
+  | { kind: 'not-found' }
+  | { kind: 'conflict' };
 
 export class InMemoryDriverFinanceRepository
   implements DriverFinanceRepository
@@ -212,7 +238,7 @@ export class InMemoryDriverFinanceRepository
   async reviewWithdrawal(
     input: ReviewDriverWithdrawalInput,
   ): Promise<ReviewDriverWithdrawalResult> {
-    const action = `withdrawal.${input.action}`;
+    const action = createSingleWithdrawalReviewAction(input.action);
     const existingAuditLog = this.financialStore.findFinancialAuditLog(
       input.adminId,
       action,
@@ -230,9 +256,144 @@ export class InMemoryDriverFinanceRepository
       return this.mapInMemoryReviewReplay(existingAuditLog);
     }
 
-    const withdrawal = this.withdrawals.find(
-      item => item.id === input.withdrawalId,
+    const now = this.now();
+    const mutation = await this.applyInMemoryReviewMutation(
+      this.withdrawals,
+      this.financialStore,
+      input,
+      now,
     );
+    if (mutation.kind !== 'success') {
+      return mutation;
+    }
+
+    const nowIso = now.toISOString();
+    const auditLog = this.financialStore.createFinancialAuditLog({
+      id: this.createId(),
+      actorAdminId: input.adminId,
+      action,
+      entityType: 'driver_withdrawal',
+      entityId: mutation.withdrawal.id,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      requestId: input.requestId,
+      reason: input.reason,
+      beforeState: {
+        withdrawal: mutation.beforeWithdrawal,
+        wallet: mutation.beforeWallet,
+      },
+      afterState: {
+        withdrawal: mutation.withdrawal,
+        wallet: mutation.wallet,
+        ...(mutation.financialTransaction
+          ? { financialTransactionId: mutation.financialTransaction.id }
+          : {}),
+      },
+      createdAtIso: nowIso,
+    });
+
+    return {
+      kind: 'success',
+      replayed: false,
+      withdrawal: mutation.withdrawal,
+      wallet: mutation.wallet,
+      ...(mutation.financialTransaction
+        ? { financialTransaction: mutation.financialTransaction }
+        : {}),
+      auditLog,
+    };
+  }
+
+  async batchReviewWithdrawals(
+    input: BatchReviewDriverWithdrawalsInput,
+  ): Promise<BatchReviewDriverWithdrawalsResult> {
+    const action = createBatchWithdrawalReviewAction(input.action);
+    const existingAuditLog = this.financialStore.findFinancialAuditLog(
+      input.adminId,
+      action,
+      input.idempotencyKey,
+    );
+
+    if (existingAuditLog) {
+      if (existingAuditLog.requestFingerprint !== input.requestFingerprint) {
+        return { kind: 'key-reused' };
+      }
+
+      return this.mapInMemoryBatchReviewReplay(existingAuditLog);
+    }
+
+    const now = this.now();
+    const nowIso = now.toISOString();
+    const stagedStore = this.financialStore.clone();
+    const stagedWithdrawals = structuredClone(this.withdrawals);
+    const beforeItems: Array<Record<string, unknown>> = [];
+    const reviewedItems: BatchReviewedAdminWithdrawalItem[] = [];
+
+    for (const item of input.items) {
+      const mutation = await this.applyInMemoryReviewMutation(
+        stagedWithdrawals,
+        stagedStore,
+        {
+          ...input,
+          withdrawalId: item.withdrawalId,
+          expectedVersion: item.expectedVersion,
+        },
+        now,
+      );
+
+      if (mutation.kind !== 'success') {
+        return mutation;
+      }
+
+      beforeItems.push({
+        withdrawalId: item.withdrawalId,
+        expectedVersion: item.expectedVersion,
+        withdrawal: mutation.beforeWithdrawal,
+        wallet: mutation.beforeWallet,
+      });
+      reviewedItems.push({
+        withdrawal: mutation.withdrawal,
+        wallet: mutation.wallet,
+        ...(mutation.financialTransaction
+          ? { financialTransaction: mutation.financialTransaction }
+          : {}),
+      });
+    }
+
+    stagedStore.createFinancialAuditLog({
+      id: this.createId(),
+      actorAdminId: input.adminId,
+      action,
+      entityType: 'driver_withdrawal_batch',
+      entityId: createBatchWithdrawalReviewEntityId(input),
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      requestId: input.requestId,
+      reason: input.reason,
+      beforeState: {
+        action: input.action,
+        items: beforeItems,
+      },
+      afterState: {
+        action: input.action,
+        items: reviewedItems,
+      },
+      createdAtIso: nowIso,
+    });
+
+    this.withdrawals.splice(0, this.withdrawals.length, ...stagedWithdrawals);
+    this.financialStore.replace(stagedStore);
+
+    return createBatchReviewSuccessResult(input.action, reviewedItems, false);
+  }
+
+  private async applyInMemoryReviewMutation(
+    withdrawals: InMemoryDriverWithdrawal[],
+    financialStore: InMemoryFinancialStore,
+    input: ReviewDriverWithdrawalInput,
+    now: Date,
+  ): Promise<InMemoryReviewMutationResult> {
+    const withdrawal = withdrawals.find(item => item.id === input.withdrawalId);
     if (!withdrawal) {
       return { kind: 'not-found' };
     }
@@ -243,12 +404,12 @@ export class InMemoryDriverFinanceRepository
       return { kind: 'conflict' };
     }
 
-    const now = this.now();
-    const nowIso = now.toISOString();
     const beforeWithdrawal = structuredClone(withdrawal);
-    const beforeWallet = this.financialStore.findDriverWallet(
-      withdrawal.driverId,
-    );
+    const beforeWallet = financialStore.findDriverWallet(withdrawal.driverId);
+    if (!beforeWallet) {
+      return { kind: 'conflict' };
+    }
+
     const payoutResult =
       input.action === 'approve'
         ? await this.payoutProvider.executePayout({
@@ -262,23 +423,27 @@ export class InMemoryDriverFinanceRepository
         : undefined;
     const wallet =
       input.action === 'approve'
-        ? this.financialStore.payReservedDriverWallet(
+        ? financialStore.payReservedDriverWallet(
             withdrawal.driverId,
             withdrawal.amountCents,
             now,
           )
-        : this.financialStore.releaseReservedDriverWallet(
+        : financialStore.releaseReservedDriverWallet(
             withdrawal.driverId,
             withdrawal.amountCents,
             now,
           );
-    if (!wallet || !beforeWallet) {
+    if (!wallet) {
       return { kind: 'conflict' };
     }
 
     const financialTransaction =
       input.action === 'approve'
-        ? this.createInMemoryWithdrawalTransaction(withdrawal, nowIso)
+        ? this.createInMemoryWithdrawalTransaction(
+            financialStore,
+            withdrawal,
+            now.toISOString(),
+          )
         : undefined;
 
     withdrawal.status = input.action === 'approve' ? 'paid' : 'rejected';
@@ -292,47 +457,24 @@ export class InMemoryDriverFinanceRepository
     }
     withdrawal.version += 1;
     withdrawal.processedByAdminId = input.adminId;
-    withdrawal.processedAtIso = nowIso;
+    withdrawal.processedAtIso = now.toISOString();
     if (financialTransaction) {
       withdrawal.financialTransactionId = financialTransaction.id;
     }
-    withdrawal.updatedAtIso = nowIso;
-
-    const auditLog = this.financialStore.createFinancialAuditLog({
-      id: this.createId(),
-      actorAdminId: input.adminId,
-      action,
-      entityType: 'driver_withdrawal',
-      entityId: withdrawal.id,
-      idempotencyKey: input.idempotencyKey,
-      requestFingerprint: input.requestFingerprint,
-      requestId: input.requestId,
-      reason: input.reason,
-      beforeState: {
-        withdrawal: beforeWithdrawal,
-        wallet: beforeWallet,
-      },
-      afterState: {
-        withdrawal: structuredClone(withdrawal),
-        wallet,
-        ...(financialTransaction
-          ? { financialTransactionId: financialTransaction.id }
-          : {}),
-      },
-      createdAtIso: nowIso,
-    });
+    withdrawal.updatedAtIso = now.toISOString();
 
     return {
       kind: 'success',
-      replayed: false,
+      beforeWithdrawal,
+      beforeWallet,
       withdrawal: structuredClone(withdrawal),
       wallet,
       ...(financialTransaction ? { financialTransaction } : {}),
-      auditLog,
     };
   }
 
   private createInMemoryWithdrawalTransaction(
+    financialStore: InMemoryFinancialStore,
     withdrawal: InMemoryDriverWithdrawal,
     nowIso: string,
   ) {
@@ -343,7 +485,7 @@ export class InMemoryDriverFinanceRepository
     );
     assertLedgerBalanced(entryDrafts);
 
-    return this.financialStore.createFinancialTransaction({
+    return financialStore.createFinancialTransaction({
       id: transactionId,
       transactionNo: `FT-${transactionId}`,
       type: 'driver_withdrawal',
@@ -388,6 +530,17 @@ export class InMemoryDriverFinanceRepository
       ...(financialTransaction ? { financialTransaction } : {}),
       auditLog,
     };
+  }
+
+  private mapInMemoryBatchReviewReplay(
+    auditLog: FinancialAuditLogRecord,
+  ): BatchReviewDriverWithdrawalsResult {
+    const snapshot = parseBatchReviewAfterState(auditLog.afterState);
+    if (!snapshot) {
+      return { kind: 'conflict' };
+    }
+
+    return createBatchReviewSuccessResult(snapshot.action, snapshot.items, true);
   }
 }
 
@@ -436,6 +589,20 @@ type PrismaDriverWithdrawalRecord = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+type PrismaReviewMutationSuccess = {
+  kind: 'success';
+  beforeWithdrawal: PrismaDriverWithdrawalRecord;
+  beforeWallet: PrismaDriverWalletRecord;
+  withdrawal: ReviewedDriverWithdrawalRecord;
+  wallet: DriverWalletRecord;
+  financialTransaction?: FinancialTransactionRecord;
+};
+
+type PrismaReviewMutationResult =
+  | PrismaReviewMutationSuccess
+  | { kind: 'not-found' }
+  | { kind: 'conflict' };
 
 type PrismaFinancialLedgerEntryRecord = {
   id: string;
@@ -699,7 +866,7 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
   ): Promise<ReviewDriverWithdrawalResult> {
     try {
       return await this.prisma.$transaction(async transaction => {
-        const action = `withdrawal.${input.action}`;
+        const action = createSingleWithdrawalReviewAction(input.action);
         const existingAuditLog = await transaction.financialAuditLog.findUnique(
           {
             where: {
@@ -719,136 +886,14 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
           );
         }
 
-        const withdrawal = await transaction.driverWithdrawal.findUnique({
-          where: { id: input.withdrawalId },
-        });
-        if (!withdrawal) {
-          return { kind: 'not-found' as const };
-        }
-        if (
-          withdrawal.status !== 'reviewing' ||
-          withdrawal.version !== input.expectedVersion
-        ) {
-          return { kind: 'conflict' as const };
-        }
-
-        const walletBefore = await transaction.driverWallet.findUnique({
-          where: { driverId: withdrawal.driverId },
-        });
-        if (!walletBefore) {
-          return { kind: 'conflict' as const };
-        }
-
         const now = this.now();
-        const transactionId =
-          input.action === 'approve' ? this.createId() : undefined;
-        const payoutResult =
-          input.action === 'approve'
-            ? await this.payoutProvider.executePayout({
-                withdrawalId: withdrawal.id,
-                driverId: withdrawal.driverId,
-                amountCents: withdrawal.amountCents,
-                bankAccountName: withdrawal.bankAccountName,
-                bankName: withdrawal.bankName,
-                bankAccountMasked: withdrawal.bankAccountMasked,
-              })
-            : undefined;
-        const updatedWithdrawal =
-          await transaction.driverWithdrawal.updateMany({
-            where: {
-              id: withdrawal.id,
-              status: 'reviewing',
-              version: input.expectedVersion,
-            },
-            data: {
-              status: input.action === 'approve' ? 'paid' : 'rejected',
-              version: { increment: 1 },
-              processedByAdminId: input.adminId,
-              processedAt: now,
-              ...(input.action === 'reject'
-                ? { rejectionReason: input.reason }
-                : {}),
-              ...(payoutResult
-                ? {
-                    payoutChannel: payoutResult.channel,
-                    providerPayoutNo: payoutResult.providerPayoutNo,
-                    payoutExecutedAt: new Date(payoutResult.executedAtIso),
-                  }
-                : {}),
-              updatedAt: now,
-            },
-          });
-        if (updatedWithdrawal.count !== 1) {
-          const winner = await transaction.financialAuditLog.findUnique({
-            where: {
-              FinancialAuditLog_actor_action_key_unique: {
-                actorAdminId: input.adminId,
-                action,
-                idempotencyKey: input.idempotencyKey,
-              },
-            },
-          });
-          return winner
-            ? this.mapPrismaReviewReplay(transaction, winner, input)
-            : { kind: 'conflict' as const };
-        }
-
-        const updatedWallet = await transaction.driverWallet.updateMany({
-          where: {
-            driverId: withdrawal.driverId,
-            reservedCents: { gte: withdrawal.amountCents },
-          },
-          data:
-            input.action === 'approve'
-              ? {
-                  reservedCents: { decrement: withdrawal.amountCents },
-                  withdrawnCents: { increment: withdrawal.amountCents },
-                  version: { increment: 1 },
-                  updatedAt: now,
-                }
-              : {
-                  reservedCents: { decrement: withdrawal.amountCents },
-                  availableCents: { increment: withdrawal.amountCents },
-                  version: { increment: 1 },
-                  updatedAt: now,
-                },
-        });
-        if (updatedWallet.count !== 1) {
-          throw new DriverWithdrawalReviewConflictError();
-        }
-
-        const financialTransaction = transactionId
-          ? await this.createPrismaWithdrawalTransaction(
-              transaction,
-              transactionId,
-              withdrawal,
-              now,
-            )
-          : undefined;
-        if (transactionId) {
-          const linkedWithdrawal = await transaction.driverWithdrawal.updateMany({
-            where: {
-              id: withdrawal.id,
-              financialTransactionId: null,
-            },
-            data: {
-              financialTransactionId: transactionId,
-              updatedAt: now,
-            },
-          });
-
-          if (linkedWithdrawal.count !== 1) {
-            throw new DriverWithdrawalReviewConflictError();
-          }
-        }
-        const withdrawalAfter = await transaction.driverWithdrawal.findUnique({
-          where: { id: withdrawal.id },
-        });
-        const walletAfter = await transaction.driverWallet.findUnique({
-          where: { driverId: withdrawal.driverId },
-        });
-        if (!withdrawalAfter || !walletAfter) {
-          throw new DriverWithdrawalReviewConflictError();
+        const mutation = await this.applyPrismaReviewMutation(
+          transaction,
+          input,
+          now,
+        );
+        if (mutation.kind !== 'success') {
+          return mutation;
         }
 
         const auditLog = await transaction.financialAuditLog.create({
@@ -857,20 +902,20 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
             actorAdminId: input.adminId,
             action,
             entityType: 'driver_withdrawal',
-            entityId: withdrawal.id,
+            entityId: mutation.withdrawal.id,
             idempotencyKey: input.idempotencyKey,
             requestFingerprint: input.requestFingerprint,
             requestId: input.requestId,
             reason: input.reason,
             beforeState: {
-              withdrawal: mapPrismaReviewedWithdrawal(withdrawal),
-              wallet: mapPrismaWallet(walletBefore),
+              withdrawal: mapPrismaReviewedWithdrawal(mutation.beforeWithdrawal),
+              wallet: mapPrismaWallet(mutation.beforeWallet),
             },
             afterState: {
-              withdrawal: mapPrismaReviewedWithdrawal(withdrawalAfter),
-              wallet: mapPrismaWallet(walletAfter),
-              ...(financialTransaction
-                ? { financialTransactionId: financialTransaction.id }
+              withdrawal: mutation.withdrawal,
+              wallet: mutation.wallet,
+              ...(mutation.financialTransaction
+                ? { financialTransactionId: mutation.financialTransaction.id }
                 : {}),
             },
             createdAt: now,
@@ -880,13 +925,10 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
         return {
           kind: 'success' as const,
           replayed: false,
-          withdrawal: mapPrismaReviewedWithdrawal(withdrawalAfter),
-          wallet: mapPrismaWallet(walletAfter),
-          ...(financialTransaction
-            ? {
-                financialTransaction:
-                  mapPrismaFinancialTransaction(financialTransaction),
-              }
+          withdrawal: mutation.withdrawal,
+          wallet: mutation.wallet,
+          ...(mutation.financialTransaction
+            ? { financialTransaction: mutation.financialTransaction }
             : {}),
           auditLog: mapPrismaFinancialAuditLog(auditLog),
         };
@@ -899,7 +941,7 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
         throw error;
       }
 
-      const action = `withdrawal.${input.action}`;
+      const action = createSingleWithdrawalReviewAction(input.action);
       const auditLog = await this.prisma.financialAuditLog.findUnique({
         where: {
           FinancialAuditLog_actor_action_key_unique: {
@@ -915,6 +957,248 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
 
       return this.mapPrismaReviewReplay(this.prisma, auditLog, input);
     }
+  }
+
+  async batchReviewWithdrawals(
+    input: BatchReviewDriverWithdrawalsInput,
+  ): Promise<BatchReviewDriverWithdrawalsResult> {
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const action = createBatchWithdrawalReviewAction(input.action);
+        const existingAuditLog =
+          await transaction.financialAuditLog.findUnique({
+            where: {
+              FinancialAuditLog_actor_action_key_unique: {
+                actorAdminId: input.adminId,
+                action,
+                idempotencyKey: input.idempotencyKey,
+              },
+            },
+          });
+
+        if (existingAuditLog) {
+          return this.mapPrismaBatchReviewReplay(existingAuditLog, input);
+        }
+
+        const now = this.now();
+        const beforeItems: Array<Record<string, unknown>> = [];
+        const reviewedItems: BatchReviewedAdminWithdrawalItem[] = [];
+
+        for (const item of input.items) {
+          const mutation = await this.applyPrismaReviewMutation(
+            transaction,
+            {
+              ...input,
+              withdrawalId: item.withdrawalId,
+              expectedVersion: item.expectedVersion,
+            },
+            now,
+          );
+          if (mutation.kind !== 'success') {
+            return mutation;
+          }
+
+          beforeItems.push({
+            withdrawalId: item.withdrawalId,
+            expectedVersion: item.expectedVersion,
+            withdrawal: mapPrismaReviewedWithdrawal(mutation.beforeWithdrawal),
+            wallet: mapPrismaWallet(mutation.beforeWallet),
+          });
+          reviewedItems.push({
+            withdrawal: mutation.withdrawal,
+            wallet: mutation.wallet,
+            ...(mutation.financialTransaction
+              ? { financialTransaction: mutation.financialTransaction }
+              : {}),
+          });
+        }
+
+        await transaction.financialAuditLog.create({
+          data: {
+            id: this.createId(),
+            actorAdminId: input.adminId,
+            action,
+            entityType: 'driver_withdrawal_batch',
+            entityId: createBatchWithdrawalReviewEntityId(input),
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint: input.requestFingerprint,
+            requestId: input.requestId,
+            reason: input.reason,
+            beforeState: {
+              action: input.action,
+              items: beforeItems,
+            },
+            afterState: {
+              action: input.action,
+              items: reviewedItems,
+            },
+            createdAt: now,
+          },
+        });
+
+        return createBatchReviewSuccessResult(input.action, reviewedItems, false);
+      });
+    } catch (error) {
+      if (error instanceof DriverWithdrawalReviewConflictError) {
+        return { kind: 'conflict' };
+      }
+      if (!isPrismaErrorCode(error, 'P2002')) {
+        throw error;
+      }
+
+      const action = createBatchWithdrawalReviewAction(input.action);
+      const auditLog = await this.prisma.financialAuditLog.findUnique({
+        where: {
+          FinancialAuditLog_actor_action_key_unique: {
+            actorAdminId: input.adminId,
+            action,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+      if (!auditLog) {
+        throw error;
+      }
+
+      return this.mapPrismaBatchReviewReplay(auditLog, input);
+    }
+  }
+
+  private async applyPrismaReviewMutation(
+    transaction: PrismaDriverFinanceTransactionClient,
+    input: ReviewDriverWithdrawalInput,
+    now: Date,
+  ): Promise<PrismaReviewMutationResult> {
+    const withdrawal = await transaction.driverWithdrawal.findUnique({
+      where: { id: input.withdrawalId },
+    });
+    if (!withdrawal) {
+      return { kind: 'not-found' };
+    }
+    if (
+      withdrawal.status !== 'reviewing' ||
+      withdrawal.version !== input.expectedVersion
+    ) {
+      return { kind: 'conflict' };
+    }
+
+    const walletBefore = await transaction.driverWallet.findUnique({
+      where: { driverId: withdrawal.driverId },
+    });
+    if (!walletBefore) {
+      return { kind: 'conflict' };
+    }
+
+    const transactionId = input.action === 'approve' ? this.createId() : undefined;
+    const payoutResult =
+      input.action === 'approve'
+        ? await this.payoutProvider.executePayout({
+            withdrawalId: withdrawal.id,
+            driverId: withdrawal.driverId,
+            amountCents: withdrawal.amountCents,
+            bankAccountName: withdrawal.bankAccountName,
+            bankName: withdrawal.bankName,
+            bankAccountMasked: withdrawal.bankAccountMasked,
+          })
+        : undefined;
+    const updatedWithdrawal = await transaction.driverWithdrawal.updateMany({
+      where: {
+        id: withdrawal.id,
+        status: 'reviewing',
+        version: input.expectedVersion,
+      },
+      data: {
+        status: input.action === 'approve' ? 'paid' : 'rejected',
+        version: { increment: 1 },
+        processedByAdminId: input.adminId,
+        processedAt: now,
+        ...(input.action === 'reject' ? { rejectionReason: input.reason } : {}),
+        ...(payoutResult
+          ? {
+              payoutChannel: payoutResult.channel,
+              providerPayoutNo: payoutResult.providerPayoutNo,
+              payoutExecutedAt: new Date(payoutResult.executedAtIso),
+            }
+          : {}),
+        updatedAt: now,
+      },
+    });
+    if (updatedWithdrawal.count !== 1) {
+      throw new DriverWithdrawalReviewConflictError();
+    }
+
+    const updatedWallet = await transaction.driverWallet.updateMany({
+      where: {
+        driverId: withdrawal.driverId,
+        reservedCents: { gte: withdrawal.amountCents },
+      },
+      data:
+        input.action === 'approve'
+          ? {
+              reservedCents: { decrement: withdrawal.amountCents },
+              withdrawnCents: { increment: withdrawal.amountCents },
+              version: { increment: 1 },
+              updatedAt: now,
+            }
+          : {
+              reservedCents: { decrement: withdrawal.amountCents },
+              availableCents: { increment: withdrawal.amountCents },
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+    });
+    if (updatedWallet.count !== 1) {
+      throw new DriverWithdrawalReviewConflictError();
+    }
+
+    const financialTransaction = transactionId
+      ? await this.createPrismaWithdrawalTransaction(
+          transaction,
+          transactionId,
+          withdrawal,
+          now,
+        )
+      : undefined;
+    if (transactionId) {
+      const linkedWithdrawal = await transaction.driverWithdrawal.updateMany({
+        where: {
+          id: withdrawal.id,
+          financialTransactionId: null,
+        },
+        data: {
+          financialTransactionId: transactionId,
+          updatedAt: now,
+        },
+      });
+
+      if (linkedWithdrawal.count !== 1) {
+        throw new DriverWithdrawalReviewConflictError();
+      }
+    }
+
+    const withdrawalAfter = await transaction.driverWithdrawal.findUnique({
+      where: { id: withdrawal.id },
+    });
+    const walletAfter = await transaction.driverWallet.findUnique({
+      where: { driverId: withdrawal.driverId },
+    });
+    if (!withdrawalAfter || !walletAfter) {
+      throw new DriverWithdrawalReviewConflictError();
+    }
+
+    return {
+      kind: 'success',
+      beforeWithdrawal: withdrawal,
+      beforeWallet: walletBefore,
+      withdrawal: mapPrismaReviewedWithdrawal(withdrawalAfter),
+      wallet: mapPrismaWallet(walletAfter),
+      ...(financialTransaction
+        ? {
+            financialTransaction:
+              mapPrismaFinancialTransaction(financialTransaction),
+          }
+        : {}),
+    };
   }
 
   private async createPrismaWithdrawalTransaction(
@@ -1020,6 +1304,22 @@ export class PrismaDriverFinanceRepository implements DriverFinanceRepository {
         : {}),
       auditLog: mapPrismaFinancialAuditLog(auditLog),
     };
+  }
+
+  private mapPrismaBatchReviewReplay(
+    auditLog: PrismaFinancialAuditLogRecord,
+    input: BatchReviewDriverWithdrawalsInput,
+  ): BatchReviewDriverWithdrawalsResult {
+    if (auditLog.requestFingerprint !== input.requestFingerprint) {
+      return { kind: 'key-reused' };
+    }
+
+    const snapshot = parseBatchReviewAfterState(auditLog.afterState);
+    if (!snapshot || snapshot.action !== input.action) {
+      return { kind: 'conflict' };
+    }
+
+    return createBatchReviewSuccessResult(snapshot.action, snapshot.items, true);
   }
 }
 
@@ -1206,6 +1506,48 @@ function mapExistingPrismaWithdrawal(
     : { kind: 'key-reused' };
 }
 
+function createSingleWithdrawalReviewAction(
+  action: AdminBatchReviewWithdrawalAction,
+) {
+  return `withdrawal.${action}`;
+}
+
+function createBatchWithdrawalReviewAction(
+  action: AdminBatchReviewWithdrawalAction,
+) {
+  return `withdrawal.batch.${action}`;
+}
+
+function createBatchWithdrawalReviewEntityId(
+  input: Pick<BatchReviewDriverWithdrawalsInput, 'action' | 'items'>,
+) {
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify({
+        action: input.action,
+        withdrawalIds: input.items.map(item => item.withdrawalId),
+      }),
+    )
+    .digest('hex');
+
+  return `driver-withdrawal-batch-${digest.slice(0, 24)}`;
+}
+
+function createBatchReviewSuccessResult(
+  action: AdminBatchReviewWithdrawalAction,
+  items: BatchReviewedAdminWithdrawalItem[],
+  replayed: boolean,
+): BatchReviewAdminWithdrawalsResult {
+  return {
+    kind: 'success',
+    replayed,
+    action,
+    withdrawalIds: items.map(item => item.withdrawal.id),
+    updatedCount: items.length,
+    items,
+  };
+}
+
 function isPrismaErrorCode(error: unknown, code: string) {
   return (
     typeof error === 'object' &&
@@ -1232,6 +1574,36 @@ function parseReviewAfterState(value: unknown):
   const withdrawal = parseReviewedDriverWithdrawal(value.withdrawal);
   const wallet = parseDriverWallet(value.wallet);
   return withdrawal && wallet ? { withdrawal, wallet } : undefined;
+}
+
+function parseBatchReviewAfterState(value: unknown):
+  | {
+      action: AdminBatchReviewWithdrawalAction;
+      items: BatchReviewedAdminWithdrawalItem[];
+    }
+  | undefined {
+  if (!isRecord(value) || !isBatchReviewAction(value.action)) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value.items)) {
+    return undefined;
+  }
+
+  const items = value.items
+    .map(parseBatchReviewedAdminWithdrawalItem)
+    .filter(
+      (
+        item,
+      ): item is BatchReviewedAdminWithdrawalItem => item !== undefined,
+    );
+
+  return items.length === value.items.length
+    ? {
+        action: value.action,
+        items,
+      }
+    : undefined;
 }
 
 function parseReviewedDriverWithdrawal(
@@ -1264,6 +1636,15 @@ function parseReviewedDriverWithdrawal(
     ...(isString(value.rejectionReason)
       ? { rejectionReason: value.rejectionReason }
       : {}),
+    ...(isString(value.payoutChannel)
+      ? { payoutChannel: value.payoutChannel }
+      : {}),
+    ...(isString(value.providerPayoutNo)
+      ? { providerPayoutNo: value.providerPayoutNo }
+      : {}),
+    ...(isString(value.payoutExecutedAtIso)
+      ? { payoutExecutedAtIso: value.payoutExecutedAtIso }
+      : {}),
     version: value.version,
     ...(isString(value.processedByAdminId)
       ? { processedByAdminId: value.processedByAdminId }
@@ -1276,6 +1657,35 @@ function parseReviewedDriverWithdrawal(
       : {}),
     createdAtIso: value.createdAtIso,
     updatedAtIso: value.updatedAtIso,
+  };
+}
+
+function parseBatchReviewedAdminWithdrawalItem(
+  value: unknown,
+): BatchReviewedAdminWithdrawalItem | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const withdrawal = parseReviewedDriverWithdrawal(value.withdrawal);
+  const wallet = parseDriverWallet(value.wallet);
+  const financialTransaction =
+    value.financialTransaction === undefined
+      ? undefined
+      : parseFinancialTransactionRecord(value.financialTransaction);
+
+  if (
+    !withdrawal ||
+    !wallet ||
+    (value.financialTransaction !== undefined && !financialTransaction)
+  ) {
+    return undefined;
+  }
+
+  return {
+    withdrawal,
+    wallet,
+    ...(financialTransaction ? { financialTransaction } : {}),
   };
 }
 
@@ -1304,10 +1714,123 @@ function parseDriverWallet(value: unknown): DriverWalletRecord | undefined {
   };
 }
 
+function parseFinancialTransactionRecord(
+  value: unknown,
+): FinancialTransactionRecord | undefined {
+  if (
+    !isRecord(value) ||
+    !isString(value.id) ||
+    !isString(value.transactionNo) ||
+    !isFinancialTransactionType(value.type) ||
+    !isString(value.referenceId) ||
+    !isSafeInteger(value.amountCents) ||
+    !isString(value.occurredAtIso) ||
+    !isString(value.createdAtIso) ||
+    !Array.isArray(value.entries)
+  ) {
+    return undefined;
+  }
+
+  const entries = value.entries
+    .map(parseFinancialLedgerEntryRecord)
+    .filter(
+      (
+        entry,
+      ): entry is FinancialTransactionRecord['entries'][number] =>
+        entry !== undefined,
+    );
+  if (entries.length !== value.entries.length) {
+    return undefined;
+  }
+
+  return {
+    id: value.id,
+    transactionNo: value.transactionNo,
+    type: value.type,
+    referenceId: value.referenceId,
+    ...(isString(value.orderId) ? { orderId: value.orderId } : {}),
+    ...(isString(value.paymentOrderId)
+      ? { paymentOrderId: value.paymentOrderId }
+      : {}),
+    amountCents: value.amountCents,
+    occurredAtIso: value.occurredAtIso,
+    createdAtIso: value.createdAtIso,
+    entries,
+  };
+}
+
+function parseFinancialLedgerEntryRecord(
+  value: unknown,
+): FinancialTransactionRecord['entries'][number] | undefined {
+  if (
+    !isRecord(value) ||
+    !isString(value.id) ||
+    !isString(value.transactionId) ||
+    !isSafeInteger(value.sequence) ||
+    !isFinancialAccountType(value.accountType) ||
+    !(value.accountUserId === undefined || isString(value.accountUserId)) ||
+    !isLedgerDirection(value.direction) ||
+    !isSafeInteger(value.amountCents) ||
+    !isString(value.createdAtIso)
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: value.id,
+    transactionId: value.transactionId,
+    sequence: value.sequence,
+    accountType: value.accountType,
+    ...(isString(value.accountUserId)
+      ? { accountUserId: value.accountUserId }
+      : {}),
+    direction: value.direction,
+    amountCents: value.amountCents,
+    createdAtIso: value.createdAtIso,
+  };
+}
+
 function isDriverWithdrawalStatus(
   value: unknown,
 ): value is DriverWithdrawalRecord['status'] {
   return value === 'reviewing' || value === 'paid' || value === 'rejected';
+}
+
+function isBatchReviewAction(
+  value: unknown,
+): value is AdminBatchReviewWithdrawalAction {
+  return value === 'approve' || value === 'reject';
+}
+
+function isFinancialTransactionType(
+  value: unknown,
+): value is FinancialTransactionRecord['type'] {
+  return (
+    value === 'online_payment_escrow' ||
+    value === 'online_order_settlement' ||
+    value === 'offline_order_settlement' ||
+    value === 'online_refund' ||
+    value === 'driver_withdrawal' ||
+    value === 'order_compensation'
+  );
+}
+
+function isFinancialAccountType(
+  value: unknown,
+): value is FinancialTransactionRecord['entries'][number]['accountType'] {
+  return (
+    value === 'gateway_clearing' ||
+    value === 'platform_escrow' ||
+    value === 'offline_clearing' ||
+    value === 'driver_payable' ||
+    value === 'platform_revenue'
+  );
+}
+
+function isLedgerDirection(
+  value: unknown,
+): value is FinancialTransactionRecord['entries'][number]['direction'] {
+  return value === 'debit' || value === 'credit';
 }
 
 function isSafeInteger(value: unknown): value is number {

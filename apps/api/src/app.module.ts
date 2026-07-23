@@ -19,6 +19,7 @@ import { ProfileInvoicesModule } from './profile-invoices/profile-invoices.modul
 import { ProfileSpendingModule } from './profile-spending/profile-spending.module';
 import { ProfileVerificationModule } from './profile-verification/profile-verification.module';
 import { PaymentsModule } from './payments/payments.module';
+import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { PaymentsModule } from './payments/payments.module';
     ProfileInvoicesModule,
     ProfileSpendingModule,
     ProfileVerificationModule,
+    SupportTicketsModule,
   ],
   controllers: [HealthController],
 })

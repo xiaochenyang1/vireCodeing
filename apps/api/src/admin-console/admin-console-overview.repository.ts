@@ -30,6 +30,11 @@ export type AdminConsoleOverviewStats = {
     rejectedCount: number;
     expiredPendingCount: number;
   };
+  supportTickets: {
+    pendingCount: number;
+    processingCount: number;
+    openCount: number;
+  };
   orderExceptions: {
     pendingCount: number;
     processingCount: number;
@@ -114,6 +119,9 @@ export type PrismaAdminConsoleOverviewClient = {
       };
     }): Promise<number>;
   };
+  shipperSupportTicket: {
+    count(args: unknown): Promise<number>;
+  };
   orderExceptionCase: {
     count(args: unknown): Promise<number>;
   };
@@ -176,6 +184,8 @@ export class PrismaAdminConsoleOverviewRepository
       totalFileCount,
       rejectedFileCount,
       expiredPendingFileCount,
+      pendingSupportTicketCount,
+      processingSupportTicketCount,
       pendingCaseCount,
       processingCaseCount,
       usableCouponCount,
@@ -298,6 +308,12 @@ export class PrismaAdminConsoleOverviewRepository
           createdAt: { lt: expiredPendingCutoff },
         },
       }),
+      this.prisma.shipperSupportTicket.count({
+        where: { status: 'pending' },
+      }),
+      this.prisma.shipperSupportTicket.count({
+        where: { status: 'processing' },
+      }),
       this.prisma.orderExceptionCase.count({
         where: { status: 'pending' },
       }),
@@ -418,6 +434,11 @@ export class PrismaAdminConsoleOverviewRepository
         totalCount: totalFileCount,
         rejectedCount: rejectedFileCount,
         expiredPendingCount: expiredPendingFileCount,
+      },
+      supportTickets: {
+        pendingCount: pendingSupportTicketCount,
+        processingCount: processingSupportTicketCount,
+        openCount: pendingSupportTicketCount + processingSupportTicketCount,
       },
       orderExceptions: {
         pendingCount: pendingCaseCount,

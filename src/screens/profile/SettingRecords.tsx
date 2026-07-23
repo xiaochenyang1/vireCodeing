@@ -1,11 +1,17 @@
-import { Pressable, Text, View } from 'react-native';
-import { useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 
 import { AuthField } from '../../components/AuthField';
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { appVersionInfo } from '../../data/mockData';
 import { styles } from '../../styles';
+import { getProfileAvatarInitial } from '../../utils/profileOverview';
 import {
+  createAccountSecurityCheckModel,
+  createAccountAvatarStatusModel,
+  applyPlatformProfileSettingsSnapshot,
   createConfirmedPrivacySettings,
+  createPlatformProfileSettingsSnapshot,
   createLocalPermissionDeniedStatuses,
   createUpdatedPasswordSettings,
   defaultPermissionStatuses,
@@ -13,29 +19,50 @@ import {
   getPlatformAccountProfileErrorMessage,
   getPermissionDeniedGuideNotice,
   getPlatformPasswordChangeErrorMessage,
+  getPlatformSessionSecurityErrorMessage,
   getSettingDocumentState,
   isReadOnlySetting,
   localPermissionItems,
+  privacyPolicyDocumentInfo,
   type LocalPermissionId,
   validateAccountSettings,
   validatePasswordSettings,
 } from '../../utils/profileSettings';
 import type {
+  ProfileSyncMutationOptions,
   SavedAccountSettings,
   SavedPasswordSettings,
   SettingItem,
 } from '../../utils/profileLocalState';
 import { getAuthSessionSnapshot } from '../../utils/authSession';
-import type { createPlatformAuthApi } from '../../services/platformAuthApi';
+import { getDeviceId } from '../../utils/deviceId';
+import type {
+  PlatformAuthSessionRecord,
+  createPlatformAuthApi,
+} from '../../services/platformAuthApi';
+import {
+  confirmPlatformFileUploadIntent,
+  type createPlatformFileApi,
+} from '../../services/platformFileApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 
 type SettingPlatformAuthApi = Pick<
   ReturnType<typeof createPlatformAuthApi>,
   'changePassword'
->;
+> &
+  Partial<
+    Pick<
+      ReturnType<typeof createPlatformAuthApi>,
+      'listSessions' | 'revokeOtherSessions'
+    >
+  >;
 type SettingPlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
   'saveAccountProfile'
+>;
+type SettingPlatformFileApi = Pick<
+  ReturnType<typeof createPlatformFileApi>,
+  'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
 >;
 
 export function SettingRecords({
@@ -45,6 +72,7 @@ export function SettingRecords({
   password,
   platformAuthApi,
   platformProfileApi,
+  platformFileApi,
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
@@ -56,9 +84,19 @@ export function SettingRecords({
   password: SavedPasswordSettings;
   platformAuthApi?: SettingPlatformAuthApi;
   platformProfileApi?: SettingPlatformProfileApi;
-  onUpdateSettings: (settings: SettingItem[]) => void;
-  onUpdateAccount: (account: SavedAccountSettings) => void;
-  onUpdatePassword: (password: SavedPasswordSettings) => void;
+  platformFileApi?: SettingPlatformFileApi;
+  onUpdateSettings: (
+    settings: SettingItem[],
+    options?: ProfileSyncMutationOptions,
+  ) => void;
+  onUpdateAccount: (
+    account: SavedAccountSettings,
+    options?: ProfileSyncMutationOptions,
+  ) => void;
+  onUpdatePassword: (
+    password: SavedPasswordSettings,
+    options?: ProfileSyncMutationOptions,
+  ) => void;
   onLogout: () => void;
 }) {
   const [notice, setNotice] = useState('');
@@ -68,12 +106,22 @@ export function SettingRecords({
     account.avatarPhotoCount,
   );
   const avatarPhotoCountRef = useRef(account.avatarPhotoCount);
+  const avatarFileIdRef = useRef(account.avatarFileId);
+  const avatarPublicUrlRef = useRef(account.avatarPublicUrl);
+  const [avatarRemoved, setAvatarRemoved] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPrivacyPanel, setShowPrivacyPanel] = useState(false);
   const [showPermissionPanel, setShowPermissionPanel] = useState(false);
   const [showSecurityCheckPanel, setShowSecurityCheckPanel] = useState(false);
+  const [platformSecuritySessions, setPlatformSecuritySessions] = useState<
+    PlatformAuthSessionRecord[] | undefined
+  >(undefined);
+  const [isLoadingSecuritySessions, setIsLoadingSecuritySessions] =
+    useState(false);
+  const [isRevokingOtherSessions, setIsRevokingOtherSessions] = useState(false);
   const [permissionStatuses, setPermissionStatuses] = useState(
     defaultPermissionStatuses,
   );
@@ -84,16 +132,204 @@ export function SettingRecords({
   );
   const loginProtectionStatusText =
     loginProtectionSetting?.statusText ?? '未配置';
+  const authSession = getAuthSessionSnapshot();
+  const currentDeviceId = authSession?.deviceId ?? getDeviceId();
+  const accountSecurityCheck = createAccountSecurityCheckModel({
+    settings,
+    password,
+    authSession,
+    deviceSessions: platformSecuritySessions?.map(session => ({
+      ...session,
+      isCurrentDevice: session.deviceId === currentDeviceId,
+    })),
+    now,
+  });
+  const avatarStatus = createAccountAvatarStatusModel({
+    savedAccount: account,
+    stagedAvatarPhotoCount: avatarPhotoCount,
+    stagedAvatarFileId: avatarFileIdRef.current,
+    stagedAvatarPublicUrl: avatarPublicUrlRef.current,
+    stagedAvatarRemoved: avatarRemoved,
+  });
+  const avatarPreviewPublicUrl = avatarRemoved
+    ? undefined
+    : avatarPublicUrlRef.current ?? account.avatarPublicUrl;
+  const avatarPreviewInitial = getProfileAvatarInitial(displayName);
+  const avatarPreviewHint = avatarRemoved
+    ? '保存后会回退到昵称首字占位。'
+    : avatarPreviewPublicUrl
+      ? '已接入平台公开地址，首页和个人中心会显示真实头像。'
+      : avatarPhotoCount > 0
+        ? '当前只保留头像凭证，预览先回退到昵称首字占位。'
+        : '当前使用昵称首字占位。';
+  const hasAvatarToRemove =
+    !avatarRemoved &&
+    (avatarPhotoCount > 0 ||
+      Boolean(avatarFileIdRef.current) ||
+      Boolean(avatarPublicUrlRef.current) ||
+      Boolean(account.avatarFileId) ||
+      Boolean(account.avatarPublicUrl));
 
-  const toggleSetting = (settingId: string) => {
+  useEffect(() => {
+    setDisplayName(account.displayName);
+    setBoundPhone(account.boundPhone);
+  }, [account.boundPhone, account.displayName]);
+
+  useEffect(() => {
+    setAvatarPhotoCount(account.avatarPhotoCount);
+    avatarPhotoCountRef.current = account.avatarPhotoCount;
+    avatarFileIdRef.current = account.avatarFileId;
+    avatarPublicUrlRef.current = account.avatarPublicUrl;
+    setAvatarRemoved(false);
+  }, [
+    account.avatarFileId,
+    account.avatarPhotoCount,
+    account.avatarPublicUrl,
+  ]);
+
+  const createAccountAvatarRequestField = () => {
+    if (avatarRemoved) {
+      return { avatarFileId: null };
+    }
+
+    const avatarFileId = avatarFileIdRef.current ?? account.avatarFileId;
+
+    return avatarFileId ? { avatarFileId } : {};
+  };
+
+  const buildStagedAccountSnapshot = ({
+    nextDisplayName = account.displayName,
+    nextBoundPhone = account.boundPhone,
+  }: {
+    nextDisplayName?: string;
+    nextBoundPhone?: string;
+  } = {}): SavedAccountSettings => {
+    const avatarFileId = avatarRemoved
+      ? undefined
+      : avatarFileIdRef.current ?? account.avatarFileId;
+    const avatarPublicUrl = avatarRemoved
+      ? undefined
+      : avatarPublicUrlRef.current ?? account.avatarPublicUrl;
+
+    return {
+      displayName: nextDisplayName,
+      boundPhone: nextBoundPhone,
+      avatarPhotoCount: avatarPhotoCountRef.current,
+      ...(avatarFileId ? { avatarFileId } : {}),
+      ...(avatarPublicUrl ? { avatarPublicUrl } : {}),
+    };
+  };
+
+  const buildPlatformAccountSnapshotRequest = (nextSettings: SettingItem[]) => ({
+    displayName: account.displayName,
+    ...(account.avatarFileId ? {avatarFileId: account.avatarFileId} : {}),
+    ...createPlatformProfileSettingsSnapshot(nextSettings),
+  });
+
+  const getAccountProfileSyncFailureMessage = (
+    error: unknown,
+    context: 'account' | 'settings' | 'privacy',
+  ) => {
+    const baseMessage = getPlatformAccountProfileErrorMessage(error);
+
+    if (context === 'account') {
+      return baseMessage;
+    }
+
+    if (baseMessage === '平台登录已过期，请重新登录后再保存账号资料。') {
+      return context === 'settings'
+        ? '平台登录已过期，请重新登录后再保存设置。'
+        : '平台登录已过期，请重新登录后再确认隐私政策。';
+    }
+
+    if (baseMessage === '账号资料同步失败，请稍后重试') {
+      return context === 'settings'
+        ? '设置同步失败，请稍后重试'
+        : '隐私确认同步失败，请稍后重试';
+    }
+
+    return baseMessage;
+  };
+
+  const markAccountProfileSyncFailed = ({
+    message,
+    nextSettings,
+    nextAccount,
+  }: {
+    message: string;
+    nextSettings?: SettingItem[];
+    nextAccount?: SavedAccountSettings;
+  }) => {
+    if (nextAccount) {
+      onUpdateAccount(nextAccount, {
+        markFailed: true,
+        syncMessage: message,
+        syncOperation: 'accountProfile',
+      });
+    }
+
+    if (nextSettings) {
+      onUpdateSettings(
+        nextSettings,
+        nextAccount
+          ? {
+              markPendingSync: false,
+            }
+          : {
+              markFailed: true,
+              syncMessage: message,
+              syncOperation: 'accountProfile',
+            },
+      );
+    }
+
+    setNotice(message);
+  };
+
+  const toggleSetting = async (settingId: string) => {
     const nextToggle = getNextSettingToggle(settings, settingId);
 
     if (!nextToggle) {
       return;
     }
 
-    onUpdateSettings(nextToggle.settings);
-    setNotice(nextToggle.notice);
+    if (!platformProfileApi) {
+      onUpdateSettings(nextToggle.settings);
+      setNotice(nextToggle.notice);
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      markAccountProfileSyncFailed({
+        message: '平台登录已过期，请重新登录后再保存设置。',
+        nextSettings: nextToggle.settings,
+      });
+      return;
+    }
+
+    try {
+      const platformAccount = await platformProfileApi.saveAccountProfile(
+        buildPlatformAccountSnapshotRequest(nextToggle.settings),
+      );
+      const syncedSettings = applyPlatformProfileSettingsSnapshot(
+        nextToggle.settings,
+        platformAccount,
+      );
+
+      onUpdateSettings(syncedSettings, {
+        markSynced: true,
+        syncMessage: '平台设置快照已同步。',
+        syncOperation: 'accountProfile',
+      });
+      setNotice(
+        `设置已同步到平台：${nextToggle.notice.replace('设置已更新：', '')}`,
+      );
+    } catch (error) {
+      markAccountProfileSyncFailed({
+        message: getAccountProfileSyncFailureMessage(error, 'settings'),
+        nextSettings: nextToggle.settings,
+      });
+    }
   };
 
   const submitAccountSettings = async () => {
@@ -102,7 +338,7 @@ export function SettingRecords({
       displayName,
       boundPhone,
       avatarPhotoCount: nextAvatarPhotoCount,
-      currentAccount: account,
+      currentAccount: buildStagedAccountSnapshot(),
     });
 
     if (validation.notice || !validation.account) {
@@ -112,37 +348,175 @@ export function SettingRecords({
 
     if (platformProfileApi) {
       if (!getAuthSessionSnapshot()?.accessToken) {
-        setNotice('平台登录已过期，请重新登录后再保存账号资料。');
+        markAccountProfileSyncFailed({
+          message: '平台登录已过期，请重新登录后再保存账号资料。',
+          nextAccount: validation.account,
+        });
         return;
       }
 
       try {
         const platformAccount = await platformProfileApi.saveAccountProfile({
           displayName: validation.account.displayName,
+          ...createAccountAvatarRequestField(),
+          phone: validation.account.boundPhone,
+          ...createPlatformProfileSettingsSnapshot(settings),
         });
-        const syncedAccount = {
-          ...validation.account,
+        const syncedSettings = applyPlatformProfileSettingsSnapshot(
+          settings,
+          platformAccount,
+        );
+        const syncedAccount: SavedAccountSettings = {
           displayName: platformAccount.displayName,
           boundPhone: platformAccount.phone,
+          avatarPhotoCount: platformAccount.avatarFileId ? 1 : 0,
+          ...(platformAccount.avatarFileId
+            ? { avatarFileId: platformAccount.avatarFileId }
+            : {}),
+          ...(platformAccount.avatarPublicUrl
+            ? { avatarPublicUrl: platformAccount.avatarPublicUrl }
+            : {}),
         };
 
-        onUpdateAccount(syncedAccount);
+        onUpdateAccount(syncedAccount, {
+          markSynced: true,
+          syncMessage: '账号资料快照已同步到平台。',
+          syncOperation: 'accountProfile',
+        });
+        onUpdateSettings(syncedSettings, {
+          markPendingSync: false,
+        });
         setDisplayName(platformAccount.displayName);
         setBoundPhone(platformAccount.phone);
+        setAvatarPhotoCount(syncedAccount.avatarPhotoCount);
+        avatarPhotoCountRef.current = syncedAccount.avatarPhotoCount;
+        avatarFileIdRef.current = syncedAccount.avatarFileId;
+        avatarPublicUrlRef.current = syncedAccount.avatarPublicUrl;
+        setAvatarRemoved(false);
         setNotice(
           syncedAccount.avatarPhotoCount > 0
-            ? '昵称已同步到平台，头像凭证仍为本地演示状态。'
-            : '昵称已同步到平台。',
+            ? '昵称、手机号和头像已同步到平台。'
+            : '昵称和手机号已同步到平台。',
         );
         return;
       } catch (error) {
-        setNotice(getPlatformAccountProfileErrorMessage(error));
+        markAccountProfileSyncFailed({
+          message: getAccountProfileSyncFailureMessage(error, 'account'),
+          nextAccount: validation.account,
+        });
         return;
       }
     }
 
     onUpdateAccount(validation.account);
+    setAvatarRemoved(false);
     setNotice('账号资料已更新，当前为本地演示状态。');
+  };
+
+  const uploadAvatar = async () => {
+    if (!platformFileApi) {
+      const nextAvatarPhotoCount = 1;
+      avatarPhotoCountRef.current = nextAvatarPhotoCount;
+      avatarFileIdRef.current = undefined;
+      avatarPublicUrlRef.current = undefined;
+      setAvatarRemoved(false);
+      setAvatarPhotoCount(nextAvatarPhotoCount);
+      onUpdateAccount({
+        ...account,
+        avatarPhotoCount: nextAvatarPhotoCount,
+      });
+      setNotice('头像凭证已添加，本地版不会上传真实文件。');
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      setNotice('平台登录已过期，请重新登录后再上传头像。');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setNotice('');
+
+    try {
+      const intent = await platformFileApi.createUploadIntent({
+        purpose: 'avatar',
+        fileName: '头像凭证.png',
+        contentType: 'image/png',
+        byteSize: 2048,
+      });
+      const uploadedFile = await confirmPlatformFileUploadIntent(
+        platformFileApi,
+        intent,
+      );
+      const nextAccount: SavedAccountSettings = {
+        ...account,
+        avatarPhotoCount: 1,
+        avatarFileId: uploadedFile.id,
+        ...(uploadedFile.publicUrl
+          ? { avatarPublicUrl: uploadedFile.publicUrl }
+          : {}),
+      };
+
+      avatarPhotoCountRef.current = nextAccount.avatarPhotoCount;
+      avatarFileIdRef.current = nextAccount.avatarFileId;
+      avatarPublicUrlRef.current = nextAccount.avatarPublicUrl;
+      setAvatarRemoved(false);
+      setAvatarPhotoCount(nextAccount.avatarPhotoCount);
+      setNotice('头像凭证已上传，保存账号资料后同步到平台。');
+    } catch (error) {
+      const errorCode =
+        error instanceof Error &&
+        'code' in error &&
+        typeof error.code === 'string'
+          ? error.code
+          : undefined;
+
+      if (
+        errorCode === 'AUTH_ACCESS_TOKEN_INVALID' ||
+        errorCode === 'AUTH_ACCESS_TOKEN_MISSING'
+      ) {
+        setNotice('平台登录已过期，请重新登录后再上传头像。');
+      } else if (errorCode === 'NETWORK_ERROR') {
+        setNotice('头像上传失败，请检查网络后重试。');
+      } else {
+        setNotice('头像上传失败，请稍后重试。');
+      }
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = () => {
+    if (!hasAvatarToRemove) {
+      setNotice('当前还没有可移除的头像。');
+      return;
+    }
+
+    avatarPhotoCountRef.current = 0;
+    avatarFileIdRef.current = undefined;
+    avatarPublicUrlRef.current = undefined;
+    setAvatarPhotoCount(0);
+
+    if (!platformProfileApi) {
+      setAvatarRemoved(false);
+      onUpdateAccount({
+        displayName: account.displayName,
+        boundPhone: account.boundPhone,
+        avatarPhotoCount: 0,
+      });
+      setNotice('头像凭证已移除，当前为本地演示状态。');
+      return;
+    }
+
+    const shouldClearSavedAvatar = Boolean(
+      account.avatarFileId || account.avatarPublicUrl,
+    );
+    setAvatarRemoved(shouldClearSavedAvatar);
+    setNotice(
+      shouldClearSavedAvatar
+        ? '头像已移除，保存账号资料后同步到平台。'
+        : '头像凭证已移除，当前未保留待同步头像。',
+    );
   };
 
   const submitPasswordSettings = async () => {
@@ -175,7 +549,10 @@ export function SettingRecords({
         return;
       }
 
-      onUpdatePassword(createUpdatedPasswordSettings(newPassword, now));
+      onUpdatePassword(createUpdatedPasswordSettings(newPassword, now), {
+        markSynced: true,
+        syncMessage: '登录密码已通过平台更新。',
+      });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -200,8 +577,43 @@ export function SettingRecords({
   };
 
   const confirmPrivacyPolicy = () => {
-    onUpdateSettings(createConfirmedPrivacySettings(settings, now));
-    setNotice('隐私政策已确认，本地确认时间：刚刚。');
+    const nextSettings = createConfirmedPrivacySettings(settings, now);
+
+    if (!platformProfileApi) {
+      onUpdateSettings(nextSettings);
+      setNotice('隐私政策已确认，本地确认时间：刚刚。');
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      markAccountProfileSyncFailed({
+        message: '平台登录已过期，请重新登录后再确认隐私政策。',
+        nextSettings,
+      });
+      return;
+    }
+
+    platformProfileApi
+      .saveAccountProfile(buildPlatformAccountSnapshotRequest(nextSettings))
+      .then(platformAccount => {
+        const syncedSettings = applyPlatformProfileSettingsSnapshot(
+          nextSettings,
+          platformAccount,
+        );
+
+        onUpdateSettings(syncedSettings, {
+          markSynced: true,
+          syncMessage: '隐私确认快照已同步到平台。',
+          syncOperation: 'accountProfile',
+        });
+        setNotice('隐私政策确认已同步到平台。');
+      })
+      .catch(error => {
+        markAccountProfileSyncFailed({
+          message: getAccountProfileSyncFailureMessage(error, 'privacy'),
+          nextSettings,
+        });
+      });
   };
 
   const runLocalPermissionCheck = () => {
@@ -209,11 +621,78 @@ export function SettingRecords({
     setNotice('权限本地检查完成：真实系统权限弹窗尚未接入。');
   };
 
-  const runLocalAccountSecurityCheck = () => {
+  const openSecurityCheckPanel = () => {
     setShowPrivacyPanel(false);
     setShowPermissionPanel(false);
     setShowSecurityCheckPanel(true);
-    setNotice('账号安全本地检查完成：真实异地登录风控尚未接入。');
+  };
+
+  const syncPlatformSecuritySessions = async () => {
+    if (!platformAuthApi?.listSessions) {
+      setPlatformSecuritySessions(undefined);
+      setNotice(
+        '账号安全本地检查完成：已基于当前会话和安全开关生成本地结果。',
+      );
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      setPlatformSecuritySessions(undefined);
+      setNotice('平台登录已过期，请重新登录后再检查设备会话。');
+      return;
+    }
+
+    setIsLoadingSecuritySessions(true);
+    setNotice('正在同步平台设备会话...');
+
+    try {
+      const result = await platformAuthApi.listSessions();
+      setPlatformSecuritySessions(result.sessions);
+      setNotice('账号安全检查完成：已同步平台设备会话。');
+    } catch (error) {
+      setPlatformSecuritySessions(undefined);
+      setNotice(getPlatformSessionSecurityErrorMessage(error, 'list'));
+    } finally {
+      setIsLoadingSecuritySessions(false);
+    }
+  };
+
+  const runLocalAccountSecurityCheck = async () => {
+    openSecurityCheckPanel();
+    await syncPlatformSecuritySessions();
+  };
+
+  const revokeOtherPlatformSessions = async () => {
+    if (!platformAuthApi?.revokeOtherSessions) {
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      setNotice('平台登录已过期，请重新登录后再管理设备会话。');
+      return;
+    }
+
+    setIsRevokingOtherSessions(true);
+
+    try {
+      const result = await platformAuthApi.revokeOtherSessions({
+        currentDeviceId,
+      });
+      setPlatformSecuritySessions(currentSessions =>
+        (currentSessions ?? []).filter(
+          session => session.deviceId === currentDeviceId,
+        ),
+      );
+      setNotice(
+        result.revokedCount > 0
+          ? `已退出其它 ${result.revokedCount} 台设备。`
+          : '当前没有其它在线设备。',
+      );
+    } catch (error) {
+      setNotice(getPlatformSessionSecurityErrorMessage(error, 'revoke'));
+    } finally {
+      setIsRevokingOtherSessions(false);
+    }
   };
 
   const showDeniedGuide = (permissionId: LocalPermissionId) => {
@@ -234,7 +713,7 @@ export function SettingRecords({
         {`绑定手机号：${account.boundPhone}`}
       </Text>
       <Text style={styles.routeMeta}>
-        {`头像凭证 ${account.avatarPhotoCount} 张`}
+        {`头像凭证 ${avatarPhotoCount} 张`}
       </Text>
       <AuthField
         testID="setting-display-name"
@@ -251,31 +730,66 @@ export function SettingRecords({
         onChangeText={setBoundPhone}
         keyboardType="phone-pad"
         maxLength={11}
-        editable={!platformProfileApi}
+        editable
       />
       {platformProfileApi ? (
         <Text style={styles.detailMeta}>
-          平台模式下手机号换绑仍未接入，当前仅同步昵称。
+          平台模式下会同步昵称、手机号、头像和设置快照。
         </Text>
       ) : null}
       <Pressable
         testID="setting-avatar-upload"
         style={styles.detailSecondaryButton}
+        disabled={isUploadingAvatar}
         onPress={() => {
-          const nextAvatarPhotoCount = 1;
-          avatarPhotoCountRef.current = nextAvatarPhotoCount;
-          setAvatarPhotoCount(nextAvatarPhotoCount);
-          onUpdateAccount({
-            ...account,
-            avatarPhotoCount: nextAvatarPhotoCount,
-          });
-          setNotice('头像凭证已添加，本地版不会上传真实文件。');
+          uploadAvatar().catch(() => undefined);
         }}
       >
         <Text style={styles.detailSecondaryButtonText}>
-          {avatarPhotoCount > 0 ? '已添加头像凭证' : '添加头像凭证'}
+          {isUploadingAvatar
+            ? '正在上传头像...'
+            : avatarPhotoCount > 0
+              ? platformFileApi
+                ? '重新上传头像凭证'
+                : '已添加头像凭证'
+              : platformFileApi
+                ? '上传头像凭证'
+                : '添加头像凭证'}
         </Text>
       </Pressable>
+      {hasAvatarToRemove ? (
+        <Pressable
+          testID="setting-avatar-remove"
+          style={styles.detailSecondaryButton}
+          disabled={isUploadingAvatar}
+          onPress={removeAvatar}
+        >
+          <Text style={styles.detailSecondaryButtonText}>移除头像</Text>
+        </Pressable>
+      ) : null}
+      <View style={styles.driverInfoCard}>
+        <View style={settingRecordStyles.avatarPreviewRow}>
+          <ProfileAvatar
+            initial={avatarPreviewInitial}
+            publicUrl={avatarPreviewPublicUrl}
+            size="lg"
+            imageTestID="setting-avatar-preview-image"
+            textTestID="setting-avatar-preview-text"
+          />
+          <View style={settingRecordStyles.avatarPreviewTextGroup}>
+            <Text style={styles.routeName}>头像预览</Text>
+            <Text style={styles.detailMeta}>{avatarStatus.summaryText}</Text>
+            <Text style={styles.detailMeta}>{avatarPreviewHint}</Text>
+          </View>
+        </View>
+        <Text style={styles.detailMeta}>{avatarStatus.sourceText}</Text>
+        {avatarStatus.fileIdText ? (
+          <Text style={styles.detailMeta}>{avatarStatus.fileIdText}</Text>
+        ) : null}
+        {avatarStatus.previewText ? (
+          <Text style={styles.detailMeta}>{avatarStatus.previewText}</Text>
+        ) : null}
+      </View>
       <Pressable
         testID="setting-account-submit"
         style={({ pressed }) => [
@@ -295,14 +809,25 @@ export function SettingRecords({
         {`异地登录保护：${loginProtectionStatusText}`}
       </Text>
       <Text style={styles.detailMeta}>
-        真实异地登录风控和多设备管理尚未接入。
+        {platformAuthApi?.listSessions
+          ? '当前已接入平台活跃刷新会话与退出其它设备；异常登录拦截、推送提醒和更强设备指纹仍未接入。'
+          : '当前可基于本地登录会话和安全开关生成检查结果；真实异地登录风控和多设备管理尚未接入。'}
       </Text>
       <Pressable
         testID="account-security-local-check"
         style={styles.detailSecondaryButton}
-        onPress={runLocalAccountSecurityCheck}
+        disabled={isLoadingSecuritySessions}
+        onPress={() => {
+          runLocalAccountSecurityCheck().catch(() => undefined);
+        }}
       >
-        <Text style={styles.detailSecondaryButtonText}>本地检查设备</Text>
+        <Text style={styles.detailSecondaryButtonText}>
+          {isLoadingSecuritySessions
+            ? '正在同步设备会话...'
+            : platformAuthApi?.listSessions
+              ? '检查设备会话'
+              : '本地检查设备'}
+        </Text>
       </Pressable>
       <AuthField
         testID="setting-current-password"
@@ -344,15 +869,92 @@ export function SettingRecords({
         <View style={styles.driverInfoCard}>
           <View style={styles.routeHeader}>
             <Text style={styles.routeName}>账号安全检查</Text>
-            <Text style={styles.routeAction}>本地结果</Text>
+            <Text style={styles.routeAction}>
+              {accountSecurityCheck.statusText}
+            </Text>
           </View>
-          <Text style={styles.detailMeta}>当前设备：本机演示设备</Text>
           <Text style={styles.detailMeta}>
-            {`登录保护：${loginProtectionStatusText}`}
+            {`当前设备：${accountSecurityCheck.currentDeviceText}`}
           </Text>
-          <Text style={styles.detailMeta}>设备管理：本地占位</Text>
           <Text style={styles.detailMeta}>
-            真实多端设备列表、异常登录拦截和强制下线仍未接入。
+            {`设备会话：${accountSecurityCheck.sessionSourceText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {accountSecurityCheck.deviceSummaryText}
+          </Text>
+          {isLoadingSecuritySessions ? (
+            <Text style={styles.detailMeta}>平台设备会话同步中，请稍候。</Text>
+          ) : null}
+          {accountSecurityCheck.deviceSessions.length > 0
+            ? accountSecurityCheck.deviceSessions.map(session => (
+                <Text key={session.id} style={styles.routeMeta}>
+                  {`${session.isCurrentDevice ? '当前设备' : '其它设备'}：${session.deviceIdText} · 登录 ${session.createdAtText} · 有效至 ${session.expiresAtText}`}
+                </Text>
+              ))
+            : null}
+          <Text style={styles.detailMeta}>
+            {`当前会话：${accountSecurityCheck.sessionModeText} · ${accountSecurityCheck.sessionStatusText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`登录时间：${accountSecurityCheck.sessionIssuedAtText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`会话有效期至：${accountSecurityCheck.sessionExpiresAtText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`手机号保护：${accountSecurityCheck.phoneProtectionStatusText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`登录保护：${accountSecurityCheck.loginProtectionStatusText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`密码更新时间：${accountSecurityCheck.passwordUpdatedAtText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`隐私确认：${accountSecurityCheck.privacyConfirmationText}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            {`风险结论：${accountSecurityCheck.riskSummaryText}`}
+          </Text>
+          {accountSecurityCheck.riskItems.length > 0 ? (
+            accountSecurityCheck.riskItems.map(riskItem => (
+              <Text key={riskItem} style={styles.routeMeta}>
+                {`风险提示：${riskItem}`}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.routeMeta}>
+              {accountSecurityCheck.deviceSessions.length > 0
+                ? '当前平台设备会话未发现待处理风险。'
+                : '当前仅检测到本机安全快照，未发现待处理风险。'}
+            </Text>
+          )}
+          {platformAuthApi?.revokeOtherSessions &&
+          platformSecuritySessions !== undefined ? (
+            <Pressable
+              testID="account-security-revoke-other-sessions"
+              style={styles.detailSecondaryButton}
+              disabled={
+                isRevokingOtherSessions ||
+                accountSecurityCheck.otherDeviceSessionCount === 0
+              }
+              onPress={() => {
+                revokeOtherPlatformSessions().catch(() => undefined);
+              }}
+            >
+              <Text style={styles.detailSecondaryButtonText}>
+                {isRevokingOtherSessions
+                  ? '正在退出其它设备...'
+                  : accountSecurityCheck.otherDeviceSessionCount > 0
+                    ? `退出其它 ${accountSecurityCheck.otherDeviceSessionCount} 台设备`
+                    : '当前仅本机在线'}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.detailMeta}>
+            {platformSecuritySessions !== undefined
+              ? '当前已接入平台活跃刷新会话与退出其它设备；异常登录拦截、推送提醒和更强设备指纹仍未接入。'
+              : '真实多端设备列表、异常登录拦截和强制下线仍未接入。'}
           </Text>
         </View>
       ) : null}
@@ -368,11 +970,19 @@ export function SettingRecords({
             {`确认状态：${isPrivacyConfirmed ? '已确认' : '未确认'}`}
           </Text>
           <Text style={styles.detailMeta}>
-            真实隐私协议版本留痕和后端同步仍未接入。
+            {`当前版本：${privacyPolicyDocumentInfo.versionTitle}`}
+          </Text>
+          <Text style={styles.detailMeta}>
+            平台会同步隐私确认时间和已确认版本留痕；历史旧数据可能只有确认时间。
           </Text>
           {isPrivacyConfirmed ? (
             <Text style={styles.routeMeta}>
               {`本地确认时间：${privacySetting?.confirmedAtText ?? '刚刚'}`}
+            </Text>
+          ) : null}
+          {isPrivacyConfirmed ? (
+            <Text style={styles.routeMeta}>
+              {`已确认版本：${privacySetting?.confirmedVersionTitle ?? '历史记录未回填版本，仅保留确认时间'}`}
             </Text>
           ) : null}
           <Pressable
@@ -475,3 +1085,15 @@ export function SettingRecords({
     </View>
   );
 }
+
+const settingRecordStyles = StyleSheet.create({
+  avatarPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatarPreviewTextGroup: {
+    flex: 1,
+    gap: 4,
+  },
+});

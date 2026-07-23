@@ -1,4 +1,5 @@
 export type FilePurpose =
+  | 'avatar'
   | 'identity'
   | 'cargo'
   | 'exception'

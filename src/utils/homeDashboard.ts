@@ -1,5 +1,6 @@
 import type {
   FrequentRoute,
+  RecentOrder,
   HomeSupportView,
   OrderListFilter,
   OrderSummaryStatus,
@@ -27,6 +28,13 @@ import {
 export type HomeCityOption = {
   id: 'shenzhen' | 'guangzhou' | 'dongguan' | 'foshan';
   label: string;
+};
+
+export type HomeCitySuggestionOption = HomeCityOption & {
+  routeMatchCount: number;
+  orderMatchCount: number;
+  badgeText: string;
+  detailText: string;
 };
 
 export type HomeDashboardLocalState = {
@@ -67,17 +75,170 @@ export function getHomeCityOptions(): HomeCityOption[] {
   ];
 }
 
+const HOME_CITY_KEYWORDS: Record<HomeCityOption['id'], string[]> = {
+  shenzhen: [
+    '深圳',
+    '宝安',
+    '南山',
+    '龙岗',
+    '福田',
+    '罗湖',
+    '盐田',
+    '龙华',
+    '坪山',
+    '光明',
+    '前海',
+  ],
+  guangzhou: [
+    '广州',
+    '番禺',
+    '天河',
+    '白云',
+    '海珠',
+    '黄埔',
+    '花都',
+    '增城',
+    '从化',
+    '荔湾',
+    '越秀',
+    '南沙',
+  ],
+  dongguan: [
+    '东莞',
+    '长安',
+    '虎门',
+    '厚街',
+    '常平',
+    '塘厦',
+    '寮步',
+    '大朗',
+    '凤岗',
+    '松山湖',
+    '清溪',
+    '麻涌',
+  ],
+  foshan: [
+    '佛山',
+    '顺德',
+    '南海',
+    '禅城',
+    '三水',
+    '高明',
+  ],
+};
+
+export function getHomeCitySuggestionOptions({
+  selectedCity,
+  routes,
+  orders,
+}: {
+  selectedCity: string;
+  routes: FrequentRoute[];
+  orders: RecentOrder[];
+}): HomeCitySuggestionOption[] {
+  const baseOptions = getHomeCityOptions();
+
+  return baseOptions
+    .map((option, index) => {
+      const routeMatchCount = routes.filter(route =>
+        matchesHomeCity(
+          [route.name, route.from, route.to].filter(Boolean).join(' '),
+          option.id,
+        ),
+      ).length;
+      const orderMatchCount = orders.filter(order =>
+        matchesHomeCity(
+          [order.from, order.to].filter(Boolean).join(' '),
+          option.id,
+        ),
+      ).length;
+      const isSelected = option.label === selectedCity;
+
+      return {
+        ...option,
+        routeMatchCount,
+        orderMatchCount,
+        badgeText: isSelected
+          ? '当前城市'
+          : routeMatchCount + orderMatchCount > 0
+            ? '已有关联'
+            : '可切换',
+        detailText: createHomeCitySuggestionDetailText({
+          isSelected,
+          routeMatchCount,
+          orderMatchCount,
+        }),
+        sortIndex: index,
+      };
+    })
+    .sort((left, right) => {
+      const leftSelected = left.label === selectedCity ? 1 : 0;
+      const rightSelected = right.label === selectedCity ? 1 : 0;
+      if (leftSelected !== rightSelected) {
+        return rightSelected - leftSelected;
+      }
+
+      const leftScore = left.routeMatchCount + left.orderMatchCount;
+      const rightScore = right.routeMatchCount + right.orderMatchCount;
+      if (leftScore !== rightScore) {
+        return rightScore - leftScore;
+      }
+
+      return left.sortIndex - right.sortIndex;
+    })
+    .map(({ sortIndex: _sortIndex, ...option }) => option);
+}
+
+function createHomeCitySuggestionDetailText({
+  isSelected,
+  routeMatchCount,
+  orderMatchCount,
+}: {
+  isSelected: boolean;
+  routeMatchCount: number;
+  orderMatchCount: number;
+}) {
+  const matchParts = [
+    routeMatchCount > 0 ? `常用路线 ${routeMatchCount} 条` : undefined,
+    orderMatchCount > 0 ? `订单路线 ${orderMatchCount} 单` : undefined,
+  ].filter((part): part is string => Boolean(part));
+
+  if (matchParts.length > 0) {
+    return isSelected
+      ? `当前展示已命中${matchParts.join('、')}。`
+      : `关联：${matchParts.join('、')}。`;
+  }
+
+  return isSelected
+    ? '当前首页按此城市展示，可继续切换其他城市演练。'
+    : '当前没有本地路线或订单命中，仍可手动切换演练。';
+}
+
+function matchesHomeCity(text: string, cityId: HomeCityOption['id']) {
+  const normalizedText = text.trim();
+
+  if (!normalizedText) {
+    return false;
+  }
+
+  return HOME_CITY_KEYWORDS[cityId].some(keyword =>
+    normalizedText.includes(keyword),
+  );
+}
+
 export function getHomeSummaryMetrics({
   orderCount,
   routeCount,
+  creditScore,
 }: {
   orderCount: number;
   routeCount: number;
+  creditScore: number;
 }) {
   return [
     { label: '本月发单', value: `${orderCount} 单` },
     { label: '常用路线', value: `${routeCount} 条` },
-    { label: '综合信用', value: '96 分' },
+    { label: '综合信用', value: `${creditScore} 分` },
   ];
 }
 

@@ -54,6 +54,11 @@ describe('MapsService', () => {
       latitude: 22.61,
       longitude: 113.91,
     });
+    await expect(service.getDriverLocation('driver-1')).resolves.toMatchObject({
+      driverId: 'driver-1',
+      latitude: 22.61,
+      longitude: 113.91,
+    });
   });
 
   it('rejects driver location reports for foreign orders', async () => {

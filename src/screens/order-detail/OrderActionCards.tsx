@@ -89,7 +89,7 @@ export function OrderProgressActionCard({
 }) {
   return (
     <View style={styles.detailCard}>
-      <Text style={styles.draftSectionTitle}>本地状态操作</Text>
+      <Text style={styles.draftSectionTitle}>订单状态操作</Text>
       <Text style={styles.detailMeta}>{progressAction.description}</Text>
       <Pressable
         testID="order-detail-progress-action"

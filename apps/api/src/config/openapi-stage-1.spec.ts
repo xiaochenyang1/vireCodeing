@@ -111,6 +111,47 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('手机号或密码错误');
   });
 
+  it('documents self-service auth session endpoints', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/auth/sessions:');
+    expectPathBlockToContain(
+      source,
+      '/auth/sessions',
+      'List current-user active auth sessions',
+    );
+    expectPathBlockToContain(source, '/auth/sessions', 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      '/auth/sessions',
+      "$ref: '#/components/schemas/SelfAuthSessionListResponse'",
+    );
+
+    expect(source).toContain('/auth/sessions/revoke-other-sessions:');
+    expectPathBlockToContain(
+      source,
+      '/auth/sessions/revoke-other-sessions',
+      "$ref: '#/components/schemas/RevokeOtherSelfAuthSessionsRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/auth/sessions/revoke-other-sessions',
+      "$ref: '#/components/schemas/RevokeOtherSelfAuthSessionsResponse'",
+    );
+
+    expect(source).toContain('SelfAuthSessionRecord:');
+    expect(source).toContain('SelfAuthSessionListData:');
+    expect(source).toContain('SelfAuthSessionListResponse:');
+    expect(source).toContain('RevokeOtherSelfAuthSessionsRequest:');
+    expect(source).toContain('RevokeOtherSelfAuthSessionsData:');
+    expect(source).toContain('RevokeOtherSelfAuthSessionsResponse:');
+    expectSchemaBlockToContain(
+      source,
+      'SelfAuthSessionRecord',
+      'mobile-device-current',
+    );
+  });
+
   it('documents admin session governance endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
@@ -327,6 +368,50 @@ describe('stage 1 OpenAPI contract', () => {
       "$ref: '#/components/responses/AdminOnlyError'",
     );
 
+    expect(source).toContain('/admin/auth/accounts/batch-status:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-status',
+      'Batch update admin-managed auth account statuses',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-status',
+      "$ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-status',
+      "$ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-status',
+      'AUTH_ACCOUNT_NOT_FOUND',
+    );
+
+    expect(source).toContain('/admin/auth/accounts/batch-revoke-sessions:');
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-revoke-sessions',
+      'Batch revoke admin-managed account sessions',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-revoke-sessions',
+      "$ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-revoke-sessions',
+      "$ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/auth/accounts/batch-revoke-sessions',
+      'revoke_account_sessions',
+    );
+
     expect(source).toContain('/admin/auth/accounts/{userId}:');
     expectPathBlockToContain(
       source,
@@ -406,8 +491,14 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('AdminAuthAccountReportResponse:');
     expect(source).toContain('AdminAuthAccountDetail:');
     expect(source).toContain('AdminAuthAccountDetailResponse:');
+    expect(source).toContain('BatchUpdateAdminAuthAccountStatusItem:');
+    expect(source).toContain('BatchUpdateAdminAuthAccountStatusRequest:');
+    expect(source).toContain('BatchUpdateAdminAuthAccountStatusResponse:');
     expect(source).toContain('UpdateAdminAuthAccountStatusRequest:');
     expect(source).toContain('UpdateAdminAuthAccountStatusResponse:');
+    expect(source).toContain('BatchRevokeAdminAuthAccountSessionsItem:');
+    expect(source).toContain('BatchRevokeAdminAuthAccountSessionsRequest:');
+    expect(source).toContain('BatchRevokeAdminAuthAccountSessionsResponse:');
     expect(source).toContain('RevokeAdminAuthAccountSessionsRequest:');
     expect(source).toContain('RevokeAdminAuthAccountSessionsResponse:');
     expect(source).toContain('activeSessionCount');
@@ -422,6 +513,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('topRiskAccounts');
     expect(source).toContain('governanceAuditSummary');
     expect(source).toContain('recentAuditEvents');
+    expect(source).toContain('updatedCount');
     expect(source).toContain('AUTH_ACCOUNT_NOT_FOUND');
     expect(source).toContain('账号不存在');
     expect(source).toContain('revoke_account_sessions');
@@ -633,6 +725,42 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/orders/{orderId}/cancel',
       "$ref: '#/components/responses/AdminOnlyError'",
     );
+    expect(source).toContain('/admin/orders/batch-cancel:');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      'Cancel waiting admin orders in one atomic batch',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      "$ref: '#/components/schemas/BatchCancelAdminOrdersRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      "$ref: '#/components/schemas/BatchCancelAdminOrdersResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      'The request is validated atomically',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      'ORDER_STATE_INVALID',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/batch-cancel',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
     expectPathBlockToContain(source, '/admin/orders/attachments', 'name: status');
     expectPathBlockToContain(
       source,
@@ -661,6 +789,10 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('UpdateShipperOrderRequest');
     expect(source).toContain('Update current shipper order');
     expect(source).toContain('CancelShipperOrderRequest');
+    expect(source).toContain('AdminBatchCancelOrderItem');
+    expect(source).toContain('BatchCancelAdminOrdersRequest');
+    expect(source).toContain('BatchCancelAdminOrdersResult');
+    expect(source).toContain('BatchCancelAdminOrdersResponse');
     expect(source).toContain('CompleteShipperOrderRequest');
     expect(source).toContain('Complete shipper order after delivery');
     expect(source).toContain('ReportShipperOrderExceptionRequest');
@@ -983,6 +1115,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('DriverNavigationTargets');
     expect(source).toContain('pickupLatitude');
     expect(source).toContain('pickupLongitude');
+    expect(source).toContain('pickupDistanceMeters');
     expect(source).toContain('deliveryLatitude');
     expect(source).toContain('deliveryLongitude');
     expect(source).toContain('DRIVER_LOCATION_NOT_FOUND');
@@ -1042,14 +1175,19 @@ describe('stage 1 OpenAPI contract', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/admin/driver-certifications:');
+    expect(source).toContain('/admin/driver-certifications/batch-review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/identity/review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/vehicle/review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/attachments:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/review-events:');
     expect(source).toContain('List driver certifications for admin review');
+    expect(source).toContain('Batch review driver certifications');
     expect(source).toContain('Get driver certification attachment previews');
     expect(source).toContain('List driver certification review audit events');
     expect(source).toContain('DriverCertificationListResponse');
+    expect(source).toContain('BatchReviewDriverCertificationRequest');
+    expect(source).toContain('BatchReviewDriverCertificationResult');
+    expect(source).toContain('BatchReviewDriverCertificationResponse');
     expect(source).toContain('DriverCertificationAttachmentPreviewResponse');
     expect(source).toContain('DriverCertificationReviewEventResponse');
     expect(source).toContain('name: status');
@@ -1059,6 +1197,11 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ReviewDriverCertificationRequest');
     expect(source).toContain('DriverCertificationReviewEvent');
     expect(source).toContain('DriverCertificationAttachmentPreview');
+    expect(source).toContain('updatedCount');
+    expect(source).toContain('uniqueItems: true');
+    expect(source).toContain(
+      'Any missing certification record or invalid request causes the whole batch to fail.',
+    );
     expect(source).toContain('identityFront');
     expect(source).toContain('driverLicense');
     expect(source).toContain('transportQualification');
@@ -1273,7 +1416,7 @@ describe('stage 1 OpenAPI contract', () => {
       'The address book has been updated by another device after the client',
     );
     expect(source).toContain(
-      'It does not sync identity verification, coupons, invoices or account security settings.',
+      'It does not sync identity verification, coupons or invoices.',
     );
     expect(source).toContain('Current authenticated user is not a shipper');
   });
@@ -1286,8 +1429,25 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Save current shipper profile account');
     expect(source).toContain('SaveShipperProfileAccountRequest');
     expect(source).toContain('ShipperProfileAccountResponse');
+    expect(source).toContain('phoneProtectionEnabled');
+    expect(source).toContain('loginProtectionEnabled');
+    expect(source).toContain('orderNotificationEnabled');
+    expect(source).toContain('promotionNotificationEnabled');
+    expect(source).toContain('privacyConfirmedAtIso');
+    expect(source).toContain('privacyPolicyVersion');
+    expect(source).toContain('privacyPolicyVersionTitle');
+    expect(source).toContain('avatarFileId');
+    expect(source).toContain('avatarPublicUrl');
     expect(source).toContain(
-      'It does not sync bound phone rebind, avatar files or account security settings.',
+      'Set avatarFileId to null to clear the current avatar snapshot.',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'SaveShipperProfileAccountRequest',
+      'nullable: true',
+    );
+    expect(source).toContain(
+      'It syncs bound phone, notification, login protection, phone protection, and privacy confirmation/version snapshots, but does not sync full account security events.',
     );
     expect(source).toContain('Current authenticated user is not a shipper');
   });
@@ -1544,6 +1704,66 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not a shipper');
   });
 
+  it('documents the current shipper support ticket endpoints', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/shipper/support-tickets:');
+    expect(source).toContain('List current shipper support tickets');
+    expect(source).toContain('Create current shipper support ticket');
+    expect(source).toContain('CreateShipperSupportTicketRequest');
+    expect(source).toContain('ShipperSupportTicketListResponse');
+    expect(source).toContain('ShipperSupportTicketResponse');
+    expect(source).toContain('ShipperSupportTicket');
+    expect(source).toContain('ShipperSupportTicketStatus');
+    expect(source).toContain('ShipperSupportTicketStatusHistoryItem');
+    expect(source).toContain('UpdateShipperSupportTicketRequest');
+    expect(source).toContain('enum: [pending, processing, resolved]');
+    expect(source).toContain('工单已提交');
+    expect(source).toContain(
+      'Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow.',
+    );
+    expect(source).toContain(
+      'This first slice still does not include online chat or a complete customer-service handling audit trail.',
+    );
+    expectPathBlockToContain(
+      source,
+      '/shipper/support-tickets',
+      "$ref: '#/components/responses/ShipperOnlyError'",
+    );
+    expect(source).toContain('Current authenticated user is not a shipper');
+  });
+
+  it('documents admin support ticket handling endpoints', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/admin/support-tickets:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}/resolve:');
+    expect(source).toContain('List help-center support tickets for admin handling');
+    expect(source).toContain('Get help-center support ticket detail');
+    expect(source).toContain('Accept a pending help-center support ticket');
+    expect(source).toContain('Resolve a processing help-center support ticket');
+    expect(source).toContain('AdminSupportTicketList');
+    expect(source).toContain('AdminSupportTicketListResponse');
+    expect(source).toContain('SUPPORT_TICKET_NOT_FOUND');
+    expect(source).toContain('SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT');
+    expect(source).toContain('baseUpdatedAtIso');
+    expect(source).toContain('operatorUserId');
+    expect(source).toContain('content');
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/process',
+      "$ref: '#/components/schemas/UpdateShipperSupportTicketRequest'",
+    );
+    expect(source).toContain('AdminOnlyError:');
+  });
+
   it('documents shipper payment creation and latest server payment state', () => {
     const source = readFileSync(openApiPath, 'utf8');
     const path = '/shipper/orders/{orderId}/payments';
@@ -1596,6 +1816,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       'PaymentOrderRecord',
       'providerTradeNo:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'PaymentOrderRecord',
+      'refundedAtIso:',
     );
     expect(source).toContain('opaque provider payload');
   });
@@ -1658,13 +1883,14 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/finance/ledger-transactions/{transactionId}',
       '/admin/finance/withdrawals',
     ];
+    const batchWritePath = '/admin/finance/withdrawals/batch-review';
     const writePaths = [
       '/admin/finance/refunds/{refundId}/retry',
       '/admin/finance/withdrawals/{withdrawalId}/approve',
       '/admin/finance/withdrawals/{withdrawalId}/reject',
     ];
 
-    for (const path of [...readPaths, ...writePaths]) {
+    for (const path of [...readPaths, batchWritePath, ...writePaths]) {
       expect(source).toContain(`${path}:`);
       expectPathBlockToContain(source, path, 'bearerAuth: []');
       expectPathBlockToContain(
@@ -1688,6 +1914,56 @@ describe('stage 1 OpenAPI contract', () => {
       expectPathBlockToContain(source, path, 'reason');
       expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
     }
+    expectPathBlockToContain(
+      source,
+      batchWritePath,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      batchWritePath,
+      "$ref: '#/components/schemas/BatchReviewAdminWithdrawalsRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      batchWritePath,
+      "$ref: '#/components/schemas/BatchReviewAdminWithdrawalsResponse'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminBatchReviewWithdrawalItem',
+      'withdrawalId:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminBatchReviewWithdrawalItem',
+      'expectedVersion:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'BatchReviewAdminWithdrawalsRequest',
+      'action:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'BatchReviewAdminWithdrawalsRequest',
+      'reason:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'BatchReviewAdminWithdrawalsResult',
+      'withdrawalIds:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'BatchReviewAdminWithdrawalsResult',
+      'updatedCount:',
+    );
+    expectPathBlockToContain(
+      source,
+      batchWritePath,
+      'IDEMPOTENCY_KEY_REUSED',
+    );
     expect(source).toContain('AdminPaymentPageResponse');
     expect(source).toContain('AdminFinanceReportResponse');
     expect(source).toContain('AdminRefundPageResponse');
@@ -1696,6 +1972,10 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('FinancialTransactionResponse');
     expect(source).toContain('AdminRefundRetryResponse');
     expect(source).toContain('AdminWithdrawalReviewResponse');
+    expect(source).toContain('AdminBatchReviewWithdrawalItem');
+    expect(source).toContain('BatchReviewAdminWithdrawalsRequest');
+    expect(source).toContain('BatchReviewAdminWithdrawalsResult');
+    expect(source).toContain('BatchReviewAdminWithdrawalsResponse');
     expect(source).toContain('FinancialLedgerEntryRecord');
     expect(source).toContain('FinancialAuditLogRecord');
     for (const path of [
@@ -1810,6 +2090,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       'AdminPermissionCapability',
       '/admin/orders/{orderId}/cancel',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminPermissionCapability',
+      '/admin/orders/batch-cancel',
     );
   });
 

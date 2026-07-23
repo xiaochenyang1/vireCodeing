@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
   AdminAuthSessionGovernanceAuditAction,
   AdminAuthSessionGovernanceAuditResult,
@@ -50,6 +51,36 @@ export type PlatformUserDirectoryRecord = AuthenticatedUserRecord & {
   updatedAt: Date;
 };
 
+export type BatchUpdateUserStatusesInput = {
+  items: {
+    userId: string;
+  }[];
+  status: MobileUserStatus;
+};
+
+export type BatchUpdateUserStatusesResult = {
+  items: {
+    user: AuthenticatedUserRecord;
+    revokedSessions: RefreshSessionRecord[];
+  }[];
+};
+
+export type BatchRevokeUserRefreshSessionsInput = {
+  items: {
+    userId: string;
+    keepSessionId?: string;
+  }[];
+};
+
+export type BatchRevokeUserRefreshSessionsResult = {
+  items: ({
+    user: AuthenticatedUserRecord;
+    revokedSessions: RefreshSessionRecord[];
+  } & {
+    keepSessionId?: string;
+  })[];
+};
+
 export interface AuthRepository {
   upsertMobileUser(
     input: UpsertMobileUserInput,
@@ -63,6 +94,10 @@ export interface AuthRepository {
     userId: string,
     status: MobileUserStatus,
   ): Promise<AuthenticatedUserRecord | undefined>;
+  batchUpdateUserStatuses?(
+    input: BatchUpdateUserStatusesInput,
+    updatedAt?: Date,
+  ): Promise<BatchUpdateUserStatusesResult>;
   saveRefreshSession(record: SaveRefreshSessionInput): Promise<void>;
   findActiveRefreshSession(
     refreshToken: string,
@@ -90,6 +125,10 @@ export interface AuthRepository {
     revokedAt?: Date,
   ): Promise<void>;
   revokeUserRefreshSessions(userId: string, revokedAt?: Date): Promise<void>;
+  batchRevokeUserRefreshSessions?(
+    input: BatchRevokeUserRefreshSessionsInput,
+    revokedAt?: Date,
+  ): Promise<BatchRevokeUserRefreshSessionsResult>;
   listPlatformUsers?(): Promise<PlatformUserDirectoryRecord[]>;
   listAdminAuthSessionGovernanceAuditEvents?(): Promise<
     AdminAuthSessionGovernanceAuditEventRecord[]
@@ -135,7 +174,13 @@ type PrismaAdminAuthSessionGovernanceAuditEvent = {
   createdAt: Date;
 };
 
-export type PrismaAuthClient = {
+type PrismaAuthIdInFilter = {
+  in: string[];
+};
+
+type PrismaAuthStringFilter = string | PrismaAuthIdInFilter;
+
+export type PrismaAuthTransactionClient = {
   user: {
     upsert(args: {
       where: { phone: string };
@@ -154,7 +199,10 @@ export type PrismaAuthClient = {
       data: { status: MobileUserStatus };
     }): Promise<PrismaAuthUserDirectory>;
     findMany(args: {
-      orderBy: { updatedAt: 'desc' };
+      where?: {
+        id?: PrismaAuthIdInFilter;
+      };
+      orderBy?: { updatedAt: 'desc' };
     }): Promise<PrismaAuthUserDirectory[]>;
   };
   authSession: {
@@ -177,7 +225,7 @@ export type PrismaAuthClient = {
     }): Promise<PrismaAuthSession | null>;
     findMany(args: {
       where: {
-        userId?: string;
+        userId?: PrismaAuthStringFilter;
         revokedAt: null;
         expiresAt: { gt: Date };
       };
@@ -185,9 +233,9 @@ export type PrismaAuthClient = {
     }): Promise<PrismaAuthSession[]>;
     updateMany(args: {
       where: {
-        id?: string;
+        id?: PrismaAuthStringFilter;
         refreshTokenHash?: string;
-        userId?: string;
+        userId?: PrismaAuthStringFilter;
         deviceId?: string;
         revokedAt: null;
       };
@@ -211,6 +259,12 @@ export type PrismaAuthClient = {
       orderBy: { createdAt: 'desc' };
     }): Promise<PrismaAdminAuthSessionGovernanceAuditEvent[]>;
   };
+};
+
+export type PrismaAuthClient = PrismaAuthTransactionClient & {
+  $transaction?<T>(
+    callback: (transaction: PrismaAuthTransactionClient) => Promise<T>,
+  ): Promise<T>;
 };
 
 export class InMemoryAuthRepository implements AuthRepository {
@@ -302,6 +356,68 @@ export class InMemoryAuthRepository implements AuthRepository {
     this.usersByPhone.set(updatedUser.phone, updatedUser);
 
     return stripPlatformUserDirectoryRecord(updatedUser);
+  }
+
+  async batchUpdateUserStatuses(
+    input: BatchUpdateUserStatusesInput,
+    updatedAt = this.now(),
+  ): Promise<BatchUpdateUserStatusesResult> {
+    const stagedUsersById = new Map(
+      [...this.usersById.entries()].map(([userId, user]) => [
+        userId,
+        clonePlatformUserDirectoryRecord(user),
+      ]),
+    );
+    const stagedRefreshSessions = this.refreshSessions.map(
+      cloneRefreshSessionRecord,
+    );
+    const items = input.items.map(item => {
+      const user = stagedUsersById.get(item.userId);
+
+      if (!user) {
+        throw new BusinessError(
+          ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
+          '账号不存在',
+        );
+      }
+
+      const updatedUser: PlatformUserDirectoryRecord = {
+        ...user,
+        status: input.status,
+        updatedAt,
+      };
+      const revokedSessions =
+        input.status === 'disabled'
+          ? stagedRefreshSessions
+              .filter(
+                session =>
+                  session.userId === item.userId &&
+                  isRefreshSessionActive(session, updatedAt),
+              )
+              .map(cloneRefreshSessionRecord)
+          : [];
+
+      stagedUsersById.set(updatedUser.id, updatedUser);
+
+      if (input.status === 'disabled') {
+        stagedRefreshSessions.forEach(session => {
+          if (session.userId === item.userId && !session.revokedAt) {
+            session.revokedAt = updatedAt;
+          }
+        });
+      }
+
+      return {
+        user: stripPlatformUserDirectoryRecord(updatedUser),
+        revokedSessions,
+      };
+    });
+
+    this.publishStagedUsersAndSessions(stagedUsersById, stagedRefreshSessions);
+
+    return {
+      items,
+    };
   }
 
   async saveRefreshSession(record: SaveRefreshSessionInput): Promise<void> {
@@ -416,6 +532,75 @@ export class InMemoryAuthRepository implements AuthRepository {
       });
   }
 
+  async batchRevokeUserRefreshSessions(
+    input: BatchRevokeUserRefreshSessionsInput,
+    revokedAt = this.now(),
+  ): Promise<BatchRevokeUserRefreshSessionsResult> {
+    const stagedUsersById = new Map(
+      [...this.usersById.entries()].map(([userId, user]) => [
+        userId,
+        clonePlatformUserDirectoryRecord(user),
+      ]),
+    );
+    const stagedRefreshSessions = this.refreshSessions.map(
+      cloneRefreshSessionRecord,
+    );
+    const items = input.items.map(item => {
+      const user = stagedUsersById.get(item.userId);
+
+      if (!user) {
+        throw new BusinessError(
+          ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
+          '账号不存在',
+        );
+      }
+
+      const activeSessions = stagedRefreshSessions.filter(
+        session =>
+          session.userId === item.userId &&
+          isRefreshSessionActive(session, revokedAt),
+      );
+
+      if (
+        item.keepSessionId &&
+        !activeSessions.some(session => session.id === item.keepSessionId)
+      ) {
+        throw new BusinessError(
+          ApiErrorCode.VALIDATION_ERROR,
+          '保留会话不存在或不属于目标账号',
+        );
+      }
+
+      const revokedSessions = activeSessions
+        .filter(session => session.id !== item.keepSessionId)
+        .map(cloneRefreshSessionRecord);
+
+      stagedRefreshSessions.forEach(session => {
+        if (
+          session.userId === item.userId &&
+          isRefreshSessionActive(session, revokedAt) &&
+          session.id !== item.keepSessionId
+        ) {
+          session.revokedAt = revokedAt;
+        }
+      });
+
+      return {
+        user: stripPlatformUserDirectoryRecord(user),
+        revokedSessions,
+        ...(item.keepSessionId
+          ? { keepSessionId: item.keepSessionId }
+          : {}),
+      };
+    });
+
+    this.publishStagedUsersAndSessions(stagedUsersById, stagedRefreshSessions);
+
+    return {
+      items,
+    };
+  }
+
   async listPlatformUsers(): Promise<PlatformUserDirectoryRecord[]> {
     return [...this.usersById.values()]
       .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
@@ -469,6 +654,25 @@ export class InMemoryAuthRepository implements AuthRepository {
       .sort(
         (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
       );
+  }
+
+  private publishStagedUsersAndSessions(
+    stagedUsersById: Map<string, PlatformUserDirectoryRecord>,
+    stagedRefreshSessions: RefreshSessionRecord[],
+  ) {
+    this.usersById.clear();
+    this.usersByPhone.clear();
+
+    for (const user of stagedUsersById.values()) {
+      this.usersById.set(user.id, user);
+      this.usersByPhone.set(user.phone, user);
+    }
+
+    this.refreshSessions.splice(
+      0,
+      this.refreshSessions.length,
+      ...stagedRefreshSessions,
+    );
   }
 }
 
@@ -576,6 +780,91 @@ export class PrismaAuthRepository implements AuthRepository {
     return mapPrismaUser(user, { allowAdmin: true });
   }
 
+  async batchUpdateUserStatuses(
+    input: BatchUpdateUserStatusesInput,
+    updatedAt = this.now(),
+  ): Promise<BatchUpdateUserStatusesResult> {
+    if (!this.prisma.$transaction) {
+      throw new Error('Prisma auth transaction client is required');
+    }
+
+    return this.prisma.$transaction(async transaction => {
+      const userIds = input.items.map(item => item.userId);
+      const users = await transaction.user.findMany({
+        where: {
+          id: {
+            in: userIds,
+          },
+        },
+      });
+
+      if (users.length !== userIds.length) {
+        throw new BusinessError(
+          ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
+          '账号不存在',
+        );
+      }
+
+      const activeSessions =
+        input.status === 'disabled'
+          ? await transaction.authSession.findMany({
+              where: {
+                userId: {
+                  in: userIds,
+                },
+                revokedAt: null,
+                expiresAt: {
+                  gt: updatedAt,
+                },
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+            })
+          : [];
+      const activeSessionsByUserId = groupPrismaAuthSessionsByUserId(
+        activeSessions,
+      );
+      const items = [];
+
+      for (const item of input.items) {
+        const user = await transaction.user.update({
+          where: {
+            id: item.userId,
+          },
+          data: {
+            status: input.status,
+          },
+        });
+
+        items.push({
+          user: mapPrismaUser(user, { allowAdmin: true }),
+          revokedSessions: (
+            activeSessionsByUserId.get(item.userId) ?? []
+          ).map(mapPrismaAuthSession),
+        });
+      }
+
+      if (input.status === 'disabled') {
+        await transaction.authSession.updateMany({
+          where: {
+            userId: {
+              in: userIds,
+            },
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: updatedAt,
+          },
+        });
+      }
+
+      return {
+        items,
+      };
+    });
+  }
+
   async saveRefreshSession(record: SaveRefreshSessionInput): Promise<void> {
     await this.prisma.authSession.create({
       data: {
@@ -636,15 +925,7 @@ export class PrismaAuthRepository implements AuthRepository {
       },
     });
 
-    return sessions.map(session => ({
-      id: session.id,
-      userId: session.userId,
-      refreshToken: '',
-      deviceId: session.deviceId,
-      expiresAt: session.expiresAt,
-      createdAt: session.createdAt,
-      revokedAt: session.revokedAt ?? undefined,
-    }));
+    return sessions.map(mapPrismaAuthSession);
   }
 
   async listAllActiveRefreshSessions(): Promise<RefreshSessionRecord[]> {
@@ -660,15 +941,7 @@ export class PrismaAuthRepository implements AuthRepository {
       },
     });
 
-    return sessions.map(session => ({
-      id: session.id,
-      userId: session.userId,
-      refreshToken: '',
-      deviceId: session.deviceId,
-      expiresAt: session.expiresAt,
-      createdAt: session.createdAt,
-      revokedAt: session.revokedAt ?? undefined,
-    }));
+    return sessions.map(mapPrismaAuthSession);
   }
 
   async revokeRefreshSession(
@@ -756,6 +1029,107 @@ export class PrismaAuthRepository implements AuthRepository {
     });
   }
 
+  async batchRevokeUserRefreshSessions(
+    input: BatchRevokeUserRefreshSessionsInput,
+    revokedAt = this.now(),
+  ): Promise<BatchRevokeUserRefreshSessionsResult> {
+    if (!this.prisma.$transaction) {
+      throw new Error('Prisma auth transaction client is required');
+    }
+
+    return this.prisma.$transaction(async transaction => {
+      const userIds = input.items.map(item => item.userId);
+      const users = await transaction.user.findMany({
+        where: {
+          id: {
+            in: userIds,
+          },
+        },
+      });
+
+      if (users.length !== userIds.length) {
+        throw new BusinessError(
+          ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
+          '账号不存在',
+        );
+      }
+
+      const usersById = new Map(users.map(user => [user.id, user] as const));
+      const activeSessions = await transaction.authSession.findMany({
+        where: {
+          userId: {
+            in: userIds,
+          },
+          revokedAt: null,
+          expiresAt: {
+            gt: revokedAt,
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+      const activeSessionsByUserId = groupPrismaAuthSessionsByUserId(
+        activeSessions,
+      );
+      const revokedSessionIds: string[] = [];
+      const items = input.items.map(item => {
+        const user = usersById.get(item.userId);
+
+        if (!user) {
+          throw new BusinessError(
+            ApiErrorCode.AUTH_ACCOUNT_NOT_FOUND,
+            '账号不存在',
+          );
+        }
+
+        const userActiveSessions = activeSessionsByUserId.get(item.userId) ?? [];
+
+        if (
+          item.keepSessionId &&
+          !userActiveSessions.some(session => session.id === item.keepSessionId)
+        ) {
+          throw new BusinessError(
+            ApiErrorCode.VALIDATION_ERROR,
+            '保留会话不存在或不属于目标账号',
+          );
+        }
+
+        const revokedSessions = userActiveSessions.filter(
+          session => session.id !== item.keepSessionId,
+        );
+
+        revokedSessionIds.push(...revokedSessions.map(session => session.id));
+
+        return {
+          user: mapPrismaUser(user, { allowAdmin: true }),
+          revokedSessions: revokedSessions.map(mapPrismaAuthSession),
+          ...(item.keepSessionId
+            ? { keepSessionId: item.keepSessionId }
+            : {}),
+        };
+      });
+
+      if (revokedSessionIds.length > 0) {
+        await transaction.authSession.updateMany({
+          where: {
+            id: {
+              in: revokedSessionIds,
+            },
+            revokedAt: null,
+          },
+          data: {
+            revokedAt,
+          },
+        });
+      }
+
+      return {
+        items,
+      };
+    });
+  }
+
   async listAdminAuthSessionGovernanceAuditEvents(): Promise<
     AdminAuthSessionGovernanceAuditEventRecord[]
   > {
@@ -820,6 +1194,37 @@ function mapPrismaUserDirectory(
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
+}
+
+function mapPrismaAuthSession(session: PrismaAuthSession): RefreshSessionRecord {
+  return {
+    id: session.id,
+    userId: session.userId,
+    refreshToken: '',
+    deviceId: session.deviceId,
+    expiresAt: session.expiresAt,
+    createdAt: session.createdAt,
+    revokedAt: session.revokedAt ?? undefined,
+  };
+}
+
+function groupPrismaAuthSessionsByUserId(
+  sessions: PrismaAuthSession[],
+): Map<string, PrismaAuthSession[]> {
+  const grouped = new Map<string, PrismaAuthSession[]>();
+
+  for (const session of sessions) {
+    const userSessions = grouped.get(session.userId);
+
+    if (userSessions) {
+      userSessions.push(session);
+      continue;
+    }
+
+    grouped.set(session.userId, [session]);
+  }
+
+  return grouped;
 }
 
 function mapPrismaAdminAuthSessionGovernanceAuditEvent(
@@ -932,6 +1337,30 @@ function clonePlatformUserDirectoryRecord(
     createdAt: new Date(user.createdAt),
     updatedAt: new Date(user.updatedAt),
   };
+}
+
+function cloneRefreshSessionRecord(
+  session: RefreshSessionRecord,
+): RefreshSessionRecord {
+  return {
+    id: session.id,
+    userId: session.userId,
+    refreshToken: session.refreshToken,
+    deviceId: session.deviceId,
+    expiresAt: new Date(session.expiresAt),
+    createdAt: new Date(session.createdAt),
+    ...(session.revokedAt ? { revokedAt: new Date(session.revokedAt) } : {}),
+  };
+}
+
+function isRefreshSessionActive(
+  session: RefreshSessionRecord,
+  referenceTime: Date,
+) {
+  return (
+    !session.revokedAt &&
+    session.expiresAt.getTime() > referenceTime.getTime()
+  );
 }
 
 function hashRefreshToken(refreshToken: string) {

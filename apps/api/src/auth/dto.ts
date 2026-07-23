@@ -100,6 +100,27 @@ export type RegisterResult = LoginResult;
 export type PasswordLoginResult = LoginResult;
 export type AdminPasswordLoginResult = LoginResult;
 
+export type SelfAuthSessionRecord = {
+  id: string;
+  deviceId: string;
+  createdAtIso: string;
+  expiresAtIso: string;
+};
+
+export type SelfAuthSessionListResult = {
+  sessions: SelfAuthSessionRecord[];
+  total: number;
+};
+
+export type RevokeOtherSelfAuthSessionsRequest = {
+  currentDeviceId: string;
+};
+
+export type RevokeOtherSelfAuthSessionsResult = {
+  currentDeviceId: string;
+  revokedCount: number;
+};
+
 export type AdminAuthSessionListScope = 'current_admin' | 'all';
 
 export type AdminAuthSessionRiskTag =
@@ -311,6 +332,15 @@ export type AdminAuthAccountReport = {
   recentAuditEvents: AdminAuthSessionGovernanceAuditRecord[];
 };
 
+export type BatchUpdateAdminAuthAccountStatusItem = {
+  userId: string;
+};
+
+export type BatchUpdateAdminAuthAccountStatusRequest = {
+  items: BatchUpdateAdminAuthAccountStatusItem[];
+  status: MobileUserStatus;
+};
+
 export type UpdateAdminAuthAccountStatusRequest = {
   status: MobileUserStatus;
 };
@@ -321,6 +351,23 @@ export type UpdateAdminAuthAccountStatusResult = {
   revokedSessionCount: number;
 };
 
+export type BatchUpdateAdminAuthAccountStatusResult = {
+  status: MobileUserStatus;
+  userIds: string[];
+  updatedCount: number;
+  revokedSessionCount: number;
+  items: UpdateAdminAuthAccountStatusResult[];
+};
+
+export type BatchRevokeAdminAuthAccountSessionsItem = {
+  userId: string;
+  keepSessionId?: string;
+};
+
+export type BatchRevokeAdminAuthAccountSessionsRequest = {
+  items: BatchRevokeAdminAuthAccountSessionsItem[];
+};
+
 export type RevokeAdminAuthAccountSessionsRequest = {
   keepSessionId?: string;
 };
@@ -329,4 +376,11 @@ export type RevokeAdminAuthAccountSessionsResult = {
   userId: string;
   revokedCount: number;
   keepSessionId?: string;
+};
+
+export type BatchRevokeAdminAuthAccountSessionsResult = {
+  userIds: string[];
+  updatedCount: number;
+  revokedCount: number;
+  items: RevokeAdminAuthAccountSessionsResult[];
 };

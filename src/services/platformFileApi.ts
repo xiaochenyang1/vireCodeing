@@ -6,6 +6,7 @@ import {
 } from './platformApiClient';
 
 export type PlatformFilePurpose =
+  | 'avatar'
   | 'identity'
   | 'cargo'
   | 'exception'
@@ -56,6 +57,7 @@ export type PlatformFileUploadConfirmationApi = {
 };
 
 const allowedPurposes: PlatformFilePurpose[] = [
+  'avatar',
   'identity',
   'cargo',
   'exception',

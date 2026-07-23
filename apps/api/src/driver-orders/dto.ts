@@ -3,6 +3,10 @@ import type { ShipperOrderRecord } from '../orders/dto';
 export type DriverOrderHallQuery = {
   page: number;
   pageSize: number;
+  driverLatitude?: number;
+  driverLongitude?: number;
+  maxDistanceKm?: number;
+  vehicleTypePreferences?: string[];
 };
 
 export type DriverExecutingOrderStatus = 'loading' | 'transporting' | 'confirming';

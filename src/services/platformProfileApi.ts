@@ -26,11 +26,30 @@ export type PlatformProfileAddressBookContact = {
 
 export type PlatformSaveProfileAccountRequest = {
   displayName: string;
+  avatarFileId?: string | null;
+  phone?: string;
+  phoneProtectionEnabled?: boolean;
+  loginProtectionEnabled?: boolean;
+  orderNotificationEnabled?: boolean;
+  promotionNotificationEnabled?: boolean;
+  privacyConfirmedAtIso?: string;
+  privacyPolicyVersion?: string;
+  privacyPolicyVersionTitle?: string;
 };
 
-export type PlatformProfileAccount = PlatformSaveProfileAccountRequest & {
+export type PlatformProfileAccount = {
   shipperId: string;
+  displayName: string;
   phone: string;
+  phoneProtectionEnabled: boolean;
+  loginProtectionEnabled: boolean;
+  orderNotificationEnabled: boolean;
+  promotionNotificationEnabled: boolean;
+  privacyConfirmedAtIso?: string;
+  privacyPolicyVersion?: string;
+  privacyPolicyVersionTitle?: string;
+  avatarFileId?: string;
+  avatarPublicUrl?: string;
 };
 
 export type PlatformProfileVerificationStatus =
@@ -365,6 +384,9 @@ function normalizeSaveProfileAccountRequest(
       'Account display name is invalid',
       throwInvalidAccountRequest,
     ),
+    ...createOptionalAccountAvatarFields(request.avatarFileId),
+    ...createOptionalAccountPhoneField(request.phone),
+    ...createOptionalAccountSettingsFields(request),
   };
 }
 
@@ -683,18 +705,156 @@ function normalizeRequiredString(
   return normalizedValue;
 }
 
-function normalizeOptionalTrimmedString(value: unknown, message: string) {
+function normalizeOptionalTrimmedString(
+  value: unknown,
+  message: string,
+  thrower: (message: string) => never = throwInvalidAddressBookRequest,
+) {
   if (value === undefined) {
     return undefined;
   }
 
   if (typeof value !== 'string') {
-    throwInvalidAddressBookRequest(message);
+    thrower(message);
   }
 
   const normalizedValue = value.trim();
 
   return normalizedValue === '' ? undefined : normalizedValue;
+}
+
+function createOptionalAccountAvatarFields(avatarFileId: unknown) {
+  if (avatarFileId === null) {
+    return { avatarFileId: null };
+  }
+
+  const normalizedAvatarFileId = normalizeOptionalString(
+    avatarFileId,
+    120,
+    'Account avatar file id is invalid',
+    throwInvalidAccountRequest,
+  );
+
+  return normalizedAvatarFileId
+    ? { avatarFileId: normalizedAvatarFileId }
+    : {};
+}
+
+function createOptionalAccountPhoneField(phone: unknown) {
+  const normalizedPhone = normalizeOptionalString(
+    phone,
+    11,
+    'Account phone is invalid',
+    throwInvalidAccountRequest,
+  );
+
+  if (!normalizedPhone) {
+    return {};
+  }
+
+  if (!/^1[3-9]\d{9}$/.test(normalizedPhone)) {
+    throwInvalidAccountRequest('Account phone is invalid');
+  }
+
+  return { phone: normalizedPhone };
+}
+
+function createOptionalAccountSettingsFields(
+  request: PlatformSaveProfileAccountRequest,
+) {
+  const phoneProtectionEnabled = normalizeOptionalBoolean(
+    request.phoneProtectionEnabled,
+    'Account phone protection setting is invalid',
+  );
+  const loginProtectionEnabled = normalizeOptionalBoolean(
+    request.loginProtectionEnabled,
+    'Account login protection setting is invalid',
+  );
+  const orderNotificationEnabled = normalizeOptionalBoolean(
+    request.orderNotificationEnabled,
+    'Account order notification setting is invalid',
+  );
+  const promotionNotificationEnabled = normalizeOptionalBoolean(
+    request.promotionNotificationEnabled,
+    'Account promotion notification setting is invalid',
+  );
+  const privacyConfirmedAtIso = normalizeOptionalIsoStringWithThrower(
+    request.privacyConfirmedAtIso,
+    'Account privacy confirmation time is invalid',
+    throwInvalidAccountRequest,
+  );
+  const privacyPolicyVersion = normalizeOptionalString(
+    request.privacyPolicyVersion,
+    80,
+    'Account privacy policy version is invalid',
+    throwInvalidAccountRequest,
+  );
+  const privacyPolicyVersionTitle = normalizeOptionalString(
+    request.privacyPolicyVersionTitle,
+    120,
+    'Account privacy policy version title is invalid',
+    throwInvalidAccountRequest,
+  );
+
+  if (
+    (privacyPolicyVersion === undefined) !==
+    (privacyPolicyVersionTitle === undefined)
+  ) {
+    throwInvalidAccountRequest(
+      'Account privacy policy version snapshot is incomplete',
+    );
+  }
+
+  if (
+    (privacyPolicyVersion !== undefined ||
+      privacyPolicyVersionTitle !== undefined) &&
+    !privacyConfirmedAtIso
+  ) {
+    throwInvalidAccountRequest(
+      'Account privacy policy version snapshot requires privacy confirmation time',
+    );
+  }
+
+  return {
+    ...(phoneProtectionEnabled !== undefined
+      ? { phoneProtectionEnabled }
+      : {}),
+    ...(loginProtectionEnabled !== undefined
+      ? { loginProtectionEnabled }
+      : {}),
+    ...(orderNotificationEnabled !== undefined
+      ? { orderNotificationEnabled }
+      : {}),
+    ...(promotionNotificationEnabled !== undefined
+      ? { promotionNotificationEnabled }
+      : {}),
+    ...(privacyConfirmedAtIso ? { privacyConfirmedAtIso } : {}),
+    ...(privacyPolicyVersion ? { privacyPolicyVersion } : {}),
+    ...(privacyPolicyVersionTitle ? { privacyPolicyVersionTitle } : {}),
+  };
+}
+
+function normalizeOptionalString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+  thrower: (message: string) => never,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    thrower(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0 || normalizedValue.length > maxLength) {
+    thrower(message);
+  }
+
+  return normalizedValue;
 }
 
 function normalizePhone(value: unknown) {
@@ -712,16 +872,44 @@ function normalizePhone(value: unknown) {
 }
 
 function normalizeOptionalIsoString(value: unknown, message: string) {
-  const normalizedValue = normalizeOptionalTrimmedString(value, message);
+  return normalizeOptionalIsoStringWithThrower(
+    value,
+    message,
+    throwInvalidAddressBookRequest,
+  );
+}
+
+function normalizeOptionalIsoStringWithThrower(
+  value: unknown,
+  message: string,
+  thrower: (message: string) => never,
+) {
+  const normalizedValue = normalizeOptionalTrimmedString(
+    value,
+    message,
+    thrower,
+  );
 
   if (
     normalizedValue !== undefined &&
     Number.isNaN(Date.parse(normalizedValue))
   ) {
-    throwInvalidAddressBookRequest(message);
+    thrower(message);
   }
 
   return normalizedValue;
+}
+
+function normalizeOptionalBoolean(value: unknown, message: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'boolean') {
+    throwInvalidAccountRequest(message);
+  }
+
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

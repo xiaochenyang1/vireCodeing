@@ -6,6 +6,7 @@ import type {
   RetryRefundInput,
 } from './admin-finance.repository';
 import type {
+  BatchReviewDriverWithdrawalsInput,
   DriverFinanceRepository,
   ReviewDriverWithdrawalInput,
 } from './driver-finance.repository';
@@ -17,6 +18,11 @@ export type AdminReviewWithdrawalInput = Omit<
 
 export type AdminRetryRefundInput = Omit<
   RetryRefundInput,
+  'requestFingerprint'
+>;
+
+export type AdminBatchReviewWithdrawalsInput = Omit<
+  BatchReviewDriverWithdrawalsInput,
   'requestFingerprint'
 >;
 
@@ -88,6 +94,35 @@ export class AdminFinanceService {
         throw new BusinessError(
           ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
           '提现申请状态或版本已变化',
+        );
+    }
+  }
+
+  async batchReviewWithdrawals(input: AdminBatchReviewWithdrawalsInput) {
+    const result = await this.driverFinanceRepository.batchReviewWithdrawals({
+      ...input,
+      requestFingerprint: createAdminActionFingerprint(
+        'withdrawal.batch_review',
+        input,
+      ),
+    });
+    switch (result.kind) {
+      case 'success':
+        return result;
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他批量提现审核使用',
+        );
+      case 'not-found':
+        throw new BusinessError(
+          ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
+          '批量提现申请不存在',
+        );
+      case 'conflict':
+        throw new BusinessError(
+          ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
+          '批量提现申请状态、版本或钱包余额已变化',
         );
     }
   }

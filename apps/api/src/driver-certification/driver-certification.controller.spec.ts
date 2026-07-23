@@ -156,6 +156,53 @@ describe('DriverCertificationController', () => {
     );
   });
 
+  it('reviews driver certifications in batch as admin', async () => {
+    const service = {
+      batchReviewCertifications: jest.fn().mockResolvedValue({
+        certificationType: 'identity',
+        status: 'approved',
+        driverIds: ['driver-2', 'driver-1'],
+        updatedCount: 2,
+        items: [
+          {
+            driver: { id: 'driver-2', phone: '13900139010' },
+            identity: { driverId: 'driver-2', status: 'approved' },
+            vehicle: { driverId: 'driver-2', status: 'unsubmitted' },
+          },
+          {
+            driver: { id: 'driver-1', phone: '13900139009' },
+            identity: { driverId: 'driver-1', status: 'approved' },
+            vehicle: { driverId: 'driver-1', status: 'reviewing' },
+          },
+        ],
+      }),
+    } as unknown as DriverCertificationService;
+    const controller = new AdminDriverCertificationController(service);
+
+    await expect(
+      controller.batchReviewCertifications(createRequest('admin-1', 'admin'), {
+        driverIds: [' driver-2 ', 'driver-1'],
+        certificationType: 'identity',
+        status: 'approved',
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        certificationType: 'identity',
+        updatedCount: 2,
+        driverIds: ['driver-2', 'driver-1'],
+      },
+    });
+    expect(service.batchReviewCertifications).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'admin-1', userType: 'admin' }),
+      {
+        driverIds: ['driver-2', 'driver-1'],
+        certificationType: 'identity',
+        status: 'approved',
+      },
+    );
+  });
+
   it('rejects non-admin certification list access before parsing query data', async () => {
     const service = {
       listCertifications: jest.fn(),

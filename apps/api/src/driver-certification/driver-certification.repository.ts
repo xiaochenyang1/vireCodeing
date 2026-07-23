@@ -1,4 +1,6 @@
 import type {
+  BatchReviewDriverCertificationRequest,
+  BatchReviewDriverCertificationResult,
   DriverCertificationSnapshot,
   DriverIdentityCertificationRecord,
   DriverVehicleCertificationRecord,
@@ -40,6 +42,10 @@ export interface DriverCertificationRepository {
     reviewerAdminId: string,
     input: ReviewDriverCertificationRequest,
   ): Promise<DriverCertificationSnapshot>;
+  batchReviewCertifications(
+    reviewerAdminId: string,
+    input: BatchReviewDriverCertificationRequest,
+  ): Promise<BatchReviewDriverCertificationResult>;
 }
 
 export class InMemoryDriverCertificationRepository
@@ -153,8 +159,7 @@ export class InMemoryDriverCertificationRepository
     this.identities.set(driverId, {
       ...identity,
       status: input.status,
-      rejectionReason:
-        input.status === 'rejected' ? input.rejectionReason : undefined,
+      rejectionReason: getInMemoryReviewRejectionReason(input),
       updatedAtIso: this.now().toISOString(),
     });
     this.recordReviewEvent(
@@ -185,8 +190,7 @@ export class InMemoryDriverCertificationRepository
     this.vehicles.set(driverId, {
       ...vehicle,
       status: input.status,
-      rejectionReason:
-        input.status === 'rejected' ? input.rejectionReason : undefined,
+      rejectionReason: getInMemoryReviewRejectionReason(input),
       updatedAtIso: this.now().toISOString(),
     });
     this.recordReviewEvent(
@@ -198,6 +202,50 @@ export class InMemoryDriverCertificationRepository
     );
 
     return this.createSnapshot(driverId);
+  }
+
+  async batchReviewCertifications(
+    reviewerAdminId: string,
+    input: BatchReviewDriverCertificationRequest,
+  ): Promise<BatchReviewDriverCertificationResult> {
+    const reviewTargets = this.getBatchReviewTargets(input);
+
+    for (const { driverId, record } of reviewTargets) {
+      const nextRecord = {
+        ...record,
+        status: input.status,
+        rejectionReason: getInMemoryReviewRejectionReason(input),
+        updatedAtIso: this.now().toISOString(),
+      };
+
+      if (input.certificationType === 'identity') {
+        this.identities.set(
+          driverId,
+          nextRecord as DriverIdentityCertificationRecord,
+        );
+      } else {
+        this.vehicles.set(
+          driverId,
+          nextRecord as DriverVehicleCertificationRecord,
+        );
+      }
+
+      this.recordReviewEvent(
+        driverId,
+        reviewerAdminId,
+        input.certificationType,
+        record.status,
+        input,
+      );
+    }
+
+    return {
+      certificationType: input.certificationType,
+      status: input.status,
+      driverIds: [...input.driverIds],
+      updatedCount: input.driverIds.length,
+      items: input.driverIds.map(driverId => this.createSnapshot(driverId)),
+    };
   }
 
   private recordReviewEvent(
@@ -214,10 +262,40 @@ export class InMemoryDriverCertificationRepository
       certificationType,
       fromStatus,
       toStatus: input.status,
-      rejectionReason:
-        input.status === 'rejected' ? input.rejectionReason : undefined,
+      rejectionReason: getInMemoryReviewRejectionReason(input),
       createdAtIso: this.now().toISOString(),
     });
+  }
+
+  private getBatchReviewTargets(
+    input: BatchReviewDriverCertificationRequest,
+  ): Array<{
+    driverId: string;
+    record: DriverIdentityCertificationRecord | DriverVehicleCertificationRecord;
+  }> {
+    const reviewTargets = input.driverIds.map(driverId => ({
+      driverId,
+      record:
+        input.certificationType === 'identity'
+          ? this.identities.get(driverId)
+          : this.vehicles.get(driverId),
+    }));
+
+    for (const { driverId, record } of reviewTargets) {
+      if (!record) {
+        throw new BusinessError(
+          ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+          `司机认证记录不存在：${driverId}`,
+        );
+      }
+    }
+
+    return reviewTargets as Array<{
+      driverId: string;
+      record:
+        | DriverIdentityCertificationRecord
+        | DriverVehicleCertificationRecord;
+    }>;
   }
 
   private createSnapshot(driverId: string): DriverCertificationSnapshot {
@@ -307,7 +385,10 @@ export type PrismaDriverCertificationClient = {
       where: { driverId: string };
     }): Promise<PrismaDriverIdentityCertificationRecord | null>;
     findMany(args: {
-      where?: { status?: 'reviewing' | 'approved' | 'rejected' };
+      where?: {
+        status?: 'reviewing' | 'approved' | 'rejected';
+        driverId?: { in: string[] };
+      };
       orderBy?: { updatedAt: 'desc' };
     }): Promise<PrismaDriverIdentityCertificationRecord[]>;
     upsert(args: {
@@ -343,7 +424,10 @@ export type PrismaDriverCertificationClient = {
       where: { driverId: string };
     }): Promise<PrismaDriverVehicleCertificationRecord | null>;
     findMany(args: {
-      where?: { status?: 'reviewing' | 'approved' | 'rejected' };
+      where?: {
+        status?: 'reviewing' | 'approved' | 'rejected';
+        driverId?: { in: string[] };
+      };
       orderBy?: { updatedAt: 'desc' };
     }): Promise<PrismaDriverVehicleCertificationRecord[]>;
     upsert(args: {
@@ -585,11 +669,7 @@ export class PrismaDriverCertificationRepository
 
       const updatedIdentity = await prisma.driverIdentityCertification.update({
         where: { driverId },
-        data: {
-          status: input.status,
-          rejectionReason:
-            input.status === 'rejected' ? input.rejectionReason : null,
-        },
+        data: createPrismaReviewData(input),
       });
       await prisma.driverCertificationReviewEvent.create({
         data: {
@@ -598,8 +678,7 @@ export class PrismaDriverCertificationRepository
           certificationType: 'identity',
           fromStatus: identity.status,
           toStatus: input.status,
-          rejectionReason:
-            input.status === 'rejected' ? input.rejectionReason : null,
+          rejectionReason: getPrismaReviewRejectionReason(input),
         },
       });
       const vehicle = await prisma.driverVehicleCertification.findUnique({
@@ -638,11 +717,7 @@ export class PrismaDriverCertificationRepository
 
       const updatedVehicle = await prisma.driverVehicleCertification.update({
         where: { driverId },
-        data: {
-          status: input.status,
-          rejectionReason:
-            input.status === 'rejected' ? input.rejectionReason : null,
-        },
+        data: createPrismaReviewData(input),
       });
       await prisma.driverCertificationReviewEvent.create({
         data: {
@@ -651,8 +726,7 @@ export class PrismaDriverCertificationRepository
           certificationType: 'vehicle',
           fromStatus: vehicle.status,
           toStatus: input.status,
-          rejectionReason:
-            input.status === 'rejected' ? input.rejectionReason : null,
+          rejectionReason: getPrismaReviewRejectionReason(input),
         },
       });
       const identity = await prisma.driverIdentityCertification.findUnique({
@@ -669,6 +743,154 @@ export class PrismaDriverCertificationRepository
         updatedVehicle,
         drivers[0],
       );
+    });
+  }
+
+  async batchReviewCertifications(
+    reviewerAdminId: string,
+    input: BatchReviewDriverCertificationRequest,
+  ): Promise<BatchReviewDriverCertificationResult> {
+    return this.prisma.$transaction(async prisma => {
+      const driverIds = [...input.driverIds];
+      const reviewData = createPrismaReviewData(input);
+      const reviewRejectionReason = getPrismaReviewRejectionReason(input);
+      const drivers = await prisma.user.findMany({
+        where: { id: { in: driverIds } },
+        select: { id: true, phone: true },
+      });
+      const driversById = new Map(
+        drivers.map(driver => [driver.id, driver] as const),
+      );
+
+      if (input.certificationType === 'identity') {
+        const identities = await prisma.driverIdentityCertification.findMany({
+          where: {
+            driverId: {
+              in: driverIds,
+            },
+          },
+        });
+        const identityByDriverId = new Map(
+          identities.map(identity => [identity.driverId, identity] as const),
+        );
+
+        this.assertBatchReviewRecordsExist(driverIds, identityByDriverId);
+
+        const updatedIdentityByDriverId = new Map<
+          string,
+          PrismaDriverIdentityCertificationRecord
+        >();
+
+        for (const driverId of driverIds) {
+          const identity = identityByDriverId.get(driverId)!;
+          const updatedIdentity = await prisma.driverIdentityCertification.update({
+            where: { driverId },
+            data: reviewData,
+          });
+
+          updatedIdentityByDriverId.set(driverId, updatedIdentity);
+          await prisma.driverCertificationReviewEvent.create({
+            data: {
+              driverId,
+              reviewerAdminId,
+              certificationType: 'identity',
+              fromStatus: identity.status,
+              toStatus: input.status,
+              rejectionReason: reviewRejectionReason,
+            },
+          });
+        }
+
+        const vehicles = await prisma.driverVehicleCertification.findMany({
+          where: {
+            driverId: {
+              in: driverIds,
+            },
+          },
+        });
+        const vehicleByDriverId = new Map(
+          vehicles.map(vehicle => [vehicle.driverId, vehicle] as const),
+        );
+
+        return {
+          certificationType: 'identity',
+          status: input.status,
+          driverIds,
+          updatedCount: driverIds.length,
+          items: driverIds.map(driverId =>
+            createSnapshot(
+              driverId,
+              updatedIdentityByDriverId.get(driverId)!,
+              vehicleByDriverId.get(driverId) ?? null,
+              driversById.get(driverId),
+            ),
+          ),
+        };
+      }
+
+      const vehicles = await prisma.driverVehicleCertification.findMany({
+        where: {
+          driverId: {
+            in: driverIds,
+          },
+        },
+      });
+      const vehicleByDriverId = new Map(
+        vehicles.map(vehicle => [vehicle.driverId, vehicle] as const),
+      );
+
+      this.assertBatchReviewRecordsExist(driverIds, vehicleByDriverId);
+
+      const updatedVehicleByDriverId = new Map<
+        string,
+        PrismaDriverVehicleCertificationRecord
+      >();
+
+      for (const driverId of driverIds) {
+        const vehicle = vehicleByDriverId.get(driverId)!;
+        const updatedVehicle = await prisma.driverVehicleCertification.update({
+          where: { driverId },
+          data: reviewData,
+        });
+
+        updatedVehicleByDriverId.set(driverId, updatedVehicle);
+        await prisma.driverCertificationReviewEvent.create({
+          data: {
+            driverId,
+            reviewerAdminId,
+            certificationType: 'vehicle',
+            fromStatus: vehicle.status,
+            toStatus: input.status,
+            rejectionReason: reviewRejectionReason,
+          },
+        });
+      }
+
+      const identities = await prisma.driverIdentityCertification.findMany({
+        where: {
+          driverId: {
+            in: driverIds,
+          },
+        },
+      });
+      const identityByDriverId = new Map(
+        identities.map(identity => [identity.driverId, identity] as const),
+      );
+
+      return {
+        certificationType: 'vehicle',
+        status: input.status,
+        driverIds,
+        updatedCount: driverIds.length,
+        items: driverIds.map(driverId =>
+          createSnapshot(
+            driverId,
+            identityByDriverId.get(driverId) ?? null,
+            updatedVehicleByDriverId.get(driverId)!,
+            driversById.get(driverId),
+          ),
+        ),
+      };
     });
   }
 
@@ -690,6 +912,19 @@ export class PrismaDriverCertificationRepository
     });
 
     return new Map(drivers.map(driver => [driver.id, driver] as const));
+  }
+
+  private assertBatchReviewRecordsExist<
+    T extends { driverId: string; status: DriverIdentityCertificationRecord['status'] },
+  >(driverIds: string[], recordsByDriverId: Map<string, T>) {
+    for (const driverId of driverIds) {
+      if (!recordsByDriverId.has(driverId)) {
+        throw new BusinessError(
+          ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+          `司机认证记录不存在：${driverId}`,
+        );
+      }
+    }
   }
 }
 
@@ -769,5 +1004,22 @@ function mapPrismaReviewEvent(
     toStatus: event.toStatus,
     rejectionReason: event.rejectionReason ?? undefined,
     createdAtIso: event.createdAt.toISOString(),
+  };
+}
+
+function getInMemoryReviewRejectionReason(
+  input: ReviewDriverCertificationRequest,
+) {
+  return input.status === 'rejected' ? input.rejectionReason : undefined;
+}
+
+function getPrismaReviewRejectionReason(input: ReviewDriverCertificationRequest) {
+  return input.status === 'rejected' ? input.rejectionReason : null;
+}
+
+function createPrismaReviewData(input: ReviewDriverCertificationRequest) {
+  return {
+    status: input.status,
+    rejectionReason: getPrismaReviewRejectionReason(input),
   };
 }

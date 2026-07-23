@@ -8,6 +8,7 @@ import type {
   PlatformProfileReceivedEvaluationSnapshot,
   PlatformProfileSpendingSnapshot,
 } from '../services/platformProfileApi';
+import { applyPlatformProfileSettingsSnapshot } from './profileSettings';
 import {
   type EnterpriseVerificationRequest,
   type IdentityVerificationRequest,
@@ -18,6 +19,8 @@ import {
   type ContactItem,
   type ProfileLocalState,
   type ProfileSyncState,
+  type SavedAccountSettings,
+  type SettingItem,
 } from './profileLocalState';
 
 /**
@@ -71,11 +74,62 @@ export function createAddressBookConflictSummary(
 export function isValidPlatformAccountProfile(
   accountProfile: PlatformProfileAccount | null,
 ): accountProfile is PlatformProfileAccount {
+  const hasPrivacyPolicyVersion =
+    accountProfile?.privacyPolicyVersion !== undefined;
+  const hasPrivacyPolicyVersionTitle =
+    accountProfile?.privacyPolicyVersionTitle !== undefined;
+
   return (
     Boolean(accountProfile) &&
     typeof accountProfile?.displayName === 'string' &&
-    typeof accountProfile?.phone === 'string'
+    typeof accountProfile?.phone === 'string' &&
+    (accountProfile?.phoneProtectionEnabled === undefined ||
+      typeof accountProfile.phoneProtectionEnabled === 'boolean') &&
+    (accountProfile?.loginProtectionEnabled === undefined ||
+      typeof accountProfile.loginProtectionEnabled === 'boolean') &&
+    (accountProfile?.orderNotificationEnabled === undefined ||
+      typeof accountProfile.orderNotificationEnabled === 'boolean') &&
+    (accountProfile?.promotionNotificationEnabled === undefined ||
+      typeof accountProfile.promotionNotificationEnabled === 'boolean') &&
+    (accountProfile?.privacyConfirmedAtIso === undefined ||
+      typeof accountProfile.privacyConfirmedAtIso === 'string') &&
+    (accountProfile?.privacyPolicyVersion === undefined ||
+      typeof accountProfile.privacyPolicyVersion === 'string') &&
+    (accountProfile?.privacyPolicyVersionTitle === undefined ||
+      typeof accountProfile.privacyPolicyVersionTitle === 'string') &&
+    hasPrivacyPolicyVersion === hasPrivacyPolicyVersionTitle &&
+    (!hasPrivacyPolicyVersion ||
+      typeof accountProfile?.privacyConfirmedAtIso === 'string') &&
+    (accountProfile?.avatarFileId === undefined ||
+      typeof accountProfile.avatarFileId === 'string') &&
+    (accountProfile?.avatarPublicUrl === undefined ||
+      typeof accountProfile.avatarPublicUrl === 'string')
   );
+}
+
+export function mapPlatformAccountProfileToLocalState(
+  accountProfile: PlatformProfileAccount,
+  currentSettings: SettingItem[],
+): Pick<ProfileLocalState, 'account' | 'settings'> {
+  const account: SavedAccountSettings = {
+    displayName: accountProfile.displayName,
+    boundPhone: accountProfile.phone,
+    avatarPhotoCount: accountProfile.avatarFileId ? 1 : 0,
+    ...(accountProfile.avatarFileId
+      ? { avatarFileId: accountProfile.avatarFileId }
+      : {}),
+    ...(accountProfile.avatarPublicUrl
+      ? { avatarPublicUrl: accountProfile.avatarPublicUrl }
+      : {}),
+  };
+
+  return {
+    account,
+    settings: applyPlatformProfileSettingsSnapshot(
+      currentSettings,
+      accountProfile,
+    ),
+  };
 }
 
 function mapPlatformVerificationStatusToLocal(

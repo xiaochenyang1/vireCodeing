@@ -6,6 +6,8 @@ import type {
   AdminAuthSessionGovernanceAuditListQuery,
   AdminAuthSessionListQuery,
   AdminPasswordLoginRequest,
+  BatchRevokeAdminAuthAccountSessionsRequest,
+  BatchUpdateAdminAuthAccountStatusRequest,
   ChangePasswordRequest,
   LoginRequest,
   LogoutRequest,
@@ -14,6 +16,7 @@ import type {
   RegisterRequest,
   RevokeAdminAuthAccountSessionsRequest,
   RevokeOtherAdminSessionsRequest,
+  RevokeOtherSelfAuthSessionsRequest,
   ResetPasswordRequest,
   SendCodeRequest,
   UpdateAdminAuthAccountStatusRequest,
@@ -182,6 +185,56 @@ export const updateAdminAuthAccountStatusSchema = z.object({
     message: '账号状态不支持',
   }),
 });
+export const batchUpdateAdminAuthAccountStatusSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          userId: adminAuthAccountIdSchema,
+        }),
+      )
+      .min(1, '至少选择 1 个账号')
+      .max(50, '单次最多批量更新 50 个账号'),
+    status: z.enum(['active', 'disabled'], {
+      message: '账号状态不支持',
+    }),
+  })
+  .superRefine((value, context) => {
+    const userIds = value.items.map(item => item.userId);
+    const uniqueUserIds = new Set(userIds);
+
+    if (uniqueUserIds.size !== userIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items'],
+        message: '批量更新账号 ID 不能重复',
+      });
+    }
+  });
+export const batchRevokeAdminAuthAccountSessionsSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          userId: adminAuthAccountIdSchema,
+          keepSessionId: adminAuthSessionIdSchema.optional(),
+        }),
+      )
+      .min(1, '至少选择 1 个账号')
+      .max(50, '单次最多批量撤销 50 个账号'),
+  })
+  .superRefine((value, context) => {
+    const userIds = value.items.map(item => item.userId);
+    const uniqueUserIds = new Set(userIds);
+
+    if (uniqueUserIds.size !== userIds.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['items'],
+        message: '批量撤销会话账号 ID 不能重复',
+      });
+    }
+  });
 const refreshTokenSchema = z
   .string()
   .trim()
@@ -242,6 +295,8 @@ export const tokenSessionSchema = z.object({
 export const revokeOtherAdminSessionsSchema = z.object({
   currentDeviceId: deviceIdSchema,
 });
+
+export const revokeOtherSelfAuthSessionsSchema = revokeOtherAdminSessionsSchema;
 
 export function parseSendCodeRequest(input: unknown): SendCodeRequest {
   return parseAuthRequest(sendCodeSchema, input);
@@ -321,16 +376,34 @@ export function parseRevokeOtherAdminSessionsRequest(
   return parseAuthRequest(revokeOtherAdminSessionsSchema, input);
 }
 
+export function parseRevokeOtherSelfAuthSessionsRequest(
+  input: unknown,
+): RevokeOtherSelfAuthSessionsRequest {
+  return parseAuthRequest(revokeOtherSelfAuthSessionsSchema, input);
+}
+
 export function parseRevokeAdminAuthAccountSessionsRequest(
   input: unknown,
 ): RevokeAdminAuthAccountSessionsRequest {
   return parseAuthRequest(revokeAdminAuthAccountSessionsSchema, input);
 }
 
+export function parseBatchRevokeAdminAuthAccountSessionsRequest(
+  input: unknown,
+): BatchRevokeAdminAuthAccountSessionsRequest {
+  return parseAuthRequest(batchRevokeAdminAuthAccountSessionsSchema, input);
+}
+
 export function parseUpdateAdminAuthAccountStatusRequest(
   input: unknown,
 ): UpdateAdminAuthAccountStatusRequest {
   return parseAuthRequest(updateAdminAuthAccountStatusSchema, input);
+}
+
+export function parseBatchUpdateAdminAuthAccountStatusRequest(
+  input: unknown,
+): BatchUpdateAdminAuthAccountStatusRequest {
+  return parseAuthRequest(batchUpdateAdminAuthAccountStatusSchema, input);
 }
 
 function parseAuthRequest<T>(schema: z.ZodType<T>, input: unknown): T {

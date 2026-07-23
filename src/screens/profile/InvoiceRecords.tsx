@@ -2,7 +2,6 @@ import { Pressable, Text, View } from 'react-native';
 import { useEffect, useState } from 'react';
 
 import { AuthField } from '../../components/AuthField';
-import { shipperSummary } from '../../data/mockData';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type {
   createPlatformProfileApi,
@@ -17,12 +16,13 @@ import type {
   InvoiceRejectionReasons,
   InvoiceTitleOption,
   InvoiceTypeOption,
+  ProfileInvoiceApplicationSyncMode,
+  ProfileInvoiceApplicationSyncRequest,
   ProfileLocalState,
   SavedAccountSettings,
 } from '../../utils/profileLocalState';
 import {
   canRequestVatSpecialInvoice,
-  createLocalInvoiceStateFromPlatformApplications,
   createApprovedInvoiceChanges,
   createDownloadedInvoiceDetails,
   createRejectedInvoiceChanges,
@@ -34,7 +34,6 @@ import {
   getNextInvoiceOrderSelection,
   getOccupiedInvoiceOrderIds,
   getSelectedInvoiceSummary,
-  isPlatformInvoiceApplicationSnapshot,
   invoiceTitleOptions,
   invoiceTypeOptions,
   validateInvoiceSubmission,
@@ -70,6 +69,8 @@ export function InvoiceRecords({
   onUpdateInvoiceRejectionReasons,
   onUpdateInvoiceSelections,
   onUpdateInvoiceMeta,
+  onRefreshPlatformInvoices,
+  onMarkInvoiceApplicationSyncFailed,
 }: {
   now: number;
   orders: RecentOrder[];
@@ -97,6 +98,17 @@ export function InvoiceRecords({
       Pick<ProfileLocalState, 'invoiceType' | 'invoiceTitle' | 'receiverEmail'>
     >,
   ) => void;
+  onRefreshPlatformInvoices: (options?: {
+    clearSelectedInvoiceOrderIds?: boolean;
+    resolveSyncFailureMode?: 'none' | 'auto' | 'always';
+    successMessage?: string;
+  }) => Promise<boolean>;
+  onMarkInvoiceApplicationSyncFailed: (options: {
+    message: string;
+    mode: ProfileInvoiceApplicationSyncMode;
+    request?: ProfileInvoiceApplicationSyncRequest;
+    clearSelectedInvoiceOrderIds?: boolean;
+  }) => void;
 }) {
   const [notice, setNotice] = useState('');
   const [isSubmittingPlatformInvoice, setIsSubmittingPlatformInvoice] =
@@ -107,6 +119,11 @@ export function InvoiceRecords({
   const canRequestVatSpecial = canRequestVatSpecialInvoice(
     enterpriseVerification,
   );
+  const canUseEnterpriseInvoiceTitle = canRequestVatSpecial;
+  const effectiveInvoiceTitle =
+    invoiceTitle === 'enterprise' && !canUseEnterpriseInvoiceTitle
+      ? 'personal'
+      : invoiceTitle;
   const visibleInvoices = isPlatformMode
     ? invoices.filter(item => invoiceDetails[item.id]?.platformSynced)
     : invoices;
@@ -123,14 +140,13 @@ export function InvoiceRecords({
     selectedOrderText: selectedInvoiceOrderText,
   } = getSelectedInvoiceSummary(invoiceableOrders, selectedInvoiceOrderIds);
   const platformInvoiceTitleText = getInvoiceTitleText({
-    invoiceTitle,
+    invoiceTitle: effectiveInvoiceTitle,
     currentInvoiceTitle:
       visibleInvoices[0]?.title ||
       enterpriseVerification?.enterpriseName ||
       account.displayName.trim() ||
-      shipperSummary.displayName,
+      '个人货主',
     accountDisplayName: account.displayName,
-    fallbackDisplayName: shipperSummary.displayName,
     enterpriseVerification,
   });
 
@@ -158,6 +174,14 @@ export function InvoiceRecords({
     selectedInvoiceOrderIds,
   ]);
 
+  useEffect(() => {
+    if (invoiceTitle === effectiveInvoiceTitle) {
+      return;
+    }
+
+    onUpdateInvoiceMeta({invoiceTitle: effectiveInvoiceTitle});
+  }, [effectiveInvoiceTitle, invoiceTitle, onUpdateInvoiceMeta]);
+
   const toggleInvoiceOrder = (order: ProfileInvoiceableOrderItem) => {
     const nextSelection = getNextInvoiceOrderSelection(
       selectedInvoiceOrderIds,
@@ -172,41 +196,6 @@ export function InvoiceRecords({
     onUpdateInvoiceSelections(nextSelection.selectedInvoiceOrderIds);
   };
 
-  const syncPlatformInvoices = async () => {
-    if (!platformProfileApi) {
-      return false;
-    }
-
-    const invoiceApplications = await platformProfileApi.getInvoices();
-    const nextInvoiceState = createLocalInvoiceStateFromPlatformApplications(
-      invoiceApplications.filter(isPlatformInvoiceApplicationSnapshot),
-    );
-    const nextInvoiceMeta: Partial<
-      Pick<ProfileLocalState, 'invoiceType' | 'invoiceTitle' | 'receiverEmail'>
-    > = {
-      ...(nextInvoiceState.invoiceType
-        ? { invoiceType: nextInvoiceState.invoiceType }
-        : {}),
-      ...(nextInvoiceState.invoiceTitle
-        ? { invoiceTitle: nextInvoiceState.invoiceTitle }
-        : {}),
-      ...(nextInvoiceState.receiverEmail
-        ? { receiverEmail: nextInvoiceState.receiverEmail }
-        : {}),
-    };
-
-    onUpdateInvoices(nextInvoiceState.invoices);
-    onUpdateInvoiceRejectionReasons(nextInvoiceState.invoiceRejectionReasons);
-    onUpdateInvoiceDetails(nextInvoiceState.invoiceDetails);
-    onUpdateInvoiceSelections([]);
-
-    if (Object.keys(nextInvoiceMeta).length > 0) {
-      onUpdateInvoiceMeta(nextInvoiceMeta);
-    }
-
-    return true;
-  };
-
   const submitPlatformInvoice = async () => {
     if (!platformProfileApi || isSubmittingPlatformInvoice) {
       return;
@@ -216,7 +205,9 @@ export function InvoiceRecords({
       receiverEmail,
       selectedOrderCount: selectedInvoiceOrders.length,
       invoiceType,
+      invoiceTitle: effectiveInvoiceTitle,
       canRequestVatSpecialInvoice: canRequestVatSpecial,
+      canUseEnterpriseInvoiceTitle,
     });
 
     if (validation.notice) {
@@ -236,50 +227,56 @@ export function InvoiceRecords({
       return;
     }
 
+    const retryRequest: ProfileInvoiceApplicationSyncRequest = {
+      invoiceType,
+      invoiceTitleType: effectiveInvoiceTitle,
+      invoiceTitle: platformInvoiceTitleText,
+      receiverEmail: validation.trimmedEmail,
+      orderIds: platformOrderIds,
+    };
+
     setIsSubmittingPlatformInvoice(true);
 
     try {
-      await platformProfileApi.createInvoiceApplication({
-        invoiceType,
-        invoiceTitleType: invoiceTitle,
-        invoiceTitle: platformInvoiceTitleText,
-        receiverEmail: validation.trimmedEmail,
-        orderIds: platformOrderIds,
-      });
+      await platformProfileApi.createInvoiceApplication(retryRequest);
 
       try {
-        await syncPlatformInvoices();
+        await onRefreshPlatformInvoices({
+          clearSelectedInvoiceOrderIds: true,
+          resolveSyncFailureMode: 'always',
+          successMessage: '平台发票申请已提交，状态已同步。',
+        });
         setNotice('平台发票申请已提交，状态已同步。');
       } catch (refreshError) {
-        onUpdateInvoiceSelections([]);
-        setNotice('平台发票申请已提交，但申请记录刷新失败，请稍后重试。');
-
-        if (
+        const noticeText =
           refreshError instanceof PlatformApiError &&
           refreshError.code === 'AUTH_ACCESS_TOKEN_MISSING'
-        ) {
-          setNotice('平台发票申请已提交，重新登录后再刷新申请记录。');
-        }
+            ? '平台发票申请已提交，重新登录后再刷新申请记录。'
+            : '平台发票申请已提交，但申请记录刷新失败，请稍后重试。';
+        onMarkInvoiceApplicationSyncFailed({
+          message: noticeText,
+          mode: 'refresh',
+          clearSelectedInvoiceOrderIds: true,
+        });
+        setNotice(noticeText);
       }
     } catch (error) {
-      if (
+      const noticeText =
         error instanceof PlatformApiError &&
         error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-      ) {
-        setNotice('平台发票申请需要重新登录后再提交。');
-      } else if (
-        error instanceof PlatformApiError &&
-        error.code === 'NETWORK_ERROR'
-      ) {
-        setNotice('平台发票申请失败，请检查网络后重试。');
-      } else if (
-        error instanceof PlatformApiError &&
-        /[\u4e00-\u9fa5]/.test(error.message)
-      ) {
-        setNotice(error.message);
-      } else {
-        setNotice('平台发票申请失败，请稍后重试。');
-      }
+          ? '平台发票申请需要重新登录后再提交。'
+          : error instanceof PlatformApiError && error.code === 'NETWORK_ERROR'
+          ? '平台发票申请失败，请检查网络后重试。'
+          : error instanceof PlatformApiError &&
+            /[\u4e00-\u9fa5]/.test(error.message)
+          ? error.message
+          : '平台发票申请失败，请稍后重试。';
+      onMarkInvoiceApplicationSyncFailed({
+        message: noticeText,
+        mode: 'submit',
+        request: retryRequest,
+      });
+      setNotice(noticeText);
     } finally {
       setIsSubmittingPlatformInvoice(false);
     }
@@ -296,7 +293,9 @@ export function InvoiceRecords({
       receiverEmail,
       selectedOrderCount: selectedInvoiceOrders.length,
       invoiceType,
+      invoiceTitle: effectiveInvoiceTitle,
       canRequestVatSpecialInvoice: canRequestVatSpecial,
+      canUseEnterpriseInvoiceTitle,
     });
 
     if (validation.notice) {
@@ -313,10 +312,9 @@ export function InvoiceRecords({
       selectedInvoiceOrderIds,
       invoiceTypeText: getInvoiceTypeText(invoiceType),
       invoiceTitleText: getInvoiceTitleText({
-        invoiceTitle,
+        invoiceTitle: effectiveInvoiceTitle,
         currentInvoiceTitle: targetInvoice.title,
         accountDisplayName: account.displayName,
-        fallbackDisplayName: shipperSummary.displayName,
         enterpriseVerification,
       }),
       receiverEmail: validation.trimmedEmail,
@@ -463,7 +461,7 @@ export function InvoiceRecords({
       <Text style={styles.detailMeta}>发票抬头</Text>
       <View style={styles.draftChoiceGrid}>
         {invoiceTitleOptions.map(option => {
-          const active = invoiceTitle === option.id;
+          const active = effectiveInvoiceTitle === option.id;
 
           return (
             <Pressable
@@ -474,7 +472,17 @@ export function InvoiceRecords({
                 active && styles.draftChoiceButtonActive,
                 pressed && styles.pressedButton,
               ]}
-              onPress={() => onUpdateInvoiceMeta({ invoiceTitle: option.id })}
+              onPress={() => {
+                if (
+                  option.id === 'enterprise' &&
+                  !canUseEnterpriseInvoiceTitle
+                ) {
+                  setNotice('企业抬头需先提交企业认证资料');
+                  return;
+                }
+
+                onUpdateInvoiceMeta({invoiceTitle: option.id});
+              }}
             >
               <Text
                 style={[

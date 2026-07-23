@@ -16,6 +16,7 @@ import {
   getDriverAdvanceButtonText,
   getDriverExecutionReceiptFileIds,
   getDriverOrderActionFailureNotice,
+  getDriverOrderPickupDistanceText,
   getDriverReceiptUploadButtonText,
   getDriverStatusText,
   getDriverWithdrawalStatusText,
@@ -283,7 +284,34 @@ test('filters the order hall by vehicle preferences and builds the notice', () =
   expect(
     createDriverOrderHallNotice(orders, acceptance({ vehicleTypePreferences: ['crane'] })),
   ).toBe('当前接单车型下暂无匹配订单。');
+  expect(
+    createDriverOrderHallNotice(
+      [
+        order({ id: 'c', pickupDistanceMeters: 12000 }),
+        order({ id: 'd', pickupDistanceMeters: 36000 }),
+      ],
+      acceptance({ maxDistanceKm: 10 }),
+    ),
+  ).toBe('当前接单范围内暂无匹配订单。');
   expect(createDriverOrderHallNotice([], acceptance())).toBe('暂无可接订单。');
+});
+
+test('filters the order hall by pickup distance and formats distance text', () => {
+  const orders = [
+    order({ id: 'near', pickupDistanceMeters: 12000 }),
+    order({ id: 'far', pickupDistanceMeters: 36000 }),
+    order({ id: 'unknown' }),
+  ];
+
+  expect(
+    filterDriverOrderHallOrders(orders, acceptance({ maxDistanceKm: 30 })).map(
+      o => o.id,
+    ),
+  ).toEqual(['near', 'unknown']);
+  expect(getDriverOrderPickupDistanceText(order({ pickupDistanceMeters: 12345 }))).toBe(
+    '约 12.3 公里',
+  );
+  expect(getDriverOrderPickupDistanceText(order())).toBe('');
 });
 
 test('formats acceptance vehicle types with fallback to raw id', () => {

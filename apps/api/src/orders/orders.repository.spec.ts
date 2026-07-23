@@ -1,9 +1,13 @@
 import type { DriverAcceptOrderEventPayload } from '../driver-orders/dto';
 import {
+  createAdminOrderBatchCancelFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
 } from './order-mutation-idempotency';
-import type { CreateShipperOrderRequest } from './dto';
+import type {
+  BatchCancelAdminOrdersRequest,
+  CreateShipperOrderRequest,
+} from './dto';
 import type { ShipperCouponRecord } from '../profile-coupons/dto';
 import {
   InMemoryProfileCouponsStore,
@@ -11,6 +15,7 @@ import {
 } from '../profile-coupons/profile-coupons.repository';
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import {
+  type ExecuteAdminBatchCancelInput,
   type ExecuteOrderCreateInput,
   type ExecuteOrderMutationInput,
   InMemoryOrdersRepository,
@@ -674,6 +679,174 @@ describe('PrismaOrdersRepository order coupon mutations', () => {
   });
 });
 
+describe('PrismaOrdersRepository admin batch cancel idempotency', () => {
+  const now = new Date('2026-07-14T08:00:00.000Z');
+
+  it('cancels waiting orders in one transaction and stores a batch snapshot', async () => {
+    const firstCurrent = createPrismaOrderRecord(createOrderInput(), now, {
+      id: 'order-1',
+      orderNo: 'HY202607140000000001',
+      shipperId: 'shipper-1',
+    });
+    const secondCurrent = createPrismaOrderRecord(
+      createOrderInput({ pickupAddress: '南山区科技园' }),
+      now,
+      {
+        id: 'order-2',
+        orderNo: 'HY202607140000000002',
+        shipperId: 'shipper-2',
+      },
+    );
+    const updatedAt = new Date('2026-07-14T08:00:01.000Z');
+    const firstUpdated = createPrismaOrderRecord(createOrderInput(), updatedAt, {
+      id: firstCurrent.id,
+      orderNo: firstCurrent.orderNo,
+      shipperId: firstCurrent.shipperId,
+      status: 'cancelled',
+      createdAt: firstCurrent.createdAt,
+      events: [
+        ...firstCurrent.events,
+        {
+          id: 'event-cancelled-1',
+          actorUserId: 'admin-1',
+          eventType: 'cancelled',
+          noteText: '后台取消：运营按筛选结果批量清理 waiting 单',
+          attachmentFileIds: [],
+          createdAt: updatedAt,
+        },
+      ],
+    });
+    const secondUpdated = createPrismaOrderRecord(
+      createOrderInput({ pickupAddress: '南山区科技园' }),
+      updatedAt,
+      {
+        id: secondCurrent.id,
+        orderNo: secondCurrent.orderNo,
+        shipperId: secondCurrent.shipperId,
+        status: 'cancelled',
+        createdAt: secondCurrent.createdAt,
+        events: [
+          ...secondCurrent.events,
+          {
+            id: 'event-cancelled-2',
+            actorUserId: 'admin-1',
+            eventType: 'cancelled',
+            noteText: '后台取消：运营按筛选结果批量清理 waiting 单',
+            attachmentFileIds: [],
+            createdAt: updatedAt,
+          },
+        ],
+      },
+    );
+    const input = createAdminBatchCancelInput([
+      {
+        orderId: secondCurrent.id,
+        baseUpdatedAtIso: secondCurrent.updatedAt.toISOString(),
+      },
+      {
+        orderId: firstCurrent.id,
+        baseUpdatedAtIso: firstCurrent.updatedAt.toISOString(),
+      },
+    ]);
+    const { repository, prisma, transaction } = createPrismaBatchCancelHarness(
+      [firstCurrent, secondCurrent],
+      [firstUpdated, secondUpdated],
+      updatedAt,
+    );
+
+    await expect(
+      repository.executeIdempotentAdminBatchCancel(input),
+    ).resolves.toMatchObject({
+      orderIds: [secondCurrent.id, firstCurrent.id],
+      updatedCount: 2,
+      items: [
+        expect.objectContaining({
+          id: secondCurrent.id,
+          status: 'cancelled',
+        }),
+        expect.objectContaining({
+          id: firstCurrent.id,
+          status: 'cancelled',
+        }),
+      ],
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(transaction.order.updateMany).toHaveBeenCalledTimes(2);
+    expect(transaction.orderIdempotencyRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorUserId: 'admin-1',
+          orderId: secondCurrent.id,
+          operation: 'admin_batch_cancel',
+        }),
+      }),
+    );
+    expect(transaction.orderIdempotencyRecord.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'idempotency-batch-cancel' },
+        data: {
+          responseSnapshot: expect.objectContaining({
+            orderIds: [secondCurrent.id, firstCurrent.id],
+            updatedCount: 2,
+          }),
+        },
+      }),
+    );
+  });
+
+  it('replays the committed batch snapshot after a P2002 reservation race', async () => {
+    const input = createAdminBatchCancelInput([
+      {
+        orderId: 'order-2',
+        baseUpdatedAtIso: '2026-07-14T08:00:00.000Z',
+      },
+      {
+        orderId: 'order-1',
+        baseUpdatedAtIso: '2026-07-14T08:00:00.000Z',
+      },
+    ]);
+    const responseSnapshot = {
+      orderIds: ['order-2', 'order-1'],
+      updatedCount: 2,
+      items: [
+        expect.objectContaining({ id: 'order-2', status: 'cancelled' }),
+        expect.objectContaining({ id: 'order-1', status: 'cancelled' }),
+      ],
+    };
+    const { repository, prisma } = createPrismaBatchCancelHarness([], [], now);
+    prisma.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+    prisma.orderIdempotencyRecord.findUnique.mockResolvedValueOnce({
+      id: 'idempotency-existing',
+      actorUserId: input.actorUserId,
+      orderId: input.input.items[0].orderId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot: {
+        orderIds: ['order-2', 'order-1'],
+        updatedCount: 2,
+        items: [
+          {
+            id: 'order-2',
+            status: 'cancelled',
+          },
+          {
+            id: 'order-1',
+            status: 'cancelled',
+          },
+        ],
+      },
+      createdAt: now,
+      expiresAt: new Date(input.expiresAtIso),
+    });
+
+    await expect(
+      repository.executeIdempotentAdminBatchCancel(input),
+    ).resolves.toEqual(responseSnapshot);
+  });
+});
+
 describe('InMemoryOrdersRepository order mutation idempotency', () => {
   function createRepository(initialNowIso = '2026-07-12T08:00:00.000Z') {
     let now = new Date(initialNowIso);
@@ -806,6 +979,85 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
         event => event.eventType === 'driver_accepted',
       ),
     ).toHaveLength(1);
+  });
+
+  it('replays one successful admin batch cancel without adding extra events', async () => {
+    const { repository } = createRepository();
+    const firstOrder = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    const secondOrder = await repository.seedOrderForTest(
+      'shipper-2',
+      createOrderInput({ pickupAddress: '南山区科技园' }),
+    );
+    const input = createAdminBatchCancelInput([
+      {
+        orderId: secondOrder.id,
+        baseUpdatedAtIso: secondOrder.updatedAtIso,
+      },
+      {
+        orderId: firstOrder.id,
+        baseUpdatedAtIso: firstOrder.updatedAtIso,
+      },
+    ]);
+
+    const first = await repository.executeIdempotentAdminBatchCancel(input);
+    const replay = await repository.executeIdempotentAdminBatchCancel(input);
+
+    expect(first).toMatchObject({
+      orderIds: [secondOrder.id, firstOrder.id],
+      updatedCount: 2,
+      items: [
+        expect.objectContaining({ id: secondOrder.id, status: 'cancelled' }),
+        expect.objectContaining({ id: firstOrder.id, status: 'cancelled' }),
+      ],
+    });
+    expect(replay).toEqual(first);
+    expect((await repository.findOrderById(firstOrder.id))?.events).toHaveLength(2);
+    expect((await repository.findOrderById(secondOrder.id))?.events).toHaveLength(2);
+  });
+
+  it('publishes no staged batch cancel state when any order is not waiting', async () => {
+    const { repository } = createRepository();
+    const waitingOrder = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    const loadingOrder = await repository.seedOrderForTest(
+      'shipper-2',
+      createOrderInput({ pickupAddress: '南山区科技园' }),
+    );
+    await repository.executeIdempotentOrderMutation(
+      createShipperStatusMutationInput(
+        loadingOrder.id,
+        loadingOrder.updatedAtIso,
+        'loading-key',
+      ),
+    );
+
+    await expect(
+      repository.executeIdempotentAdminBatchCancel(
+        createAdminBatchCancelInput([
+          {
+            orderId: waitingOrder.id,
+            baseUpdatedAtIso: waitingOrder.updatedAtIso,
+          },
+          {
+            orderId: loadingOrder.id,
+            baseUpdatedAtIso:
+              (await repository.findOrderById(loadingOrder.id))?.updatedAtIso ??
+              loadingOrder.updatedAtIso,
+          },
+        ]),
+      ),
+    ).rejects.toMatchObject({
+      code: 'ORDER_STATE_INVALID',
+      message: '当前订单状态不允许批量取消',
+    });
+    await expect(repository.findOrderById(waitingOrder.id)).resolves.toMatchObject({
+      status: 'waiting',
+    });
   });
 
   it('atomically replaces coupon A with coupon B during a shipper update', async () => {
@@ -1728,6 +1980,77 @@ function createPrismaMutationHarness(
   };
 }
 
+function createPrismaBatchCancelHarness(
+  currentOrders: PrismaOrderRecord[],
+  updatedOrders: PrismaOrderRecord[],
+  now: Date,
+) {
+  let includeFindManyCall = 0;
+  const transaction = {
+    order: {
+      findUnique: jest.fn(),
+      findMany: jest.fn().mockImplementation((args: { select?: { id: true } }) => {
+        if (args?.select) {
+          return Promise.resolve(currentOrders.map(order => ({ id: order.id })));
+        }
+
+        includeFindManyCall += 1;
+        return Promise.resolve(
+          includeFindManyCall === 1 ? currentOrders : updatedOrders,
+        );
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      update: jest.fn(),
+      create: jest.fn(),
+      count: jest.fn(),
+    },
+    orderCargo: { upsert: jest.fn() },
+    orderLocation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    orderRequirement: { upsert: jest.fn() },
+    orderEvent: { create: jest.fn().mockResolvedValue({ id: 'event-updated' }) },
+    orderIdempotencyRecord: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest
+        .fn()
+        .mockResolvedValue({ id: 'idempotency-batch-cancel' }),
+      update: jest
+        .fn()
+        .mockResolvedValue({ id: 'idempotency-batch-cancel' }),
+    },
+    shipperCoupon: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    orderExceptionCase: { update: jest.fn() },
+    orderExceptionCaseAction: { create: jest.fn() },
+    paymentOrder: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    refund: { create: jest.fn() },
+    financialOutboxEvent: { create: jest.fn() },
+    financialTransaction: { create: jest.fn() },
+    settlement: { create: jest.fn() },
+    driverWallet: { upsert: jest.fn() },
+  };
+  const prisma = {
+    $transaction: jest.fn(
+      (callback: (client: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+    ),
+    orderIdempotencyRecord: { findUnique: jest.fn().mockResolvedValue(null) },
+  };
+
+  return {
+    repository: new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => now,
+    ),
+    prisma,
+    transaction,
+  };
+}
+
 function createPrismaCreateHarness(created: PrismaOrderRecord, now: Date) {
   const transaction = {
     $queryRaw: jest.fn().mockResolvedValue([{ value: 1n }]),
@@ -1836,6 +2159,28 @@ function createCancelMutationInput(
       },
     },
     ...overrides,
+  };
+}
+
+function createAdminBatchCancelInput(
+  items: BatchCancelAdminOrdersRequest['items'],
+  overrides: Partial<ExecuteAdminBatchCancelInput> = {},
+): ExecuteAdminBatchCancelInput {
+  const request: BatchCancelAdminOrdersRequest = {
+    items,
+    reasonText: '后台取消',
+    description: '运营按筛选结果批量清理 waiting 单',
+    ...(overrides.input as Partial<BatchCancelAdminOrdersRequest> | undefined),
+  };
+
+  return {
+    actorUserId: 'admin-1',
+    operation: 'admin_batch_cancel',
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
+    requestFingerprint: createAdminOrderBatchCancelFingerprint(request),
+    expiresAtIso: '2026-07-15T08:00:00.000Z',
+    ...overrides,
+    input: request,
   };
 }
 

@@ -122,7 +122,7 @@ test('creates an add-route change with pending route sync state', () => {
     ],
     syncState: {
       status: 'pending',
-      message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+      message: '常用路线已在本地更新，等待平台常用路线同步。',
       updatedAtText: '刚刚',
       updatedAtIso: expectedIso,
       queueItems: [
@@ -132,7 +132,7 @@ test('creates an add-route change with pending route sync state', () => {
           statusText: '待同步',
           updatedAtText: '刚刚',
           updatedAtIso: expectedIso,
-          noteText: '真实路线 API 未接入，本地先记录待同步路线。',
+          noteText: '常用路线已保留在本地，待平台常用路线同步。',
         },
       ],
     },
@@ -165,7 +165,7 @@ test('creates an update-route change with pending route sync state', () => {
     ],
     syncState: {
       status: 'pending',
-      message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+      message: '常用路线已在本地更新，等待平台常用路线同步。',
       updatedAtText: '刚刚',
       updatedAtIso: expectedIso,
       queueItems: [
@@ -175,7 +175,7 @@ test('creates an update-route change with pending route sync state', () => {
           statusText: '待同步',
           updatedAtText: '刚刚',
           updatedAtIso: expectedIso,
-          noteText: '真实路线 API 未接入，本地先记录待同步路线。',
+          noteText: '常用路线已保留在本地，待平台常用路线同步。',
         },
       ],
     },
@@ -194,7 +194,7 @@ test('creates a move-route change only when route order changes', () => {
     routes: [routes[0], routes[2], routes[1]],
     syncState: {
       status: 'pending',
-      message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+      message: '常用路线已在本地更新，等待平台常用路线同步。',
       updatedAtText: '刚刚',
       updatedAtIso: expectedIso,
       queueItems: [
@@ -204,7 +204,7 @@ test('creates a move-route change only when route order changes', () => {
           statusText: '待同步',
           updatedAtText: '刚刚',
           updatedAtIso: expectedIso,
-          noteText: '真实路线 API 未接入，本地先记录待同步路线。',
+          noteText: '常用路线已保留在本地，待平台常用路线同步。',
         },
       ],
     },
@@ -222,7 +222,7 @@ test('creates a delete-route change with pending route sync state', () => {
     routes: [routes[0], routes[1]],
     syncState: {
       status: 'pending',
-      message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+      message: '常用路线已在本地更新，等待平台常用路线同步。',
       updatedAtText: '刚刚',
       updatedAtIso: expectedIso,
       queueItems: [
@@ -232,7 +232,7 @@ test('creates a delete-route change with pending route sync state', () => {
           statusText: '待同步',
           updatedAtText: '刚刚',
           updatedAtIso: expectedIso,
-          noteText: '真实路线 API 未接入，本地先记录待同步路线。',
+          noteText: '常用路线已保留在本地，待平台常用路线同步。',
         },
       ],
     },

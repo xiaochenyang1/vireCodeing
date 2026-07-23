@@ -303,7 +303,11 @@ describe('InMemoryPaymentsRepository', () => {
         providerRefundNo: 'sandbox-refund-1',
         financialTransactionId: expect.any(String),
       },
-      payment: { id: 'payment-1', status: 'refunded' },
+      payment: {
+        id: 'payment-1',
+        status: 'refunded',
+        refundedAtIso: callback.occurredAtIso,
+      },
       financialTransaction: {
         type: 'online_refund',
         referenceId: 'refund-1',
@@ -712,6 +716,7 @@ describe('PrismaPaymentsRepository', () => {
         ...createPrismaSourceOrder(),
         status: 'cancelled',
         paymentStatus: 'refunded',
+        refundedAt: new Date('2026-07-15T08:02:00.000Z'),
       },
     });
     const refund = createPrismaRefundRecord();
@@ -772,7 +777,10 @@ describe('PrismaPaymentsRepository', () => {
       kind: 'applied',
       replayed: false,
       refund: { status: 'succeeded' },
-      payment: { status: 'refunded' },
+      payment: {
+        status: 'refunded',
+        refundedAtIso: '2026-07-15T08:02:00.000Z',
+      },
       financialTransaction: {
         id: 'refund-transaction-1',
         type: 'online_refund',
@@ -961,6 +969,7 @@ describe('PrismaPaymentsRepository', () => {
         ...createPrismaSourceOrder(),
         status: 'cancelled',
         paymentStatus: 'refunded',
+        refundedAt: new Date(callback.occurredAtIso),
       },
     });
     const refund = createPrismaRefundRecord({
@@ -1010,7 +1019,11 @@ describe('PrismaPaymentsRepository', () => {
       kind: 'applied',
       replayed: true,
       refund: { id: 'refund-1', status: 'succeeded' },
-      payment: { id: 'payment-1', status: 'refunded' },
+      payment: {
+        id: 'payment-1',
+        status: 'refunded',
+        refundedAtIso: callback.occurredAtIso,
+      },
       financialTransaction: { id: 'refund-transaction-1' },
     });
     expect(transaction.financialTransaction.create).not.toHaveBeenCalled();
@@ -1320,6 +1333,7 @@ function createPrismaSourceOrder(
     ...createSourceOrder(overrides),
     priceCents: 76000,
     payablePriceCents: 73000,
+    refundedAt: null,
   };
 }
 

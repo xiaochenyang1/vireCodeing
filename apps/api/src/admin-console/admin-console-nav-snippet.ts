@@ -32,6 +32,10 @@ const adminConsoleNavItems = [
     route: '/api/admin/file-maintenance-console',
   },
   {
+    label: '帮助工单',
+    route: '/api/admin/support-ticket-console',
+  },
+  {
     label: '异常工单',
     route: '/api/admin/order-exception-case-console',
   },

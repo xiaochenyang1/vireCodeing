@@ -18,7 +18,7 @@ const defaultModules = [
     key: 'order-management',
     title: '订单管理台',
     route: '/api/admin/order-management-console',
-    summary: '按状态、时间和关键字查后台订单列表，打开单笔详情看路线、金额、事件和异常快照。',
+    summary: '按状态、时间和关键字查后台订单列表，打开单笔详情看路线、金额、事件和异常快照，也能原子批量取消 waiting 订单。',
   },
   {
     key: 'session-governance',
@@ -51,6 +51,12 @@ const defaultModules = [
     summary: '查看文件总量、过期 pending 和 rejected 对象积压，并执行清理重试。',
   },
   {
+    key: 'support-ticket',
+    title: '帮助中心工单台',
+    route: '/api/admin/support-ticket-console',
+    summary: '分页查看货主帮助中心工单、打开详情并推进 pending -> processing -> resolved 状态流转。',
+  },
+  {
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
@@ -72,7 +78,7 @@ const defaultModules = [
     key: 'finance',
     title: '财务操作台',
     route: '/api/admin/finance-console',
-    summary: '查询 payments/refunds/settlements/withdrawals，查看财务报表和资金流水，并执行退款重试、提现通过/驳回。',
+    summary: '查询 payments/refunds/settlements/withdrawals，查看财务报表和资金流水，并执行退款重试、单条或批量提现审核。',
   },
 ] as const;
 

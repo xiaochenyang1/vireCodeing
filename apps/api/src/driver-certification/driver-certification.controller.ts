@@ -19,12 +19,15 @@ import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
+  BatchReviewDriverCertificationRequest,
   ReviewDriverCertificationRequest,
   SubmitDriverIdentityCertificationRequest,
   SubmitDriverVehicleCertificationRequest,
 } from './dto';
 import { DriverCertificationService } from './driver-certification.service';
 import {
+  batchReviewDriverCertificationSchema,
+  parseBatchReviewDriverCertificationRequest,
   parseListDriverCertificationQuery,
   parseReviewDriverCertificationRequest,
   parseSubmitDriverIdentityCertificationRequest,
@@ -126,6 +129,21 @@ export class AdminDriverCertificationController {
       await this.driverCertificationService.getAttachmentPreviews(
         getCurrentAdmin(request),
         driverId,
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('batch-review')
+  async batchReviewCertifications(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(batchReviewDriverCertificationSchema))
+    body: BatchReviewDriverCertificationRequest,
+  ) {
+    return ok(
+      await this.driverCertificationService.batchReviewCertifications(
+        getCurrentAdmin(request),
+        parseBatchReviewDriverCertificationRequest(body),
       ),
       getRequestId(request),
     );

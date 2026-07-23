@@ -32,6 +32,7 @@ import type {
   PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../services/platformFileApi';
+import type { createPlatformMapsApi } from '../services/platformMapsApi';
 import { confirmPlatformFileUploadIntent } from '../services/platformFileApi';
 import {
   type DraftSyncState,
@@ -43,6 +44,7 @@ import {
   createDraftChangeSnapshot,
   createDraftFormState,
   createDraftInitialFormState,
+  createLocalValueAddedServiceEstimate,
   createDraftPreviewState,
   createDraftPublishInput,
   createRemoveLatestCargoPhotoVoucherChange,
@@ -59,12 +61,24 @@ import {
 import {
   getProfileLocalState,
 } from '../utils/profileLocalState';
+import {
+  createLocalDraftAddressPreview,
+  createPlatformDraftAddressPreview,
+  getDraftAddressPreviewErrorNotice,
+  getDraftAddressPreviewSuccessNotice,
+  validateDraftAddressPreviewInput,
+  type DraftAddressPreview,
+} from '../utils/orderDraftAddress';
 
 type DraftPlatformFileApi = PlatformFileUploadConfirmationApi &
   Pick<
   ReturnType<typeof createPlatformFileApi>,
     'createUploadIntent'
   >;
+type DraftPlatformMapsApi = Pick<
+  ReturnType<typeof createPlatformMapsApi>,
+  'geocode'
+>;
 
 function mapPlatformFileToAttachmentRef(
   file: PlatformFileUploadRecord,
@@ -73,7 +87,7 @@ function mapPlatformFileToAttachmentRef(
   return {
     fileId: file.id,
     fileName,
-    purpose: file.purpose,
+    purpose: 'cargo',
     status: file.status,
     objectKey: file.objectKey,
     publicUrl: file.publicUrl,
@@ -92,6 +106,8 @@ export function OrderDraftScreen({
   onRetryDraftSync,
   onMarkDraftSyncFailed,
   platformFileApi,
+  platformMapsApi,
+  usesPlatformOrderApi = false,
   onPublish,
 }: {
   onBack: () => void;
@@ -105,6 +121,8 @@ export function OrderDraftScreen({
   onRetryDraftSync?: () => void;
   onMarkDraftSyncFailed?: () => void;
   platformFileApi?: DraftPlatformFileApi;
+  platformMapsApi?: DraftPlatformMapsApi;
+  usesPlatformOrderApi?: boolean;
   onPublish: (draftOrder: DraftOrderInput) => void;
 }) {
   const initialDraftFormState = createDraftInitialFormState(prefill);
@@ -154,6 +172,14 @@ export function OrderDraftScreen({
   const [deliveryPhone, setDeliveryPhone] = useState(
     initialDraftFormState.deliveryPhone,
   );
+  const [pickupAddressPreview, setPickupAddressPreview] =
+    useState<DraftAddressPreview>();
+  const [deliveryAddressPreview, setDeliveryAddressPreview] =
+    useState<DraftAddressPreview>();
+  const [isResolvingPickupAddress, setIsResolvingPickupAddress] =
+    useState(false);
+  const [isResolvingDeliveryAddress, setIsResolvingDeliveryAddress] =
+    useState(false);
   const [vehicleRequirement, setVehicleRequirement] =
     useState<VehicleRequirementOption['id']>(
       initialDraftFormState.vehicleRequirement,
@@ -319,6 +345,24 @@ export function OrderDraftScreen({
     onDraftChange?.(createDraftChangeSnapshot(draftFormState));
   }, [draftFormState, onDraftChange]);
 
+  useEffect(() => {
+    if (
+      pickupAddressPreview &&
+      pickupAddress.trim() !== pickupAddressPreview.resolvedAddressText.trim()
+    ) {
+      setPickupAddressPreview(undefined);
+    }
+  }, [pickupAddress, pickupAddressPreview]);
+
+  useEffect(() => {
+    if (
+      deliveryAddressPreview &&
+      deliveryAddress.trim() !== deliveryAddressPreview.resolvedAddressText.trim()
+    ) {
+      setDeliveryAddressPreview(undefined);
+    }
+  }, [deliveryAddress, deliveryAddressPreview]);
+
   const saveDraft = () => {
     onSaveDraft?.(createDraftChangeSnapshot(draftFormState));
     setNotice(getSaveDraftNotice(weightText));
@@ -347,6 +391,10 @@ export function OrderDraftScreen({
         valueAddedServiceOptions,
         paymentMethodOptions,
       }),
+    [draftFormState],
+  );
+  const draftValueAddedServiceEstimate = useMemo(
+    () => createLocalValueAddedServiceEstimate(draftFormState),
     [draftFormState],
   );
 
@@ -408,6 +456,54 @@ export function OrderDraftScreen({
       currentFiles.slice(0, cargoPhotoChange.cargoPhotoCount),
     );
     setCargoPhotoCount(cargoPhotoChange.cargoPhotoCount);
+  };
+
+  const previewAddress = async ({
+    addressLabel,
+    addressText,
+    setPreview,
+    onAddressChange,
+    setIsResolving,
+  }: {
+    addressLabel: '装货地址' | '卸货地址';
+    addressText: string;
+    setPreview: (preview?: DraftAddressPreview) => void;
+    onAddressChange: (value: string) => void;
+    setIsResolving: (value: boolean) => void;
+  }) => {
+    const validation = validateDraftAddressPreviewInput(
+      addressLabel,
+      addressText,
+    );
+
+    if (validation.notice || !validation.trimmedAddress) {
+      setNotice(validation.notice);
+      return;
+    }
+
+    setIsResolving(true);
+
+    if (!platformMapsApi) {
+      setPreview(createLocalDraftAddressPreview(validation.trimmedAddress));
+      setNotice(getDraftAddressPreviewSuccessNotice(addressLabel, 'local'));
+      setIsResolving(false);
+      return;
+    }
+
+    try {
+      const geocodeResult = await platformMapsApi.geocode(
+        validation.trimmedAddress,
+      );
+      const nextPreview = createPlatformDraftAddressPreview(geocodeResult);
+
+      setPreview(nextPreview);
+      onAddressChange(nextPreview.resolvedAddressText);
+      setNotice(getDraftAddressPreviewSuccessNotice(addressLabel, 'platform'));
+    } catch (error) {
+      setNotice(getDraftAddressPreviewErrorNotice(addressLabel, error));
+    } finally {
+      setIsResolving(false);
+    }
   };
 
   const applyDraftPrefill = (nextPrefill: DraftOrderPrefill) => {
@@ -643,6 +739,7 @@ export function OrderDraftScreen({
           deliveryNoteText={deliveryNoteText}
           expectedDeliveryTimeText={expectedDeliveryTimeText}
           selectedServiceLabels={draftConfirmationDisplay.selectedServiceLabels}
+          serviceEstimate={draftValueAddedServiceEstimate}
           previewPriceText={draftConfirmationDisplay.previewPriceText}
           couponAdjustment={couponAdjustment}
           selectedPaymentMethodLabel={
@@ -667,6 +764,7 @@ export function OrderDraftScreen({
             descriptionText={descriptionText}
             onDescriptionTextChange={setDescriptionText}
             cargoPhotoCount={cargoPhotoCount}
+            cargoPhotoFiles={cargoPhotoFiles}
             onAddCargoPhotoVoucher={addCargoPhotoVoucher}
             onRemoveLatestCargoPhotoVoucher={removeLatestCargoPhotoVoucher}
           />
@@ -680,6 +778,17 @@ export function OrderDraftScreen({
             onPickupContactChange={setPickupContact}
             pickupPhone={pickupPhone}
             onPickupPhoneChange={setPickupPhone}
+            pickupAddressPreview={pickupAddressPreview}
+            isResolvingPickupAddress={isResolvingPickupAddress}
+            onPreviewPickupAddress={addressText => {
+              previewAddress({
+                addressLabel: '装货地址',
+                addressText,
+                setPreview: setPickupAddressPreview,
+                onAddressChange: setPickupAddress,
+                setIsResolving: setIsResolvingPickupAddress,
+              }).catch(() => undefined);
+            }}
             deliveryAddress={deliveryAddress}
             onDeliveryAddressChange={setDeliveryAddress}
             deliveryNoteText={deliveryNoteText}
@@ -688,6 +797,17 @@ export function OrderDraftScreen({
             onDeliveryContactChange={setDeliveryContact}
             deliveryPhone={deliveryPhone}
             onDeliveryPhoneChange={setDeliveryPhone}
+            deliveryAddressPreview={deliveryAddressPreview}
+            isResolvingDeliveryAddress={isResolvingDeliveryAddress}
+            onPreviewDeliveryAddress={addressText => {
+              previewAddress({
+                addressLabel: '卸货地址',
+                addressText,
+                setPreview: setDeliveryAddressPreview,
+                onAddressChange: setDeliveryAddress,
+                setIsResolving: setIsResolvingDeliveryAddress,
+              }).catch(() => undefined);
+            }}
           />
 
           <VehicleTimeSection
@@ -716,6 +836,7 @@ export function OrderDraftScreen({
             onLoadingWorkerCountChange={setLoadingWorkerCount}
             insuredValueText={insuredValueText}
             onInsuredValueTextChange={setInsuredValueText}
+            serviceEstimate={draftValueAddedServiceEstimate}
           />
 
           <PriceSection
@@ -728,6 +849,7 @@ export function OrderDraftScreen({
             onSelectedCouponChange={setSelectedCouponId}
             paymentMethod={paymentMethod}
             onPaymentMethodChange={setPaymentMethod}
+            usesPlatformOrderApi={usesPlatformOrderApi}
           />
 
           <DraftPublishActionsCard
@@ -743,4 +865,3 @@ export function OrderDraftScreen({
     </ScrollView>
   );
 }
-

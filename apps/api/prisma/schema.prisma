@@ -25,6 +25,7 @@ enum VerificationPurpose {
 }
 
 enum FilePurpose {
+  avatar
   identity
   cargo
   exception
@@ -110,6 +111,12 @@ enum PushDeliveryStatus {
   failed
 }
 
+enum SupportTicketStatus {
+  pending
+  processing
+  resolved
+}
+
 model User {
   id                          String                       @id @default(uuid())
   phone                       String                       @unique
@@ -149,6 +156,7 @@ model User {
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
   inboxMessages                InboxMessage[]             @relation("InboxMessageRecipient")
+  shipperSupportTickets        ShipperSupportTicket[]
 }
 
 model AuthSession {
@@ -192,14 +200,24 @@ model FileObject {
   status      FileStatus @default(pending)
   createdAt   DateTime   @default(now())
   owner        User       @relation(fields: [ownerUserId], references: [id])
+  shipperProfileAvatar ShipperProfile? @relation("ShipperProfileAvatar")
 }
 
 model ShipperProfile {
-  userId           String @id
-  displayName      String
-  identityStatus   String @default("unverified")
-  enterpriseStatus String @default("unverified")
-  user             User   @relation(fields: [userId], references: [id])
+  userId                       String @id
+  displayName                  String
+  avatarFileId                 String? @unique
+  phoneProtectionEnabled       Boolean @default(true)
+  loginProtectionEnabled       Boolean @default(true)
+  orderNotificationEnabled     Boolean @default(true)
+  promotionNotificationEnabled Boolean @default(false)
+  privacyConfirmedAt           DateTime?
+  privacyPolicyVersion         String?
+  privacyPolicyVersionTitle    String?
+  identityStatus               String @default("unverified")
+  enterpriseStatus             String @default("unverified")
+  user                         User   @relation(fields: [userId], references: [id])
+  avatarFile                   FileObject? @relation("ShipperProfileAvatar", fields: [avatarFileId], references: [id], onDelete: SetNull)
 }
 
 enum OrderStatus {
@@ -504,6 +522,21 @@ model ShipperFrequentRoutes {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   shipper         User     @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperSupportTicket {
+  id            String              @id @default(uuid())
+  shipperId     String
+  channelName   String
+  description   String
+  status        SupportTicketStatus @default(pending)
+  statusHistory Json                @default("[]")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  shipper       User                @relation(fields: [shipperId], references: [id])
+
+  @@index([shipperId, createdAt], name: "ShipperSupportTicket_shipper_created_idx")
+  @@index([shipperId, status, createdAt], name: "ShipperSupportTicket_shipper_status_created_idx")
 }
 
 model ShipperCoupon {
@@ -925,4 +958,3 @@ model PushDeliveryAttempt {
   @@index([messageId, createdAt], name: "PushDeliveryAttempt_message_created_idx")
   @@index([status, createdAt], name: "PushDeliveryAttempt_status_created_idx")
 }
-

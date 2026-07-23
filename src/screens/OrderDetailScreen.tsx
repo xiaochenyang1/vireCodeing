@@ -1,5 +1,5 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { showUnavailable } from '../components/SectionHeader';
 import {
@@ -146,7 +146,13 @@ export function OrderDetailScreen({
 }) {
   const order = orders.find(item => item.id === orderId) ?? orders[0];
   const status = recentOrderStatusCopy[order.status];
-  const progressAction = getOrderProgressAction(order.status);
+  const usesPlatformOrderActions = Boolean(
+    platformOrderApi && order.platformOrderId,
+  );
+  const progressAction = getOrderProgressAction(
+    order.status,
+    usesPlatformOrderActions,
+  );
   const vehicleRequirementText = formatVehicleRequirementText(order);
   const [exceptionCases, setExceptionCases] = useState<
     PlatformOrderExceptionCase[]
@@ -161,6 +167,13 @@ export function OrderDetailScreen({
     useState<PlatformPaymentChannel>('wechat');
   const [isPaymentBusy, setIsPaymentBusy] = useState(false);
   const [paymentNotice, setPaymentNotice] = useState<string>();
+  const latestOrderRef = useRef(order);
+  const latestOnUpdateOrderRef = useRef(onUpdateOrder);
+
+  useEffect(() => {
+    latestOrderRef.current = order;
+    latestOnUpdateOrderRef.current = onUpdateOrder;
+  }, [order, onUpdateOrder]);
 
   useEffect(() => {
     if (!platformOrderApi || !order.platformOrderId) {
@@ -282,13 +295,13 @@ export function OrderDetailScreen({
         if (!active) {
           return;
         }
-        setPayment(latestPayment);
-        if (
-          latestPayment.channel === 'wechat' ||
-          latestPayment.channel === 'alipay'
-        ) {
-          setPaymentChannel(latestPayment.channel);
-        }
+        applyPaymentSnapshot({
+          order: latestOrderRef.current,
+          latestPayment,
+          onUpdateOrder: latestOnUpdateOrderRef.current,
+          setPayment,
+          setPaymentChannel,
+        });
       })
       .catch(error => {
         if (!active) {
@@ -332,16 +345,13 @@ export function OrderDetailScreen({
     });
   };
 
-  const applyPaymentSnapshot = (latestPayment: PlatformPaymentRecord) => {
-    setPayment(latestPayment);
-    onUpdateOrder(order.id, {
-      paymentStatus: mapPaymentRecordToOrderStatus(latestPayment),
-      paymentChannel: latestPayment.channel,
-    });
-  };
-
   const refreshPaymentStatus = async () => {
-    if (!platformPaymentApi || !order.platformOrderId) {
+    if (!order.platformOrderId) {
+      setPaymentNotice('当前订单还未同步到平台，暂不能刷新支付状态。');
+      return;
+    }
+
+    if (!platformPaymentApi) {
       setPaymentNotice('当前订单尚未连接平台支付服务。');
       return;
     }
@@ -349,9 +359,15 @@ export function OrderDetailScreen({
     setIsPaymentBusy(true);
     setPaymentNotice(undefined);
     try {
-      applyPaymentSnapshot(
-        await platformPaymentApi.getLatestPayment(order.platformOrderId),
-      );
+      applyPaymentSnapshot({
+        order,
+        latestPayment: await platformPaymentApi.getLatestPayment(
+          order.platformOrderId,
+        ),
+        onUpdateOrder,
+        setPayment,
+        setPaymentChannel,
+      });
     } catch {
       setPaymentNotice('支付状态刷新失败，请稍后重试。');
     } finally {
@@ -360,11 +376,17 @@ export function OrderDetailScreen({
   };
 
   const submitPlatformPayment = async () => {
-    if (
-      !platformPaymentApi ||
-      !platformPaymentSdk ||
-      !order.platformOrderId
-    ) {
+    if (!order.platformOrderId) {
+      setPaymentNotice('当前订单还未同步到平台，暂不能发起在线支付。');
+      return;
+    }
+
+    if (!platformPaymentApi) {
+      setPaymentNotice('当前订单尚未连接平台支付服务。');
+      return;
+    }
+
+    if (!platformPaymentSdk) {
       setPaymentNotice('当前客户端未配置可用的原生支付能力。');
       return;
     }
@@ -389,7 +411,13 @@ export function OrderDetailScreen({
             idempotencyKey: createPaymentIdempotencyKey(),
           });
 
-      applyPaymentSnapshot(result.payment);
+      applyPaymentSnapshot({
+        order,
+        latestPayment: result.payment,
+        onUpdateOrder,
+        setPayment,
+        setPaymentChannel,
+      });
       if (
         (result.status === 'cancelled' ||
           result.status === 'sdk-cancelled') &&
@@ -414,6 +442,21 @@ export function OrderDetailScreen({
 
   const runProgressAction = () => {
     if (!progressAction) {
+      return;
+    }
+
+    if (progressAction.nextStatus === 'completed') {
+      if (onCompleteOrder) {
+        onCompleteOrder(order);
+        setLocalNotice(progressAction.noticeText ?? '');
+        return;
+      }
+
+      updateOrderFromDetail({
+        status: progressAction.nextStatus,
+        updatedAtText: progressAction.updatedAtText,
+      });
+      setLocalNotice(progressAction.noticeText ?? '');
       return;
     }
 
@@ -448,7 +491,11 @@ export function OrderDetailScreen({
     if (order.status === 'confirming') {
       if (onCompleteOrder) {
         onCompleteOrder(order);
-        setLocalNotice('正在确认送达并同步平台订单。');
+        setLocalNotice(
+          usesPlatformOrderActions
+            ? '正在确认送达并同步平台订单。'
+            : '已确认送达，当前本地订单已完成。',
+        );
         return;
       }
 
@@ -456,7 +503,7 @@ export function OrderDetailScreen({
         status: 'completed',
         updatedAtText: '订单已完成 · 刚刚',
       });
-      setLocalNotice('已确认送达，当前本地演示默认货到付款完成。');
+      setLocalNotice('已确认送达，当前本地订单已完成。');
       return;
     }
 
@@ -538,21 +585,24 @@ export function OrderDetailScreen({
     updateOrderFromDetail({
       syncState: createSyncedOrderSyncState(undefined, 'local', now),
     });
-    setLocalNotice('后端同步已在本地标记为已同步，真实 API 接入后替换这里。');
+    setLocalNotice('订单同步已在本地标记为已同步，等待平台订单同步。');
   };
 
   const markOrderSyncFailed = () => {
     updateOrderFromDetail({
       syncState: createFailedOrderSyncState(undefined, 'local', now),
     });
-    setLocalNotice('订单同步已在本地标记失败，真实 API 接入后替换这里。');
+    setLocalNotice('订单同步已在本地标记失败，已保留本地订单队列。');
   };
 
   const submitCancellation = (cancellation: {
     reasonText: string;
     description: string;
   }) => {
-    const cancellationSettlement = getCancellationSettlement(order.status);
+    const cancellationSettlement = getCancellationSettlement(
+      order.status,
+      usesPlatformOrderActions,
+    );
     const cancellationRecord = {
       ...cancellation,
       ...cancellationSettlement,
@@ -575,7 +625,7 @@ export function OrderDetailScreen({
   };
 
   const submitBonus = (bonusAmount: string) => {
-    const bonusChange = createBonusOrderChange(bonusAmount);
+    const bonusChange = createBonusOrderChange(bonusAmount, order.bonusText);
 
     updateOrderFromDetail(bonusChange.changes);
     closeAllPanels();
@@ -608,7 +658,10 @@ export function OrderDetailScreen({
   };
 
   const submitChangeRequest = (description: string) => {
-    const changeRequest = createChangeRequestOrderChange(description);
+    const changeRequest = createChangeRequestOrderChange(
+      description,
+      usesPlatformOrderActions,
+    );
 
     if (onSubmitChangeRequest) {
       onSubmitChangeRequest(
@@ -741,12 +794,20 @@ export function OrderDetailScreen({
         <PaymentStatusCard
           orderPaymentStatus={order.paymentStatus ?? 'pending'}
           payment={payment}
+          orderPaymentChannel={order.paymentChannel}
+          paymentSettledAtIso={order.paymentSettledAtIso}
+          refundedAtIso={order.refundedAtIso}
           selectedChannel={paymentChannel}
           isBusy={isPaymentBusy}
           notice={paymentNotice}
           onSelectChannel={setPaymentChannel}
           onPay={submitPlatformPayment}
           onRefresh={refreshPaymentStatus}
+          supportsPlatformPaymentFlow={Boolean(platformPaymentApi)}
+          hasPlatformOrderBinding={Boolean(order.platformOrderId)}
+          canSubmitPaymentAction={Boolean(
+            platformPaymentApi && platformPaymentSdk && order.platformOrderId,
+          )}
         />
       ) : null}
 
@@ -797,6 +858,7 @@ export function OrderDetailScreen({
         order={order}
         vehicleRequirementText={vehicleRequirementText}
         onCallContact={callOrderContact}
+        supportsPlatformPaymentFlow={Boolean(platformPaymentApi)}
       />
 
       {order.driverInfo ? (
@@ -833,14 +895,25 @@ export function OrderDetailScreen({
       ) : null}
 
       {isPanelOpen('changeRequest') ? (
-        <ChangeRequestForm onSubmit={submitChangeRequest} />
+      <ChangeRequestForm
+        onSubmit={submitChangeRequest}
+        usesPlatformChangeRequest={usesPlatformOrderActions}
+        />
       ) : null}
 
       {isPanelOpen('cancellation') ? (
-        <CancellationForm onSubmit={submitCancellation} />
+        <CancellationForm
+          onSubmit={submitCancellation}
+          usesPlatformCancellation={usesPlatformOrderActions}
+        />
       ) : null}
 
-      {isPanelOpen('bonus') ? <BonusForm onSubmit={submitBonus} /> : null}
+      {isPanelOpen('bonus') ? (
+        <BonusForm
+          currentBonusText={order.bonusText}
+          onSubmit={submitBonus}
+        />
+      ) : null}
 
       {isPanelOpen('tracking') && order.driverInfo ? (
         <TrackingCard
@@ -924,6 +997,51 @@ function mapPaymentRecordToOrderStatus(
     return 'failed';
   }
   return payment.status;
+}
+
+function applyPaymentSnapshot({
+  order,
+  latestPayment,
+  onUpdateOrder,
+  setPayment,
+  setPaymentChannel,
+}: {
+  order: RecentOrder;
+  latestPayment: PlatformPaymentRecord;
+  onUpdateOrder: (orderId: string, changes: Partial<RecentOrder>) => void;
+  setPayment: (payment: PlatformPaymentRecord) => void;
+  setPaymentChannel: (channel: PlatformPaymentChannel) => void;
+}) {
+  setPayment(latestPayment);
+  if (
+    latestPayment.channel === 'wechat' ||
+    latestPayment.channel === 'alipay'
+  ) {
+    setPaymentChannel(latestPayment.channel);
+  }
+
+  const nextPaymentStatus = mapPaymentRecordToOrderStatus(latestPayment);
+  const nextPaymentSettledAtIso =
+    latestPayment.settledAtIso ?? order.paymentSettledAtIso;
+  const nextRefundedAtIso =
+    latestPayment.refundedAtIso ?? order.refundedAtIso;
+
+  if (
+    order.paymentStatus === nextPaymentStatus &&
+    order.paymentChannel === latestPayment.channel &&
+    order.paymentSettledAtIso === nextPaymentSettledAtIso &&
+    order.refundedAtIso === nextRefundedAtIso
+  ) {
+    return;
+  }
+
+  onUpdateOrder(order.id, {
+    paymentStatus: nextPaymentStatus,
+    paymentChannel: latestPayment.channel,
+    paymentSettledAtIso: nextPaymentSettledAtIso,
+    refundedAtIso: nextRefundedAtIso,
+    syncState: order.syncState,
+  });
 }
 
 function getPaymentFailureNotice(error: unknown) {

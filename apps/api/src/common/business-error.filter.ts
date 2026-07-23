@@ -44,6 +44,7 @@ const NOT_FOUND_ERROR_CODES = new Set<string>([
   ApiErrorCode.FILE_NOT_FOUND,
   ApiErrorCode.MESSAGE_NOT_FOUND,
   ApiErrorCode.ORDER_NOT_FOUND,
+  ApiErrorCode.SUPPORT_TICKET_NOT_FOUND,
 ]);
 const FORBIDDEN_ERROR_CODES = new Set<string>([
   ApiErrorCode.AUTH_FORBIDDEN,
@@ -74,6 +75,8 @@ const CONFLICT_ERROR_CODES = new Set<string>([
   ApiErrorCode.REFUND_NOT_AVAILABLE,
   ApiErrorCode.DRIVER_WITHDRAWAL_CONFLICT,
   ApiErrorCode.SETTLEMENT_DRIVER_MISSING,
+  ApiErrorCode.SUPPORT_TICKET_CONFLICT,
+  ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
 ]);
 
 @Catch(BusinessError)

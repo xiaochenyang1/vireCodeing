@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import type {
+  AdminBatchCancelOrderItem,
   AdminOrderFilters,
   AdminOrderReportQuery,
   AdvanceShipperOrderStatusRequest,
   AdminOrderAttachmentAuditListQuery,
+  BatchCancelAdminOrdersRequest,
   CancelShipperOrderRequest,
   CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
@@ -354,6 +356,38 @@ export const cancelShipperOrderSchema = z.object({
     .transform(value => (value === '' ? undefined : value)),
 });
 
+export const batchCancelAdminOrdersSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          orderId: z.string().trim().min(1, '订单 ID 不能为空').max(120),
+          baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+        }),
+      )
+      .min(1, '至少选择 1 笔订单')
+      .max(50, '单次最多批量取消 50 笔订单'),
+    reasonText: z.string().trim().min(1, '取消原因不能为空').max(50),
+    description: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .transform(value => (value === '' ? undefined : value)),
+  })
+  .superRefine((value, context) => {
+    const orderIds = value.items.map(item => item.orderId);
+    const uniqueOrderIds = new Set(orderIds);
+
+    if (uniqueOrderIds.size !== orderIds.length) {
+      context.addIssue({
+        code: 'custom',
+        message: '批量取消订单 ID 不能重复',
+        path: ['items'],
+      });
+    }
+  });
+
 export const completeShipperOrderSchema = z.object({
   baseUpdatedAtIso: baseUpdatedAtIsoSchema,
 });
@@ -473,6 +507,23 @@ export function parseCancelShipperOrderRequest(
   input: unknown,
 ): CancelShipperOrderRequest {
   return cancelShipperOrderSchema.parse(input);
+}
+
+export function parseBatchCancelAdminOrdersRequest(
+  input: unknown,
+): BatchCancelAdminOrdersRequest {
+  const parsed = batchCancelAdminOrdersSchema.parse(input);
+
+  return {
+    items: parsed.items.map(
+      (item): AdminBatchCancelOrderItem => ({
+        orderId: item.orderId,
+        baseUpdatedAtIso: item.baseUpdatedAtIso,
+      }),
+    ),
+    reasonText: parsed.reasonText,
+    description: parsed.description,
+  };
 }
 
 export function parseCompleteShipperOrderRequest(

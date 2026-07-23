@@ -729,6 +729,7 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     delete refund.failureCode;
     delete refund.failureMessage;
     payment.status = 'refunded';
+    payment.refundedAtIso = input.callback.occurredAtIso;
     payment.updatedAtIso = createdAtIso;
     delete payment.failureCode;
     delete payment.failureMessage;
@@ -1115,6 +1116,7 @@ type PrismaPaymentSourceOrderRecord = {
   priceCents: number | null;
   payablePriceCents: number | null;
   couponId: string | null;
+  refundedAt: Date | null;
 };
 
 type PrismaFinancialTransactionRecord = {
@@ -1255,6 +1257,7 @@ const paymentOrderInclude = {
       priceCents: true,
       payablePriceCents: true,
       couponId: true,
+      refundedAt: true,
     },
   },
 } as const;
@@ -2647,6 +2650,9 @@ function mapPrismaPaymentOrder(
     ...(payment.paidAt ? { paidAtIso: payment.paidAt.toISOString() } : {}),
     ...(payment.settledAt
       ? { settledAtIso: payment.settledAt.toISOString() }
+      : {}),
+    ...(payment.order.refundedAt
+      ? { refundedAtIso: payment.order.refundedAt.toISOString() }
       : {}),
     ...(payment.cancelledAt
       ? { cancelledAtIso: payment.cancelledAt.toISOString() }

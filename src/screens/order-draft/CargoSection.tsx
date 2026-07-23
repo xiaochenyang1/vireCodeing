@@ -1,10 +1,22 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { cargoTypeOptions } from '../../data/mockData';
 import { styles } from '../../styles';
-import type { CargoTypeOption } from '../../types';
+import type { CargoTypeOption, FileAttachmentRef } from '../../types';
 import { MAX_LOCAL_CARGO_DESCRIPTION_LENGTH } from '../../utils/order';
+
+function getCargoPhotoFileStatusText(status: FileAttachmentRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
 
 export function CargoSection({
   cargoType,
@@ -18,6 +30,7 @@ export function CargoSection({
   descriptionText,
   onDescriptionTextChange,
   cargoPhotoCount,
+  cargoPhotoFiles = [],
   onAddCargoPhotoVoucher,
   onRemoveLatestCargoPhotoVoucher,
 }: {
@@ -32,12 +45,14 @@ export function CargoSection({
   descriptionText: string;
   onDescriptionTextChange: (value: string) => void;
   cargoPhotoCount: number;
+  cargoPhotoFiles?: FileAttachmentRef[];
   onAddCargoPhotoVoucher: () => void | Promise<void>;
   onRemoveLatestCargoPhotoVoucher: () => void;
 }) {
-  const cargoPhotoVoucherIndexes = Array.from(
-    { length: cargoPhotoCount },
-    (_, index) => index + 1,
+  const uploadedCargoPhotoFiles = cargoPhotoFiles.slice(0, cargoPhotoCount);
+  const localPlaceholderIndexes = Array.from(
+    { length: Math.max(cargoPhotoCount - uploadedCargoPhotoFiles.length, 0) },
+    (_, index) => uploadedCargoPhotoFiles.length + index + 1,
   );
 
   return (
@@ -123,15 +138,33 @@ export function CargoSection({
       {cargoPhotoCount > 0 ? (
         <View>
           <Text style={styles.draftSectionTitle}>货物图片凭证清单</Text>
-          {cargoPhotoVoucherIndexes.map(voucherIndex => (
-            <View key={voucherIndex} style={styles.driverInfoCard}>
-              <Text style={styles.detailMeta}>
-                {`本地图片凭证 ${voucherIndex}：待上传占位`}
-              </Text>
-              <Text style={styles.detailMeta}>
-                真实图片选择、预览和上传仍未接入。
-              </Text>
-            </View>
+          {uploadedCargoPhotoFiles.map((file, index) => (
+            <ImageCredentialCard
+              key={file.fileId}
+              title={`货物图片凭证：${file.fileName}`}
+              publicUrl={file.publicUrl}
+              placeholderLabel="货物图片"
+              metaLines={[
+                `来源：平台文件对象（${getCargoPhotoFileStatusText(file.status)}）`,
+                `文件 ID：${file.fileId}`,
+                ...(file.publicUrl
+                  ? ['已生成预览地址。']
+                  : file.objectKey
+                    ? ['已写入平台对象存储。']
+                    : []),
+              ]}
+              imageTestID={`draft-cargo-photo-preview-image-${index + 1}`}
+              placeholderTestID={`draft-cargo-photo-preview-placeholder-${index + 1}`}
+            />
+          ))}
+          {localPlaceholderIndexes.map(voucherIndex => (
+            <ImageCredentialCard
+              key={voucherIndex}
+              title={`本地图片凭证 ${voucherIndex}：本地已保存`}
+              placeholderLabel={`货物图片 ${voucherIndex}`}
+              metaLines={['来源：本地图片凭证占位']}
+              placeholderTestID={`draft-cargo-photo-preview-placeholder-${voucherIndex}`}
+            />
           ))}
           <Pressable
             testID="draft-cargo-photo-remove-latest"

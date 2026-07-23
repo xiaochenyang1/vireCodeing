@@ -97,6 +97,9 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
       .mockResolvedValueOnce(40)
       .mockResolvedValueOnce(6)
       .mockResolvedValueOnce(3);
+    prisma.shipperSupportTicket.count
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(2);
     prisma.orderExceptionCase.count
       .mockResolvedValueOnce(7)
       .mockResolvedValueOnce(4);
@@ -146,6 +149,11 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         totalCount: 40,
         rejectedCount: 6,
         expiredPendingCount: 3,
+      },
+      supportTickets: {
+        pendingCount: 5,
+        processingCount: 2,
+        openCount: 7,
       },
       orderExceptions: {
         pendingCount: 7,
@@ -285,6 +293,12 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         createdAt: { lt: new Date('2026-07-18T03:05:00.000Z') },
       },
     });
+    expect(prisma.shipperSupportTicket.count).toHaveBeenNthCalledWith(1, {
+      where: { status: 'pending' },
+    });
+    expect(prisma.shipperSupportTicket.count).toHaveBeenNthCalledWith(2, {
+      where: { status: 'processing' },
+    });
   });
 });
 
@@ -297,6 +311,7 @@ function createPrismaClient() {
     order: { count: jest.fn() },
     orderCargo: { count: jest.fn() },
     fileObject: { count: jest.fn() },
+    shipperSupportTicket: { count: jest.fn() },
     orderExceptionCase: { count: jest.fn() },
     shipperCoupon: { count: jest.fn() },
     paymentOrder: { count: jest.fn() },

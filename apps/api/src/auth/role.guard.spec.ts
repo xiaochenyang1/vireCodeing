@@ -6,8 +6,10 @@ import {
 import { DriverOrdersController } from '../driver-orders/driver-orders.controller';
 import { OrderDraftsController } from '../order-drafts/order-drafts.controller';
 import { OrdersController } from '../orders/orders.controller';
+import { ProfileAccountController } from '../profile-account/profile-account.controller';
 import { ProfileAddressBookController } from '../profile-address-book/profile-address-book.controller';
 import { ProfileFrequentRoutesController } from '../profile-frequent-routes/profile-frequent-routes.controller';
+import { SupportTicketsController } from '../support-tickets/support-tickets.controller';
 import { ApiErrorCode } from '../common/errors';
 import {
   AdminOnlyGuard,
@@ -23,8 +25,10 @@ describe('role guards', () => {
     [AdminDriverCertificationController, 'AdminOnlyGuard'],
     [OrdersController, 'ShipperOnlyGuard'],
     [OrderDraftsController, 'ShipperOnlyGuard'],
+    [ProfileAccountController, 'ShipperOnlyGuard'],
     [ProfileAddressBookController, 'ShipperOnlyGuard'],
     [ProfileFrequentRoutesController, 'ShipperOnlyGuard'],
+    [SupportTicketsController, 'ShipperOnlyGuard'],
   ])('protects %p with %s before request pipes run', (target, guardName) => {
     expect(getGuardNames(target)).toEqual(
       expect.arrayContaining(['AccessTokenGuard', guardName]),

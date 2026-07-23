@@ -2,6 +2,7 @@ import type { AuthenticatedUser } from '../auth/dto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { DriverCertificationRepository } from '../driver-certification/driver-certification.repository';
 import type { FilesRepository } from '../files/files.repository';
+import type { MapsService } from '../maps/maps.service';
 import type { ShipperOrderRecord } from '../orders/dto';
 import { assertOrderCanEnterDriverHall } from '../payments/payment-domain';
 import {
@@ -49,6 +50,7 @@ export class DriverOrdersService {
     private readonly orderMutationIdempotencyTtlSeconds = 86400,
     private readonly driverFinanceRepository?: DriverFinanceRepository,
     private readonly notificationsService?: NotificationsService,
+    private readonly mapsService?: Pick<MapsService, 'getDriverLocation'>,
   ) {}
 
   async listOrderHall(
@@ -56,7 +58,23 @@ export class DriverOrdersService {
     query: DriverOrderHallQuery,
   ): Promise<DriverOrderHallResult> {
     this.assertDriver(currentUser);
-    const result = await this.ordersRepository.listDriverOrderHall(query);
+    const acceptanceSettings = await this.acceptanceSettingsRepository.getAcceptanceSettings(
+      currentUser.id,
+    );
+    const driverLocation = this.mapsService
+      ? await this.mapsService.getDriverLocation(currentUser.id)
+      : null;
+    const result = await this.ordersRepository.listDriverOrderHall({
+      ...query,
+      maxDistanceKm: acceptanceSettings.maxDistanceKm,
+      vehicleTypePreferences: acceptanceSettings.vehicleTypePreferences,
+      ...(driverLocation
+        ? {
+            driverLatitude: driverLocation.latitude,
+            driverLongitude: driverLocation.longitude,
+          }
+        : {}),
+    });
 
     return {
       items: result.items,

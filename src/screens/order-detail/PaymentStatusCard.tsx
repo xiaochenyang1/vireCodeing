@@ -5,7 +5,7 @@ import type {
   PlatformPaymentRecord,
 } from '../../services/platformPaymentApi';
 import { colors } from '../../styles';
-import type { OrderPaymentStatus } from '../../types';
+import type { OrderPaymentStatus, PaymentChannel } from '../../types';
 
 const paymentStatusCopy: Record<
   OrderPaymentStatus | PlatformPaymentRecord['status'],
@@ -64,24 +64,47 @@ const paymentStatusCopy: Record<
 export function PaymentStatusCard({
   orderPaymentStatus,
   payment,
+  orderPaymentChannel,
+  paymentSettledAtIso,
+  refundedAtIso,
   selectedChannel,
   isBusy,
   notice,
   onSelectChannel,
   onPay,
   onRefresh,
+  supportsPlatformPaymentFlow = false,
+  hasPlatformOrderBinding = false,
+  canSubmitPaymentAction = true,
 }: {
   orderPaymentStatus: OrderPaymentStatus;
   payment?: PlatformPaymentRecord;
+  orderPaymentChannel?: PaymentChannel;
+  paymentSettledAtIso?: string;
+  refundedAtIso?: string;
   selectedChannel: PlatformPaymentChannel;
   isBusy: boolean;
   notice?: string;
   onSelectChannel: (channel: PlatformPaymentChannel) => void;
   onPay: () => void;
   onRefresh: () => void;
+  supportsPlatformPaymentFlow?: boolean;
+  hasPlatformOrderBinding?: boolean;
+  canSubmitPaymentAction?: boolean;
 }) {
   const effectiveStatus = payment?.status ?? orderPaymentStatus;
   const status = paymentStatusCopy[effectiveStatus];
+  const description = getPaymentStatusDescription(effectiveStatus, {
+    supportsPlatformPaymentFlow,
+    hasPlatformOrderBinding,
+  });
+  const factTexts = buildPaymentFactTexts({
+    payment,
+    orderPaymentChannel,
+    effectiveStatus,
+    paymentSettledAtIso,
+    refundedAtIso,
+  });
   const hasActivePayment =
     payment?.status === 'pending' || payment?.status === 'processing';
   const canPay =
@@ -89,6 +112,7 @@ export function PaymentStatusCard({
     orderPaymentStatus === 'pending' ||
     orderPaymentStatus === 'failed';
   const shouldShowPaymentAction =
+    canSubmitPaymentAction &&
     canPay &&
     effectiveStatus !== 'escrowed' &&
     effectiveStatus !== 'settled' &&
@@ -117,16 +141,15 @@ export function PaymentStatusCard({
         </Pressable>
       </View>
 
-      <Text style={cardStyles.description}>{status.description}</Text>
+      <Text style={cardStyles.description}>{description}</Text>
 
-      {payment ? (
+      {factTexts.length > 0 ? (
         <View style={cardStyles.factRow}>
-          <Text style={cardStyles.factText}>
-            金额 {formatPaymentAmount(payment.amountCents)}
-          </Text>
-          <Text style={cardStyles.factText}>
-            渠道 {formatPaymentChannel(payment.channel)}
-          </Text>
+          {factTexts.map((factText, index) => (
+            <Text key={`${index}-${factText}`} style={cardStyles.factText}>
+              {factText}
+            </Text>
+          ))}
         </View>
       ) : null}
 
@@ -175,6 +198,31 @@ export function PaymentStatusCard({
   );
 }
 
+function getPaymentStatusDescription(
+  status: OrderPaymentStatus | PlatformPaymentRecord['status'],
+  {
+    supportsPlatformPaymentFlow,
+    hasPlatformOrderBinding,
+  }: {
+    supportsPlatformPaymentFlow: boolean;
+    hasPlatformOrderBinding: boolean;
+  },
+) {
+  if (status === 'pending') {
+    if (supportsPlatformPaymentFlow && hasPlatformOrderBinding) {
+      return paymentStatusCopy.pending.description;
+    }
+
+    if (supportsPlatformPaymentFlow) {
+      return '当前订单还未同步到平台，需待平台订单创建后再发起支付。';
+    }
+
+    return '当前仍是本地演示订单，切到平台模式后可继续在线支付。';
+  }
+
+  return paymentStatusCopy[status].description;
+}
+
 function ChannelButton({
   channel,
   label,
@@ -218,7 +266,81 @@ function formatPaymentAmount(amountCents: number) {
   return `￥${(amountCents / 100).toFixed(2)}`;
 }
 
-function formatPaymentChannel(channel: PlatformPaymentRecord['channel']) {
+function buildPaymentFactTexts({
+  payment,
+  orderPaymentChannel,
+  effectiveStatus,
+  paymentSettledAtIso,
+  refundedAtIso,
+}: {
+  payment?: PlatformPaymentRecord;
+  orderPaymentChannel?: PaymentChannel;
+  effectiveStatus: OrderPaymentStatus | PlatformPaymentRecord['status'];
+  paymentSettledAtIso?: string;
+  refundedAtIso?: string;
+}) {
+  const facts: string[] = [];
+  const effectivePaymentSettledAtIso =
+    payment?.settledAtIso ?? paymentSettledAtIso;
+  const effectiveRefundedAtIso = payment?.refundedAtIso ?? refundedAtIso;
+
+  if (payment) {
+    facts.push(`金额 ${formatPaymentAmount(payment.amountCents)}`);
+  }
+
+  const effectiveChannel = payment?.channel ?? orderPaymentChannel;
+  if (effectiveChannel) {
+    facts.push(`渠道 ${formatPaymentChannel(effectiveChannel)}`);
+  }
+
+  if (payment?.paymentNo) {
+    facts.push(`支付单号 ${payment.paymentNo}`);
+  }
+
+  if (payment?.providerTradeNo) {
+    facts.push(`渠道流水 ${payment.providerTradeNo}`);
+  }
+
+  if (effectiveStatus === 'refunded' && effectiveRefundedAtIso) {
+    facts.push(`退款时间 ${formatPaymentDateTime(effectiveRefundedAtIso)}`);
+  }
+
+  if (
+    (effectiveStatus === 'settled' || effectiveStatus === 'refunded') &&
+    effectivePaymentSettledAtIso
+  ) {
+    facts.push(`结算时间 ${formatPaymentDateTime(effectivePaymentSettledAtIso)}`);
+  }
+
+  if (
+    payment?.paidAtIso &&
+    effectiveStatus !== 'pending' &&
+    effectiveStatus !== 'processing'
+  ) {
+    facts.push(`支付时间 ${formatPaymentDateTime(payment.paidAtIso)}`);
+  }
+
+  if (
+    (effectiveStatus === 'pending' || effectiveStatus === 'processing') &&
+    payment?.expiresAtIso
+  ) {
+    facts.push(`有效期至 ${formatPaymentDateTime(payment.expiresAtIso)}`);
+  }
+
+  if (effectiveStatus === 'cancelled' && payment?.cancelledAtIso) {
+    facts.push(`关闭时间 ${formatPaymentDateTime(payment.cancelledAtIso)}`);
+  }
+
+  if (payment?.updatedAtIso) {
+    facts.push(`服务端更新 ${formatPaymentDateTime(payment.updatedAtIso)}`);
+  }
+
+  return facts;
+}
+
+function formatPaymentChannel(
+  channel: PlatformPaymentRecord['channel'] | PaymentChannel,
+) {
   if (channel === 'wechat') {
     return '微信支付';
   }
@@ -226,6 +348,25 @@ function formatPaymentChannel(channel: PlatformPaymentRecord['channel']) {
     return '支付宝';
   }
   return '沙箱支付';
+}
+
+const SHANGHAI_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+function formatPaymentDateTime(value: string) {
+  const timestamp = Date.parse(value);
+
+  if (Number.isNaN(timestamp)) {
+    return value;
+  }
+
+  const shanghaiTime = new Date(timestamp + SHANGHAI_TIME_OFFSET_MS);
+  const year = shanghaiTime.getUTCFullYear();
+  const month = `${shanghaiTime.getUTCMonth() + 1}`.padStart(2, '0');
+  const day = `${shanghaiTime.getUTCDate()}`.padStart(2, '0');
+  const hours = `${shanghaiTime.getUTCHours()}`.padStart(2, '0');
+  const minutes = `${shanghaiTime.getUTCMinutes()}`.padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 const cardStyles = StyleSheet.create({

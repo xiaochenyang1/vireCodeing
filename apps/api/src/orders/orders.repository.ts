@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
 import type {
+  AdminBatchCancelOrderItem,
   AdvanceShipperOrderStatusRequest,
+  BatchCancelAdminOrdersRequest,
+  BatchCancelAdminOrdersResult,
   CancelShipperOrderRequest,
   CreateShipperOrderRequest,
   AdminOrderAttachmentAuditListQuery,
@@ -29,7 +32,10 @@ import type {
   OrderExceptionCaseStatus,
   UpdateOrderExceptionCaseRequest,
 } from '../order-exception-cases/dto';
-import type { OrderMutationOperation } from './order-mutation-idempotency';
+import {
+  ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION,
+  type OrderMutationOperation,
+} from './order-mutation-idempotency';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { ShipperCouponRecord } from '../profile-coupons/dto';
 import {
@@ -61,6 +67,7 @@ import type {
   PaymentOrderRecord,
   SettlementRecord,
 } from '../payments/dto';
+import { haversineDistanceMeters } from '../maps/map-provider';
 
 const DEFAULT_PLATFORM_FEE_RATE_BPS = 500;
 
@@ -158,6 +165,28 @@ export type ExecuteOrderMutationResult =
       kind: 'not-found';
     };
 
+export type BatchCancelAdminOrdersIdempotencyOperation =
+  typeof ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION;
+
+export type StoredOrderIdempotencyOperation =
+  | 'shipper_create'
+  | OrderMutationOperation
+  | BatchCancelAdminOrdersIdempotencyOperation;
+
+export type ExecuteAdminBatchCancelInput = {
+  actorUserId: string;
+  operation: BatchCancelAdminOrdersIdempotencyOperation;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  expiresAtIso: string;
+  input: BatchCancelAdminOrdersRequest;
+};
+
+export type ResolveExistingAdminBatchCancelInput = Pick<
+  ExecuteAdminBatchCancelInput,
+  'actorUserId' | 'operation' | 'idempotencyKey' | 'requestFingerprint'
+>;
+
 export type ExecuteExceptionCaseCompensationInput = {
   caseId: string;
   adminUserId: string;
@@ -247,6 +276,12 @@ export interface OrdersRepository {
   resolveExistingOrderMutation(
     input: ResolveExistingOrderMutationInput,
   ): Promise<ExecuteOrderMutationResult | undefined>;
+  executeIdempotentAdminBatchCancel(
+    input: ExecuteAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult>;
+  resolveExistingAdminBatchCancel(
+    input: ResolveExistingAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult | undefined>;
   updateOrder(
     orderId: string,
     actorUserId: string,
@@ -331,10 +366,10 @@ export interface OrdersRepository {
 type InMemoryOrderIdempotencyRecord = {
   actorUserId: string;
   orderId: string;
-  operation: 'shipper_create' | OrderMutationOperation;
+  operation: StoredOrderIdempotencyOperation;
   idempotencyKey: string;
   requestFingerprint: string;
-  responseSnapshot: ShipperOrderRecord;
+  responseSnapshot: unknown;
   createdAtIso: string;
   expiresAtIso: string;
 };
@@ -443,10 +478,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   }
 
   private findInMemoryIdempotencyRecord(
-    input: Pick<
-      ExecuteOrderCreateInput,
-      'actorUserId' | 'operation' | 'idempotencyKey'
-    >,
+    input: {
+      actorUserId: string;
+      operation: StoredOrderIdempotencyOperation;
+      idempotencyKey: string;
+    },
   ) {
     return this.orderIdempotencyRecords.find(
       record =>
@@ -950,6 +986,129 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       : undefined;
   }
 
+  async executeIdempotentAdminBatchCancel(
+    input: ExecuteAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult> {
+    const now = this.now();
+    const existingRecord = this.findInMemoryIdempotencyRecord(input);
+
+    if (existingRecord) {
+      return mapExistingInMemoryAdminBatchCancelRecord(
+        existingRecord,
+        input,
+        now,
+      );
+    }
+
+    const stagedOrders = structuredClone(this.orders);
+    const stagedRecords = structuredClone(this.orderIdempotencyRecords);
+    const stagedCoupons = this.couponStore.clone();
+    const stagedFinancialStore = this.financialStore.clone();
+    const updatedOrders: ShipperOrderRecord[] = [];
+
+    for (const item of input.input.items) {
+      const orderIndex = stagedOrders.findIndex(order => order.id === item.orderId);
+
+      if (orderIndex < 0) {
+        throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+      }
+
+      const currentOrder = stagedOrders[orderIndex];
+
+      if (currentOrder.updatedAtIso !== item.baseUpdatedAtIso) {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      }
+
+      if (currentOrder.status !== 'waiting') {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_STATE_INVALID,
+          '当前订单状态不允许批量取消',
+        );
+      }
+
+      const mutationInput = createAdminBatchCancelOrderMutationInput(
+        input.actorUserId,
+        item,
+        input,
+      );
+      const updatedAtIso = createNextUpdatedAtIso(
+        currentOrder.updatedAtIso,
+        now,
+      );
+      const nextOrder = cloneOrderRecord(currentOrder);
+      const couponPricing = applyInMemoryOrderCouponMutation(
+        stagedCoupons,
+        stagedOrders,
+        currentOrder,
+        mutationInput,
+        now,
+      );
+
+      applyInMemoryOrderFinancialMutation(
+        stagedFinancialStore,
+        currentOrder,
+        nextOrder,
+        mutationInput,
+        now,
+        this.platformFeeRateBps,
+      );
+      applyInMemoryOrderMutation(
+        nextOrder,
+        mutationInput,
+        updatedAtIso,
+        stagedOrders.length,
+        couponPricing,
+      );
+
+      stagedOrders[orderIndex] = nextOrder;
+      updatedOrders.push(cloneOrderRecord(nextOrder));
+    }
+
+    const responseSnapshot = createBatchCancelAdminOrdersResult(
+      input.input.items,
+      updatedOrders,
+    );
+
+    stagedRecords.push({
+      actorUserId: input.actorUserId,
+      orderId: input.input.items[0].orderId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot: cloneJsonValue(responseSnapshot),
+      createdAtIso: now.toISOString(),
+      expiresAtIso: input.expiresAtIso,
+    });
+
+    this.orders.splice(0, this.orders.length, ...stagedOrders);
+    this.orderIdempotencyRecords.splice(
+      0,
+      this.orderIdempotencyRecords.length,
+      ...stagedRecords,
+    );
+    this.couponStore.replace(stagedCoupons);
+    this.financialStore.replace(stagedFinancialStore);
+
+    return responseSnapshot;
+  }
+
+  async resolveExistingAdminBatchCancel(
+    input: ResolveExistingAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult | undefined> {
+    const existingRecord = this.findInMemoryIdempotencyRecord(input);
+
+    return existingRecord
+      ? mapExistingInMemoryAdminBatchCancelRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
+  }
+
   async updateOrder(
     orderId: string,
     _actorUserId: string,
@@ -1138,11 +1297,12 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const matchedOrders = this.orders.filter(
       order => order.status === 'waiting' && isOrderReadyForDriverHall(order),
     );
+    const filteredOrders = applyDriverOrderHallFilters(matchedOrders, query);
     const startIndex = (query.page - 1) * query.pageSize;
 
     return {
-      items: matchedOrders.slice(startIndex, startIndex + query.pageSize),
-      total: matchedOrders.length,
+      items: filteredOrders.slice(startIndex, startIndex + query.pageSize),
+      total: filteredOrders.length,
     };
   }
 
@@ -1491,7 +1651,7 @@ function mapExistingInMemoryOrderCreateRecord(
 
   return {
     kind: 'success',
-    order: cloneOrderRecord(record.responseSnapshot),
+    order: cloneOrderRecord(record.responseSnapshot as ShipperOrderRecord),
     replayed: true,
   };
 }
@@ -1504,7 +1664,7 @@ function mapExistingInMemoryOrderIdempotencyRecord(
   return mapExistingOrderIdempotencyRecord(
     {
       requestFingerprint: record.requestFingerprint,
-      responseSnapshot: record.responseSnapshot,
+      responseSnapshot: record.responseSnapshot as ShipperOrderRecord,
       expiresAtIso: record.expiresAtIso,
     },
     input,
@@ -2048,7 +2208,50 @@ function applyInMemoryOrderMutation(
 }
 
 function cloneOrderRecord(order: ShipperOrderRecord): ShipperOrderRecord {
-  return JSON.parse(JSON.stringify(order)) as ShipperOrderRecord;
+  return cloneJsonValue(order);
+}
+
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function createBatchCancelAdminOrdersResult(
+  items: AdminBatchCancelOrderItem[],
+  orders: ShipperOrderRecord[],
+): BatchCancelAdminOrdersResult {
+  return {
+    orderIds: items.map(item => item.orderId),
+    updatedCount: orders.length,
+    items: orders.map(order => cloneOrderRecord(order)),
+  };
+}
+
+function createAdminBatchCancelOrderMutationInput(
+  actorUserId: string,
+  item: AdminBatchCancelOrderItem,
+  input: Pick<
+    ExecuteAdminBatchCancelInput,
+    'idempotencyKey' | 'requestFingerprint' | 'expiresAtIso'
+  > & {
+    input: Pick<BatchCancelAdminOrdersRequest, 'reasonText' | 'description'>;
+  },
+): ExecuteOrderMutationInput {
+  return {
+    actorUserId,
+    orderId: item.orderId,
+    operation: 'shipper_cancel',
+    idempotencyKey: input.idempotencyKey,
+    requestFingerprint: input.requestFingerprint,
+    baseUpdatedAtIso: item.baseUpdatedAtIso,
+    expiresAtIso: input.expiresAtIso,
+    mutation: {
+      type: 'shipper_cancel',
+      input: {
+        reasonText: input.input.reasonText,
+        description: input.input.description,
+      },
+    },
+  };
 }
 
 function mapExistingOrderIdempotencyRecord(
@@ -2075,6 +2278,32 @@ function mapExistingOrderIdempotencyRecord(
   };
 }
 
+function mapExistingAdminBatchCancelRecord(
+  record: {
+    requestFingerprint: string;
+    responseSnapshot: BatchCancelAdminOrdersResult;
+    expiresAtIso: string;
+  },
+  input: ResolveExistingAdminBatchCancelInput,
+  now: Date,
+): BatchCancelAdminOrdersResult {
+  if (record.requestFingerprint !== input.requestFingerprint) {
+    throw new BusinessError(
+      ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+      'Idempotency-Key 已被其他请求复用',
+    );
+  }
+
+  if (Date.parse(record.expiresAtIso) <= now.getTime()) {
+    throw new BusinessError(
+      ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+      'Idempotency-Key 已过期',
+    );
+  }
+
+  return cloneJsonValue(record.responseSnapshot);
+}
+
 function mapExistingPrismaOrderIdempotencyRecord(
   record: PrismaOrderIdempotencyRecord,
   input: ResolveExistingOrderMutationInput,
@@ -2085,6 +2314,42 @@ function mapExistingPrismaOrderIdempotencyRecord(
       requestFingerprint: record.requestFingerprint,
       responseSnapshot: cloneOrderRecord(
         record.responseSnapshot as ShipperOrderRecord,
+      ),
+      expiresAtIso: record.expiresAt.toISOString(),
+    },
+    input,
+    now,
+  );
+}
+
+function mapExistingInMemoryAdminBatchCancelRecord(
+  record: InMemoryOrderIdempotencyRecord,
+  input: ResolveExistingAdminBatchCancelInput,
+  now: Date,
+) {
+  return mapExistingAdminBatchCancelRecord(
+    {
+      requestFingerprint: record.requestFingerprint,
+      responseSnapshot: cloneJsonValue(
+        record.responseSnapshot as BatchCancelAdminOrdersResult,
+      ),
+      expiresAtIso: record.expiresAtIso,
+    },
+    input,
+    now,
+  );
+}
+
+function mapExistingPrismaAdminBatchCancelRecord(
+  record: PrismaOrderIdempotencyRecord,
+  input: ResolveExistingAdminBatchCancelInput,
+  now: Date,
+) {
+  return mapExistingAdminBatchCancelRecord(
+    {
+      requestFingerprint: record.requestFingerprint,
+      responseSnapshot: cloneJsonValue(
+        record.responseSnapshot as BatchCancelAdminOrdersResult,
       ),
       expiresAtIso: record.expiresAt.toISOString(),
     },
@@ -2119,7 +2384,7 @@ function mapExistingPrismaOrderCreateRecord(
 function createOrderIdempotencyRecordWhereUnique(
   input: {
     actorUserId: string;
-    operation: 'shipper_create' | OrderMutationOperation;
+    operation: StoredOrderIdempotencyOperation;
     idempotencyKey: string;
   },
 ) {
@@ -3147,7 +3412,16 @@ type PrismaOrdersTransactionClient = {
   order: {
     create(args: unknown): Promise<PrismaOrderRecord>;
     count(args: unknown): Promise<number>;
-    findMany(args: unknown): Promise<Array<{ id: string }>>;
+    findMany: {
+      (args: {
+        where: unknown;
+        include: typeof orderInclude;
+      }): Promise<PrismaOrderRecord[]>;
+      (args: {
+        where: unknown;
+        select: { id: true };
+      }): Promise<Array<{ id: string }>>;
+    };
     updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<PrismaOrderRecord>;
     findUnique(args: unknown): Promise<PrismaOrderRecord | null>;
@@ -4323,6 +4597,205 @@ export class PrismaOrdersRepository implements OrdersRepository {
       : undefined;
   }
 
+  async executeIdempotentAdminBatchCancel(
+    input: ExecuteAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult> {
+    if (!this.prisma.$transaction || !this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order batch cancel idempotency client is required');
+    }
+
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const now = this.now();
+        const existingRecord =
+          await transaction.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (existingRecord) {
+          return mapExistingPrismaAdminBatchCancelRecord(
+            existingRecord,
+            input,
+            now,
+          );
+        }
+
+        const reservation = await transaction.orderIdempotencyRecord.create({
+          data: {
+            actorUserId: input.actorUserId,
+            orderId: input.input.items[0].orderId,
+            operation: input.operation,
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint: input.requestFingerprint,
+            responseSnapshot: {},
+            createdAt: now,
+            expiresAt: new Date(input.expiresAtIso),
+          },
+        });
+        const currentOrders = await transaction.order.findMany({
+          where: {
+            id: {
+              in: input.input.items.map(item => item.orderId),
+            },
+          },
+          include: orderInclude,
+        });
+        const currentOrderById = new Map(
+          currentOrders.map(order => [order.id, order] as const),
+        );
+
+        if (currentOrderById.size !== input.input.items.length) {
+          throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+        }
+
+        for (const item of input.input.items) {
+          const current = currentOrderById.get(item.orderId);
+
+          if (!current) {
+            throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+          }
+
+          const currentOrder = mapPrismaOrder(current);
+
+          if (currentOrder.updatedAtIso !== item.baseUpdatedAtIso) {
+            throw new BusinessError(
+              ApiErrorCode.ORDER_CONFLICT,
+              '订单已被其他操作更新',
+            );
+          }
+
+          if (currentOrder.status !== 'waiting') {
+            throw new BusinessError(
+              ApiErrorCode.ORDER_STATE_INVALID,
+              '当前订单状态不允许批量取消',
+            );
+          }
+
+          const mutationInput = createAdminBatchCancelOrderMutationInput(
+            input.actorUserId,
+            item,
+            input,
+          );
+          const updatedAt = new Date(
+            createNextUpdatedAtIso(currentOrder.updatedAtIso, now),
+          );
+          const couponPricing = await applyPrismaOrderCouponMutation(
+            transaction,
+            currentOrder,
+            mutationInput,
+            now,
+          );
+          const financialMutation = await applyPrismaOrderFinancialMutation(
+            transaction,
+            currentOrder,
+            mutationInput,
+            now,
+            this.platformFeeRateBps,
+          );
+          const orderUpdateResult = await transaction.order.updateMany({
+            where: {
+              id: item.orderId,
+              updatedAt: current.updatedAt,
+              status: current.status,
+              paymentStatus: currentOrder.paymentStatus,
+            },
+            data: createPrismaOrderMutationOrderData(
+              mutationInput,
+              updatedAt,
+              couponPricing,
+              financialMutation,
+            ),
+          });
+
+          if (orderUpdateResult.count !== 1) {
+            throw new BusinessError(
+              ApiErrorCode.ORDER_CONFLICT,
+              '订单已被其他操作更新',
+            );
+          }
+
+          await applyPrismaOrderMutation(transaction, mutationInput, updatedAt);
+        }
+
+        const updatedOrders = await transaction.order.findMany({
+          where: {
+            id: {
+              in: input.input.items.map(item => item.orderId),
+            },
+          },
+          include: orderInclude,
+        });
+        const updatedOrderById = new Map(
+          updatedOrders.map(order => [order.id, mapPrismaOrder(order)] as const),
+        );
+        const responseSnapshot = createBatchCancelAdminOrdersResult(
+          input.input.items,
+          input.input.items.map(item => {
+            const updatedOrder = updatedOrderById.get(item.orderId);
+
+            if (!updatedOrder) {
+              throw new Error(
+                `Order not found after batch cancel: ${item.orderId}`,
+              );
+            }
+
+            return updatedOrder;
+          }),
+        );
+
+        await transaction.orderIdempotencyRecord.update({
+          where: {
+            id: reservation.id,
+          },
+          data: {
+            responseSnapshot,
+          },
+        });
+
+        return responseSnapshot;
+      });
+    } catch (error) {
+      if (isPrismaErrorCode(error, 'P2002')) {
+        const existingRecord =
+          await this.prisma.orderIdempotencyRecord.findUnique({
+            where: createOrderIdempotencyRecordWhereUnique(input),
+          });
+
+        if (!existingRecord) {
+          throw error;
+        }
+
+        return mapExistingPrismaAdminBatchCancelRecord(
+          existingRecord,
+          input,
+          this.now(),
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async resolveExistingAdminBatchCancel(
+    input: ResolveExistingAdminBatchCancelInput,
+  ): Promise<BatchCancelAdminOrdersResult | undefined> {
+    if (!this.prisma.orderIdempotencyRecord) {
+      throw new Error('Prisma order batch cancel idempotency client is required');
+    }
+
+    const existingRecord = await this.prisma.orderIdempotencyRecord.findUnique({
+      where: createOrderIdempotencyRecordWhereUnique(input),
+    });
+
+    return existingRecord
+      ? mapExistingPrismaAdminBatchCancelRecord(
+          existingRecord,
+          input,
+          this.now(),
+        )
+      : undefined;
+  }
+
   async updateOrder(
     orderId: string,
     actorUserId: string,
@@ -4580,24 +5053,22 @@ export class PrismaOrdersRepository implements OrdersRepository {
       ],
     };
 
-    const [items, total] = await Promise.all([
-      this.prisma.order.findMany({
-        where,
-        include: orderInclude,
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize,
-      }),
-      this.prisma.order.count({
-        where,
-      }),
-    ]);
+    const items = await this.prisma.order.findMany({
+      where,
+      include: orderInclude,
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+    const filteredOrders = applyDriverOrderHallFilters(
+      items.map(mapPrismaOrder),
+      query,
+    );
+    const startIndex = (query.page - 1) * query.pageSize;
 
     return {
-      items: items.map(mapPrismaOrder),
-      total,
+      items: filteredOrders.slice(startIndex, startIndex + query.pageSize),
+      total: filteredOrders.length,
     };
   }
 
@@ -5094,6 +5565,102 @@ function isOrderMatchedByKeyword(
     .toLocaleLowerCase();
 
   return searchableText.includes(normalizedKeyword);
+}
+
+function applyDriverOrderHallFilters(
+  orders: ShipperOrderRecord[],
+  query: DriverOrderHallQuery,
+) {
+  const vehicleTypePreferences = query.vehicleTypePreferences ?? [];
+  const hasDriverLocation =
+    Number.isFinite(query.driverLatitude) &&
+    Number.isFinite(query.driverLongitude);
+  const maxDistanceMeters =
+    query.maxDistanceKm === undefined
+      ? undefined
+      : query.maxDistanceKm * 1000;
+
+  return orders
+    .map(order => {
+      const pickupDistanceMeters = hasDriverLocation
+        ? getOrderPickupDistanceMeters(
+            order,
+            query.driverLatitude as number,
+            query.driverLongitude as number,
+          )
+        : undefined;
+
+      return {
+        order,
+        pickupDistanceMeters,
+      };
+    })
+    .filter(({ order, pickupDistanceMeters }) => {
+      if (
+        vehicleTypePreferences.length &&
+        !vehicleTypePreferences.includes(order.vehicleRequirement)
+      ) {
+        return false;
+      }
+
+      if (
+        maxDistanceMeters !== undefined &&
+        pickupDistanceMeters !== undefined &&
+        pickupDistanceMeters > maxDistanceMeters
+      ) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      const leftDistance = left.pickupDistanceMeters;
+      const rightDistance = right.pickupDistanceMeters;
+      const leftHasDistance = Number.isFinite(leftDistance);
+      const rightHasDistance = Number.isFinite(rightDistance);
+
+      if (leftHasDistance && rightHasDistance) {
+        if (leftDistance !== rightDistance) {
+          return (leftDistance ?? 0) - (rightDistance ?? 0);
+        }
+      } else if (leftHasDistance !== rightHasDistance) {
+        return leftHasDistance ? -1 : 1;
+      }
+
+      return right.order.createdAtIso.localeCompare(left.order.createdAtIso);
+    })
+    .map(({ order, pickupDistanceMeters }) => ({
+      ...order,
+      ...(pickupDistanceMeters === undefined
+        ? {}
+        : { pickupDistanceMeters: Math.round(pickupDistanceMeters) }),
+    }));
+}
+
+function getOrderPickupDistanceMeters(
+  order: ShipperOrderRecord,
+  driverLatitude: number,
+  driverLongitude: number,
+) {
+  if (
+    !Number.isFinite(driverLatitude) ||
+    !Number.isFinite(driverLongitude) ||
+    !Number.isFinite(order.pickupLatitude ?? Number.NaN) ||
+    !Number.isFinite(order.pickupLongitude ?? Number.NaN)
+  ) {
+    return undefined;
+  }
+
+  return haversineDistanceMeters(
+    {
+      latitude: driverLatitude,
+      longitude: driverLongitude,
+    },
+    {
+      latitude: order.pickupLatitude as number,
+      longitude: order.pickupLongitude as number,
+    },
+  );
 }
 
 function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {

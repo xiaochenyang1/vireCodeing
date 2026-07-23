@@ -230,6 +230,22 @@ describe('AuthController', () => {
     expect(guards).toEqual([AccessTokenGuard]);
   });
 
+  it('protects self-service auth session routes with a guard', () => {
+    const listGuards =
+      Reflect.getMetadata(
+        GUARDS_METADATA,
+        AuthController.prototype.getCurrentUserAuthSessions,
+      ) ?? [];
+    const revokeOtherGuards =
+      Reflect.getMetadata(
+        GUARDS_METADATA,
+        AuthController.prototype.revokeOtherCurrentUserAuthSessions,
+      ) ?? [];
+
+    expect(listGuards).toEqual([AccessTokenGuard]);
+    expect(revokeOtherGuards).toEqual([AccessTokenGuard]);
+  });
+
   it('protects admin session governance routes with access-token and admin guards', () => {
     const listGuards =
       Reflect.getMetadata(
@@ -273,6 +289,16 @@ describe('AuthController', () => {
         GUARDS_METADATA,
         prototype.getAdminAuthAccountDetail,
       ) ?? [];
+    const batchStatusGuards =
+      Reflect.getMetadata(
+        GUARDS_METADATA,
+        prototype.batchUpdateAdminAuthAccountStatus,
+      ) ?? [];
+    const batchRevokeGuards =
+      Reflect.getMetadata(
+        GUARDS_METADATA,
+        prototype.batchRevokeAdminAuthAccountSessions,
+      ) ?? [];
     const statusGuards =
       Reflect.getMetadata(
         GUARDS_METADATA,
@@ -296,6 +322,8 @@ describe('AuthController', () => {
 
     expect(listGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
     expect(detailGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
+    expect(batchStatusGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
+    expect(batchRevokeGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
     expect(statusGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
     expect(reportGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
     expect(exportGuards).toEqual([AccessTokenGuard, AdminOnlyGuard]);
@@ -314,6 +342,21 @@ describe('AuthController', () => {
     expect(hasZodBodyPipe('changePassword' as keyof AuthController)).toBe(true);
     expect(hasZodBodyPipe('refresh')).toBe(true);
     expect(hasZodBodyPipe('logout')).toBe(true);
+    expect(
+      hasZodBodyPipe(
+        'batchUpdateAdminAuthAccountStatus' as keyof AuthController,
+      ),
+    ).toBe(true);
+    expect(
+      hasZodBodyPipe(
+        'batchRevokeAdminAuthAccountSessions' as keyof AuthController,
+      ),
+    ).toBe(true);
+    expect(
+      hasZodBodyPipe(
+        'revokeOtherCurrentUserAuthSessions' as keyof AuthController,
+      ),
+    ).toBe(true);
     expect(
       hasZodBodyPipe('revokeOtherAdminAuthSessions' as keyof AuthController),
     ).toBe(true);
@@ -547,6 +590,142 @@ describe('AuthController', () => {
         loggedOut: true,
       },
     });
+  });
+
+  it('lists current user auth sessions through the auth controller', async () => {
+    const authRepository: AuthRepository = {
+      upsertMobileUser: jest.fn(),
+      findUserById: jest.fn(),
+      findUserByPhone: jest.fn(),
+      findPlatformUserByPhone: jest.fn(),
+      saveRefreshSession: jest.fn(),
+      findActiveRefreshSession: jest.fn(),
+      revokeRefreshSession: jest.fn(),
+      revokeUserDeviceRefreshSessions: jest.fn(),
+      revokeUserRefreshSessions: jest.fn(),
+      listActiveUserRefreshSessions: jest.fn().mockResolvedValue([
+        {
+          id: 'session-current',
+          userId: 'shipper-1',
+          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440210',
+          deviceId: 'mobile-device-current',
+          createdAt: new Date('2026-07-22T08:00:00.000Z'),
+          expiresAt: new Date('2026-07-29T08:00:00.000Z'),
+        },
+        {
+          id: 'session-laptop',
+          userId: 'shipper-1',
+          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440211',
+          deviceId: 'mobile-device-laptop',
+          createdAt: new Date('2026-07-21T08:00:00.000Z'),
+          expiresAt: new Date('2026-07-28T08:00:00.000Z'),
+        },
+      ]),
+      revokeUserRefreshSession: jest.fn(),
+    };
+    const controller = createController(authRepository);
+
+    await expect(
+      controller.getCurrentUserAuthSessions({
+        headers: {
+          'x-request-id': 'req_self_sessions',
+        },
+        currentUser: {
+          id: 'shipper-1',
+          phone: '13800138002',
+          userType: 'shipper',
+        },
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      requestId: 'req_self_sessions',
+      data: {
+        sessions: [
+          {
+            id: 'session-current',
+            deviceId: 'mobile-device-current',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            expiresAtIso: '2026-07-29T08:00:00.000Z',
+          },
+          {
+            id: 'session-laptop',
+            deviceId: 'mobile-device-laptop',
+            createdAtIso: '2026-07-21T08:00:00.000Z',
+            expiresAtIso: '2026-07-28T08:00:00.000Z',
+          },
+        ],
+        total: 2,
+      },
+    });
+  });
+
+  it('revokes other current-user auth sessions through the auth controller', async () => {
+    const authRepository: AuthRepository = {
+      upsertMobileUser: jest.fn(),
+      findUserById: jest.fn().mockResolvedValue({
+        id: 'shipper-1',
+        phone: '13800138002',
+        userType: 'shipper',
+        status: 'active',
+      }),
+      findUserByPhone: jest.fn(),
+      findPlatformUserByPhone: jest.fn(),
+      saveRefreshSession: jest.fn(),
+      findActiveRefreshSession: jest.fn(),
+      revokeRefreshSession: jest.fn(),
+      revokeUserDeviceRefreshSessions: jest.fn(),
+      revokeUserRefreshSessions: jest.fn(),
+      listActiveUserRefreshSessions: jest.fn().mockResolvedValue([
+        {
+          id: 'session-current',
+          userId: 'shipper-1',
+          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440210',
+          deviceId: 'mobile-device-current',
+          createdAt: new Date('2026-07-22T08:00:00.000Z'),
+          expiresAt: new Date('2026-07-29T08:00:00.000Z'),
+        },
+        {
+          id: 'session-laptop',
+          userId: 'shipper-1',
+          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440211',
+          deviceId: 'mobile-device-laptop',
+          createdAt: new Date('2026-07-21T08:00:00.000Z'),
+          expiresAt: new Date('2026-07-28T08:00:00.000Z'),
+        },
+      ]),
+      revokeUserRefreshSession: jest.fn().mockResolvedValue(true),
+    };
+    const controller = createController(authRepository);
+
+    await expect(
+      controller.revokeOtherCurrentUserAuthSessions(
+        {
+          currentDeviceId: 'mobile-device-current',
+        },
+        {
+          headers: {
+            'x-request-id': 'req_self_revoke',
+          },
+          currentUser: {
+            id: 'shipper-1',
+            phone: '13800138002',
+            userType: 'shipper',
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      requestId: 'req_self_revoke',
+      data: {
+        currentDeviceId: 'mobile-device-current',
+        revokedCount: 1,
+      },
+    });
+    expect(authRepository.revokeUserRefreshSession).toHaveBeenCalledWith(
+      'shipper-1',
+      'session-laptop',
+      expect.any(Date),
+    );
   });
 
   it('lists active admin sessions through the auth controller', async () => {
@@ -1328,6 +1507,130 @@ describe('AuthController', () => {
     );
   });
 
+  it('batch updates admin auth account statuses through the auth controller', async () => {
+    const now = new Date('2026-06-26T06:00:00.000Z');
+    const authRepository: AuthRepository = {
+      upsertMobileUser: jest.fn(),
+      findUserById: jest.fn().mockImplementation(async (userId: string) => {
+        if (userId === 'driver-1') {
+          return {
+            id: 'driver-1',
+            phone: '13800138001',
+            userType: 'driver',
+            status: 'active',
+          };
+        }
+        if (userId === 'shipper-1') {
+          return {
+            id: 'shipper-1',
+            phone: '13800138002',
+            userType: 'shipper',
+            status: 'active',
+          };
+        }
+
+        return {
+          id: 'admin-1',
+          phone: '13900139000',
+          userType: 'admin',
+          status: 'active',
+        };
+      }),
+      findUserByPhone: jest.fn(),
+      findPlatformUserByPhone: jest.fn(),
+      saveRefreshSession: jest.fn(),
+      findActiveRefreshSession: jest.fn(),
+      revokeRefreshSession: jest.fn(),
+      revokeUserDeviceRefreshSessions: jest.fn(),
+      revokeUserRefreshSessions: jest.fn(),
+      listActiveUserRefreshSessions: jest.fn(),
+      listAllActiveRefreshSessions: jest.fn(),
+      listPlatformUsers: jest.fn().mockResolvedValue([]),
+      saveAdminAuthSessionGovernanceAuditEvent: jest.fn(),
+      revokeUserRefreshSession: jest.fn(),
+      revokeRefreshSessionById: jest.fn(),
+      batchUpdateUserStatuses: jest.fn().mockResolvedValue({
+        items: [
+          {
+            user: {
+              id: 'driver-1',
+              phone: '13800138001',
+              userType: 'driver',
+              status: 'disabled',
+            },
+            revokedSessions: [
+              {
+                id: 'session-driver-risk',
+                userId: 'driver-1',
+                refreshToken: '',
+                deviceId: 'shared-device',
+                createdAt: new Date('2026-06-26T06:12:00.000Z'),
+                expiresAt: new Date('2026-07-03T06:12:00.000Z'),
+              },
+            ],
+          },
+          {
+            user: {
+              id: 'shipper-1',
+              phone: '13800138002',
+              userType: 'shipper',
+              status: 'disabled',
+            },
+            revokedSessions: [],
+          },
+        ],
+      }),
+    };
+    const controller = createController(authRepository);
+
+    await expect(
+      (controller as unknown as {
+        batchUpdateAdminAuthAccountStatus: (
+          body: {
+            items: { userId: string }[];
+            status: 'active' | 'disabled';
+          },
+          request: AuthenticatedRequest,
+        ) => Promise<unknown>;
+      }).batchUpdateAdminAuthAccountStatus(
+        {
+          items: [{ userId: 'driver-1' }, { userId: 'shipper-1' }],
+          status: 'disabled',
+        },
+        {
+          headers: {
+            'x-request-id': 'req_admin_account_batch_status',
+          },
+          currentUser: {
+            id: 'admin-1',
+            phone: '13900139000',
+            userType: 'admin',
+          },
+        } as AuthenticatedRequest,
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      requestId: 'req_admin_account_batch_status',
+      data: {
+        status: 'disabled',
+        userIds: ['driver-1', 'shipper-1'],
+        updatedCount: 2,
+        revokedSessionCount: 1,
+      },
+    });
+    expect(
+      (authRepository as AuthRepository & {
+        batchUpdateUserStatuses: jest.Mock;
+      }).batchUpdateUserStatuses,
+    ).toHaveBeenCalledWith(
+      {
+        items: [{ userId: 'driver-1' }, { userId: 'shipper-1' }],
+        status: 'disabled',
+      },
+      now,
+    );
+  });
+
   it('revokes admin auth account sessions through the auth controller', async () => {
     const now = new Date('2026-06-26T06:00:00.000Z');
     const authRepository: AuthRepository = {
@@ -1417,6 +1720,152 @@ describe('AuthController', () => {
     expect(authRepository.revokeUserRefreshSession).toHaveBeenCalledWith(
       'driver-1',
       '550e8400-e29b-41d4-a716-446655440111',
+      now,
+    );
+  });
+
+  it('batch revokes admin auth account sessions through the auth controller', async () => {
+    const now = new Date('2026-06-26T06:00:00.000Z');
+    const authRepository: AuthRepository = {
+      upsertMobileUser: jest.fn(),
+      findUserById: jest.fn().mockImplementation(async (userId: string) => {
+        if (userId === 'driver-1') {
+          return {
+            id: 'driver-1',
+            phone: '13800138001',
+            userType: 'driver',
+            status: 'active',
+          };
+        }
+        if (userId === 'shipper-1') {
+          return {
+            id: 'shipper-1',
+            phone: '13800138002',
+            userType: 'shipper',
+            status: 'disabled',
+          };
+        }
+
+        return {
+          id: 'admin-1',
+          phone: '13900139000',
+          userType: 'admin',
+          status: 'active',
+        };
+      }),
+      findUserByPhone: jest.fn(),
+      findPlatformUserByPhone: jest.fn(),
+      saveRefreshSession: jest.fn(),
+      findActiveRefreshSession: jest.fn(),
+      revokeRefreshSession: jest.fn(),
+      revokeUserDeviceRefreshSessions: jest.fn(),
+      revokeUserRefreshSessions: jest.fn(),
+      listActiveUserRefreshSessions: jest.fn(),
+      listAllActiveRefreshSessions: jest.fn(),
+      listPlatformUsers: jest.fn().mockResolvedValue([]),
+      saveAdminAuthSessionGovernanceAuditEvent: jest.fn(),
+      revokeUserRefreshSession: jest.fn(),
+      revokeRefreshSessionById: jest.fn(),
+      batchRevokeUserRefreshSessions: jest.fn().mockResolvedValue({
+        items: [
+          {
+            user: {
+              id: 'driver-1',
+              phone: '13800138001',
+              userType: 'driver',
+              status: 'active',
+            },
+            revokedSessions: [
+              {
+                id: '550e8400-e29b-41d4-a716-446655440111',
+                userId: 'driver-1',
+                refreshToken: '',
+                deviceId: 'shared-device',
+                createdAt: new Date('2026-06-26T06:12:00.000Z'),
+                expiresAt: new Date('2026-07-03T06:12:00.000Z'),
+              },
+            ],
+            keepSessionId: '550e8400-e29b-41d4-a716-446655440112',
+          },
+          {
+            user: {
+              id: 'shipper-1',
+              phone: '13800138002',
+              userType: 'shipper',
+              status: 'disabled',
+            },
+            revokedSessions: [
+              {
+                id: '550e8400-e29b-41d4-a716-446655440113',
+                userId: 'shipper-1',
+                refreshToken: '',
+                deviceId: 'shared-device',
+                createdAt: new Date('2026-06-26T06:08:00.000Z'),
+                expiresAt: new Date('2026-07-03T06:08:00.000Z'),
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const controller = createController(authRepository);
+
+    await expect(
+      (controller as unknown as {
+        batchRevokeAdminAuthAccountSessions: (
+          body: {
+            items: { userId: string; keepSessionId?: string }[];
+          },
+          request: AuthenticatedRequest,
+        ) => Promise<unknown>;
+      }).batchRevokeAdminAuthAccountSessions(
+        {
+          items: [
+            {
+              userId: 'driver-1',
+              keepSessionId: '550e8400-e29b-41d4-a716-446655440112',
+            },
+            {
+              userId: 'shipper-1',
+            },
+          ],
+        },
+        {
+          headers: {
+            'x-request-id': 'req_admin_account_batch_revoke',
+          },
+          currentUser: {
+            id: 'admin-1',
+            phone: '13900139000',
+            userType: 'admin',
+          },
+        } as AuthenticatedRequest,
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      requestId: 'req_admin_account_batch_revoke',
+      data: {
+        userIds: ['driver-1', 'shipper-1'],
+        updatedCount: 2,
+        revokedCount: 2,
+      },
+    });
+    expect(
+      (authRepository as AuthRepository & {
+        batchRevokeUserRefreshSessions: jest.Mock;
+      }).batchRevokeUserRefreshSessions,
+    ).toHaveBeenCalledWith(
+      {
+        items: [
+          {
+            userId: 'driver-1',
+            keepSessionId: '550e8400-e29b-41d4-a716-446655440112',
+          },
+          {
+            userId: 'shipper-1',
+          },
+        ],
+      },
       now,
     );
   });

@@ -71,6 +71,23 @@ test('validates platform account profile shape', () => {
   expect(
     isValidPlatformAccountProfile({ displayName: '张三', phone: '138' } as never),
   ).toBe(true);
+  expect(
+    isValidPlatformAccountProfile({
+      displayName: '张三',
+      phone: '138',
+      privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+      privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+    } as never),
+  ).toBe(false);
+  expect(
+    isValidPlatformAccountProfile({
+      displayName: '张三',
+      phone: '138',
+      privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+      privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+      privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+    } as never),
+  ).toBe(true);
   expect(isValidPlatformAccountProfile(null)).toBe(false);
   expect(isValidPlatformAccountProfile({ displayName: '张三' } as never)).toBe(
     false,

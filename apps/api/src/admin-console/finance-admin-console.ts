@@ -27,11 +27,15 @@ export function renderFinanceAdminConsole() {
     .action-card, .detail-card { border: 1px solid #edf0f2; border-radius: 10px; padding: 12px; }
     .record-row { border-top: 1px solid #edf0f2; padding: 12px 0; cursor: pointer; }
     .record-row.selected { background: #eef6ff; }
+    .record-row-header { display: flex; gap: 12px; justify-content: space-between; align-items: center; }
     .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .kv { margin: 6px 0; }
     .kv strong { display: block; font-size: 12px; color: #667085; }
     .muted { color: #667085; font-size: 13px; }
     .error { color: #b42318; white-space: pre-wrap; }
+    .inline-checkbox { display: inline-flex; align-items: center; gap: 6px; color: #667085; font-size: 12px; }
+    .inline-checkbox input { width: auto; margin: 0; padding: 0; }
+    .selection-summary { margin-top: 8px; }
     .session-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
     .session-link { color: #1769aa; font-size: 13px; font-weight: 600; text-decoration: none; }
     .secondary-button { width: auto; background: #fff; color: #1769aa; border: 1px solid #d8dee4; }
@@ -53,7 +57,7 @@ export function renderFinanceAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>财务操作台</h1>
-      <p class="muted">第一片先把支付、退款、结算、提现查出来，也补了财务报表和订单联动第一片。现在既能从这里自己筛，也能从订单管理台带着 orderId 深链跳进来查支付 / 退款 / 结算。正式支付 / 打款、生产对账、批量审核和多角色权限还没到这一步，别硬往脸上贴金。</p>
+      <p class="muted">第一片先把支付、退款、结算、提现查出来，也补了财务报表、订单联动和提现批量审核第一片。现在既能从这里自己筛，也能从订单管理台带着 orderId 深链跳进来查支付 / 退款 / 结算；提现页当前勾选结果也会一次请求打后端 batch-review，走整批校验和原子写入。正式支付 / 打款、生产对账和多角色权限还没到这一步，别硬往脸上贴金。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/finance-console',
@@ -107,6 +111,19 @@ export function renderFinanceAdminConsole() {
       <div id="financeListNotice" class="error"></div>
       <div id="financePaginationStatus" class="muted">当前还没查询财务记录</div>
       <div id="financeList"></div>
+      <section class="detail-card" style="margin-top:12px;">
+        <strong>提现批量审核</strong>
+        <p class="muted">当前页勾选 reviewing 提现后会一次请求调后端 <code>POST /admin/finance/withdrawals/batch-review</code>；后端会整批校验并原子写入。批量动作直接拿列表里的每条 <code>withdrawal.version</code> 做 CAS，不吃右侧单条 <code>expectedVersion</code> 输入。</p>
+        <div class="toolbar">
+          <label class="inline-checkbox"><input id="selectAllReviewingWithdrawalsInput" type="checkbox" onclick="toggleSelectAllReviewingWithdrawals(this.checked)" />全选当前页待审提现</label>
+          <button id="clearWithdrawalBatchSelectionButton" type="button" class="secondary-button" onclick="clearSelectedWithdrawalBatch()">清空勾选</button>
+        </div>
+        <div id="withdrawalBatchSelectionStatus" class="muted selection-summary">切到提现标签后，才能勾选当前页 reviewing 提现做批量审核。</div>
+        <div class="toolbar">
+          <button id="approveBatchWithdrawalsButton" type="button" onclick="runBatchWithdrawalReview('approve')">批量通过</button>
+          <button id="rejectBatchWithdrawalsButton" type="button" onclick="runBatchWithdrawalReview('reject')">批量驳回</button>
+        </div>
+      </section>
     </section>
 
     <section class="panel">
@@ -159,6 +176,7 @@ export function renderFinanceAdminConsole() {
       approve: '/admin/finance/withdrawals/{withdrawalId}/approve',
       reject: '/admin/finance/withdrawals/{withdrawalId}/reject',
     };
+    const withdrawalBatchReviewPath = '/admin/finance/withdrawals/batch-review';
     const tabLabels = {
       payments: '支付单',
       refunds: '退款单',
@@ -170,6 +188,7 @@ export function renderFinanceAdminConsole() {
     let currentFinancePage = 1;
     let currentFinanceTotal = 0;
     let selectedFinanceRecordId = '';
+    let selectedWithdrawalIds = new Set();
     let latestFinanceRequestId = 0;
     let latestFinanceReportRequestId = 0;
     let latestLedgerRequestId = 0;
@@ -357,7 +376,26 @@ export function renderFinanceAdminConsole() {
       if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
         return globalThis.crypto.randomUUID();
       }
-      return 'finance-console-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+
+      function randomHex(length) {
+        let output = '';
+
+        while (output.length < length) {
+          output += Math.floor(Math.random() * 0x100000000)
+            .toString(16)
+            .padStart(8, '0');
+        }
+
+        return output.slice(0, length);
+      }
+
+      return [
+        randomHex(8),
+        randomHex(4),
+        '4' + randomHex(3),
+        ['8', '9', 'a', 'b'][Math.floor(Math.random() * 4)] + randomHex(3),
+        randomHex(12),
+      ].join('-');
     }
 
     function readFinanceRouteState() {
@@ -469,6 +507,7 @@ export function renderFinanceAdminConsole() {
         return;
       }
       currentFinanceTab = tab;
+      selectedWithdrawalIds.clear();
       currentFinancePage = 1;
       document.getElementById('financePageInput').value = '1';
       document.getElementById('financeListNotice').textContent = '';
@@ -487,6 +526,128 @@ export function renderFinanceAdminConsole() {
       });
     }
 
+    function getCurrentReviewingWithdrawals() {
+      if (currentFinanceTab !== 'withdrawals') {
+        return [];
+      }
+
+      return currentFinanceItems.filter(item => item && item.status === 'reviewing');
+    }
+
+    function syncSelectedWithdrawalsToCurrentList() {
+      const currentIds = new Set(
+        getCurrentReviewingWithdrawals().map(item => String(item.id || '')),
+      );
+
+      Array.from(selectedWithdrawalIds).forEach(withdrawalId => {
+        if (!currentIds.has(withdrawalId)) {
+          selectedWithdrawalIds.delete(withdrawalId);
+        }
+      });
+    }
+
+    function syncWithdrawalSelectionCheckboxes() {
+      document.querySelectorAll('[data-withdrawal-select-id]').forEach(input => {
+        const withdrawalId = input.getAttribute('data-withdrawal-select-id');
+        input.checked = Boolean(
+          withdrawalId && selectedWithdrawalIds.has(withdrawalId),
+        );
+      });
+    }
+
+    function updateWithdrawalBatchSelectionUi() {
+      const currentReviewingIds = getCurrentReviewingWithdrawals().map(item =>
+        String(item.id || ''),
+      );
+      const currentSelectedCount = currentReviewingIds.filter(withdrawalId =>
+        selectedWithdrawalIds.has(withdrawalId),
+      ).length;
+      const selectAllInput = document.getElementById(
+        'selectAllReviewingWithdrawalsInput',
+      );
+
+      syncWithdrawalSelectionCheckboxes();
+
+      if (selectAllInput) {
+        selectAllInput.disabled =
+          financeMutationPending ||
+          currentFinanceTab !== 'withdrawals' ||
+          currentReviewingIds.length === 0;
+        selectAllInput.checked =
+          currentReviewingIds.length > 0 &&
+          currentSelectedCount === currentReviewingIds.length;
+        selectAllInput.indeterminate =
+          currentSelectedCount > 0 &&
+          currentSelectedCount < currentReviewingIds.length;
+      }
+
+      document.getElementById('withdrawalBatchSelectionStatus').textContent =
+        currentFinanceTab !== 'withdrawals'
+          ? '切到提现标签后，才能勾选当前页 reviewing 提现做批量审核。'
+          : currentReviewingIds.length === 0
+            ? '当前页没有可批量审核的 reviewing 提现。'
+            : currentSelectedCount === 0
+              ? '当前页有 ' + currentReviewingIds.length + ' 条待审提现，先勾上要整批处理的记录。'
+              : '已勾选 ' + currentSelectedCount + ' 条待审提现，会直接拿列表里的 withdrawal.version 做整批校验并原子写入。';
+
+      [
+        'clearWithdrawalBatchSelectionButton',
+        'approveBatchWithdrawalsButton',
+        'rejectBatchWithdrawalsButton',
+      ].forEach(id => {
+        const node = document.getElementById(id);
+        if (!node) {
+          return;
+        }
+        node.disabled =
+          financeMutationPending ||
+          currentFinanceTab !== 'withdrawals' ||
+          currentSelectedCount === 0;
+      });
+    }
+
+    function toggleWithdrawalBatchSelection(withdrawalId, checked) {
+      if (financeMutationPending || currentFinanceTab !== 'withdrawals') {
+        return;
+      }
+
+      if (checked) {
+        selectedWithdrawalIds.add(withdrawalId);
+      } else {
+        selectedWithdrawalIds.delete(withdrawalId);
+      }
+
+      updateWithdrawalBatchSelectionUi();
+    }
+
+    function toggleSelectAllReviewingWithdrawals(checked) {
+      if (financeMutationPending || currentFinanceTab !== 'withdrawals') {
+        return;
+      }
+
+      getCurrentReviewingWithdrawals().forEach(item => {
+        const withdrawalId = String(item.id || '');
+        if (checked) {
+          selectedWithdrawalIds.add(withdrawalId);
+        } else {
+          selectedWithdrawalIds.delete(withdrawalId);
+        }
+      });
+
+      updateWithdrawalBatchSelectionUi();
+    }
+
+    function clearSelectedWithdrawalBatch() {
+      if (financeMutationPending) {
+        return;
+      }
+
+      selectedWithdrawalIds.clear();
+      updateWithdrawalBatchSelectionUi();
+      document.getElementById('financeMutationNotice').textContent =
+        '已清空提现批量勾选。';
+    }
+
     function clearFinanceSelection() {
       selectedFinanceRecordId = '';
       document.getElementById('financeDetail').innerHTML = '<p class="muted">请选择一条财务记录</p>';
@@ -494,6 +655,7 @@ export function renderFinanceAdminConsole() {
       document.getElementById('ledgerTransactionIdInput').value = '';
       updateViewOrderButton();
       renderFinanceList();
+      updateWithdrawalBatchSelectionUi();
     }
 
     function clearLedgerDetail() {
@@ -529,6 +691,11 @@ export function renderFinanceAdminConsole() {
         if (requestId !== latestFinanceRequestId) return;
         currentFinanceItems = Array.isArray(result.items) ? result.items : [];
         currentFinanceTotal = Number(result.total || 0);
+        if (currentFinanceTab === 'withdrawals') {
+          syncSelectedWithdrawalsToCurrentList();
+        } else {
+          selectedWithdrawalIds.clear();
+        }
         document.getElementById('financeListNotice').textContent = '';
         renderFinancePagination(pageSize);
         renderFinanceList();
@@ -545,6 +712,7 @@ export function renderFinanceAdminConsole() {
         if (requestId !== latestFinanceRequestId) return;
         currentFinanceItems = [];
         currentFinanceTotal = 0;
+        selectedWithdrawalIds.clear();
         renderFinancePagination(pageSize);
         document.getElementById('financeListNotice').textContent = error.message;
         clearFinanceSelection();
@@ -570,15 +738,25 @@ export function renderFinanceAdminConsole() {
       const list = document.getElementById('financeList');
       if (!currentFinanceItems.length) {
         list.innerHTML = '<p class="muted">当前标签下暂无财务记录</p>';
+        updateWithdrawalBatchSelectionUi();
         return;
       }
       list.innerHTML = currentFinanceItems.map(item => {
+        const reviewableOnPage =
+          currentFinanceTab === 'withdrawals' && item.status === 'reviewing';
+        const batchSelectionControl =
+          currentFinanceTab !== 'withdrawals'
+            ? ''
+            : reviewableOnPage
+              ? '<label class="inline-checkbox" onclick="event.stopPropagation()"><input type="checkbox" data-withdrawal-select-id="' + escapeHtml(item.id) + '" onchange="toggleWithdrawalBatchSelection(this.getAttribute(\'data-withdrawal-select-id\'), this.checked)"' + (selectedWithdrawalIds.has(String(item.id || '')) ? ' checked' : '') + ' />批量</label>'
+              : '<span class="muted">已处理</span>';
         return '<div class="record-row' + (item.id === selectedFinanceRecordId ? ' selected' : '') + '" data-record-id="' + escapeHtml(item.id) + '" onclick="selectFinanceRecord(this.dataset.recordId)">' +
-          '<strong>' + escapeHtml(formatPrimaryTitle(item)) + '</strong> <span class="status">' + escapeHtml(item.status || 'n/a') + '</span>' +
+          '<div class="record-row-header"><div><strong>' + escapeHtml(formatPrimaryTitle(item)) + '</strong> <span class="status">' + escapeHtml(item.status || 'n/a') + '</span></div>' + batchSelectionControl + '</div>' +
           '<div>' + escapeHtml(formatSecondaryLine(item)) + '</div>' +
           '<div class="muted">' + escapeHtml(formatTertiaryLine(item)) + '</div>' +
         '</div>';
       }).join('');
+      updateWithdrawalBatchSelectionUi();
     }
 
     function formatPrimaryTitle(item) {
@@ -711,6 +889,50 @@ export function renderFinanceAdminConsole() {
         document.getElementById('financeMutationNotice').textContent = error.message;
       } finally {
         financeMutationPending = false;
+        updateWithdrawalBatchSelectionUi();
+      }
+    }
+
+    async function runBatchWithdrawalReview(action) {
+      if (financeMutationPending) return;
+      financeMutationPending = true;
+      updateWithdrawalBatchSelectionUi();
+      try {
+        if (currentFinanceTab !== 'withdrawals') {
+          throw new Error('请先切到提现标签再批量审核');
+        }
+        const selectedItems = getCurrentReviewingWithdrawals().filter(item =>
+          selectedWithdrawalIds.has(String(item.id || '')),
+        );
+        if (!selectedItems.length) {
+          throw new Error('先勾选提现再批量审核');
+        }
+
+        const result = await api(withdrawalBatchReviewPath, {
+          method: 'POST',
+          headers: { 'Idempotency-Key': createIdempotencyKey() },
+          body: JSON.stringify({
+            items: selectedItems.map(item => ({
+              withdrawalId: item.id,
+              expectedVersion: Number(item.version || 0),
+            })),
+            action,
+            reason: parseReason(),
+          }),
+        });
+        document.getElementById('financeMutationNotice').textContent =
+          (action === 'approve' ? '批量通过完成：' : '批量驳回完成：') +
+          Number(result && result.updatedCount ? result.updatedCount : 0) +
+          ' 条提现';
+        document.getElementById('reasonInput').value = '';
+        selectedWithdrawalIds.clear();
+        await loadFinanceList(currentFinancePage);
+        await loadFinanceReport();
+      } catch (error) {
+        document.getElementById('financeMutationNotice').textContent = error.message;
+      } finally {
+        financeMutationPending = false;
+        updateWithdrawalBatchSelectionUi();
       }
     }
 
@@ -738,6 +960,7 @@ export function renderFinanceAdminConsole() {
         document.getElementById('financeMutationNotice').textContent = error.message;
       } finally {
         financeMutationPending = false;
+        updateWithdrawalBatchSelectionUi();
       }
     }
 
@@ -784,6 +1007,7 @@ export function renderFinanceAdminConsole() {
 
     applyFinanceRouteState();
     renderFinanceTabs();
+    updateWithdrawalBatchSelectionUi();
     resetFinanceReport();
     updateViewOrderButton();
     const currentAdminSession = initializeAdminSession();

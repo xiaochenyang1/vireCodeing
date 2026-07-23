@@ -14,6 +14,7 @@ import {
   refreshAuthSession,
   saveAuthSession,
 } from '../src/utils/authSession';
+import { clearDeviceId, getDeviceId } from '../src/utils/deviceId';
 import {
   clearSavedDraft,
   getDraftStorageSnapshot,
@@ -23,10 +24,14 @@ import {
 } from '../src/utils/draftStorage';
 import {
   clearHomeLocalState,
+  createFailedHomeSyncState,
+  createPendingHomeSyncState,
   getHomeLocalState,
+  saveHomeLocalState,
 } from '../src/utils/homeLocalState';
 import {
   clearProfileLocalState,
+  createFailedProfileSyncState,
   createPendingProfileSyncState,
   getProfileLocalState,
   saveProfileLocalState,
@@ -34,8 +39,13 @@ import {
 import {
   clearAppRuntimeState,
   getAppRuntimeState,
+  saveAppRuntimeState,
 } from '../src/utils/appRuntimeState';
-import { isValidLocalPickupTimeText } from '../src/utils/order';
+import {
+  createPendingOrderSyncState,
+  isValidLocalPickupTimeText,
+} from '../src/utils/order';
+import { privacyPolicyDocumentInfo } from '../src/utils/profileSettings';
 import type { PlatformPaymentSdk } from '../src/services/platformPaymentApi';
 
 type AppRenderer = ReturnType<typeof ReactTestRenderer.create>;
@@ -62,6 +72,7 @@ beforeEach(async () => {
     }),
   );
   clearAuthSession();
+  await clearDeviceId();
   clearSavedDraft();
   clearHomeLocalState();
   clearProfileLocalState();
@@ -283,6 +294,21 @@ test('restores persisted local app state from device storage on cold start', asy
 
 test('resumes a pending platform payment from the server on cold start', async () => {
   const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const persistedPendingPaymentOrder = {
+    ...getAppRuntimeState().orders[0],
+    id: 'HY202607150001',
+    platformOrderId: 'order-platform-payment-1',
+    paymentMethod: 'online' as const,
+    paymentMethodText: '在线支付',
+    paymentStatus: 'pending' as const,
+    syncState: {
+      status: 'synced' as const,
+      message: '订单已从平台 API 同步。',
+      updatedAtText: '刚刚',
+      updatedAtIso: '2026-07-15T07:58:00.000Z',
+      queueItems: [],
+    },
+  };
   await AsyncStorage.setMany({
     '@vireCodeing/auth-session': JSON.stringify({
       issuedAt: now - 1000,
@@ -295,6 +321,14 @@ test('resumes a pending platform payment from the server on cold start', async (
       channel: 'wechat',
       idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
       createdAtIso: '2026-07-15T07:59:00.000Z',
+    }),
+    '@vireCodeing/app-runtime-state': JSON.stringify({
+      version: 1,
+      state: {
+        orders: [persistedPendingPaymentOrder],
+        messages: [],
+        messageUnreadCount: 0,
+      },
     }),
   });
   const terminalPayment = {
@@ -350,6 +384,303 @@ test('resumes a pending platform payment from the server on cold start', async (
     AsyncStorage.getItem('@vireCodeing/pending-platform-payment'),
   ).resolves.toBeNull();
   expect(paymentSdk.openPayment).not.toHaveBeenCalled();
+  expect(getAppRuntimeState().orders[0]).toMatchObject({
+    id: 'HY202607150001',
+    platformOrderId: 'order-platform-payment-1',
+    paymentStatus: 'escrowed',
+    paymentChannel: 'wechat',
+    syncState: {
+      status: 'synced',
+    },
+  });
+});
+
+test('uses the default sandbox payment sdk in platform mode when no native sdk is injected', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = Date.parse('2026-07-15T09:00:00.000Z');
+  const platformOrder = createPlatformOrderFixture({
+    id: 'order-platform-payment-default-sdk',
+    orderNo: 'HY202607150002',
+    shipperId: 'shipper-default-payment',
+    status: 'waiting',
+    cargoType: 'digital',
+    weightText: '1.8 吨',
+    quantityText: '18 箱',
+    pickupAddress: '宝安临时仓',
+    pickupContact: '赵经理',
+    pickupPhone: '13800138001',
+    deliveryAddress: '南山门店新址',
+    deliveryContact: '钱店长',
+    deliveryPhone: '13800138002',
+    vehicleRequirement: 'medium',
+    pickupTimeIso: '2026-07-15T10:30:00.000Z',
+    pricingMode: 'fixed',
+    priceCents: 76000,
+    paymentMethod: 'online',
+    createdAtIso: '2026-07-15T08:30:00.000Z',
+    updatedAtIso: '2026-07-15T08:30:00.000Z',
+  });
+  const persistedOnlineOrder = {
+    ...getAppRuntimeState().orders[0],
+    id: 'HY202607150002',
+    platformOrderId: 'order-platform-payment-default-sdk',
+    from: '宝安临时仓',
+    to: '南山门店新址',
+    status: 'waiting' as const,
+    paymentMethod: 'online' as const,
+    paymentMethodText: '在线支付',
+    paymentStatus: 'pending' as const,
+    syncState: {
+      status: 'synced' as const,
+      message: '订单已从平台 API 同步。',
+      updatedAtText: '刚刚',
+      updatedAtIso: '2026-07-15T08:58:00.000Z',
+      queueItems: [],
+    },
+  };
+  await AsyncStorage.setMany({
+    '@vireCodeing/auth-session': JSON.stringify({
+      issuedAt: now - 1000,
+      expiresAt: now + 60 * 60 * 1000,
+      accessToken: 'access.default-sandbox-payment.900',
+    }),
+    '@vireCodeing/app-runtime-state': JSON.stringify({
+      version: 1,
+      state: {
+        orders: [persistedOnlineOrder],
+        messages: [],
+        messageUnreadCount: 0,
+      },
+    }),
+  });
+  const pendingPayment = {
+    id: 'payment-default-sdk-1',
+    paymentNo: 'PAY-DEFAULT-1',
+    orderId: 'order-platform-payment-default-sdk',
+    orderNo: 'HY202607150002',
+    shipperId: 'shipper-default-payment',
+    channel: 'wechat',
+    amountCents: 76000,
+    status: 'pending',
+    clientPayload: { prepayId: 'prepay-default-1' },
+    expiresAtIso: '2026-07-15T09:15:00.000Z',
+    createdAtIso: '2026-07-15T09:00:00.000Z',
+    updatedAtIso: '2026-07-15T09:00:00.000Z',
+  };
+  const escrowedPayment = {
+    ...pendingPayment,
+    status: 'escrowed',
+    paidAtIso: '2026-07-15T09:00:10.000Z',
+    updatedAtIso: '2026-07-15T09:00:10.000Z',
+  };
+  let paymentCreated = false;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+    const requestMethod = normalizeFetchMethod(init?.method);
+
+    if (requestUrl.endsWith('/me') && requestMethod === 'GET') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'shipper-default-payment',
+          phone: '13800138000',
+          userType: 'shipper',
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/shipper/orders/order-platform-payment-default-sdk') &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(platformOrder));
+    }
+
+    if (
+      requestUrl.endsWith(
+        '/shipper/orders/order-platform-payment-default-sdk/payments',
+      ) &&
+      requestMethod === 'GET'
+    ) {
+      return paymentCreated
+        ? Promise.resolve(createPlatformApiResponse(escrowedPayment))
+        : Promise.resolve(
+            createPlatformApiErrorResponse(
+              404,
+              'PAYMENT_ORDER_NOT_AVAILABLE',
+              'payment order not available',
+            ),
+          );
+    }
+
+    if (
+      requestUrl.endsWith(
+        '/shipper/orders/order-platform-payment-default-sdk/payments',
+      ) &&
+      requestMethod === 'POST'
+    ) {
+      paymentCreated = true;
+      return Promise.resolve(
+        createPlatformApiResponse({
+          replayed: false,
+          payment: pendingPayment,
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'home-recent-order-HY202607150002' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('立即支付');
+    expect(getRenderedText(app)).not.toContain(
+      '当前客户端未配置可用的原生支付能力。',
+    );
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'payment-submit' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    const paymentCreateCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-payment-default-sdk/payments',
+      method: 'POST',
+    });
+    expect(paymentCreateCall).toBeDefined();
+    expect(getFetchCallHeaders(paymentCreateCall)).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access.default-sandbox-payment.900',
+        'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
+      }),
+    );
+    expect(getFetchCallBody(paymentCreateCall)).toEqual({
+      channel: 'wechat',
+    });
+    expect(getRenderedText(app)).toContain('资金已托管');
+    expect(getRenderedText(app)).not.toContain('立即支付');
+    expect(getAppRuntimeState().orders[0]).toMatchObject({
+      id: 'HY202607150002',
+      platformOrderId: 'order-platform-payment-default-sdk',
+      paymentStatus: 'escrowed',
+      paymentChannel: 'wechat',
+      syncState: {
+        status: 'synced',
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('restores refundedAtIso when a resumed platform payment has already been refunded', async () => {
+  const now = Date.parse('2026-07-15T10:00:00.000Z');
+  const persistedPendingPaymentOrder = {
+    ...getAppRuntimeState().orders[0],
+    id: 'HY202607150001',
+    platformOrderId: 'order-platform-payment-1',
+    paymentMethod: 'online' as const,
+    paymentMethodText: '在线支付',
+    paymentStatus: 'refund_pending' as const,
+    syncState: {
+      status: 'synced' as const,
+      message: '订单已从平台 API 同步。',
+      updatedAtText: '刚刚',
+      updatedAtIso: '2026-07-15T09:58:00.000Z',
+      queueItems: [],
+    },
+  };
+  await AsyncStorage.setMany({
+    '@vireCodeing/auth-session': JSON.stringify({
+      issuedAt: now - 1000,
+      expiresAt: now + 60 * 60 * 1000,
+      accessToken: 'access.pending-payment.refund',
+    }),
+    '@vireCodeing/pending-platform-payment': JSON.stringify({
+      orderId: 'order-platform-payment-1',
+      paymentId: 'payment-1',
+      channel: 'wechat',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
+      createdAtIso: '2026-07-15T09:59:00.000Z',
+    }),
+    '@vireCodeing/app-runtime-state': JSON.stringify({
+      version: 1,
+      state: {
+        orders: [persistedPendingPaymentOrder],
+        messages: [],
+        messageUnreadCount: 0,
+      },
+    }),
+  });
+  const terminalPayment = {
+    id: 'payment-1',
+    paymentNo: 'PAY-1',
+    orderId: 'order-platform-payment-1',
+    orderNo: 'HY202607150001',
+    shipperId: 'shipper-pending-payment',
+    channel: 'wechat',
+    amountCents: 31000,
+    status: 'refunded',
+    clientPayload: { prepayId: 'prepay-1' },
+    expiresAtIso: '2026-07-15T08:15:00.000Z',
+    paidAtIso: '2026-07-15T08:00:30.000Z',
+    settledAtIso: '2026-07-15T08:30:00.000Z',
+    refundedAtIso: '2026-07-15T10:00:00.000Z',
+    createdAtIso: '2026-07-15T07:59:00.000Z',
+    updatedAtIso: '2026-07-15T10:00:00.000Z',
+  };
+  const fetchMock = jest.fn((input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    if (requestUrl.endsWith('/me')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'shipper-pending-payment',
+          phone: '13800138000',
+          userType: 'shipper',
+        }),
+      );
+    }
+    if (
+      requestUrl.endsWith(
+        '/shipper/orders/order-platform-payment-1/payments',
+      )
+    ) {
+      return Promise.resolve(createPlatformApiResponse(terminalPayment));
+    }
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+  installPlatformFetchMock(fetchMock);
+
+  await renderApp(now, {
+    platformApiBaseUrl: 'http://localhost:3000/api',
+    paymentSdk: { openPayment: jest.fn() },
+  });
+
+  expect(getAppRuntimeState().orders[0]).toMatchObject({
+    id: 'HY202607150001',
+    platformOrderId: 'order-platform-payment-1',
+    paymentStatus: 'refunded',
+    paymentChannel: 'wechat',
+    paymentSettledAtIso: '2026-07-15T08:30:00.000Z',
+    refundedAtIso: '2026-07-15T10:00:00.000Z',
+  });
+  await expect(
+    AsyncStorage.getItem('@vireCodeing/pending-platform-payment'),
+  ).resolves.toBeNull();
 });
 
 test('restores persisted local draft from device storage on cold start', async () => {
@@ -521,7 +852,7 @@ test('marks local draft changes as pending backend sync and retries them', async
 
   expect(renderedText).toContain('草稿同步：已同步');
   expect(renderedText).toContain(
-    '同步说明：本地草稿已记录，等待真实草稿 API 接入。',
+    '同步说明：本地草稿已记录，等待平台草稿同步。',
   );
   expect(getDraftStorageSnapshot()?.syncState?.status).toBe('synced');
   expect(getDraftStorageSnapshot()?.syncState?.updatedAtIso).toBe(expectedIso);
@@ -548,7 +879,7 @@ test('shows a local draft sync failure queue and retries it', async () => {
 
   expect(renderedText).toContain('草稿同步队列');
   expect(renderedText).toContain('发单草稿变更：待同步');
-  expect(renderedText).toContain('真实草稿 API 未接入，本地先记录待同步草稿');
+  expect(renderedText).toContain('草稿已保留在本地，待平台草稿同步');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'draft-sync-mark-failed' }).props.onPress();
@@ -558,7 +889,7 @@ test('shows a local draft sync failure queue and retries it', async () => {
 
   expect(renderedText).toContain('草稿同步：同步失败');
   expect(renderedText).toContain('发单草稿变更：同步失败');
-  expect(renderedText).toContain('真实草稿 API 未接入，本地仅记录失败队列');
+  expect(renderedText).toContain('草稿同步未完成，已保留本地草稿队列');
   expect(getDraftStorageSnapshot()?.syncState?.status).toBe('failed');
   expect(getDraftStorageSnapshot()?.syncState?.updatedAtIso).toBe(expectedIso);
   expect(
@@ -910,6 +1241,8 @@ async function loginToHomeWithPlatformAuth(app: AppRenderer) {
 
   await ReactTestRenderer.act(async () => {
     app.root.findByProps({ testID: 'auth-login-submit' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
     await flushMicrotasks();
   });
 }
@@ -1340,6 +1673,52 @@ test('adds a local bonus to a waiting order', async () => {
   );
 });
 
+test('accumulates an existing local bonus when appending another bonus', async () => {
+  const runtimeState = getAppRuntimeState();
+  saveAppRuntimeState({
+    ...runtimeState,
+    orders: runtimeState.orders.map((order, index) =>
+      index === 0
+        ? {
+            ...order,
+            bonusText: '￥20',
+          }
+        : order,
+    ),
+  });
+
+  const app = await renderApp();
+
+  await loginToHome(app);
+  await openFirstRecentOrder(app);
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'order-detail-bonus-action' })
+      .props.onPress();
+  });
+
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('当前曝光赏金：￥20');
+  expect(renderedText).toContain('追加后总赏金：￥40');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'bonus-option-50' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'bonus-submit' }).props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('曝光赏金：￥70');
+  expect(renderedText).toContain(
+    '已追加赏金 ￥50，当前总赏金 ￥70，待接单订单曝光权重本地提升。',
+  );
+});
+
 test('opens the order list from the recent orders header', async () => {
   const renderer = await renderApp();
 
@@ -1575,13 +1954,14 @@ test('injects platform auth api into the auth screen when base url is configured
       phone: '13800138000',
       code: '999999',
       userType: 'shipper',
-      deviceId: 'local-device',
+      deviceId: getDeviceId(),
     });
     expect(getRenderedText(app)).toContain('货运发单');
     expect(getAuthSessionSnapshot()).toMatchObject({
       accessToken: 'access.platform-user.900',
       refreshToken: 'refresh.platform-user.604800',
       expiresAt: 1000 + 900 * 1000,
+      deviceId: getDeviceId(),
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -1655,6 +2035,66 @@ test('syncs the platform authenticated phone into local profile account state', 
 
     expect(getRenderedText(app)).toContain('绑定手机号：13900139999');
     expect(getProfileLocalState().account.boundPhone).toBe('13900139999');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('shows platform-aware profile entry descriptions and badge in profile center overview', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-profile-overview',
+          phone: '13900139999',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-profile-overview.900',
+          refreshToken: 'refresh.platform-profile-overview.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null));
+
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台同步');
+    expect(renderedText).toContain(
+      '管理装货和卸货地址，并同步平台地址簿快照',
+    );
+    expect(renderedText).toContain(
+      '保存装卸联系人，并同步平台地址簿快照',
+    );
+    expect(renderedText).toContain(
+      '查看平台优惠券状态、锁定和使用结果',
+    );
+    expect(renderedText).not.toContain('本地版展示高频地址');
+    expect(renderedText).not.toContain('本地版展示高频联系人');
+    expect(renderedText).not.toContain('本地版演示筛选和使用');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1734,13 +2174,14 @@ test('uses platform auth api from runtime config when prop base url is not provi
       phone: '13800138000',
       code: '888888',
       userType: 'shipper',
-      deviceId: 'local-device',
+      deviceId: getDeviceId(),
     });
     expect(getRenderedText(app)).toContain('货运发单');
     expect(getAuthSessionSnapshot()).toMatchObject({
       accessToken: 'access.runtime-user.900',
       refreshToken: 'refresh.runtime-user.604800',
       expiresAt: 1000 + 900 * 1000,
+      deviceId: getDeviceId(),
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -2076,7 +2517,7 @@ test('logs out the platform refresh session before clearing local auth state', a
     expect(logoutCall).toBeDefined();
     expect(getFetchCallBody(logoutCall)).toMatchObject({
       refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
-      deviceId: 'local-device',
+      deviceId: getDeviceId(),
     });
     expect(getAuthSessionSnapshot()).toBeUndefined();
     expect(getRenderedText(app)).toContain('账号验证');
@@ -2621,7 +3062,7 @@ test('marks a newly published local order as pending backend sync and retries it
 
   expect(renderedText).toContain('后端同步：已同步');
   expect(renderedText).toContain(
-    '同步说明：本地状态已记录，等待真实 API 接入。',
+    '同步说明：本地订单已记录，等待平台订单同步。',
   );
 });
 
@@ -2679,7 +3120,7 @@ test('shows a local order sync failure queue and retries it', async () => {
 
   expect(renderedText).toContain('订单同步队列');
   expect(renderedText).toContain('订单变更：待同步');
-  expect(renderedText).toContain('真实订单 API 未接入，本地先记录待同步订单');
+  expect(renderedText).toContain('订单已保留在本地，待平台订单同步');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'order-sync-mark-failed' }).props.onPress();
@@ -2689,7 +3130,7 @@ test('shows a local order sync failure queue and retries it', async () => {
 
   expect(renderedText).toContain('后端同步：同步失败');
   expect(renderedText).toContain('订单变更：同步失败');
-  expect(renderedText).toContain('真实订单 API 未接入，本地仅记录失败队列');
+  expect(renderedText).toContain('订单同步未完成，已保留本地订单队列');
   expect(getAppRuntimeState().orders[0]?.syncState?.status).toBe('failed');
 
   ReactTestRenderer.act(() => {
@@ -2743,7 +3184,10 @@ test('fills local draft addresses from saved address suggestions', async () => {
   expect(
     app.root.findByProps({ testID: 'draft-delivery-phone' }).props.value,
   ).toBe('13800138002');
-  expect(getRenderedText(app)).toContain('本地常用地址建议');
+  expect(getRenderedText(app)).toContain('常用地址建议');
+  expect(getRenderedText(app)).toContain(
+    '当前建议来自个人中心本地地址簿，登录平台后可同步地址簿快照。',
+  );
 });
 
 test('uses locally added profile addresses as draft address suggestions', async () => {
@@ -2879,7 +3323,40 @@ test('uses locally added profile contacts as draft contact suggestions', async (
   expect(
     app.root.findByProps({ testID: 'draft-delivery-phone' }).props.value,
   ).toBe('13900139001');
-  expect(getRenderedText(app)).toContain('本地常用联系人建议');
+  expect(getRenderedText(app)).toContain('常用联系人建议');
+  expect(getRenderedText(app)).toContain(
+    '当前建议来自个人中心本地联系人，登录平台后可同步地址簿快照。',
+  );
+});
+
+test('generates a local pickup address preview in the order draft flow', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'draft-pickup-address' })
+      .props.onChangeText('宝安区福永物流园');
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'draft-pickup-address-preview' })
+      .props.onPress();
+  });
+
+  const renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('装货地址预览');
+  expect(renderedText).toContain('标准地址：宝安区福永物流园');
+  expect(renderedText).toContain('来源：本地地址预览');
+  expect(renderedText).toContain('已生成本地预览地址。');
+  expect(renderedText).toContain('已生成装货地址预览。');
 });
 
 test('publishes a local order with pickup and delivery address notes', async () => {
@@ -3260,8 +3737,17 @@ test('shows local cargo photo voucher placeholders and removes one before publis
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('货物图片凭证清单');
-  expect(renderedText).toContain('本地图片凭证 1：待上传占位');
-  expect(renderedText).toContain('本地图片凭证 2：待上传占位');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).toContain('本地图片凭证 2：本地已保存');
+  expect(renderedText).toContain('来源：本地图片凭证占位');
+  expect(
+    app.root.findByProps({ testID: 'draft-cargo-photo-preview-placeholder-1' })
+      .props.children,
+  ).toBe('货物图片 1');
+  expect(
+    app.root.findByProps({ testID: 'draft-cargo-photo-preview-placeholder-2' })
+      .props.children,
+  ).toBe('货物图片 2');
 
   ReactTestRenderer.act(() => {
     app.root
@@ -3272,8 +3758,8 @@ test('shows local cargo photo voucher placeholders and removes one before publis
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('货物图片凭证 1 张');
-  expect(renderedText).toContain('本地图片凭证 1：待上传占位');
-  expect(renderedText).not.toContain('本地图片凭证 2：待上传占位');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).not.toContain('本地图片凭证 2：本地已保存');
 
   ReactTestRenderer.act(() => {
     app.root
@@ -3381,16 +3867,23 @@ test('publishes a local order with value-added service requirements', async () =
     app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
   });
 
-  ReactTestRenderer.act(() => {
-    app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
-  });
-
-  const renderedText = getRenderedText(app);
+  let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('增值服务');
   expect(renderedText).toContain('装卸协助');
   expect(renderedText).toContain('保价运输');
   expect(renderedText).toContain('防震包装');
+  expect(renderedText).toContain('增值服务参考附加费：￥97');
+  expect(renderedText).toContain(
+    '本地参考附加费不会自动叠加到一口价，请按实际需求自行计入报价。',
+  );
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+  expect(renderedText).toContain('增值服务： 装卸协助（1 人）、保价运输（货值 ￥9000）、防震包装');
 });
 
 test('publishes local value-added service details for loading workers and insured value', async () => {
@@ -3461,15 +3954,22 @@ test('publishes local value-added service details for loading workers and insure
     insuredValueField?.props.onChangeText('12000');
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('装卸协助：￥80（2 人 × ￥40/人）');
+  expect(renderedText).toContain('保价运输：￥36（货值 × 0.3%，最低 ￥12）');
+  expect(renderedText).toContain('参考附加费合计：￥116');
+
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
   });
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('增值服务参考附加费：￥116');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'draft-confirm-publish' }).props.onPress();
   });
-
-  const renderedText = getRenderedText(app);
   const createdOrder = getAppRuntimeState().orders[0];
 
   expect(renderedText).toContain('装卸协助（2 人）');
@@ -3532,6 +4032,10 @@ test('requires insured cargo value when publishing with local insurance service'
 
   const renderedText = getRenderedText(app);
 
+  expect(renderedText).toContain('保价运输：待填写货值后生成预估');
+  expect(renderedText).toContain(
+    '补全保价货值后会生成完整附加费预估；当前不会自动叠加到一口价。',
+  );
   expect(renderedText).toContain('请填写有效的保价货值');
   expect(renderedText).not.toContain('确认发布订单');
 });
@@ -3595,7 +4099,9 @@ test('publishes a local order with a selected payment method', async () => {
   const renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('支付方式：在线支付');
-  expect(renderedText).toContain('本地演示暂不扣款，后续接入微信/支付宝。');
+  expect(renderedText).toContain(
+    '当前仍是本地演示订单，切到平台模式后可在订单页继续在线支付。',
+  );
 });
 
 test('applies a local usable coupon when previewing and publishing a fixed price order', async () => {
@@ -4740,11 +5246,16 @@ test('switches the home city with the local city selector', async () => {
     app.root.findByProps({ testID: 'home-open-city-selector' }).props.onPress();
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('当前城市');
+  expect(renderedText).toContain('当前展示已命中常用路线 2 条、订单路线 4 单。');
+
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'city-option-guangzhou' }).props.onPress();
   });
 
-  const renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('广州');
   expect(renderedText).toContain('已切换城市：广州');
@@ -4756,16 +5267,22 @@ test('opens the local network error screen and retries back to home', async () =
 
   await loginToHome(app);
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('本地在线，当前没有待处理同步队列。');
+  expect(renderedText).toContain('异常演练');
+
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'home-open-network-error' }).props.onPress();
   });
 
-  let renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('网络异常');
   expect(renderedText).toContain('本地网络状态演练');
   expect(renderedText).toContain('订单、草稿、消息和个人中心仍可读取本地缓存');
-  expect(renderedText).toContain('真实网络监听和真实 API 重试队列仍未接入');
+  expect(renderedText).toContain('重新检测会自动重试发单草稿和订单的待同步项');
+  expect(renderedText).toContain('常用路线和个人中心资料仍需返回原页面继续处理');
   expect(renderedText).not.toContain('货运发单');
 
   ReactTestRenderer.act(() => {
@@ -4776,14 +5293,119 @@ test('opens the local network error screen and retries back to home', async () =
 
   expect(renderedText).toContain('货运发单');
   expect(renderedText).toContain('最近订单');
-  expect(renderedText).toContain('网络已恢复到本地演示状态');
+  expect(renderedText).toContain('网络状态已恢复，当前没有待处理同步队列。');
   expect(renderedText).not.toContain('网络异常');
 });
 
-test('shows a local network retry queue and clears it after retry', async () => {
-  const app = await renderApp();
+test('shows mixed network retry summary on the home dashboard', async () => {
+  const now = new Date('2026-07-22T08:20:00.000Z').getTime();
+  saveDraft(
+    {
+      weightText: '2.5 吨',
+      pickupAddress: '宝安仓库',
+      deliveryAddress: '南山门店',
+    },
+    now,
+  );
+  saveHomeLocalState({
+    ...getHomeLocalState(),
+    syncState: createFailedHomeSyncState(undefined, now),
+  });
+  await AsyncStorage.setItem(
+    '@vireCodeing/draft-storage',
+    JSON.stringify(getDraftStorageSnapshot()),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/home-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getHomeLocalState(),
+    }),
+  );
+
+  const app = await renderApp(now);
 
   await loginToHome(app);
+
+  const renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain(
+    '检测到 2 条待处理同步队列，其中 1 条同步失败、1 条待同步。',
+  );
+  expect(renderedText).toContain('同步详情');
+  expect(renderedText).not.toContain('异常演练');
+});
+
+test('retries pending draft and order queues from the network error screen', async () => {
+  const now = new Date('2026-07-22T08:35:00.000Z').getTime();
+  saveDraft(
+    {
+      weightText: '2.5 吨',
+      pickupAddress: '宝安仓库',
+      deliveryAddress: '南山门店',
+    },
+    now,
+  );
+  saveHomeLocalState({
+    ...getHomeLocalState(),
+    syncState: createPendingHomeSyncState(undefined, now),
+  });
+  saveProfileLocalState({
+    ...getProfileLocalState(),
+    syncState: createPendingProfileSyncState(undefined, now),
+  });
+  const runtimeState = getAppRuntimeState();
+  saveAppRuntimeState({
+    ...runtimeState,
+    orders: runtimeState.orders.map((order, index) =>
+      index === 0
+        ? {
+            ...order,
+            syncState: createPendingOrderSyncState(undefined, 'update', now),
+          }
+        : order,
+    ),
+  });
+  await AsyncStorage.setItem(
+    '@vireCodeing/draft-storage',
+    JSON.stringify(getDraftStorageSnapshot()),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/home-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getHomeLocalState(),
+    }),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getProfileLocalState(),
+    }),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: getAppRuntimeState(),
+    }),
+  );
+
+  const app = await renderApp(now);
+
+  await loginToHome(app);
+  saveProfileLocalState({
+    ...getProfileLocalState(),
+    syncState: createPendingProfileSyncState(undefined, now),
+  });
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getProfileLocalState(),
+    }),
+  );
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'home-open-network-error' }).props.onPress();
@@ -4791,10 +5413,123 @@ test('shows a local network retry queue and clears it after retry', async () => 
 
   let renderedText = getRenderedText(app);
 
-  expect(renderedText).toContain('本地 API 重试队列');
-  expect(renderedText).toContain('订单发布请求：待重试');
-  expect(renderedText).toContain('资料同步请求：待重试');
-  expect(renderedText).toContain('真实 API 请求未接入，本地只展示待重试队列');
+  expect(renderedText).toContain(
+    '检测到 4 条待处理同步队列，网络恢复后可继续处理。',
+  );
+  expect(renderedText).toContain('发单草稿变更：待同步');
+  expect(renderedText).toContain('订单变更（HY20260622001）：待同步');
+  expect(renderedText).toContain('常用路线变更：待同步');
+  expect(renderedText).toContain('个人中心资料变更：待同步');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'network-error-retry' }).props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('货运发单');
+  expect(renderedText).toContain(
+    '检测到 2 条待处理同步队列，网络恢复后可继续处理。',
+  );
+  expect(renderedText).toContain('同步详情');
+  expect(renderedText).toContain(
+    '网络状态已恢复，已自动重试 2 条草稿/订单待同步队列；常用路线和个人中心待同步项请返回原页面继续处理。',
+  );
+  expect(getDraftStorageSnapshot()?.syncState?.status).toBe('synced');
+  expect(getAppRuntimeState().orders[0]?.syncState?.status).toBe('synced');
+  expect(getHomeLocalState().syncState?.status).toBe('pending');
+  expect(getProfileLocalState().syncState?.status).toBe('pending');
+});
+
+test('shows aggregated network retry queues and can mark pending items as failed', async () => {
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  saveDraft(
+    {
+      weightText: '2.5 吨',
+      pickupAddress: '宝安仓库',
+      deliveryAddress: '南山门店',
+    },
+    now,
+  );
+  saveHomeLocalState({
+    ...getHomeLocalState(),
+    syncState: createPendingHomeSyncState(undefined, now),
+  });
+  saveProfileLocalState({
+    ...getProfileLocalState(),
+    syncState: createPendingProfileSyncState(undefined, now),
+  });
+  const runtimeState = getAppRuntimeState();
+  saveAppRuntimeState({
+    ...runtimeState,
+    orders: runtimeState.orders.map((order, index) =>
+      index === 0
+        ? {
+            ...order,
+            syncState: createPendingOrderSyncState(undefined, 'update', now),
+          }
+        : order,
+    ),
+  });
+  await AsyncStorage.setItem(
+    '@vireCodeing/draft-storage',
+    JSON.stringify(getDraftStorageSnapshot()),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/home-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getHomeLocalState(),
+    }),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getProfileLocalState(),
+    }),
+  );
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: getAppRuntimeState(),
+    }),
+  );
+
+  const app = await renderApp(now);
+
+  await loginToHome(app);
+  saveProfileLocalState({
+    ...getProfileLocalState(),
+    syncState: createPendingProfileSyncState(undefined, now),
+  });
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: getProfileLocalState(),
+    }),
+  );
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-network-error' }).props.onPress();
+  });
+
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('待处理同步队列');
+  expect(renderedText).toContain('同步队列详情');
+  expect(renderedText).toContain('待处理同步');
+  expect(renderedText).toContain(
+    '检测到 4 条待处理同步队列，网络恢复后可继续处理。',
+  );
+  expect(renderedText).toContain('发单草稿变更：待同步');
+  expect(renderedText).toContain('订单变更（HY20260622001）：待同步');
+  expect(renderedText).toContain('常用路线变更：待同步');
+  expect(renderedText).toContain('个人中心资料变更：待同步');
+  expect(renderedText).toContain('草稿已保留在本地，待平台草稿同步。');
+  expect(renderedText).toContain('当前说明：草稿已在本地更新，等待平台草稿同步。');
 
   ReactTestRenderer.act(() => {
     app.root
@@ -4804,9 +5539,18 @@ test('shows a local network retry queue and clears it after retry', async () => 
 
   renderedText = getRenderedText(app);
 
-  expect(renderedText).toContain('订单发布请求：重试失败');
-  expect(renderedText).toContain('资料同步请求：重试失败');
-  expect(renderedText).toContain('真实 API 请求未接入，本地仅记录失败状态');
+  expect(renderedText).toContain('发单草稿变更：同步失败');
+  expect(renderedText).toContain('订单变更（HY20260622001）：同步失败');
+  expect(renderedText).toContain('常用路线变更：同步失败');
+  expect(renderedText).toContain('个人中心资料变更：同步失败');
+  expect(renderedText).toContain(
+    '检测到 4 条同步失败队列，请进入同步详情处理。',
+  );
+  expect(renderedText).toContain('草稿同步未完成，已保留本地草稿队列。');
+  expect(getDraftStorageSnapshot()?.syncState?.status).toBe('failed');
+  expect(getHomeLocalState().syncState?.status).toBe('failed');
+  expect(getProfileLocalState().syncState?.status).toBe('failed');
+  expect(getAppRuntimeState().orders[0]?.syncState?.status).toBe('failed');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'network-error-retry' }).props.onPress();
@@ -4815,8 +5559,13 @@ test('shows a local network retry queue and clears it after retry', async () => 
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('货运发单');
-  expect(renderedText).toContain('本地 API 重试队列已清空');
-  expect(renderedText).not.toContain('订单发布请求：待重试');
+  expect(renderedText).toContain(
+    '检测到 4 条同步失败队列，请进入同步详情处理。',
+  );
+  expect(renderedText).toContain('同步详情');
+  expect(renderedText).toContain(
+    '网络状态已恢复，当前没有可自动重试的待同步队列；已失败队列请进入对应页面处理。',
+  );
 });
 
 test('filters the order list by search keyword', async () => {
@@ -5123,7 +5872,7 @@ test('marks local frequent route changes as pending backend sync and retries the
 
   expect(renderedText).toContain('常用路线同步：已同步');
   expect(renderedText).toContain(
-    '同步说明：本地常用路线已记录，等待真实路线 API 接入。',
+    '同步说明：本地常用路线已记录，等待平台常用路线同步。',
   );
   expect(getHomeLocalState().syncState?.status).toBe('synced');
   expect(getHomeLocalState().syncState?.updatedAtIso).toBe(expectedIso);
@@ -5256,7 +6005,7 @@ test('keeps platform frequent route save queued when saving has no auth token', 
         supportTickets: [],
         syncState: {
           status: 'pending',
-          message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+          message: '常用路线已在本地更新，等待平台常用路线同步。',
           updatedAtText: '刚刚',
           updatedAtIso: '2026-07-04T07:50:00.000Z',
           queueItems: [],
@@ -5637,7 +6386,7 @@ test('keeps local pending frequent routes when platform routes load', async () =
         supportTickets: [],
         syncState: {
           status: 'pending',
-          message: '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+          message: '常用路线已在本地更新，等待平台常用路线同步。',
           updatedAtText: '刚刚',
           updatedAtIso: '2026-07-04T08:00:00.000Z',
           queueItems: [],
@@ -6067,7 +6816,7 @@ test('shows a local frequent route sync failure queue and retries it', async () 
 
   expect(renderedText).toContain('常用路线同步队列');
   expect(renderedText).toContain('常用路线变更：待同步');
-  expect(renderedText).toContain('真实路线 API 未接入，本地先记录待同步路线');
+  expect(renderedText).toContain('常用路线已保留在本地，待平台常用路线同步');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'route-sync-mark-failed' }).props.onPress();
@@ -6077,7 +6826,9 @@ test('shows a local frequent route sync failure queue and retries it', async () 
 
   expect(renderedText).toContain('常用路线同步：同步失败');
   expect(renderedText).toContain('常用路线变更：同步失败');
-  expect(renderedText).toContain('真实路线 API 未接入，本地仅记录失败队列');
+  expect(renderedText).toContain(
+    '常用路线同步未完成，已保留本地常用路线队列',
+  );
   expect(getHomeLocalState().syncState?.status).toBe('failed');
   expect(getHomeLocalState().syncState?.updatedAtIso).toBe(expectedIso);
   expect(getHomeLocalState().syncState?.queueItems?.[0].updatedAtIso).toBe(
@@ -6128,7 +6879,7 @@ test('keeps platform frequent route retry queued when retrying has no auth token
               statusText: '同步失败',
               updatedAtText: '刚刚',
               updatedAtIso: '2026-07-04T07:50:00.000Z',
-              noteText: '真实路线 API 未接入，本地仅记录失败队列。',
+              noteText: '常用路线同步未完成，已保留本地常用路线队列。',
             },
           ],
         },
@@ -6702,11 +7453,21 @@ test('submits an exception report with a local photo voucher', async () => {
       .props.onChangeText('卸货时发现外包装破损');
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('异常图片凭证清单');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).toContain('来源：本地图片凭证占位');
+  expect(
+    app.root.findByProps({ testID: 'exception-photo-preview-placeholder-1' })
+      .props.children,
+  ).toBe('异常图片 1');
+
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'exception-submit' }).props.onPress();
   });
 
-  const renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('异常已提交：货物损坏');
   expect(renderedText).toContain('卸货时发现外包装破损');
@@ -7264,11 +8025,21 @@ test('submits a driver evaluation with a local photo voucher', async () => {
       .props.onChangeText('已补充现场交付图片');
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('评价图片凭证清单');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).toContain('来源：本地图片凭证占位');
+  expect(
+    app.root.findByProps({ testID: 'evaluation-photo-preview-placeholder-1' })
+      .props.children,
+  ).toBe('评价图片 1');
+
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'evaluation-submit' }).props.onPress();
   });
 
-  let renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('图片凭证 1 张');
   expect(renderedText).toContain('已补充现场交付图片');
@@ -7634,6 +8405,7 @@ test('opens the local message center from the home screen', async () => {
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('消息中心');
+  expect(renderedText).toContain('本地版');
   expect(renderedText).toContain('司机报价提醒');
   expect(renderedText).toContain('订单 HY20260622001 收到 2 个司机报价');
   expect(renderedText).toContain('系统通知');
@@ -8455,7 +9227,10 @@ test('refreshes platform messages when opening the message center from home', as
       await flushMicrotasks();
     });
 
-    expect(getRenderedText(app)).toContain('新的平台消息');
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台同步');
+    expect(renderedText).toContain('新的平台消息');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
     ).toBe('还有 4 条未读消息');
@@ -8792,6 +9567,7 @@ test('opens the local help center from the home screen', async () => {
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('客服帮助');
+  expect(renderedText).toContain('本地版');
   expect(renderedText).toContain('发单前');
   expect(renderedText).toContain('修改订单');
   expect(renderedText).toContain('在线客服');
@@ -9038,6 +9814,427 @@ test('opens the system dialer for a support service channel', async () => {
   }
 });
 
+test('loads platform support tickets when opening the help center', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-load',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.load',
+          refreshToken: 'refresh.support-ticket.load',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-load',
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            shipperId: 'user-support-ticket-load',
+            channelName: '投诉建议',
+            description: '平台已存在工单',
+            status: 'processing',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+              {
+                actionText: '客服已受理',
+                timestampIso: '2026-07-22T08:35:00.000Z',
+              },
+            ],
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:35:00.000Z',
+          },
+        ],
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-22T08:40:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+    const ticketLoadCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        url === 'http://localhost:3000/api/shipper/support-tickets' &&
+        init?.method === 'GET'
+      );
+    });
+
+    expect(ticketLoadCall).toBeDefined();
+    expect(ticketLoadCall?.[1].headers).toMatchObject({
+      Authorization: 'Bearer access.support-ticket.load',
+    });
+    expect(renderedText).toContain('平台同步');
+    expect(renderedText).toContain('平台工单');
+    expect(renderedText).toContain('平台已存在工单');
+    expect(renderedText).toContain('处理状态：客服已受理');
+    expect(renderedText).toContain('平台工单已同步到当前列表。');
+    expect(
+      app.root.findAllByProps({
+        testID: 'support-ticket-accept-550e8400-e29b-41d4-a716-446655440000',
+      }),
+    ).toHaveLength(0);
+    expect(getHomeLocalState().supportTickets[0]).toMatchObject({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      statusText: '客服已受理',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps local fallback support tickets when platform help-center refresh succeeds', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-merge',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.merge',
+          refreshToken: 'refresh.support-ticket.merge',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-merge',
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440010',
+            shipperId: 'user-support-ticket-merge',
+            channelName: '投诉建议',
+            description: '平台已存在工单',
+            status: 'processing',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+              {
+                actionText: '客服已受理',
+                timestampIso: '2026-07-22T08:35:00.000Z',
+              },
+            ],
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:35:00.000Z',
+          },
+        ],
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+  const persistedHomeState = {
+    ...getHomeLocalState(),
+    supportTickets: [
+      {
+        id: 'support-ticket-1',
+        channelName: '投诉建议',
+        description: '本地兜底工单',
+        statusText: '待客服跟进',
+        createdAtText: '刚刚提交',
+        createdAtIso: '2026-07-22T08:20:00.000Z',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampText: '刚刚提交',
+            timestampIso: '2026-07-22T08:20:00.000Z',
+          },
+        ],
+      },
+    ],
+  };
+  saveHomeLocalState(persistedHomeState);
+  await AsyncStorage.setItem(
+    '@vireCodeing/home-local-state',
+    JSON.stringify({
+      version: 1,
+      state: persistedHomeState,
+    }),
+  );
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台工单（含本地兜底）');
+    expect(renderedText).toContain('平台已存在工单');
+    expect(renderedText).toContain('本地兜底工单');
+    expect(renderedText).toContain('来源：平台工单同步');
+    expect(renderedText).toContain('来源：本地兜底工单');
+    expect(renderedText).toContain(
+      '平台工单已同步到当前列表，本地兜底工单已保留。',
+    );
+    expect(
+      app.root.findAllByProps({
+        testID: 'support-ticket-accept-550e8400-e29b-41d4-a716-446655440010',
+      }),
+    ).toHaveLength(0);
+    expect(
+      app.root.findAllByProps({
+        testID: 'support-ticket-accept-support-ticket-1',
+      }),
+    ).not.toHaveLength(0);
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-ticket-accept-support-ticket-1' })
+        .props.onPress();
+    });
+
+    expect(getRenderedText(app)).toContain('平台工单（含本地兜底）');
+    expect(getRenderedText(app)).toContain('工单已更新：客服已受理');
+    expect(
+      getHomeLocalState().supportTickets.find(
+        ticket => ticket.id === 'support-ticket-1',
+      )?.statusText,
+    ).toBe('客服已受理');
+    expect(
+      app.root.findAllByProps({
+        testID: 'support-ticket-accept-550e8400-e29b-41d4-a716-446655440010',
+      }),
+    ).toHaveLength(0);
+    expect(getHomeLocalState().supportTickets.map(ticket => ticket.id)).toEqual([
+      '550e8400-e29b-41d4-a716-446655440010',
+      'support-ticket-1',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('submits a platform support ticket from the help center', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-create',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.create',
+          refreshToken: 'refresh.support-ticket.create',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-create',
+        items: [],
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: '550e8400-e29b-41d4-a716-446655440001',
+        shipperId: 'user-support-ticket-create',
+        channelName: '投诉建议',
+        description: '司机沟通不及时，希望客服协助跟进',
+        status: 'pending',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampIso: '2026-07-22T08:40:00.000Z',
+          },
+        ],
+        createdAtIso: '2026-07-22T08:40:00.000Z',
+        updatedAtIso: '2026-07-22T08:40:00.000Z',
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-channel-service-complaint' })
+        .props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-ticket-description' })
+        .props.onChangeText('司机沟通不及时，希望客服协助跟进');
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'support-ticket-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+    const ticketCreateCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        url === 'http://localhost:3000/api/shipper/support-tickets' &&
+        init?.method === 'POST'
+      );
+    });
+
+    expect(ticketCreateCall).toBeDefined();
+    expect(ticketCreateCall?.[1].headers).toMatchObject({
+      Authorization: 'Bearer access.support-ticket.create',
+    });
+    expect(JSON.parse(ticketCreateCall?.[1].body as string)).toEqual({
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+    expect(renderedText).toContain('平台工单已提交：投诉建议');
+    expect(renderedText).toContain('司机沟通不及时，希望客服协助跟进');
+    expect(renderedText).toContain('处理状态：待客服跟进');
+    expect(getHomeLocalState().supportTickets[0]).toMatchObject({
+      id: '550e8400-e29b-41d4-a716-446655440001',
+      statusText: '待客服跟进',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('falls back to a local support ticket when platform submit has no auth token', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-fallback',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.fallback',
+          refreshToken: 'refresh.support-ticket.fallback',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-fallback',
+        items: [],
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+    clearAuthSession();
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-channel-service-complaint' })
+        .props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'support-ticket-description' })
+        .props.onChangeText('司机沟通不及时，希望客服协助跟进');
+    });
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'support-ticket-submit' }).props.onPress();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => {
+        return (
+          url === 'http://localhost:3000/api/shipper/support-tickets' &&
+          init?.method === 'POST'
+        );
+      }),
+    ).toBe(false);
+    expect(renderedText).toContain(
+      '平台工单提交需要重新登录，已改为本地保存工单。',
+    );
+    expect(renderedText).toContain('本地工单');
+    expect(renderedText).toContain('本地版');
+    expect(getHomeLocalState().supportTickets[0]).toMatchObject({
+      id: 'support-ticket-1',
+      statusText: '待客服跟进',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('opens the local profile center from the home screen', async () => {
   const app = await renderApp();
 
@@ -9145,6 +10342,16 @@ test('updates profile account type and credit score after submitting enterprise 
 
   expect(renderedText).toContain('企业货主 · 手机号：138****8000');
   expect(renderedText).toContain('98 分');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+  });
+
+  const homeRenderedText = getRenderedText(app);
+
+  expect(homeRenderedText).toContain('企业货主');
+  expect(homeRenderedText).toContain('98 分');
+  expect(homeRenderedText).not.toContain('个人货主');
 });
 
 test('updates local profile monthly order count after publishing a new order', async () => {
@@ -9286,7 +10493,7 @@ test('opens local profile detail pages from the profile center', async () => {
     {
       testID: 'profile-entry-invoices',
       title: '发票管理',
-      expected: ['深圳晨星贸易有限公司', '电子普通发票', '待提交'],
+      expected: ['张先生', '电子普通发票', '待提交'],
     },
     {
       testID: 'profile-entry-coupons',
@@ -9359,13 +10566,20 @@ test('submits a local identity verification request from the profile center', as
       .props.onPress();
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('身份证凭证清单');
+  expect(renderedText).toContain('身份证正面凭证：本地已保存');
+  expect(renderedText).toContain('身份证反面凭证：本地已保存');
+  expect(renderedText).toContain('来源：本地图片凭证占位');
+
   ReactTestRenderer.act(() => {
     app.root
       .findByProps({ testID: 'identity-verification-submit' })
       .props.onPress();
   });
 
-  const renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('实名认证审核中');
   expect(renderedText).toContain('张先生');
@@ -9625,13 +10839,19 @@ test('submits a local enterprise verification request from the profile center', 
       .props.onPress();
   });
 
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('营业执照凭证清单');
+  expect(renderedText).toContain('营业执照凭证：本地已保存');
+  expect(renderedText).toContain('来源：本地图片凭证占位');
+
   ReactTestRenderer.act(() => {
     app.root
       .findByProps({ testID: 'enterprise-verification-submit' })
       .props.onPress();
   });
 
-  const renderedText = getRenderedText(app);
+  renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('企业认证审核中');
   expect(renderedText).toContain('深圳晨星贸易有限公司');
@@ -10200,6 +11420,7 @@ test('filters local spending records and submits a local invoice request', async
 
   expect(renderedText).toContain('申请中');
   expect(renderedText).toContain('发票申请已提交');
+  expect(renderedText).toContain('发票抬头：张先生');
   expect(renderedText).not.toContain('待提交');
 });
 
@@ -10866,6 +12087,40 @@ test('blocks local VAT invoice requests before enterprise verification', async (
   expect(getProfileLocalState().invoiceDetails['invoice-1']).toBeUndefined();
 });
 
+test('keeps personal invoice title selected before enterprise verification', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'invoice-title-enterprise' }).props.onPress();
+  });
+
+  let renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('企业抬头需先提交企业认证资料');
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'invoice-submit-invoice-1' })
+      .props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('申请中');
+  expect(renderedText).toContain('发票抬头：张先生');
+  expect(renderedText).not.toContain('发票抬头：深圳晨星贸易有限公司');
+});
+
 test('submits a platform invoice request and refreshes platform invoice records', async () => {
   const defaultProfileState = getProfileLocalState();
   const platformCompletedOrder = {
@@ -11106,6 +12361,515 @@ test('submits a platform invoice request and refreshes platform invoice records'
     }),
   ]);
   expect(getProfileLocalState().selectedInvoiceOrderIds).toEqual([]);
+});
+
+test('keeps a failed platform invoice application queued locally and retries it successfully', async () => {
+  const defaultProfileState = getProfileLocalState();
+  const platformCompletedOrder = {
+    id: 'HY202607080001',
+    platformOrderId: 'platform-order-invoice-1',
+    status: 'transporting' as const,
+    from: '平台南山仓',
+    to: '平台福田店',
+    cargoType: '食品',
+    weightText: '3 吨',
+    vehicleRequirement: '中型货车',
+    priceText: '￥9999',
+    paymentMethodText: '在线支付',
+    updatedAtText: '订单已完成 · 今天 10:00',
+    updatedAtIso: '2026-07-08T02:00:00.000Z',
+  };
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice-retry',
+    summary: {
+      completedTotalCents: 85000,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [
+      {
+        orderId: 'platform-order-invoice-1',
+        orderNo: 'HY202607080001',
+        status: 'completed' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'settled' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'settled' as const,
+        amountCents: 85000,
+        occurredAtIso: '2026-07-08T02:00:00.000Z',
+        paidAtIso: '2026-07-08T01:30:00.000Z',
+        settledAtIso: '2026-07-08T02:00:00.000Z',
+        routeText: '平台南山仓 → 平台福田店',
+      },
+    ],
+  };
+  const createdPlatformInvoice = {
+    id: 'invoice-platform-1',
+    shipperId: 'user-platform-invoice-retry',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台货主',
+    receiverEmail: 'invoice@platform.test',
+    orderIds: ['platform-order-invoice-1'],
+    orderNos: ['HY202607080001'],
+    amountCents: 85000,
+    status: 'reviewing' as const,
+    createdAtIso: '2026-07-09T08:00:00.000Z',
+    updatedAtIso: '2026-07-09T08:00:00.000Z',
+  };
+  let invoiceCreateCount = 0;
+  let invoiceListLoadCount = 0;
+
+  await AsyncStorage.setMany({
+    '@vireCodeing/app-runtime-state': JSON.stringify({
+      version: 1,
+      state: {
+        orders: [platformCompletedOrder],
+        messages: [],
+      },
+    }),
+    '@vireCodeing/profile-local-state': JSON.stringify({
+      version: 1,
+      state: {
+        ...defaultProfileState,
+        invoiceType: 'normal',
+        invoiceTitle: 'personal',
+        receiverEmail: 'invoice@platform.test',
+        selectedInvoiceOrderIds: [],
+        account: {
+          ...defaultProfileState.account,
+          displayName: '平台货主',
+        },
+      },
+    }),
+  });
+
+  const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-invoice-retry',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-invoice-retry',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440121',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'GET'
+    ) {
+      invoiceListLoadCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          invoiceListLoadCount === 1 ? [] : [createdPlatformInvoice],
+        ),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'POST'
+    ) {
+      invoiceCreateCount += 1;
+
+      if (invoiceCreateCount === 1) {
+        throw new Error('NETWORK_ERROR');
+      }
+
+      return Promise.resolve(createPlatformApiResponse(createdPlatformInvoice));
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  const app = await renderApp(1000, {
+    platformApiBaseUrl: 'http://localhost:3000/api',
+  });
+
+  await loginToHomeWithPlatformAuth(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({
+        testID:
+          'invoice-order-invoice-order-platform-platform-order-invoice-1',
+      })
+      .props.onPress();
+  });
+
+  expect(getProfileLocalState().syncState?.status).toBe('synced');
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'invoice-submit-platform' }).props.onPress();
+    await flushMicrotasks();
+  });
+
+  expect(getRenderedText(app)).toContain('平台发票申请失败，请检查网络后重试。');
+  expect(getProfileLocalState().selectedInvoiceOrderIds).toEqual([
+    'invoice-order-platform-platform-order-invoice-1',
+  ]);
+  expect(getProfileLocalState().syncState).toMatchObject({
+    status: 'failed',
+    operation: 'invoiceApplication',
+    message: '平台发票申请失败，请检查网络后重试。',
+    invoiceApplicationSyncMode: 'submit',
+    invoiceApplicationRequest: {
+      invoiceType: 'normal',
+      invoiceTitleType: 'personal',
+      invoiceTitle: '平台货主',
+      receiverEmail: 'invoice@platform.test',
+      orderIds: ['platform-order-invoice-1'],
+    },
+    queueItems: [
+      expect.objectContaining({
+        titleText: '发票申请',
+        statusText: '同步失败',
+        noteText: '发票申请同步未完成，已保留本地申请，请返回个人中心重试。',
+      }),
+    ],
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+  });
+
+  expect(getRenderedText(app)).toContain('资料同步：同步失败');
+  expect(getRenderedText(app)).toContain(
+    '同步说明：平台发票申请失败，请检查网络后重试。',
+  );
+  expect(getRenderedText(app)).toContain('发票申请：同步失败');
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'profile-sync-retry' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  expect(
+    findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/invoices',
+      method: 'POST',
+    }),
+  ).toHaveLength(2);
+  expect(
+    findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/invoices',
+      method: 'GET',
+    }),
+  ).toHaveLength(2);
+  expect(getProfileLocalState().selectedInvoiceOrderIds).toEqual([]);
+  expect(getProfileLocalState().syncState).toMatchObject({
+    status: 'synced',
+    operation: 'invoiceApplication',
+    message: '平台发票申请已提交，状态已同步。',
+    queueItems: [],
+  });
+  expect(getProfileLocalState().invoices).toEqual([
+    expect.objectContaining({
+      id: 'invoice-platform-1',
+      statusText: '申请中',
+    }),
+  ]);
+});
+
+test('keeps a submitted platform invoice refresh queued locally and retries it successfully', async () => {
+  const defaultProfileState = getProfileLocalState();
+  const platformCompletedOrder = {
+    id: 'HY202607080001',
+    platformOrderId: 'platform-order-invoice-1',
+    status: 'transporting' as const,
+    from: '平台南山仓',
+    to: '平台福田店',
+    cargoType: '食品',
+    weightText: '3 吨',
+    vehicleRequirement: '中型货车',
+    priceText: '￥9999',
+    paymentMethodText: '在线支付',
+    updatedAtText: '订单已完成 · 今天 10:00',
+    updatedAtIso: '2026-07-08T02:00:00.000Z',
+  };
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice-refresh-retry',
+    summary: {
+      completedTotalCents: 85000,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [
+      {
+        orderId: 'platform-order-invoice-1',
+        orderNo: 'HY202607080001',
+        status: 'completed' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'settled' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'settled' as const,
+        amountCents: 85000,
+        occurredAtIso: '2026-07-08T02:00:00.000Z',
+        paidAtIso: '2026-07-08T01:30:00.000Z',
+        settledAtIso: '2026-07-08T02:00:00.000Z',
+        routeText: '平台南山仓 → 平台福田店',
+      },
+    ],
+  };
+  const createdPlatformInvoice = {
+    id: 'invoice-platform-1',
+    shipperId: 'user-platform-invoice-refresh-retry',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台货主',
+    receiverEmail: 'invoice@platform.test',
+    orderIds: ['platform-order-invoice-1'],
+    orderNos: ['HY202607080001'],
+    amountCents: 85000,
+    status: 'reviewing' as const,
+    createdAtIso: '2026-07-09T08:00:00.000Z',
+    updatedAtIso: '2026-07-09T08:00:00.000Z',
+  };
+  let invoiceListLoadCount = 0;
+
+  await AsyncStorage.setMany({
+    '@vireCodeing/app-runtime-state': JSON.stringify({
+      version: 1,
+      state: {
+        orders: [platformCompletedOrder],
+        messages: [],
+      },
+    }),
+    '@vireCodeing/profile-local-state': JSON.stringify({
+      version: 1,
+      state: {
+        ...defaultProfileState,
+        invoiceType: 'normal',
+        invoiceTitle: 'personal',
+        receiverEmail: 'invoice@platform.test',
+        selectedInvoiceOrderIds: [],
+        account: {
+          ...defaultProfileState.account,
+          displayName: '平台货主',
+        },
+      },
+    }),
+  });
+
+  const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-invoice-refresh-retry',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-invoice-refresh-retry',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440122',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'GET'
+    ) {
+      invoiceListLoadCount += 1;
+
+      if (invoiceListLoadCount === 2) {
+        throw new Error('NETWORK_ERROR');
+      }
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          invoiceListLoadCount === 1 ? [] : [createdPlatformInvoice],
+        ),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(createdPlatformInvoice));
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  const app = await renderApp(1000, {
+    platformApiBaseUrl: 'http://localhost:3000/api',
+  });
+
+  await loginToHomeWithPlatformAuth(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({
+        testID:
+          'invoice-order-invoice-order-platform-platform-order-invoice-1',
+      })
+      .props.onPress();
+  });
+
+  expect(getProfileLocalState().syncState?.status).toBe('synced');
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'invoice-submit-platform' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  expect(getRenderedText(app)).toContain(
+    '平台发票申请已提交，但申请记录刷新失败，请稍后重试。',
+  );
+  expect(getProfileLocalState().selectedInvoiceOrderIds).toEqual([]);
+  expect(getProfileLocalState().syncState).toMatchObject({
+    status: 'failed',
+    operation: 'invoiceApplication',
+    message: '平台发票申请已提交，但申请记录刷新失败，请稍后重试。',
+    invoiceApplicationSyncMode: 'refresh',
+    queueItems: [
+      expect.objectContaining({
+        titleText: '发票申请',
+        statusText: '同步失败',
+        noteText: '发票申请同步未完成，已保留本地申请，请返回个人中心重试。',
+      }),
+    ],
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+  });
+
+  expect(getRenderedText(app)).toContain('资料同步：同步失败');
+  expect(getRenderedText(app)).toContain(
+    '同步说明：平台发票申请已提交，但申请记录刷新失败，请稍后重试。',
+  );
+  expect(getRenderedText(app)).toContain('发票申请：同步失败');
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'profile-sync-retry' }).props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  expect(
+    findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/invoices',
+      method: 'POST',
+    }),
+  ).toHaveLength(1);
+  expect(
+    findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/invoices',
+      method: 'GET',
+    }),
+  ).toHaveLength(3);
+  expect(getProfileLocalState().syncState).toMatchObject({
+    status: 'synced',
+    operation: 'invoiceApplication',
+    message: '平台发票申请记录已同步。',
+    queueItems: [],
+  });
+  expect(getProfileLocalState().invoices).toEqual([
+    expect.objectContaining({
+      id: 'invoice-platform-1',
+      statusText: '申请中',
+    }),
+  ]);
 });
 
 test('uses the saved profile display name for personal invoice titles', async () => {
@@ -11547,7 +13311,7 @@ test('shows only the latest local invoice application in the current summary aft
   expect(renderedText).toContain('第 1 次申请');
   expect(renderedText).toContain('第 2 次申请');
   expect(renderedText).not.toContain(
-    '当前申请 发票类型：电子普通发票 发票抬头：深圳晨星贸易有限公司 接收邮箱：finance@chenxing.example 开票订单：HY20260620003',
+    '当前申请 发票类型：电子普通发票 发票抬头：张先生 接收邮箱：finance@chenxing.example 开票订单：HY20260620003',
   );
 });
 
@@ -12041,11 +13805,15 @@ test('toggles local account security protection and checks device status', async
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('账号安全检查');
-  expect(renderedText).toContain('当前设备：本机演示设备');
+  expect(renderedText).toContain('需处理');
+  expect(renderedText).toContain('当前设备：本机演示设备（本地会话）');
+  expect(renderedText).toContain('仅检测到当前设备会话，本地未发现其他设备快照。');
+  expect(renderedText).toContain('当前会话：本地演示会话 · 有效');
   expect(renderedText).toContain('登录保护：已关闭');
-  expect(renderedText).toContain('设备管理：本地占位');
+  expect(renderedText).toContain('手机号保护：已开启');
+  expect(renderedText).toContain('风险结论：发现 1 项待处理风险');
   expect(renderedText).toContain(
-    '真实多端设备列表、异常登录拦截和强制下线仍未接入',
+    '风险提示：异地登录保护已关闭，本地无法拦截异常设备登录。',
   );
   expect(
     getProfileLocalState().settings.find(
@@ -12205,7 +13973,12 @@ test('confirms the local privacy policy from profile settings', async () => {
 
   expect(renderedText).toContain('隐私政策确认');
   expect(renderedText).toContain('确认状态：未确认');
-  expect(renderedText).toContain('真实隐私协议版本留痕和后端同步仍未接入');
+  expect(renderedText).toContain(
+    `当前版本：${privacyPolicyDocumentInfo.versionTitle}`,
+  );
+  expect(renderedText).toContain(
+    '平台会同步隐私确认时间和已确认版本留痕；历史旧数据可能只有确认时间。',
+  );
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'privacy-policy-confirm' }).props.onPress();
@@ -12216,6 +13989,9 @@ test('confirms the local privacy policy from profile settings', async () => {
   expect(renderedText).toContain('隐私政策已确认');
   expect(renderedText).toContain('确认状态：已确认');
   expect(renderedText).toContain('本地确认时间：刚刚');
+  expect(renderedText).toContain(
+    `已确认版本：${privacyPolicyDocumentInfo.versionTitle}`,
+  );
   expect(
     getProfileLocalState().settings.find(
       setting => setting.id === 'setting-privacy',
@@ -12224,6 +14000,8 @@ test('confirms the local privacy policy from profile settings', async () => {
     statusText: '已确认',
     confirmedAtText: '刚刚',
     confirmedAtIso: new Date(now).toISOString(),
+    confirmedVersionId: privacyPolicyDocumentInfo.version,
+    confirmedVersionTitle: privacyPolicyDocumentInfo.versionTitle,
   });
 });
 
@@ -12352,7 +14130,7 @@ test('marks local profile changes as pending backend sync and retries them', asy
 
   expect(renderedText).toContain('资料同步：已同步');
   expect(renderedText).toContain(
-    '同步说明：本地资料已记录，等待真实账号中心 API 接入。',
+    '同步说明：本地资料已记录，等待平台资料同步。',
   );
   expect(getProfileLocalState().syncState?.status).toBe('synced');
 });
@@ -12389,7 +14167,7 @@ test('shows a local profile sync failure queue and retries it', async () => {
   expect(renderedText).toContain('资料同步队列');
   expect(renderedText).toContain('个人中心资料变更：待同步');
   expect(renderedText).toContain(
-    '真实账号中心 API 未接入，本地先记录待同步资料',
+    '个人中心资料已保留在本地，待平台资料同步',
   );
 
   ReactTestRenderer.act(() => {
@@ -12402,7 +14180,9 @@ test('shows a local profile sync failure queue and retries it', async () => {
 
   expect(renderedText).toContain('资料同步：同步失败');
   expect(renderedText).toContain('个人中心资料变更：同步失败');
-  expect(renderedText).toContain('真实账号中心 API 未接入，本地仅记录失败队列');
+  expect(renderedText).toContain(
+    '个人中心资料同步未完成，已保留本地变更，请返回个人中心重试',
+  );
   expect(getProfileLocalState().syncState?.status).toBe('failed');
 
   ReactTestRenderer.act(() => {
@@ -12737,6 +14517,131 @@ test('loads the platform profile address book when opening profile center', asyn
       ]),
       syncState: { status: 'synced', operation: 'addressBook' },
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('uses platform-loaded profile address book entries as draft suggestions', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-profile-address-book-draft',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.profile-address-book-draft.900',
+          refreshToken: 'refresh.profile-address-book-draft.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-profile-address-book-draft',
+        addresses: [
+          {
+            id: 'address-platform-draft-1',
+            name: '平台前海仓',
+            address: '前海平台仓库',
+            contactText: '平台调度 13900139021',
+          },
+        ],
+        contacts: [
+          {
+            id: 'contact-platform-draft-1',
+            name: '平台调度',
+            roleText: '卸货联系人',
+            phoneText: '13900139021',
+          },
+        ],
+        clientUpdatedAtIso: '2026-07-03T08:00:00.000Z',
+        updatedAtIso: '2026-07-03T08:30:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null));
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/address-book',
+        method: 'GET',
+      }),
+    ).toBeDefined();
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('常用地址建议');
+    expect(renderedText).toContain('常用联系人建议');
+    expect(renderedText).toContain(
+      '当前建议来自个人中心地址簿，平台地址簿快照已同步到当前列表。',
+    );
+    expect(renderedText).toContain('装货：平台前海仓');
+    expect(renderedText).toContain('卸货：平台调度');
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({
+          testID: 'draft-pickup-address-suggestion-address-platform-draft-1',
+        })
+        .props.onPress();
+      app.root
+        .findByProps({
+          testID: 'draft-delivery-contact-suggestion-contact-platform-draft-1',
+        })
+        .props.onPress();
+    });
+
+    expect(
+      app.root.findByProps({ testID: 'draft-pickup-address' }).props.value,
+    ).toBe('前海平台仓库');
+    expect(
+      app.root.findByProps({ testID: 'draft-pickup-contact' }).props.value,
+    ).toBe('平台调度');
+    expect(
+      app.root.findByProps({ testID: 'draft-pickup-phone' }).props.value,
+    ).toBe('13900139021');
+    expect(
+      app.root.findByProps({ testID: 'draft-delivery-contact' }).props.value,
+    ).toBe('平台调度');
+    expect(
+      app.root.findByProps({ testID: 'draft-delivery-phone' }).props.value,
+    ).toBe('13900139021');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -14227,6 +16132,566 @@ test('shows current password error when platform password change is rejected', a
     });
 
     expect(getRenderedText(app)).toContain('当前密码错误');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('syncs platform account snapshots without leaving profile sync pending', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-account-sync',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-account-sync.900',
+            refreshToken: 'refresh.platform-account-sync.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-account-sync',
+          displayName: '旧昵称',
+          phone: '13800138000',
+          phoneProtectionEnabled: true,
+          loginProtectionEnabled: true,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: false,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'PUT'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-account-sync',
+          displayName: requestBody.displayName,
+          phone: '13800138000',
+          phoneProtectionEnabled: requestBody.phoneProtectionEnabled,
+          loginProtectionEnabled: requestBody.loginProtectionEnabled,
+          orderNotificationEnabled: requestBody.orderNotificationEnabled,
+          promotionNotificationEnabled: requestBody.promotionNotificationEnabled,
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-settings' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'setting-display-name' })
+        .props.onChangeText('平台昵称');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await app.root.findByProps({ testID: 'setting-account-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+
+    const saveCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/account',
+      method: 'PUT',
+    });
+    expect(getFetchCallBody(saveCall)).toMatchObject({
+      displayName: '平台昵称',
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: false,
+    });
+    expect(getProfileLocalState().account).toMatchObject({
+      displayName: '平台昵称',
+      boundPhone: '13800138000',
+    });
+    expect(getProfileLocalState().syncState?.status).toBe('synced');
+    expect(getRenderedText(app)).toContain('资料同步：已同步');
+    expect(getRenderedText(app)).not.toContain('资料同步：待同步');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps a failed platform account snapshot queued locally and retries it successfully', async () => {
+  const originalFetch = globalThis.fetch;
+  let accountSaveAttempts = 0;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-account-retry',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-account-retry.900',
+            refreshToken: 'refresh.platform-account-retry.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-account-retry',
+          displayName: '旧昵称',
+          phone: '13800138000',
+          phoneProtectionEnabled: true,
+          loginProtectionEnabled: true,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: false,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'PUT'
+    ) {
+      accountSaveAttempts += 1;
+
+      if (accountSaveAttempts === 1) {
+        return Promise.reject(new Error('NETWORK_ERROR'));
+      }
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-account-retry',
+          displayName: requestBody.displayName,
+          phone: requestBody.phone,
+          phoneProtectionEnabled: requestBody.phoneProtectionEnabled,
+          loginProtectionEnabled: requestBody.loginProtectionEnabled,
+          orderNotificationEnabled: requestBody.orderNotificationEnabled,
+          promotionNotificationEnabled: requestBody.promotionNotificationEnabled,
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-settings' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'setting-display-name' })
+        .props.onChangeText('失败后重试昵称');
+      app.root
+        .findByProps({ testID: 'setting-bound-phone' })
+        .props.onChangeText('13900139999');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await app.root.findByProps({ testID: 'setting-account-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getProfileLocalState().account).toMatchObject({
+      displayName: '失败后重试昵称',
+      boundPhone: '13900139999',
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'failed',
+      operation: 'accountProfile',
+      message: '网络连接不可用，请检查网络后重试',
+      queueItems: [
+        expect.objectContaining({
+          titleText: '账号资料与设置',
+          statusText: '同步失败',
+          noteText:
+            '账号资料与设置同步未完成，已保留本地修改，请返回个人中心重试。',
+        }),
+      ],
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+
+    expect(getRenderedText(app)).toContain('资料同步：同步失败');
+    expect(getRenderedText(app)).toContain('账号资料与设置：同步失败');
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const saveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/account',
+      method: 'PUT',
+    });
+    expect(saveCalls).toHaveLength(2);
+    expect(getFetchCallBody(saveCalls[1])).toMatchObject({
+      displayName: '失败后重试昵称',
+      phone: '13900139999',
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: false,
+    });
+    expect(getProfileLocalState().account).toMatchObject({
+      displayName: '失败后重试昵称',
+      boundPhone: '13900139999',
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'synced',
+      operation: 'accountProfile',
+      message: '账号资料与设置快照已同步到平台。',
+      queueItems: [],
+    });
+    expect(getRenderedText(app)).toContain('资料同步：已同步');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('does not overwrite a failed local account snapshot when reopening profile settings', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = 1000;
+  const queuedProfileState = {
+    ...getProfileLocalState(),
+    account: {
+      displayName: '本地待重试昵称',
+      boundPhone: '13900139999',
+      avatarPhotoCount: 0,
+    },
+    syncState: createFailedProfileSyncState(
+      '网络连接不可用，请检查网络后重试',
+      now,
+      'accountProfile',
+    ),
+  };
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: queuedProfileState,
+    }),
+  );
+  saveProfileLocalState(queuedProfileState);
+
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-account-skip-load',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-account-skip-load.900',
+            refreshToken: 'refresh.platform-account-skip-load.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-settings' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/profile/account',
+        method: 'GET',
+      }),
+    ).toHaveLength(0);
+    expect(getRenderedText(app)).toContain('昵称：本地待重试昵称');
+    expect(getRenderedText(app)).toContain('绑定手机号：13900139999');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('syncs platform settings toggles and privacy confirmation through the account snapshot api', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-settings-snapshot',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-settings-snapshot.900',
+            refreshToken: 'refresh.platform-settings-snapshot.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-settings-snapshot',
+          displayName: '平台昵称',
+          phone: '13800138000',
+          phoneProtectionEnabled: true,
+          loginProtectionEnabled: true,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: false,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      init?.method === 'PUT'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-settings-snapshot',
+          displayName: requestBody.displayName,
+          phone: '13800138000',
+          phoneProtectionEnabled: requestBody.phoneProtectionEnabled,
+          loginProtectionEnabled: requestBody.loginProtectionEnabled,
+          orderNotificationEnabled: requestBody.orderNotificationEnabled,
+          promotionNotificationEnabled: requestBody.promotionNotificationEnabled,
+          ...(requestBody.privacyConfirmedAtIso
+            ? { privacyConfirmedAtIso: requestBody.privacyConfirmedAtIso }
+            : {}),
+          ...(requestBody.privacyPolicyVersion
+            ? { privacyPolicyVersion: requestBody.privacyPolicyVersion }
+            : {}),
+          ...(requestBody.privacyPolicyVersionTitle
+            ? {
+                privacyPolicyVersionTitle:
+                  requestBody.privacyPolicyVersionTitle,
+              }
+            : {}),
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-settings' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await app.root
+        .findByProps({ testID: 'setting-toggle-setting-promotion' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'setting-open-privacy' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await app.root.findByProps({ testID: 'privacy-policy-confirm' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+
+    const saveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/account',
+      method: 'PUT',
+    });
+    expect(saveCalls).toHaveLength(2);
+    expect(getFetchCallBody(saveCalls[0])).toMatchObject({
+      displayName: '平台昵称',
+      promotionNotificationEnabled: true,
+    });
+    expect(getFetchCallBody(saveCalls[1])).toMatchObject({
+      displayName: '平台昵称',
+      promotionNotificationEnabled: true,
+      privacyConfirmedAtIso: new Date(1000).toISOString(),
+      privacyPolicyVersion: privacyPolicyDocumentInfo.version,
+      privacyPolicyVersionTitle: privacyPolicyDocumentInfo.versionTitle,
+    });
+    expect(getProfileLocalState().settings.find(
+      setting => setting.id === 'setting-promotion',
+    )).toMatchObject({
+      statusText: '已开启',
+    });
+    expect(getProfileLocalState().settings.find(
+      setting => setting.id === 'setting-privacy',
+    )).toMatchObject({
+      statusText: '已确认',
+      confirmedAtIso: new Date(1000).toISOString(),
+      confirmedVersionId: privacyPolicyDocumentInfo.version,
+      confirmedVersionTitle: privacyPolicyDocumentInfo.versionTitle,
+    });
+    expect(getProfileLocalState().syncState?.status).toBe('synced');
+    expect(getRenderedText(app)).toContain('资料同步：已同步');
+    expect(getRenderedText(app)).toContain('同步说明：隐私确认快照已同步到平台。');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -16173,6 +18638,66 @@ test('resolves the draft conflict after applying the last differing platform fie
   }
 });
 
+test('shows platform pricing notices on the draft screen when platform order api is enabled', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-draft-pricing-copy',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-draft-pricing-copy.900',
+          refreshToken: 'refresh.platform-draft-pricing-copy.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null));
+
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain(
+      '固定价发单会同步优惠券选择和实付预估，实际核销以后端订单与支付状态为准。',
+    );
+    expect(renderedText).toContain(
+      '平台发单会同步支付方式选择；若选择在线支付，支付单会在发单后的订单页中发起。',
+    );
+    expect(renderedText).not.toContain('本地优惠券');
+    expect(renderedText).not.toContain(
+      '仅做本地计价预览，真实优惠券核销和支付抵扣后续接入。',
+    );
+    expect(renderedText).not.toContain(
+      '当前只记录本地选择，真实微信/支付宝支付后续接入。',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uses platform order api when publishing and keeps local fallback on failure', async () => {
   const originalFetch = globalThis.fetch;
   const fetchMock = jest
@@ -17041,6 +19566,21 @@ test('attaches platform file objects to cargo photo vouchers when publishing', a
       app.root.findByProps({ testID: 'draft-cargo-photo-add' }).props.onPress();
       await flushMicrotasks();
     });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('货物图片凭证清单');
+    expect(renderedText).toContain('货物图片凭证：货物图片凭证1.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).toContain('文件 ID：file-cargo-1');
+    expect(renderedText).not.toContain('本地图片凭证 1：本地已保存');
+    expect(
+      app.root.findByProps({ testID: 'draft-cargo-photo-preview-image-1' }).props
+        .source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-cargo-1.png',
+    });
+
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'draft-publish' }).props.onPress();
     });
@@ -17723,6 +20263,9 @@ test('cancels a platform order through the shipper order api', async () => {
         .findByProps({ testID: 'order-detail-secondary-action' })
         .props.onPress();
     });
+    expect(getRenderedText(app)).toContain(
+      '当前订单已接平台取消接口；提交后会同步平台订单状态，违约金和退款仍待客服确认。',
+    );
     ReactTestRenderer.act(() => {
       app.root
         .findByProps({ testID: 'cancel-reason-plan-change' })
@@ -17759,6 +20302,15 @@ test('cancels a platform order through the shipper order api', async () => {
       id: 'HY202607010777',
       platformOrderId: 'order-platform-cancel-777',
       status: 'cancelled',
+      cancellation: {
+        reasonText: '计划有变',
+        description: '客户临时调整发货计划',
+        feeText: '待接单取消已提交平台，当前不产生违约费用。',
+        settlementText: '无违约金',
+        refundText: '无需退款',
+        reviewStatusText: '系统自动通过',
+        driverNoticeText: '订单尚未分配司机，无需通知',
+      },
       syncState: { status: 'synced' },
     });
     expect(getRenderedText(app)).toContain('后端同步：已同步');
@@ -21081,6 +23633,21 @@ test('attaches platform file objects to exception report photos', async () => {
       app.root.findByProps({ testID: 'exception-photo-add' }).props.onPress();
       await flushMicrotasks();
     });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('异常图片凭证清单');
+    expect(renderedText).toContain('异常图片凭证：异常图片凭证.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).toContain('文件 ID：file-exception-1');
+    expect(renderedText).not.toContain('本地图片凭证 1：本地已保存');
+    expect(
+      app.root.findByProps({ testID: 'exception-photo-preview-image-1' }).props
+        .source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-1.png',
+    });
+
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'exception-submit' }).props.onPress();
       await flushMicrotasks();
@@ -21610,6 +24177,21 @@ test('attaches platform file objects to evaluation photos', async () => {
       app.root.findByProps({ testID: 'evaluation-photo-add' }).props.onPress();
       await flushMicrotasks();
     });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('评价图片凭证清单');
+    expect(renderedText).toContain('评价图片凭证：评价图片凭证.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).toContain('文件 ID：file-evaluation-1');
+    expect(renderedText).not.toContain('本地图片凭证 1：本地已保存');
+    expect(
+      app.root.findByProps({ testID: 'evaluation-photo-preview-image-1' }).props
+        .source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-evaluation-1.png',
+    });
+
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'evaluation-submit' }).props.onPress();
       await flushMicrotasks();
@@ -21867,6 +24449,9 @@ test('submits a platform order change request through the change request api', a
         .findByProps({ testID: 'order-detail-change-request-action' })
         .props.onPress();
     });
+    expect(getRenderedText(app)).toContain(
+      '当前订单已接平台修改申请接口，提交后会进入平台客服确认流程。',
+    );
     ReactTestRenderer.act(() => {
       app.root
         .findByProps({ testID: 'change-request-description' })
@@ -22114,6 +24699,8 @@ test('persists local profile settings and verification records to device storage
     app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
   });
 
+  expect(getRenderedText(app)).toContain('头像凭证：本地已保存');
+
   ReactTestRenderer.act(() => {
     app.root
       .findByProps({ testID: 'profile-entry-identity-verification' })
@@ -22332,11 +24919,25 @@ test('attaches platform file objects to identity verification photos', async () 
       await flushMicrotasks();
     });
 
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('身份证凭证清单');
+    expect(renderedText).toContain('身份证正面凭证：身份证正面.png');
+    expect(renderedText).toContain('身份证反面凭证：身份证反面.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).toContain('文件 ID：file-front');
+    expect(renderedText).toContain('文件 ID：file-back');
+    expect(renderedText).not.toContain('待上传占位');
+
     ReactTestRenderer.act(() => {
       app.root
         .findByProps({ testID: 'identity-verification-face-check' })
         .props.onPress();
     });
+
+    expect(getRenderedText(app)).toContain(
+      '人脸核验已完成，当前客户端未接入平台人脸 SDK，已使用平台占位校验标记。',
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root
@@ -22386,6 +24987,278 @@ test('attaches platform file objects to identity verification photos', async () 
         );
       }),
     ).toBe(true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps platform identity verification locally when initial submit fails and retries it successfully', async () => {
+  const originalFetch = globalThis.fetch;
+  let identitySubmitCount = 0;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl.endsWith('/auth/send-code')) {
+      return Promise.resolve(
+        createPlatformApiResponse({ expireSeconds: 300, devCode: '999999' }),
+      );
+    }
+
+    if (requestUrl.endsWith('/auth/login')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-identity-retry',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access-platform-identity-retry',
+            refreshToken: 'refresh.platform-identity-retry',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/shipper/profile/address-book')) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (requestUrl.endsWith('/shipper/profile/identity-verification')) {
+      if (init?.method === 'GET') {
+        return Promise.resolve(createPlatformApiResponse(null));
+      }
+
+      identitySubmitCount += 1;
+
+      if (identitySubmitCount === 1) {
+        return Promise.reject(new Error('NETWORK_ERROR'));
+      }
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-identity-retry',
+          realName: requestBody.realName,
+          idNumber: requestBody.idNumber,
+          identityFrontFileId: requestBody.identityFrontFileId,
+          identityBackFileId: requestBody.identityBackFileId,
+          faceVerified: true,
+          status: 'reviewing',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+          updatedAtIso: '2026-07-06T03:10:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/upload-intents')) {
+      const fileId =
+        requestBody.fileName === '身份证正面.png'
+          ? 'file-front'
+          : 'file-back';
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: fileId,
+          ownerUserId: 'user-platform-identity-retry',
+          purpose: 'identity',
+          objectKey: `user-platform-identity-retry/identity/${fileId}.png`,
+          status: 'pending',
+          uploadUrl: `http://localhost:3000/api/files/uploads/${fileId}`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          expiresAtIso: '2026-07-06T03:15:00.000Z',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/uploads/file-front')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-front',
+          ownerUserId: 'user-platform-identity-retry',
+          purpose: 'identity',
+          objectKey: 'user-platform-identity-retry/identity/file-front.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-front.png',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/uploads/file-back')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-back',
+          ownerUserId: 'user-platform-identity-retry',
+          purpose: 'identity',
+          objectKey: 'user-platform-identity-retry/identity/file-back.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-back.png',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+    installPlatformFetchMock(fetchMock);
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'profile-entry-identity-verification' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'identity-verification-name' })
+        .props.onChangeText('张先生');
+      app.root
+        .findByProps({ testID: 'identity-verification-id-number' })
+        .props.onChangeText('440300199001011234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'identity-verification-front-photo' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'identity-verification-back-photo' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'identity-verification-face-check' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'identity-verification-submit' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain(
+      '实名认证资料提交失败，已保留本地资料，请稍后重试。',
+    );
+    expect(getProfileLocalState().identityVerification).toMatchObject({
+      realName: '张先生',
+      idNumber: '440300199001011234',
+      identityPhotoCount: 2,
+      faceVerified: true,
+      status: 'reviewing',
+      identityPhotoFiles: [
+        {
+          fileId: 'file-front',
+          fileName: '身份证正面.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-front.png',
+        },
+        {
+          fileId: 'file-back',
+          fileName: '身份证反面.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-back.png',
+        },
+      ],
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'failed',
+      operation: 'identityVerification',
+      message: '实名认证资料提交失败，已保留本地资料，请稍后重试。',
+      queueItems: [
+        expect.objectContaining({
+          titleText: '实名认证资料',
+          statusText: '同步失败',
+          noteText:
+            '实名认证资料提交未完成，已保留本地资料，请返回个人中心重试。',
+        }),
+      ],
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+
+    expect(getRenderedText(app)).toContain('资料同步：同步失败');
+    expect(getRenderedText(app)).toContain(
+      '同步说明：实名认证资料提交失败，已保留本地资料，请稍后重试。',
+    );
+    expect(getRenderedText(app)).toContain('实名认证资料：同步失败');
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const saveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/identity-verification',
+      method: 'PUT',
+    });
+
+    expect(saveCalls).toHaveLength(2);
+    expect(getFetchCallBody(saveCalls[1])).toEqual({
+      realName: '张先生',
+      idNumber: '440300199001011234',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+    });
+    expect(getProfileLocalState().identityVerification).toMatchObject({
+      realName: '张先生',
+      idNumber: '440300199001011234',
+      identityPhotoCount: 2,
+      faceVerified: true,
+      status: 'reviewing',
+      updatedAtIso: '2026-07-06T03:10:00.000Z',
+      identityPhotoFiles: [
+        {
+          fileId: 'file-front',
+          fileName: '身份证正面.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-front.png',
+        },
+        {
+          fileId: 'file-back',
+          fileName: '身份证反面.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-back.png',
+        },
+      ],
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'synced',
+      operation: 'identityVerification',
+      message: '实名认证资料已同步到平台审核。',
+    });
+    expect(getRenderedText(app)).toContain('资料同步：已同步');
+    expect(getRenderedText(app)).toContain(
+      '同步说明：实名认证资料已同步到平台审核。',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -22522,6 +25395,14 @@ test('submits enterprise verification to platform from the profile center', asyn
       await flushMicrotasks();
     });
 
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('营业执照凭证清单');
+    expect(renderedText).toContain('营业执照凭证：营业执照.png');
+    expect(renderedText).toContain('来源：平台文件对象（已上传）');
+    expect(renderedText).toContain('文件 ID：file-license');
+    expect(renderedText).not.toContain('待上传占位');
+
     await ReactTestRenderer.act(async () => {
       app.root
         .findByProps({ testID: 'enterprise-verification-submit' })
@@ -22555,6 +25436,248 @@ test('submits enterprise verification to platform from the profile center', asyn
         );
       }),
     ).toBe(true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps platform enterprise verification locally when initial submit fails and retries it successfully', async () => {
+  const originalFetch = globalThis.fetch;
+  let enterpriseSubmitCount = 0;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl.endsWith('/auth/send-code')) {
+      return Promise.resolve(
+        createPlatformApiResponse({ expireSeconds: 300, devCode: '999999' }),
+      );
+    }
+
+    if (requestUrl.endsWith('/auth/login')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-enterprise-retry',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access-platform-enterprise-retry',
+            refreshToken: 'refresh.platform-enterprise-retry',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/shipper/profile/address-book')) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (requestUrl.endsWith('/shipper/profile/enterprise-verification')) {
+      if (init?.method === 'GET') {
+        return Promise.resolve(createPlatformApiResponse(null));
+      }
+
+      enterpriseSubmitCount += 1;
+
+      if (enterpriseSubmitCount === 1) {
+        return Promise.reject(new Error('NETWORK_ERROR'));
+      }
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-enterprise-retry',
+          enterpriseName: requestBody.enterpriseName,
+          creditCode: requestBody.creditCode,
+          legalName: requestBody.legalName,
+          legalId: requestBody.legalId,
+          enterprisePhone: requestBody.enterprisePhone,
+          licenseFileId: requestBody.licenseFileId,
+          status: 'reviewing',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+          updatedAtIso: '2026-07-06T03:10:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/upload-intents')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-license',
+          ownerUserId: 'user-platform-enterprise-retry',
+          purpose: 'identity',
+          objectKey: 'user-platform-enterprise-retry/identity/file-license.png',
+          status: 'pending',
+          uploadUrl: 'http://localhost:3000/api/files/uploads/file-license',
+          publicUrl: 'https://cdn.example.com/file-license.png',
+          expiresAtIso: '2026-07-06T03:15:00.000Z',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/uploads/file-license')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-license',
+          ownerUserId: 'user-platform-enterprise-retry',
+          purpose: 'identity',
+          objectKey: 'user-platform-enterprise-retry/identity/file-license.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-license.png',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+    installPlatformFetchMock(fetchMock);
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'profile-entry-enterprise-verification' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'enterprise-verification-name' })
+        .props.onChangeText('深圳晨星贸易有限公司');
+      app.root
+        .findByProps({ testID: 'enterprise-verification-code' })
+        .props.onChangeText('91440300MA5TEST001');
+      app.root
+        .findByProps({ testID: 'enterprise-verification-legal-name' })
+        .props.onChangeText('张先生');
+      app.root
+        .findByProps({ testID: 'enterprise-verification-legal-id' })
+        .props.onChangeText('440300199001011234');
+      app.root
+        .findByProps({ testID: 'enterprise-verification-phone' })
+        .props.onChangeText('13900139088');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'enterprise-verification-license-photo' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'enterprise-verification-submit' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain(
+      '企业认证资料提交失败，已保留本地资料，请稍后重试。',
+    );
+    expect(getProfileLocalState().enterpriseVerification).toMatchObject({
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '440300199001011234',
+      enterprisePhone: '13900139088',
+      licensePhotoCount: 1,
+      status: 'reviewing',
+      licenseFiles: [
+        {
+          fileId: 'file-license',
+          fileName: '营业执照.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-license.png',
+        },
+      ],
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'failed',
+      operation: 'enterpriseVerification',
+      message: '企业认证资料提交失败，已保留本地资料，请稍后重试。',
+      queueItems: [
+        expect.objectContaining({
+          titleText: '企业认证资料',
+          statusText: '同步失败',
+          noteText:
+            '企业认证资料提交未完成，已保留本地资料，请返回个人中心重试。',
+        }),
+      ],
+    });
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+
+    expect(getRenderedText(app)).toContain('资料同步：同步失败');
+    expect(getRenderedText(app)).toContain(
+      '同步说明：企业认证资料提交失败，已保留本地资料，请稍后重试。',
+    );
+    expect(getRenderedText(app)).toContain('企业认证资料：同步失败');
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-sync-retry' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const saveCalls = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/enterprise-verification',
+      method: 'PUT',
+    });
+
+    expect(saveCalls).toHaveLength(2);
+    expect(getFetchCallBody(saveCalls[1])).toEqual({
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '440300199001011234',
+      enterprisePhone: '13900139088',
+      licenseFileId: 'file-license',
+    });
+    expect(getProfileLocalState().enterpriseVerification).toMatchObject({
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '440300199001011234',
+      enterprisePhone: '13900139088',
+      licensePhotoCount: 1,
+      status: 'reviewing',
+      updatedAtIso: '2026-07-06T03:10:00.000Z',
+      licenseFiles: [
+        {
+          fileId: 'file-license',
+          fileName: '营业执照.png',
+          purpose: 'identity',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-license.png',
+        },
+      ],
+    });
+    expect(getProfileLocalState().syncState).toMatchObject({
+      status: 'synced',
+      operation: 'enterpriseVerification',
+      message: '企业认证资料已同步到平台审核。',
+    });
+    expect(getRenderedText(app)).toContain('资料同步：已同步');
+    expect(getRenderedText(app)).toContain(
+      '同步说明：企业认证资料已同步到平台审核。',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -22600,6 +25723,83 @@ test('logs in as a driver and loads the platform order hall', async () => {
     )
     .mockResolvedValueOnce(
       createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-id-front',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-front.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-id-front.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-id-back',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-back.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-id-back.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-driving-license',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-driving-license.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-driving-license.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-driver-license',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-driver-license.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-driver-license.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-transport-qualification',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-transport-qualification.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-transport-qualification.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-operation-permit',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-operation-permit.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-operation-permit.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-vehicle-photo',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-vehicle-photo.png',
+        status: 'uploaded',
+        publicUrl: 'https://cdn.example.com/file-vehicle-photo.png',
+        createdAtIso: '2026-07-06T03:00:00.000Z',
+      }),
     );
   installPlatformFetchMock(fetchMock);
   const app = await renderApp(1000, {
@@ -22674,8 +25874,28 @@ test('loads driver certification snapshot after driver login', async () => {
     )
     .mockResolvedValueOnce(
       createPlatformApiResponse({
-        identity: { driverId: 'driver-1', status: 'unsubmitted' },
-        vehicle: { driverId: 'driver-1', status: 'reviewing' },
+        identity: {
+          driverId: 'driver-1',
+          realName: '李师傅',
+          identityNumber: '11010119900307201X',
+          identityFrontFileId: 'file-id-front',
+          identityBackFileId: 'file-id-back',
+          status: 'reviewing',
+        },
+        vehicle: {
+          driverId: 'driver-1',
+          plateNumber: '粤B12345',
+          vehicleType: '厢式货车',
+          vehicleLengthText: '4.2 米',
+          loadCapacityText: '2 吨',
+          hasTailboard: true,
+          drivingLicenseFileId: 'file-driving-license',
+          driverLicenseFileId: 'file-driver-license',
+          transportQualificationFileId: 'file-transport-qualification',
+          operationPermitFileId: 'file-operation-permit',
+          vehiclePhotoFileId: 'file-vehicle-photo',
+          status: 'approved',
+        },
       }),
     )
     .mockResolvedValueOnce(
@@ -22717,8 +25937,34 @@ test('loads driver certification snapshot after driver login', async () => {
     app.root.findByProps({ testID: 'driver-certification-title' }).props
       .children,
   ).toBe('司机认证');
-  expect(getRenderedText(app)).toContain('实名认证：未提交');
-  expect(getRenderedText(app)).toContain('车辆认证：审核中');
+  expect(getRenderedText(app)).toContain('实名认证：审核中');
+  expect(getRenderedText(app)).toContain('车辆认证：已通过');
+  expect(
+    app.root.findByProps({ testID: 'driver-cert-real-name' }).props.value,
+  ).toBe('李师傅');
+  expect(
+    app.root.findByProps({ testID: 'driver-cert-identity-number' }).props.value,
+  ).toBe('11010119900307201X');
+  expect(
+    app.root.findByProps({ testID: 'driver-cert-plate-number' }).props.value,
+  ).toBe('粤B12345');
+  expect(getRenderedText(app)).toContain('实名认证附件');
+  expect(getRenderedText(app)).toContain('身份证人像面：平台已同步文件 ID');
+  expect(getRenderedText(app)).toContain('来源：平台认证快照');
+  expect(getRenderedText(app)).toContain('文件 ID：file-id-front');
+  expect(getRenderedText(app)).toContain('车辆认证附件');
+  expect(getRenderedText(app)).toContain('车辆照片：平台已同步文件 ID');
+  expect(getRenderedText(app)).toContain('文件 ID：file-vehicle-photo');
+  expect(
+    app.root.findByProps({
+      testID: 'driver-cert-preview-placeholder-identityFrontFileId',
+    }).props.children,
+  ).toBe('身份证人像面');
+  expect(
+    app.root.findByProps({
+      testID: 'driver-cert-preview-placeholder-vehiclePhotoFileId',
+    }).props.children,
+  ).toBe('车辆照片');
   expect(
     fetchMock.mock.calls.some(([url, init]) => {
       return (
@@ -22778,6 +26024,54 @@ test('submits driver identity certification from the driver home', async () => {
     )
     .mockResolvedValueOnce(
       createPlatformApiResponse({
+        id: 'file-id-front',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-front.png',
+        status: 'pending',
+        uploadUrl: 'http://localhost:3000/api/files/uploads/file-id-front',
+        publicUrl: 'https://cdn.example.com/file-id-front.png',
+        expiresAtIso: '2026-07-09T02:30:00.000Z',
+        createdAtIso: '2026-07-09T02:20:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-id-front',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-front.png',
+        publicUrl: 'https://cdn.example.com/file-id-front.png',
+        status: 'uploaded',
+        createdAtIso: '2026-07-09T02:20:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-id-back',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-back.png',
+        status: 'pending',
+        uploadUrl: 'http://localhost:3000/api/files/uploads/file-id-back',
+        publicUrl: 'https://cdn.example.com/file-id-back.png',
+        expiresAtIso: '2026-07-09T02:31:00.000Z',
+        createdAtIso: '2026-07-09T02:21:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        id: 'file-id-back',
+        ownerUserId: 'driver-1',
+        purpose: 'identity',
+        objectKey: 'driver-1/identity/file-id-back.png',
+        publicUrl: 'https://cdn.example.com/file-id-back.png',
+        status: 'uploaded',
+        createdAtIso: '2026-07-09T02:21:00.000Z',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
         identity: {
           driverId: 'driver-1',
           realName: '李师傅',
@@ -22822,12 +26116,51 @@ test('submits driver identity certification from the driver home', async () => {
     app.root
       .findByProps({ testID: 'driver-cert-identity-number' })
       .props.onChangeText('11010119900307201x');
+  });
+
+  await ReactTestRenderer.act(async () => {
     app.root
-      .findByProps({ testID: 'driver-cert-identity-front-file' })
-      .props.onChangeText('file-id-front');
+      .findByProps({ testID: 'driver-cert-upload-identity-front' })
+      .props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+  await ReactTestRenderer.act(async () => {
     app.root
-      .findByProps({ testID: 'driver-cert-identity-back-file' })
-      .props.onChangeText('file-id-back');
+      .findByProps({ testID: 'driver-cert-upload-identity-back' })
+      .props.onPress();
+    await flushMicrotasks();
+    await flushMacrotask();
+    await flushMicrotasks();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'driver-cert-identity-front-file' }).props
+      .value,
+  ).toBe('file-id-front');
+  expect(
+    app.root.findByProps({ testID: 'driver-cert-identity-back-file' }).props
+      .value,
+  ).toBe('file-id-back');
+  expect(getRenderedText(app)).toContain('身份证人像面：身份证人像面.png');
+  expect(getRenderedText(app)).toContain('身份证国徽面：身份证国徽面.png');
+  expect(getRenderedText(app)).toContain('文件 ID：file-id-front');
+  expect(getRenderedText(app)).toContain('文件 ID：file-id-back');
+  expect(getRenderedText(app)).toContain('已生成预览地址。');
+  expect(
+    app.root.findByProps({
+      testID: 'driver-cert-preview-image-identityFrontFileId',
+    }).props.source,
+  ).toEqual({
+    uri: 'https://cdn.example.com/file-id-front.png',
+  });
+  expect(
+    app.root.findByProps({
+      testID: 'driver-cert-preview-image-identityBackFileId',
+    }).props.source,
+  ).toEqual({
+    uri: 'https://cdn.example.com/file-id-back.png',
   });
 
   await ReactTestRenderer.act(async () => {
@@ -22839,6 +26172,35 @@ test('submits driver identity certification from the driver home', async () => {
     '司机实名认证已提交审核。',
   );
   expect(getRenderedText(app)).toContain('实名认证：审核中');
+  const uploadIntentCalls = findFetchCalls(fetchMock, {
+    url: 'http://localhost:3000/api/files/upload-intents',
+    method: 'POST',
+  });
+  expect(uploadIntentCalls).toHaveLength(2);
+  expect(getFetchCallBody(uploadIntentCalls[0])).toEqual({
+    purpose: 'identity',
+    fileName: '身份证人像面.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+  expect(getFetchCallBody(uploadIntentCalls[1])).toEqual({
+    purpose: 'identity',
+    fileName: '身份证国徽面.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+  expect(
+    findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/files/uploads/file-id-front',
+      method: 'POST',
+    }),
+  ).toBeDefined();
+  expect(
+    findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/files/uploads/file-id-back',
+      method: 'POST',
+    }),
+  ).toBeDefined();
   expect(fetchMock).toHaveBeenCalledWith(
     'http://localhost:3000/api/driver/certification/identity',
     expect.objectContaining({

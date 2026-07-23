@@ -29,44 +29,69 @@ export type OrderDetailChange = {
 
 export function getOrderProgressAction(
   status: RecentOrderStatus,
+  usesPlatformOrderActions = false,
 ): OrderProgressAction | undefined {
   if (status === 'waiting') {
     return {
-      label: '选择司机并进入待装货',
+      label: usesPlatformOrderActions
+        ? '推进平台订单进入待装货'
+        : '选择司机并进入待装货',
       nextStatus: 'loading',
       updatedAtText: '司机已接单 · 刚刚',
-      description: '本地演示：模拟货主选择司机报价，订单进入待装货。',
-      noticeText: '已模拟选择司机，订单进入待装货。',
+      description: usesPlatformOrderActions
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；真实司机接单仍待后续闭环。'
+        : '本地演示：模拟货主选择司机报价，订单进入待装货。',
+      noticeText: usesPlatformOrderActions
+        ? '已提交平台状态推进请求，订单进入待装货。'
+        : '已模拟选择司机，订单进入待装货。',
     };
   }
 
   if (status === 'loading') {
     return {
-      label: '确认装货并进入运输中',
+      label: usesPlatformOrderActions
+        ? '推进平台订单进入运输中'
+        : '确认装货并进入运输中',
       nextStatus: 'transporting',
       updatedAtText: '货物运输中 · 刚刚',
-      description: '本地演示：模拟司机完成装货，订单进入运输中。',
-      noticeText: '已模拟装货完成，订单进入运输中。',
+      description: usesPlatformOrderActions
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到运输中；装货确认仍待后续闭环。'
+        : '本地演示：模拟司机完成装货，订单进入运输中。',
+      noticeText: usesPlatformOrderActions
+        ? '已提交平台状态推进请求，订单进入运输中。'
+        : '已模拟装货完成，订单进入运输中。',
     };
   }
 
   if (status === 'transporting') {
     return {
-      label: '模拟送达并进入待确认',
+      label: usesPlatformOrderActions
+        ? '推进平台订单进入待确认'
+        : '模拟送达并进入待确认',
       nextStatus: 'confirming',
       updatedAtText: '等待货主确认 · 刚刚',
-      description: '本地演示：模拟司机送达卸货点，等待货主确认。',
-      noticeText: '已模拟司机送达，等待货主确认。',
+      description: usesPlatformOrderActions
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待确认；实时送达确认仍待后续闭环。'
+        : '本地演示：模拟司机送达卸货点，等待货主确认。',
+      noticeText: usesPlatformOrderActions
+        ? '已提交平台状态推进请求，订单进入待确认。'
+        : '已模拟司机送达，等待货主确认。',
     };
   }
 
   if (status === 'confirming') {
     return {
-      label: '确认送达并完成订单',
+      label: usesPlatformOrderActions
+        ? '确认送达并完成平台订单'
+        : '确认送达并完成订单',
       nextStatus: 'completed',
       updatedAtText: '订单已完成 · 刚刚',
-      description: '本地演示：确认送达后，订单进入已完成。',
-      noticeText: '已确认送达，订单进入已完成。',
+      description: usesPlatformOrderActions
+        ? '当前订单已接平台确认送达接口，点击后会把完成态提交到平台。'
+        : '本地演示：确认送达后，订单进入已完成。',
+      noticeText: usesPlatformOrderActions
+        ? '已提交平台确认送达请求，订单进入已完成。'
+        : '已确认送达，订单进入已完成。',
     };
   }
 
@@ -75,10 +100,13 @@ export function getOrderProgressAction(
 
 export function getCancellationSettlement(
   status: RecentOrderStatus,
+  usesPlatformCancellation = false,
 ): CancellationSettlement {
   if (status === 'waiting') {
     return {
-      feeText: '待接单取消，本地演示不产生违约费用。',
+      feeText: usesPlatformCancellation
+        ? '待接单取消已提交平台，当前不产生违约费用。'
+        : '待接单取消，本地演示不产生违约费用。',
       settlementText: '无违约金',
       refundText: '无需退款',
       reviewStatusText: '系统自动通过',
@@ -87,11 +115,19 @@ export function getCancellationSettlement(
   }
 
   return {
-    feeText: '司机已接单，本地演示提示需客服确认违约费用。',
-    settlementText: '待客服确认违约金',
-    refundText: '支付资金暂不变更，客服确认后更新退款状态',
+    feeText: usesPlatformCancellation
+      ? '司机已接单，平台取消已提交，违约费用待客服确认。'
+      : '司机已接单，本地演示提示需客服确认违约费用。',
+    settlementText: usesPlatformCancellation
+      ? '待平台客服确认违约金'
+      : '待客服确认违约金',
+    refundText: usesPlatformCancellation
+      ? '支付资金暂不变更，平台客服确认后更新退款状态'
+      : '支付资金暂不变更，客服确认后更新退款状态',
     reviewStatusText: '待客服确认',
-    driverNoticeText: '已生成司机取消通知，等待客服确认后同步',
+    driverNoticeText: usesPlatformCancellation
+      ? '已生成平台司机取消通知，等待客服确认后同步'
+      : '已生成司机取消通知，等待客服确认后同步',
   };
 }
 
@@ -111,16 +147,43 @@ export function createDriverQuoteOrderChange(
   };
 }
 
-export function createBonusOrderChange(bonusAmount: string): OrderDetailChange {
-  const bonusText = formatPriceText(bonusAmount);
+export function createBonusOrderChange(
+  bonusAmount: string,
+  currentBonusText?: string,
+): OrderDetailChange {
+  const bonusText = getAccumulatedBonusText(currentBonusText, bonusAmount);
+  const addedBonusText = formatPriceText(bonusAmount);
+  const hasExistingBonus = getBonusAmountValue(currentBonusText) > 0;
 
   return {
     changes: {
       bonusText,
       updatedAtText: '已追加赏金 · 刚刚',
     },
-    noticeText: `已追加赏金 ${bonusText}，待接单订单曝光权重本地提升。`,
+    noticeText: hasExistingBonus
+      ? `已追加赏金 ${addedBonusText}，当前总赏金 ${bonusText}，待接单订单曝光权重本地提升。`
+      : `已追加赏金 ${bonusText}，待接单订单曝光权重本地提升。`,
   };
+}
+
+export function getBonusAmountValue(bonusText?: string) {
+  const normalized = (bonusText ?? '').trim().replace(/[^\d.]/g, '');
+  const amountValue = Number(normalized);
+
+  if (!normalized || Number.isNaN(amountValue)) {
+    return 0;
+  }
+
+  return amountValue;
+}
+
+export function getAccumulatedBonusText(
+  currentBonusText: string | undefined,
+  bonusAmount: string,
+) {
+  return formatPriceText(
+    `${getBonusAmountValue(currentBonusText) + getBonusAmountValue(bonusAmount)}`,
+  );
 }
 
 export function createExceptionReportOrderChange(report: {
@@ -144,16 +207,25 @@ export function createExceptionReportOrderChange(report: {
 
 export function createChangeRequestOrderChange(
   description: string,
+  usesPlatformChangeRequest = false,
 ): OrderDetailChange {
   return {
     changes: {
       modificationRequest: {
         description,
         statusText: '待客服确认',
-        impactText: '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
-        costImpactText: '待客服重新核算费用，当前订单金额暂不变更。',
-        refundText: '支付资金暂不变更，审核通过后再同步差额。',
-        driverNoticeText: '已生成司机修改确认通知，等待客服确认后同步。',
+        impactText: usesPlatformChangeRequest
+          ? '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。'
+          : '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
+        costImpactText: usesPlatformChangeRequest
+          ? '待平台重新核算费用，当前订单金额暂不变更。'
+          : '待客服重新核算费用，当前订单金额暂不变更。',
+        refundText: usesPlatformChangeRequest
+          ? '支付资金暂不变更，平台审核通过后再同步差额。'
+          : '支付资金暂不变更，审核通过后再同步差额。',
+        driverNoticeText: usesPlatformChangeRequest
+          ? '已生成平台修改确认通知，等待客服确认后同步。'
+          : '已生成司机修改确认通知，等待客服确认后同步。',
       },
     },
     noticeText: `修改申请已提交：${description}`,

@@ -1,9 +1,12 @@
 import { Text, View } from 'react-native';
 
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { styles } from '../../styles';
 
 export function ProfileOverviewPanel({
   avatarInitial,
+  avatarPhotoCount,
+  avatarPublicUrl,
   displayName,
   accountTypeLabel,
   maskedPhone,
@@ -14,6 +17,8 @@ export function ProfileOverviewPanel({
   unreadMessageCount,
 }: {
   avatarInitial: string;
+  avatarPhotoCount: number;
+  avatarPublicUrl?: string;
   displayName: string;
   accountTypeLabel: string;
   maskedPhone: string;
@@ -27,15 +32,24 @@ export function ProfileOverviewPanel({
     <View style={styles.verificationPanel}>
       <View style={styles.panelHeader}>
         <View style={styles.profileIdentityRow}>
-          <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarText}>{avatarInitial}</Text>
-          </View>
+          <ProfileAvatar
+            initial={avatarInitial}
+            publicUrl={avatarPublicUrl}
+            size="md"
+            imageTestID="profile-avatar-image"
+          />
           <View>
             <Text style={styles.greeting}>{displayName}</Text>
             <Text style={styles.subtleText}>
               {`${accountTypeLabel} · 手机号：${maskedPhone}`}
             </Text>
-            <Text style={styles.subtleText}>{`头像占位：${avatarInitial}`}</Text>
+            <Text style={styles.subtleText}>
+              {avatarPublicUrl
+                ? '头像：平台已同步'
+                : avatarPhotoCount > 0
+                  ? '头像凭证：本地已保存'
+                  : `头像占位：${avatarInitial}`}
+            </Text>
           </View>
         </View>
         <View style={styles.profileBadgeColumn}>

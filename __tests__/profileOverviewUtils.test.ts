@@ -1,6 +1,7 @@
 import {
   calculateProfileCreditScore,
   createProfileOverviewModel,
+  getProfileEntryConfigs,
   maskProfilePhoneNumber,
   profileEntryConfigs,
 } from '../src/utils/profileOverview';
@@ -60,6 +61,7 @@ test('creates profile overview model from local profile state', () => {
     }),
   ).toEqual({
     avatarInitial: '晨',
+    avatarPhotoCount: 0,
     displayName: ' 晨星物流 ',
     accountTypeLabel: '企业货主',
     maskedPhone: '139****9999',
@@ -69,6 +71,28 @@ test('creates profile overview model from local profile state', () => {
     monthlyOrderCount: 7,
     unreadMessageCount: 3,
   });
+});
+
+test('keeps platform avatar url in the overview model when the account already has a synced avatar', () => {
+  expect(
+    createProfileOverviewModel({
+      account: {
+        displayName: '晨星物流',
+        boundPhone: '13900139999',
+        avatarPhotoCount: 1,
+        avatarFileId: 'file-avatar-1',
+        avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
+      },
+      monthlyOrderCount: 4,
+      unreadMessageCount: 2,
+    }),
+  ).toEqual(
+    expect.objectContaining({
+      avatarInitial: '晨',
+      avatarPhotoCount: 1,
+      avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
+    }),
+  );
 });
 
 test('maps approved verification snapshots to verified profile badges', () => {
@@ -129,6 +153,7 @@ test('falls back to personal account summary when enterprise verification is rej
     }),
   ).toEqual({
     avatarInitial: '货',
+    avatarPhotoCount: 0,
     displayName: '',
     accountTypeLabel: '个人货主',
     maskedPhone: '138****8000',
@@ -157,4 +182,33 @@ test('keeps profile entry configs in the current overview order', () => {
     title: '常用地址',
     description: '管理装货和卸货地址，本地版展示高频地址',
   });
+});
+
+test('creates platform-aware profile entry descriptions when the profile center is connected to platform apis', () => {
+  expect(getProfileEntryConfigs(true)).toEqual(
+    expect.arrayContaining([
+      {
+        id: 'addresses',
+        title: '常用地址',
+        description: '管理装货和卸货地址，并同步平台地址簿快照',
+      },
+      {
+        id: 'contacts',
+        title: '常用联系人',
+        description: '保存装卸联系人，并同步平台地址簿快照',
+      },
+      {
+        id: 'coupons',
+        title: '优惠券',
+        description: '查看平台优惠券状态、锁定和使用结果',
+      },
+    ]),
+  );
+});
+
+test('keeps local profile entry descriptions when platform apis are unavailable', () => {
+  expect(getProfileEntryConfigs(false)).toEqual(profileEntryConfigs);
+  expect(
+    profileEntryConfigs.find(entry => entry.id === 'invoices')?.description,
+  ).toBe('个人可申请普通发票，企业认证后可申请企业发票');
 });

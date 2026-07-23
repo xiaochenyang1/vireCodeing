@@ -147,6 +147,7 @@ export type DriverCertificationFileFieldName =
   | 'vehiclePhotoFileId';
 
 export type DriverCertificationFileUploadConfig = {
+  label: string;
   fileName: string;
   successNotice: string;
   failureNotice: string;
@@ -157,41 +158,70 @@ export const driverCertificationFileUploadConfigs: Record<
   DriverCertificationFileUploadConfig
 > = {
   identityFrontFileId: {
+    label: '身份证人像面',
     fileName: '身份证人像面.png',
     successNotice: '身份证人像面已关联平台文件。',
     failureNotice: '身份证人像面上传失败，请稍后重试。',
   },
   identityBackFileId: {
+    label: '身份证国徽面',
     fileName: '身份证国徽面.png',
     successNotice: '身份证国徽面已关联平台文件。',
     failureNotice: '身份证国徽面上传失败，请稍后重试。',
   },
   drivingLicenseFileId: {
+    label: '行驶证',
     fileName: '行驶证.png',
     successNotice: '行驶证已关联平台文件。',
     failureNotice: '行驶证上传失败，请稍后重试。',
   },
   driverLicenseFileId: {
+    label: '驾驶证',
     fileName: '驾驶证.png',
     successNotice: '驾驶证已关联平台文件。',
     failureNotice: '驾驶证上传失败，请稍后重试。',
   },
   transportQualificationFileId: {
+    label: '从业资格证',
     fileName: '从业资格证.png',
     successNotice: '从业资格证已关联平台文件。',
     failureNotice: '从业资格证上传失败，请稍后重试。',
   },
   operationPermitFileId: {
+    label: '营运证',
     fileName: '营运证.png',
     successNotice: '营运证已关联平台文件。',
     failureNotice: '营运证上传失败，请稍后重试。',
   },
   vehiclePhotoFileId: {
+    label: '车辆照片',
     fileName: '车辆照片.png',
     successNotice: '车辆照片已关联平台文件。',
     failureNotice: '车辆照片上传失败，请稍后重试。',
   },
 };
+
+export function createDriverCertificationForm(
+  snapshot?: PlatformDriverCertificationSnapshot,
+): DriverCertificationFormState {
+  return {
+    realName: snapshot?.identity.realName ?? '',
+    identityNumber: snapshot?.identity.identityNumber ?? '',
+    identityFrontFileId: snapshot?.identity.identityFrontFileId ?? '',
+    identityBackFileId: snapshot?.identity.identityBackFileId ?? '',
+    plateNumber: snapshot?.vehicle.plateNumber ?? '',
+    vehicleType: snapshot?.vehicle.vehicleType ?? '',
+    vehicleLengthText: snapshot?.vehicle.vehicleLengthText ?? '',
+    loadCapacityText: snapshot?.vehicle.loadCapacityText ?? '',
+    hasTailboard: snapshot?.vehicle.hasTailboard ?? false,
+    drivingLicenseFileId: snapshot?.vehicle.drivingLicenseFileId ?? '',
+    driverLicenseFileId: snapshot?.vehicle.driverLicenseFileId ?? '',
+    transportQualificationFileId:
+      snapshot?.vehicle.transportQualificationFileId ?? '',
+    operationPermitFileId: snapshot?.vehicle.operationPermitFileId ?? '',
+    vehiclePhotoFileId: snapshot?.vehicle.vehiclePhotoFileId ?? '',
+  };
+}
 
 export function createQuoteRequest(
   form: DriverOrderFormState,
@@ -455,6 +485,9 @@ export function createDriverOrderHallNotice(
   acceptanceSettings: PlatformDriverAcceptanceSettings | undefined,
 ) {
   const filteredOrders = filterDriverOrderHallOrders(orders, acceptanceSettings);
+  const hasVehicleFilter =
+    (acceptanceSettings?.vehicleTypePreferences.length ?? 0) > 0;
+  const hasDistanceFilter = orders.some(hasKnownPickupDistance);
 
   if (acceptanceSettings?.isOnline === false) {
     return '当前处于离线接单，可查看订单但无法报价或接单。';
@@ -464,8 +497,16 @@ export function createDriverOrderHallNotice(
     return '';
   }
 
-  if (orders.length > 0 && acceptanceSettings?.vehicleTypePreferences.length) {
+  if (orders.length > 0 && hasVehicleFilter && hasDistanceFilter) {
+    return '当前接单车型和接单范围内暂无匹配订单。';
+  }
+
+  if (orders.length > 0 && hasVehicleFilter) {
     return '当前接单车型下暂无匹配订单。';
+  }
+
+  if (orders.length > 0 && hasDistanceFilter) {
+    return '当前接单范围内暂无匹配订单。';
   }
 
   return '暂无可接订单。';
@@ -477,13 +518,44 @@ export function filterDriverOrderHallOrders(
 ) {
   const vehicleTypePreferences =
     acceptanceSettings?.vehicleTypePreferences ?? [];
+  const maxDistanceMeters =
+    acceptanceSettings?.maxDistanceKm === undefined
+      ? undefined
+      : acceptanceSettings.maxDistanceKm * 1000;
 
-  if (!vehicleTypePreferences.length) {
-    return orders;
+  return orders.filter(order => {
+    if (
+      vehicleTypePreferences.length &&
+      !vehicleTypePreferences.includes(order.vehicleRequirement)
+    ) {
+      return false;
+    }
+
+    if (
+      maxDistanceMeters !== undefined &&
+      hasKnownPickupDistance(order) &&
+      (order.pickupDistanceMeters ?? 0) > maxDistanceMeters
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function getDriverOrderPickupDistanceText(order: PlatformShipperOrder) {
+  if (!hasKnownPickupDistance(order)) {
+    return '';
   }
 
-  return orders.filter(order =>
-    vehicleTypePreferences.includes(order.vehicleRequirement),
+  return `约 ${((order.pickupDistanceMeters ?? 0) / 1000).toFixed(1)} 公里`;
+}
+
+function hasKnownPickupDistance(order: PlatformShipperOrder) {
+  return (
+    typeof order.pickupDistanceMeters === 'number' &&
+    Number.isFinite(order.pickupDistanceMeters) &&
+    order.pickupDistanceMeters >= 0
   );
 }
 

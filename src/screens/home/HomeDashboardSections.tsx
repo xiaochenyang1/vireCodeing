@@ -1,20 +1,23 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { RecentOrderCard } from '../../components/RecentOrderCard';
 import { SectionHeader } from '../../components/SectionHeader';
 import {
-  accountTypeCopy,
-  shipperSummary,
   verificationCopy,
 } from '../../data/mockData';
-import { styles } from '../../styles';
-import type { OrderListFilter, RecentOrder } from '../../types';
+import { colors, styles } from '../../styles';
+import type { FrequentRoute, OrderListFilter, RecentOrder } from '../../types';
 import {
-  getHomeCityOptions,
+  getHomeCitySuggestionOptions,
   getHomeSummaryMetrics,
   getOrderListFilterForSummaryStatus,
 } from '../../utils/homeDashboard';
 import { getOrderStatusSummaries } from '../../utils/order';
+import {
+  createProfileOverviewModel,
+  getProfileAvatarInitial,
+} from '../../utils/profileOverview';
 import {
   getEffectiveIdentityVerificationStatus,
   getIdentityPublishGateNotice,
@@ -22,8 +25,12 @@ import {
 } from '../../utils/profileLocalState';
 
 export function NetworkStatusCard({
+  summaryText,
+  actionText,
   onOpenNetworkError,
 }: {
+  summaryText: string;
+  actionText: string;
   onOpenNetworkError: () => void;
 }) {
   return (
@@ -31,16 +38,14 @@ export function NetworkStatusCard({
       <View style={styles.routeHeader}>
         <View>
           <Text style={styles.routeName}>网络状态</Text>
-          <Text style={styles.routeMeta}>
-            本地在线，真实网络监听未接入。
-          </Text>
+          <Text style={styles.routeMeta}>{summaryText}</Text>
         </View>
         <Pressable
           testID="home-open-network-error"
           style={styles.detailSecondaryButton}
           onPress={onOpenNetworkError}
         >
-          <Text style={styles.detailSecondaryButtonText}>异常演练</Text>
+          <Text style={styles.detailSecondaryButtonText}>{actionText}</Text>
         </Pressable>
       </View>
     </View>
@@ -64,6 +69,9 @@ export function TopBar({
   onOpenHelp: () => void;
   onOpenProfile: () => void;
 }) {
+  const { account } = getProfileLocalState();
+  const profileAvatarInitial = getProfileAvatarInitial(account.displayName);
+
   return (
     <View style={styles.topBar}>
       <Pressable
@@ -101,9 +109,16 @@ export function TopBar({
         </Pressable>
         <Pressable
           testID="home-open-profile"
-          style={styles.iconButton}
+          style={[styles.iconButton, topBarStyles.profileButton]}
           onPress={onOpenProfile}
         >
+          <ProfileAvatar
+            initial={profileAvatarInitial}
+            publicUrl={account.avatarPublicUrl}
+            size="xs"
+            imageTestID="home-top-bar-avatar-image"
+            textTestID="home-top-bar-avatar-text"
+          />
           <Text style={styles.iconButtonText}>我的</Text>
         </Pressable>
         <Pressable
@@ -120,16 +135,26 @@ export function TopBar({
 
 export function CitySelector({
   selectedCity,
+  routes,
+  orders,
   onSelectCity,
 }: {
   selectedCity: string;
+  routes: FrequentRoute[];
+  orders: RecentOrder[];
   onSelectCity: (city: string) => void;
 }) {
+  const citySuggestions = getHomeCitySuggestionOptions({
+    selectedCity,
+    routes,
+    orders,
+  });
+
   return (
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>选择城市</Text>
       <View style={styles.draftChoiceGrid}>
-        {getHomeCityOptions().map(option => {
+        {citySuggestions.map(option => {
           const active = option.label === selectedCity;
 
           return (
@@ -138,24 +163,43 @@ export function CitySelector({
               testID={`city-option-${option.id}`}
               style={[
                 styles.draftChoiceButton,
+                citySelectorStyles.button,
                 active && styles.draftChoiceButtonActive,
               ]}
               onPress={() => onSelectCity(option.label)}
             >
+              <View style={citySelectorStyles.header}>
+                <Text
+                  style={[
+                    styles.draftChoiceText,
+                    active && styles.draftChoiceTextActive,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                <Text
+                  style={[
+                    citySelectorStyles.badgeText,
+                    active ? citySelectorStyles.badgeTextActive : null,
+                  ]}
+                >
+                  {option.badgeText}
+                </Text>
+              </View>
               <Text
                 style={[
-                  styles.draftChoiceText,
-                  active && styles.draftChoiceTextActive,
+                  citySelectorStyles.detailText,
+                  active ? citySelectorStyles.detailTextActive : null,
                 ]}
               >
-                {option.label}
+                {option.detailText}
               </Text>
             </Pressable>
           );
         })}
       </View>
       <Text style={styles.routeMeta}>
-        本地演示：真实定位、城市服务和跨城规则后续接入地图与后端能力。
+        当前城市建议会结合已选城市、常用路线和订单路线生成；定位、城市服务和跨城规则仍未接入。
       </Text>
     </View>
   );
@@ -164,30 +208,55 @@ export function CitySelector({
 export function VerificationPanel({
   orders,
   routeCount,
+  unreadMessageCount,
 }: {
   orders: RecentOrder[];
   routeCount: number;
+  unreadMessageCount: number;
 }) {
-  const { account, identityVerification } = getProfileLocalState();
+  const { account, identityVerification, enterpriseVerification } =
+    getProfileLocalState();
   const verificationStatus =
     getEffectiveIdentityVerificationStatus(identityVerification);
   const verification = verificationCopy[verificationStatus];
+  const profileOverview = createProfileOverviewModel({
+    account,
+    identityVerification,
+    enterpriseVerification,
+    monthlyOrderCount: orders.length,
+    unreadMessageCount,
+  });
   const metrics = getHomeSummaryMetrics({
     orderCount: orders.length,
     routeCount,
+    creditScore: profileOverview.creditScore,
   });
 
   return (
     <View style={styles.verificationPanel}>
       <View style={styles.panelHeader}>
-        <View>
-          <Text style={styles.greeting}>
-            下午好，{account.displayName}
-          </Text>
-          <Text style={styles.subtleText}>
-            {accountTypeCopy[shipperSummary.accountType]} ·{' '}
-            {verification.description}
-          </Text>
+        <View style={styles.profileIdentityRow}>
+          <ProfileAvatar
+            initial={profileOverview.avatarInitial}
+            publicUrl={profileOverview.avatarPublicUrl}
+            size="md"
+            imageTestID="home-verification-avatar-image"
+          />
+          <View>
+            <Text style={styles.greeting}>
+              下午好，{profileOverview.displayName}
+            </Text>
+            <Text style={styles.subtleText}>
+              {profileOverview.accountTypeLabel} · {verification.description}
+            </Text>
+            <Text style={styles.subtleText}>
+              {profileOverview.avatarPublicUrl
+                ? '头像：平台已同步'
+                : profileOverview.avatarPhotoCount > 0
+                  ? '头像凭证：本地已保存'
+                  : `头像占位：${profileOverview.avatarInitial}`}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.verifiedBadge}>
@@ -216,6 +285,49 @@ function MetricItem({ label, value }: { label: string; value: string }) {
     </View>
   );
 }
+
+const topBarStyles = StyleSheet.create({
+  profileButton: {
+    minWidth: 72,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+});
+
+const citySelectorStyles = StyleSheet.create({
+  button: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    paddingVertical: 10,
+    gap: 6,
+  },
+  header: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  badgeText: {
+    color: colors.teal,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  badgeTextActive: {
+    color: colors.surface,
+  },
+  detailText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  detailTextActive: {
+    color: '#DDF1EC',
+  },
+});
 
 export function PrimaryActionPanel({
   draftGateNotice,

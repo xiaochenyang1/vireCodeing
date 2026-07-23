@@ -22,6 +22,10 @@ import type {
   AdminPasswordLoginResult,
   AuthenticatedUser,
   AuthenticatedUserRecord,
+  BatchRevokeAdminAuthAccountSessionsRequest,
+  BatchRevokeAdminAuthAccountSessionsResult,
+  BatchUpdateAdminAuthAccountStatusRequest,
+  BatchUpdateAdminAuthAccountStatusResult,
   ChangePasswordRequest,
   ChangePasswordResult,
   LoginRequest,
@@ -35,12 +39,14 @@ import type {
   RefreshRequest,
   RevokeAdminAuthAccountSessionsResult,
   RevokeOtherAdminSessionsResult,
+  RevokeOtherSelfAuthSessionsResult,
   RegisterRequest,
   RegisterResult,
   ResetPasswordRequest,
   ResetPasswordResult,
   SendCodeRequest,
   SendCodeResult,
+  SelfAuthSessionListResult,
   TokenPair,
   UpdateAdminAuthAccountStatusResult,
   VerificationPurpose,
@@ -574,6 +580,22 @@ export class AuthService {
     };
   }
 
+  async listSelfAuthSessions(userId: string): Promise<SelfAuthSessionListResult> {
+    const sessions = await this.authRepository.listActiveUserRefreshSessions(
+      userId,
+    );
+
+    return {
+      sessions: sessions.map(session => ({
+        id: session.id,
+        deviceId: session.deviceId,
+        createdAtIso: session.createdAt.toISOString(),
+        expiresAtIso: session.expiresAt.toISOString(),
+      })),
+      total: sessions.length,
+    };
+  }
+
   async listSessionGovernanceAuditEvents(
     query: AdminAuthSessionGovernanceAuditListQuery = defaultAdminAuthSessionGovernanceAuditListQuery,
   ): Promise<AdminAuthSessionGovernanceAuditListResult> {
@@ -837,6 +859,64 @@ export class AuthService {
     };
   }
 
+  async batchUpdateAdminAuthAccountStatus(
+    actorAdminId: string,
+    input: BatchUpdateAdminAuthAccountStatusRequest,
+  ): Promise<BatchUpdateAdminAuthAccountStatusResult> {
+    assertAdminAuthAccountBatchNotEmpty(input.items);
+    assertUniqueAdminAuthAccountBatchUserIds(
+      input.items,
+      '批量更新账号 ID 不能重复',
+    );
+
+    if (
+      input.status === 'disabled' &&
+      input.items.some(item => item.userId === actorAdminId)
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.AUTH_FORBIDDEN,
+        '不能禁用当前管理员账号',
+      );
+    }
+
+    if (!this.authRepository.batchUpdateUserStatuses) {
+      throw new Error('AuthRepository.batchUpdateUserStatuses not configured');
+    }
+
+    const result = await this.authRepository.batchUpdateUserStatuses(
+      input,
+      this.now(),
+    );
+
+    if (input.status === 'disabled') {
+      for (const item of result.items) {
+        await this.recordSessionGovernanceAuditEvent(actorAdminId, {
+          action: 'revoke_account_sessions',
+          result: item.revokedSessions.length > 0 ? 'revoked' : 'noop',
+          revokedCount: item.revokedSessions.length,
+          subjects: await this.buildSessionGovernanceAuditSubjects(
+            item.revokedSessions,
+          ),
+        });
+      }
+    }
+
+    return {
+      status: input.status,
+      userIds: result.items.map(item => item.user.id),
+      updatedCount: result.items.length,
+      revokedSessionCount: result.items.reduce(
+        (total, item) => total + item.revokedSessions.length,
+        0,
+      ),
+      items: result.items.map(item => ({
+        userId: item.user.id,
+        status: item.user.status,
+        revokedSessionCount: item.revokedSessions.length,
+      })),
+    };
+  }
+
   async revokeAdminAuthAccountSessions(
     actorAdminId: string,
     targetUserId: string,
@@ -894,6 +974,53 @@ export class AuthService {
     };
   }
 
+  async batchRevokeAdminAuthAccountSessions(
+    actorAdminId: string,
+    input: BatchRevokeAdminAuthAccountSessionsRequest,
+  ): Promise<BatchRevokeAdminAuthAccountSessionsResult> {
+    assertAdminAuthAccountBatchNotEmpty(input.items);
+    assertUniqueAdminAuthAccountBatchUserIds(
+      input.items,
+      '批量撤销会话账号 ID 不能重复',
+    );
+
+    if (!this.authRepository.batchRevokeUserRefreshSessions) {
+      throw new Error(
+        'AuthRepository.batchRevokeUserRefreshSessions not configured',
+      );
+    }
+
+    const result = await this.authRepository.batchRevokeUserRefreshSessions(
+      input,
+      this.now(),
+    );
+
+    for (const item of result.items) {
+      await this.recordSessionGovernanceAuditEvent(actorAdminId, {
+        action: 'revoke_account_sessions',
+        result: item.revokedSessions.length > 0 ? 'revoked' : 'noop',
+        revokedCount: item.revokedSessions.length,
+        subjects: await this.buildSessionGovernanceAuditSubjects(
+          item.revokedSessions,
+        ),
+      });
+    }
+
+    return {
+      userIds: result.items.map(item => item.user.id),
+      updatedCount: result.items.length,
+      revokedCount: result.items.reduce(
+        (total, item) => total + item.revokedSessions.length,
+        0,
+      ),
+      items: result.items.map(item => ({
+        userId: item.user.id,
+        revokedCount: item.revokedSessions.length,
+        ...(item.keepSessionId ? { keepSessionId: item.keepSessionId } : {}),
+      })),
+    };
+  }
+
   async revokeUserSession(
     userId: string,
     sessionId: string,
@@ -929,6 +1056,36 @@ export class AuthService {
     userId: string,
     currentDeviceId: string,
   ): Promise<RevokeOtherAdminSessionsResult> {
+    const { revokedCount } = await this.revokeOtherUserSessionsInternal(
+      userId,
+      currentDeviceId,
+    );
+
+    return {
+      currentDeviceId: maskDeviceId(currentDeviceId),
+      revokedCount,
+    };
+  }
+
+  async revokeOtherSelfAuthSessions(
+    userId: string,
+    currentDeviceId: string,
+  ): Promise<RevokeOtherSelfAuthSessionsResult> {
+    const { revokedCount } = await this.revokeOtherUserSessionsInternal(
+      userId,
+      currentDeviceId,
+    );
+
+    return {
+      currentDeviceId,
+      revokedCount,
+    };
+  }
+
+  private async revokeOtherUserSessionsInternal(
+    userId: string,
+    currentDeviceId: string,
+  ) {
     const sessions = await this.authRepository.listActiveUserRefreshSessions(
       userId,
     );
@@ -961,8 +1118,8 @@ export class AuthService {
     });
 
     return {
-      currentDeviceId: maskDeviceId(currentDeviceId),
       revokedCount,
+      revokedSessions,
     };
   }
 
@@ -1188,6 +1345,24 @@ export class AuthService {
     if (user.status === 'disabled') {
       throw new BusinessError(ApiErrorCode.AUTH_USER_DISABLED, '账号已禁用');
     }
+  }
+}
+
+function assertAdminAuthAccountBatchNotEmpty(items: { userId: string }[]) {
+  if (items.length === 0) {
+    throw new BusinessError(ApiErrorCode.VALIDATION_ERROR, '至少选择 1 个账号');
+  }
+}
+
+function assertUniqueAdminAuthAccountBatchUserIds(
+  items: { userId: string }[],
+  message: string,
+) {
+  const userIds = items.map(item => item.userId);
+  const uniqueUserIds = new Set(userIds);
+
+  if (uniqueUserIds.size !== userIds.length) {
+    throw new BusinessError(ApiErrorCode.VALIDATION_ERROR, message);
   }
 }
 

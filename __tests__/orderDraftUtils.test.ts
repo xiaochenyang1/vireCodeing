@@ -6,6 +6,8 @@ import {
   createDraftChangeSnapshot,
   createDraftFormState,
   createDraftInitialFormState,
+  createLocalValueAddedServiceEstimate,
+  getDraftPricingCapabilityCopy,
   createDraftPreviewState,
   createDraftPublishInput,
   createRemoveLatestCargoPhotoVoucherChange,
@@ -190,6 +192,32 @@ test('creates draft coupon state only for fixed price usable selections', () => 
   ).toEqual({
     selectedCoupon: undefined,
     couponAdjustment: undefined,
+  });
+});
+
+test('creates local draft pricing capability copy when platform order api is unavailable', () => {
+  expect(getDraftPricingCapabilityCopy(false)).toEqual({
+    couponSectionTitle: '优惠券',
+    couponNotice:
+      '本地演示会展示优惠券抵扣预估；切到平台模式后会随发单同步优惠券选择。',
+    fixedPricingEmptyCouponNotice: '暂无可用本地优惠券。',
+    negotiableCouponNotice:
+      '议价订单暂不使用优惠券，等待司机报价后再接入真实计价。',
+    paymentNotice:
+      '当前会记录支付方式选择；切到平台模式后，在线支付会在发单后的订单页中发起。',
+  });
+});
+
+test('creates platform draft pricing capability copy when platform order api is available', () => {
+  expect(getDraftPricingCapabilityCopy(true)).toEqual({
+    couponSectionTitle: '优惠券',
+    couponNotice:
+      '固定价发单会同步优惠券选择和实付预估，实际核销以后端订单与支付状态为准。',
+    fixedPricingEmptyCouponNotice: '暂无可用平台优惠券。',
+    negotiableCouponNotice:
+      '议价订单暂不使用优惠券，等待司机报价后再进入真实计价。',
+    paymentNotice:
+      '平台发单会同步支付方式选择；若选择在线支付，支付单会在发单后的订单页中发起。',
   });
 });
 
@@ -591,6 +619,35 @@ test('creates draft confirmation display text from current selections', () => {
     ],
     previewPriceText: '￥500',
     selectedPaymentMethodLabel: '在线支付',
+  });
+});
+
+test('creates local value-added service estimate from current selections', () => {
+  expect(
+    createLocalValueAddedServiceEstimate(createTestDraftFormState()),
+  ).toEqual({
+    lineTexts: [
+      '装卸协助：￥120（3 人 × ￥40/人）',
+      '保价运输：￥36（货值 × 0.3%，最低 ￥12）',
+    ],
+    totalAmountText: '￥156',
+    noticeText:
+      '本地参考附加费不会自动叠加到一口价，请按实际需求自行计入报价。',
+  });
+});
+
+test('keeps a pending insurance estimate until insured value is filled', () => {
+  expect(
+    createLocalValueAddedServiceEstimate(
+      createTestDraftFormState({
+        valueAddedServiceIds: ['insurance', 'protection'],
+        insuredValueText: '',
+      }),
+    ),
+  ).toEqual({
+    lineTexts: ['保价运输：待填写货值后生成预估', '防震包装：￥30（固定附加费）'],
+    noticeText:
+      '补全保价货值后会生成完整附加费预估；当前不会自动叠加到一口价。',
   });
 });
 

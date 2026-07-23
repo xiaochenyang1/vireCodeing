@@ -7,6 +7,7 @@ import {
 } from '../files/file-preview-url.signer';
 import type { FilesRepository } from '../files/files.repository';
 import type {
+  BatchReviewDriverCertificationRequest,
   DriverCertificationAttachmentPreview,
   DriverCertificationAttachmentRecord,
   DriverCertificationAttachmentType,
@@ -175,6 +176,15 @@ export class DriverCertificationService {
     this.assertAdmin(currentUser);
 
     return this.repository.reviewVehicle(driverId, currentUser.id, input);
+  }
+
+  async batchReviewCertifications(
+    currentUser: AuthenticatedUser,
+    input: BatchReviewDriverCertificationRequest,
+  ) {
+    this.assertAdmin(currentUser);
+
+    return this.repository.batchReviewCertifications(currentUser.id, input);
   }
 
   private assertDriver(currentUser: AuthenticatedUser) {

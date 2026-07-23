@@ -9,6 +9,8 @@ export type SupportTicketChange = {
   supportTickets: SupportTicket[];
 };
 
+const localSupportTicketIdPrefix = 'support-ticket-';
+
 export function getMessageOrderId(
   content: string,
   options?: { orderNo?: string; platformOrderId?: string },
@@ -20,6 +22,10 @@ export function getMessageOrderId(
     return options.orderNo;
   }
   return content.match(/HY\d{11}/)?.[0];
+}
+
+export function isLocalSupportTicketId(ticketId: string) {
+  return ticketId.startsWith(localSupportTicketIdPrefix);
 }
 
 export function createLocalSupportTicket({

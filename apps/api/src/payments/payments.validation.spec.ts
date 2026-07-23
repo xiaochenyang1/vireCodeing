@@ -2,6 +2,7 @@ import { ApiErrorCode } from '../common/errors';
 import {
   createPaymentCreateFingerprint,
   createPaymentsConfigFromEnv,
+  parseBatchReviewAdminWithdrawalsRequest,
   parseCreatePaymentRequest,
   parsePaymentIdempotencyKey,
 } from './payments.validation';
@@ -57,6 +58,61 @@ describe('payments validation', () => {
       createPaymentCreateFingerprint('order-1', { channel: 'wechat' }),
     ).not.toBe(
       createPaymentCreateFingerprint('order-1', { channel: 'alipay' }),
+    );
+  });
+
+  it('parses a batch withdrawal review request with action, reason and CAS baselines', () => {
+    expect(
+      parseBatchReviewAdminWithdrawalsRequest({
+        items: [
+          { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+          { withdrawalId: 'withdrawal-2', expectedVersion: 3 },
+        ],
+        action: 'approve',
+        reason: '财务复核后统一放款',
+      }),
+    ).toEqual({
+      items: [
+        { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+        { withdrawalId: 'withdrawal-2', expectedVersion: 3 },
+      ],
+      action: 'approve',
+      reason: '财务复核后统一放款',
+    });
+  });
+
+  it.each([
+    {
+      items: [],
+      action: 'approve',
+      reason: '财务复核后统一放款',
+    },
+    {
+      items: [{ withdrawalId: 'withdrawal-1', expectedVersion: 0 }],
+      action: 'approve',
+      reason: '',
+    },
+    {
+      items: [
+        { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+        { withdrawalId: 'withdrawal-1', expectedVersion: 1 },
+      ],
+      action: 'approve',
+      reason: '重复 ID',
+    },
+    {
+      items: [{ withdrawalId: 'withdrawal-1', expectedVersion: -1 }],
+      action: 'approve',
+      reason: '非法版本',
+    },
+    {
+      items: [{ withdrawalId: 'withdrawal-1', expectedVersion: 0 }],
+      action: 'hold',
+      reason: '非法动作',
+    },
+  ])('rejects an invalid batch withdrawal review request: %p', request => {
+    expect(() => parseBatchReviewAdminWithdrawalsRequest(request)).toThrow(
+      expect.objectContaining({ code: ApiErrorCode.VALIDATION_ERROR }),
     );
   });
 

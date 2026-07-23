@@ -6,8 +6,10 @@ import { styles } from '../../styles';
 
 export function ChangeRequestForm({
   onSubmit,
+  usesPlatformChangeRequest = false,
 }: {
   onSubmit: (description: string) => void;
+  usesPlatformChangeRequest?: boolean;
 }) {
   const [description, setDescription] = useState('');
   const [notice, setNotice] = useState('');
@@ -27,7 +29,9 @@ export function ChangeRequestForm({
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>修改申请</Text>
       <Text style={styles.detailMeta}>
-        司机已接单后不能直接改订单，本地演示将提交给客服确认。
+        {usesPlatformChangeRequest
+          ? '司机已接单后不能直接改订单；当前订单已接平台修改申请接口，提交后会进入平台客服确认流程。'
+          : '司机已接单后不能直接改订单，本地演示将提交给客服确认。'}
       </Text>
       <AuthField
         testID="change-request-description"

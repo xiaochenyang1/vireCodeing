@@ -311,7 +311,7 @@ export function renderOrderManagementAdminConsole() {
   <main class="console-shell">
     <section class="query-panel">
       <h1>订单管理台</h1>
-      <p class="muted">这页把后台订单列表、详情、筛选报表、CSV 导出和按当前筛选结果顺序批量取消 waiting 订单拢到一块了，方便运营先把查单和明显脏单清理闭环。现在订单详情里也会按当前 orderId 并行拉支付 / 退款 / 结算做按单资金视图，异常快照里还会挂最新赔付决议摘要并能跳异常工单台；但真实赔付执行 / 退款联动和更深的资金处置还没补齐，别拿静态台硬装成完整 OMS。</p>
+      <p class="muted">这页把后台订单列表、详情、筛选报表、CSV 导出和按当前筛选结果批量取消 waiting 订单拢到一块了，方便运营先把查单和明显脏单清理闭环。现在批量取消会直接调后端 <span class="mono">POST /admin/orders/batch-cancel</span> 做整批校验和原子写入；订单详情里也会按当前 orderId 并行拉支付 / 退款 / 结算做按单资金视图，异常快照里还会挂最新赔付决议摘要并能跳异常工单台；但真实赔付执行 / 退款联动和更深的资金处置还没补齐，别拿静态台硬装成完整 OMS。</p>
       <div class="toolbar">
         <input id="adminToken" type="password" aria-label="admin access token" title="admin access token" placeholder="粘贴 admin access token" />
       </div>
@@ -368,7 +368,7 @@ export function renderOrderManagementAdminConsole() {
 
       <section class="card">
         <h2>批量取消 waiting 单</h2>
-        <p class="muted">当前批量动作会按当前筛选结果顺序调用单条后台取消接口，只支持取消 waiting 订单，不是原子事务。你要是想把它当分布式事务总控台使，那纯属给自己找骂。</p>
+        <p class="muted">当前批量动作会把勾选的 waiting 订单按列表顺序一次提交给后端批量取消接口；后端会先整批校验状态和版本，再原子写入。只要有一单不满足条件，整批都会失败，不会给你留半拉子结果。</p>
         <div class="inline-actions">
           <label class="checkbox-label"><input id="orderSelectAllWaitingInput" type="checkbox" onclick="toggleSelectAllWaitingOrders(this.checked)" />全选当前 waiting 结果</label>
           <button id="clearOrderSelectionButton" type="button" class="secondary-button">清空勾选</button>
@@ -795,7 +795,7 @@ export function renderOrderManagementAdminConsole() {
           ? '当前筛选结果里没有可批量取消的 waiting 订单。'
           : currentSelectedCount === 0
             ? '当前筛选结果里有 ' + currentWaitingIds.length + ' 个 waiting 订单，先勾上要取消的单。'
-            : '已勾选 ' + currentSelectedCount + ' 个 waiting 订单，会按当前筛选结果顺序逐条取消。';
+            : '已勾选 ' + currentSelectedCount + ' 个 waiting 订单，会按当前列表顺序整批提交，后端整批校验并原子取消。';
 
       ['clearOrderSelectionButton', 'runBatchCancelWaitingOrdersButton'].forEach(function(id) {
         const node = document.getElementById(id);
@@ -1040,9 +1040,9 @@ export function renderOrderManagementAdminConsole() {
       }
     }
 
-    async function cancelAdminOrderById(orderId, idempotencyKey, payload) {
+    async function batchCancelAdminOrders(idempotencyKey, payload) {
       const response = await fetch(
-        apiBase + '/admin/orders/' + encodeURIComponent(orderId) + '/cancel',
+        apiBase + '/admin/orders/batch-cancel',
         {
           method: 'POST',
           headers: {
@@ -1068,13 +1068,30 @@ export function renderOrderManagementAdminConsole() {
       }
 
       const currentWaitingOrders = getCurrentWaitingOrders();
-      const selectedOrderIds = currentWaitingOrders
-        .map(function(item) {
-          return String(item.id || '');
-        })
-        .filter(function(orderId) {
-          return selectedWaitingOrderIds.has(orderId);
-        });
+      const selectedOrders = currentWaitingOrders.filter(function(item) {
+        return selectedWaitingOrderIds.has(String(item.id || ''));
+      });
+      const selectedOrderIds = selectedOrders.map(function(item) {
+        return String(item.id || '');
+      });
+
+      const batchItems = selectedOrders.map(function(item) {
+        return {
+          orderId: String(item.id || ''),
+          baseUpdatedAtIso: String(item.updatedAtIso || ''),
+        };
+      }).filter(function(item) {
+        return item.orderId && item.baseUpdatedAtIso;
+      });
+
+      if (batchItems.length !== selectedOrders.length) {
+        document.getElementById('orderBatchActionStatus').textContent =
+          '当前勾选里有订单缺少版本信息，不能走原子批量取消。';
+        return;
+      }
+
+      const currentPage =
+        Number.parseInt(document.getElementById('orderListPageInput').value, 10) || 1;
 
       if (!selectedOrderIds.length) {
         document.getElementById('orderBatchActionStatus').textContent =
@@ -1090,68 +1107,57 @@ export function renderOrderManagementAdminConsole() {
         return;
       }
 
-      let successCount = 0;
-      const failures = [];
-
       batchCancelPending = true;
       updateOrderBatchSelectionUi();
 
       try {
         setNotice('');
         document.getElementById('orderBatchActionStatus').textContent =
-          '批量取消执行中，共 ' + selectedOrderIds.length + ' 单，按当前筛选结果顺序逐条调用。';
+          '批量取消执行中，共 ' +
+          selectedOrderIds.length +
+          ' 单，正在请求后端整批校验并原子写入。';
 
-        for (const orderId of selectedOrderIds) {
-          const currentOrder = getCurrentOrderItems().find(function(item) {
-            return String(item.id || '') === orderId;
+        const result = await batchCancelAdminOrders(
+          createBatchCancelIdempotencyKey(),
+          {
+            ...payload,
+            items: batchItems,
+          },
+        );
+        const cancelledOrderById = new Map(
+          (Array.isArray(result && result.items) ? result.items : []).map(function(item) {
+            return [String(item.id || ''), item];
+          }),
+        );
+
+        selectedOrderIds.forEach(function(orderId) {
+          selectedWaitingOrderIds.delete(orderId);
+        });
+        if (state.list && Array.isArray(state.list.items)) {
+          state.list.items = state.list.items.map(function(item) {
+            return cancelledOrderById.get(String(item.id || '')) || item;
           });
+        }
 
-          if (!currentOrder || currentOrder.status !== 'waiting') {
-            selectedWaitingOrderIds.delete(orderId);
-            failures.push(orderId + '（已不在当前 waiting 结果里）');
-            continue;
-          }
-
-          try {
-            const cancelledOrder = await cancelAdminOrderById(
-              orderId,
-              createBatchCancelIdempotencyKey(),
-              {
-                ...payload,
-                baseUpdatedAtIso: currentOrder.updatedAtIso,
-              },
-            );
-
-            successCount += 1;
-            selectedWaitingOrderIds.delete(orderId);
-
-            if (state.list && Array.isArray(state.list.items)) {
-              state.list.items = state.list.items.map(function(item) {
-                return item.id === orderId ? cancelledOrder : item;
-              });
-            }
-
-            if (state.selectedOrderId === orderId) {
-              state.selectedOrder = cancelledOrder;
-              renderSelectedOrder();
-            }
-          } catch (error) {
-            failures.push(
-              (currentOrder.orderNo || orderId) + '（' + error.message + '）',
-            );
+        if (state.selectedOrderId) {
+          const selectedOrder = cancelledOrderById.get(state.selectedOrderId);
+          if (selectedOrder) {
+            state.selectedOrder = selectedOrder;
+            renderSelectedOrder();
+            loadSelectedOrderFinance(selectedOrder.id);
           }
         }
 
         syncSelectedWaitingOrdersToCurrentList();
-        if (state.list) {
-          renderOrderList(state.list);
-          renderOrderListPagination(state.list);
-        }
+        await loadOrderList(currentPage);
         updateOrderBatchSelectionUi();
         document.getElementById('orderBatchActionStatus').textContent =
-          '批量取消完成：成功 ' + successCount + ' 单，失败 ' + failures.length + ' 单。' +
-          (failures.length ? ' 失败详情：' + failures.join('；') : '');
+          '批量取消完成：成功 ' +
+          formatCount(result && result.updatedCount) +
+          ' 单，后端已整批校验并原子写入。';
       } catch (error) {
+        document.getElementById('orderBatchActionStatus').textContent =
+          '批量取消失败：' + error.message;
         setNotice(error.message);
       } finally {
         batchCancelPending = false;

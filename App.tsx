@@ -56,6 +56,11 @@ import {
   saveAuthSession,
 } from './src/utils/authSession';
 import {
+  getDeviceId,
+  hydrateDeviceId,
+  LEGACY_DEFAULT_DEVICE_ID,
+} from './src/utils/deviceId';
+import {
   hasCompletedOnboarding,
   saveOnboardingCompleted,
 } from './src/utils/onboardingState';
@@ -65,9 +70,14 @@ import {
   saveAppRuntimeState,
   saveAppRuntimeStateDurably,
 } from './src/utils/appRuntimeState';
-import { hydrateHomeLocalState } from './src/utils/homeLocalState';
+import {
+  getHomeLocalState,
+  hydrateHomeLocalState,
+  saveHomeLocalState,
+} from './src/utils/homeLocalState';
 import { useAppNavigation } from './src/navigation/appNavigation';
 import {
+  createFailedProfileSyncState,
   createPendingProfileSyncState,
   createSyncedProfileSyncState,
   getIdentityPublishGateNotice,
@@ -75,9 +85,14 @@ import {
   hydrateProfileLocalState,
   saveProfileLocalState,
 } from './src/utils/profileLocalState';
+import { createHomeRouteSyncFailedState } from './src/utils/homeDashboard';
 import {
   createOrderCouponUsageChanges,
 } from './src/utils/profileCoupons';
+import {
+  getNetworkRetryQueueItems,
+  getNetworkRetryQueueSummary,
+} from './src/utils/networkRetryQueue';
 import { colors, styles } from './src/styles';
 import { AuthScreen } from './src/screens/AuthScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
@@ -105,10 +120,13 @@ import { createPlatformDriverCertificationApi } from './src/services/platformDri
 import { createPlatformFileApi } from './src/services/platformFileApi';
 import {
   createPlatformPaymentApi,
+  createSandboxPlatformPaymentSdk,
+  type PlatformPaymentRecord,
   type PlatformPaymentSdk,
 } from './src/services/platformPaymentApi';
 import { createPlatformMapsApi } from './src/services/platformMapsApi';
 import { createPlatformMessagesApi } from './src/services/platformMessagesApi';
+import { createPlatformSupportTicketsApi } from './src/services/platformSupportTicketsApi';
 import { mapPlatformInboxMessagesToLocal } from './src/utils/platformMessages';
 import { mapPlatformOrderToRecentOrder } from './src/services/platformOrderMapper';
 import { PlatformApiError } from './src/services/platformApiClient';
@@ -227,6 +245,53 @@ function mergePlatformMessagesWithLocalReadState(
   };
 }
 
+function createFailedNetworkOrderSyncState(order: RecentOrder, now: number) {
+  return createFailedOrderSyncState(
+    undefined,
+    order.syncState?.operation ?? 'local',
+    now,
+    {
+      ...(order.syncState?.createContext
+        ? { createContext: order.syncState.createContext }
+        : {}),
+      ...(order.syncState?.mutationContext
+        ? { mutationContext: order.syncState.mutationContext }
+        : {}),
+      ...(order.syncState?.retryBlocked ? { retryBlocked: true } : {}),
+    },
+  );
+}
+
+function getSyncQueueItemCount(queueItems?: Array<{ id: string }>) {
+  return queueItems?.length ? queueItems.length : 1;
+}
+
+function createNetworkRetryRecoveryNotice({
+  autoRetriedCount,
+  manualPendingCount,
+  failedCount,
+}: {
+  autoRetriedCount: number;
+  manualPendingCount: number;
+  failedCount: number;
+}) {
+  if (autoRetriedCount > 0) {
+    return manualPendingCount > 0
+      ? `网络状态已恢复，已自动重试 ${autoRetriedCount} 条草稿/订单待同步队列；常用路线和个人中心待同步项请返回原页面继续处理。`
+      : `网络状态已恢复，已自动重试 ${autoRetriedCount} 条草稿/订单待同步队列。`;
+  }
+
+  if (manualPendingCount > 0) {
+    return '网络状态已恢复，常用路线和个人中心待同步项请返回原页面继续处理。';
+  }
+
+  if (failedCount > 0) {
+    return '网络状态已恢复，当前没有可自动重试的待同步队列；已失败队列请进入对应页面处理。';
+  }
+
+  return '网络状态已恢复，当前没有待处理同步队列。';
+}
+
 function shouldClearAuthSessionAfterStartupPlatformAuthError(error: unknown) {
   return (
     error instanceof PlatformApiError &&
@@ -313,6 +378,12 @@ function App({
         : undefined,
     [resolvedPlatformApiBaseUrl],
   );
+  const resolvedPlatformPaymentSdk = useMemo(
+    () =>
+      paymentSdk ??
+      (platformPaymentApi ? createSandboxPlatformPaymentSdk() : undefined),
+    [paymentSdk, platformPaymentApi],
+  );
   const platformMapsApi = useMemo(
     () =>
       resolvedPlatformApiBaseUrl
@@ -332,6 +403,10 @@ function App({
           })
         : undefined,
     [resolvedPlatformApiBaseUrl],
+  );
+  const resolveCurrentDeviceId = useCallback(
+    () => getAuthSessionSnapshot()?.deviceId ?? getDeviceId(),
+    [],
   );
   const platformOrderDraftApi = useMemo(
     () =>
@@ -367,6 +442,16 @@ function App({
     () =>
       resolvedPlatformApiBaseUrl
         ? createPlatformFileApi({
+            baseUrl: resolvedPlatformApiBaseUrl,
+            getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
+          })
+        : undefined,
+    [resolvedPlatformApiBaseUrl],
+  );
+  const platformSupportTicketsApi = useMemo(
+    () =>
+      resolvedPlatformApiBaseUrl
+        ? createPlatformSupportTicketsApi({
             baseUrl: resolvedPlatformApiBaseUrl,
             getAccessToken: () => getAuthSessionSnapshot()?.accessToken,
           })
@@ -416,6 +501,7 @@ function App({
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [draftGateNotice, setDraftGateNotice] = useState('');
   const [networkNotice, setNetworkNotice] = useState('');
+  const [, setNetworkQueueRefreshKey] = useState(0);
   const [messageCenterNotice, setMessageCenterNotice] = useState('');
   const [platformOrderListNotice, setPlatformOrderListNotice] = useState('');
   const [platformOrderListQuery, setPlatformOrderListQuery] =
@@ -459,16 +545,26 @@ function App({
       }
 
       const profileState = getProfileLocalState();
+      const currentProfileSyncState = profileState.syncState;
+      const shouldPreserveAccountSnapshot =
+        currentProfileSyncState?.operation === 'accountProfile' &&
+        currentProfileSyncState.status !== 'synced';
 
       saveProfileLocalState({
         ...profileState,
-        account: {
-          ...profileState.account,
-          boundPhone: user.phone,
-        },
-        syncState: createSyncedProfileSyncState(
-          '平台认证手机号已同步到本地资料快照。',
-        ),
+        account: shouldPreserveAccountSnapshot
+          ? profileState.account
+          : {
+              ...profileState.account,
+              boundPhone: user.phone,
+            },
+        syncState:
+          currentProfileSyncState &&
+          currentProfileSyncState.status !== 'synced'
+            ? currentProfileSyncState
+            : createSyncedProfileSyncState(
+                '平台认证手机号已同步到本地资料快照。',
+              ),
       });
     },
     [],
@@ -517,16 +613,19 @@ function App({
     let cancelled = false;
 
     const hydrateApp = async () => {
-      await hydrateAuthSession(now);
+      await hydrateAuthSession(now, LEGACY_DEFAULT_DEVICE_ID);
       const hydratedAuthSession = getAuthSessionSnapshot();
+      await hydrateDeviceId(hydratedAuthSession?.deviceId);
+      const currentDeviceId =
+        hydratedAuthSession?.deviceId ?? getDeviceId();
 
       if (platformAuthApi && hydratedAuthSession?.refreshToken) {
         try {
           const tokens = await platformAuthApi.refresh({
             refreshToken: hydratedAuthSession.refreshToken,
-            deviceId: 'local-device',
+            deviceId: currentDeviceId,
           });
-          saveAuthSession(now, tokens);
+          saveAuthSession(now, tokens, currentDeviceId);
         } catch (error) {
           if (shouldClearAuthSessionAfterStartupPlatformAuthError(error)) {
             clearAuthSession();
@@ -558,7 +657,14 @@ function App({
 
       if (platformPaymentApi && getAuthSessionSnapshot()?.accessToken) {
         try {
-          await resumePendingPlatformPayment({ api: platformPaymentApi });
+          const resumedPendingPayment = await resumePendingPlatformPayment({
+            api: platformPaymentApi,
+          });
+          if (resumedPendingPayment) {
+            syncResumedPlatformPaymentToRuntimeOrders(
+              resumedPendingPayment.result.payment,
+            );
+          }
         } catch {
           // Keep the pending record so the next cold start or manual refresh can retry.
         }
@@ -654,21 +760,24 @@ function App({
     syncPlatformAuthenticatedProfile,
   ]);
 
-  const persistRuntimeState = ({
-    nextOrders = orders,
-    nextMessages = messages,
-    nextMessageUnreadCount = messageUnreadCount,
-  }: {
-    nextOrders?: RecentOrder[];
-    nextMessages?: MessageCenterItem[];
-    nextMessageUnreadCount?: number;
-  }) => {
-    saveAppRuntimeState({
-      orders: nextOrders,
-      messages: nextMessages,
-      messageUnreadCount: nextMessageUnreadCount,
-    });
-  };
+  const persistRuntimeState = useCallback(
+    ({
+      nextOrders = orders,
+      nextMessages = messages,
+      nextMessageUnreadCount = messageUnreadCount,
+    }: {
+      nextOrders?: RecentOrder[];
+      nextMessages?: MessageCenterItem[];
+      nextMessageUnreadCount?: number;
+    }) => {
+      saveAppRuntimeState({
+        orders: nextOrders,
+        messages: nextMessages,
+        messageUnreadCount: nextMessageUnreadCount,
+      });
+    },
+    [messageUnreadCount, messages, orders],
+  );
 
   const refreshPlatformMessages = useCallback(() => {
     if (!platformMessagesApi || !getAuthSessionSnapshot()?.accessToken) {
@@ -854,7 +963,7 @@ function App({
     tokens?: PlatformAuthTokens,
     user?: PlatformAuthenticatedUser,
   ) => {
-    saveAuthSession(now, tokens);
+    saveAuthSession(now, tokens, getDeviceId());
     setAuthenticatedUser(user);
     syncPlatformAuthenticatedProfile(user);
     const nextUserType = user?.userType ?? 'shipper';
@@ -878,7 +987,7 @@ function App({
       platformAuthApi
         .logout({
           refreshToken: currentAuthSession.refreshToken,
-          deviceId: 'local-device',
+          deviceId: resolveCurrentDeviceId(),
         })
         .catch(() => undefined);
     }
@@ -896,7 +1005,60 @@ function App({
   };
 
   const retryNetworkCheck = () => {
-    setNetworkNotice('网络已恢复到本地演示状态，本地 API 重试队列已清空');
+    const currentHomeSyncState = getHomeLocalState().syncState;
+    const currentProfileSyncState = getProfileLocalState().syncState;
+    const pendingOrdersToRetry = orders.filter(
+      order => order.syncState?.status === 'pending',
+    );
+    const autoRetriedCount =
+      (draftSyncState?.status === 'pending'
+        ? getSyncQueueItemCount(draftSyncState.queueItems)
+        : 0) +
+      pendingOrdersToRetry.reduce(
+        (count, order) =>
+          count + getSyncQueueItemCount(order.syncState?.queueItems),
+        0,
+      );
+    const manualPendingCount =
+      (currentHomeSyncState?.status === 'pending'
+        ? getSyncQueueItemCount(currentHomeSyncState.queueItems)
+        : 0) +
+      (currentProfileSyncState?.status === 'pending'
+        ? getSyncQueueItemCount(currentProfileSyncState.queueItems)
+        : 0);
+    const failedCount =
+      (draftSyncState?.status === 'failed'
+        ? getSyncQueueItemCount(draftSyncState.queueItems)
+        : 0) +
+      orders.reduce(
+        (count, order) =>
+          order.syncState?.status === 'failed'
+            ? count + getSyncQueueItemCount(order.syncState?.queueItems)
+            : count,
+        0,
+      ) +
+      (currentHomeSyncState?.status === 'failed'
+        ? getSyncQueueItemCount(currentHomeSyncState.queueItems)
+        : 0) +
+      (currentProfileSyncState?.status === 'failed'
+        ? getSyncQueueItemCount(currentProfileSyncState.queueItems)
+        : 0);
+
+    if (draftSyncState?.status === 'pending') {
+      retryDraftSync();
+    }
+
+    pendingOrdersToRetry.forEach(order => {
+      retryOrderSyncToPlatform(order);
+    });
+
+    setNetworkNotice(
+      createNetworkRetryRecoveryNotice({
+        autoRetriedCount,
+        manualPendingCount,
+        failedCount,
+      }),
+    );
     openHome();
   };
 
@@ -1493,6 +1655,63 @@ function App({
     setSavedDraft(savedSnapshot.draft);
     setDraftSyncState(savedSnapshot.syncState);
   }, []);
+
+  const markNetworkRetryQueuesFailed = useCallback(() => {
+    let shouldRefreshQueue = false;
+
+    if (draftSyncState?.status === 'pending') {
+      markDraftSyncFailed();
+      shouldRefreshQueue = true;
+    }
+
+    const nextOrders = orders.map(order =>
+      order.syncState?.status === 'pending'
+        ? {
+            ...order,
+            syncState: createFailedNetworkOrderSyncState(order, nowRef.current),
+          }
+        : order,
+    );
+    const hasPendingOrders = nextOrders.some((order, index) => order !== orders[index]);
+
+    if (hasPendingOrders) {
+      setOrders(nextOrders);
+      persistRuntimeState({ nextOrders });
+      shouldRefreshQueue = true;
+    }
+
+    const currentHomeState = getHomeLocalState();
+
+    if (currentHomeState.syncState?.status === 'pending') {
+      saveHomeLocalState(
+        createHomeRouteSyncFailedState(currentHomeState, nowRef.current),
+      );
+      shouldRefreshQueue = true;
+    }
+
+    const currentProfileState = getProfileLocalState();
+
+    if (currentProfileState.syncState?.status === 'pending') {
+      saveProfileLocalState({
+        ...currentProfileState,
+        syncState: createFailedProfileSyncState(
+          undefined,
+          nowRef.current,
+          currentProfileState.syncState?.operation ?? 'local',
+        ),
+      });
+      shouldRefreshQueue = true;
+    }
+
+    if (shouldRefreshQueue) {
+      setNetworkQueueRefreshKey(current => current + 1);
+    }
+  }, [
+    draftSyncState?.status,
+    markDraftSyncFailed,
+    orders,
+    persistRuntimeState,
+  ]);
 
   const returnFromOrderDetail = () => {
     if (orderDetailReturnTarget === 'orders') {
@@ -2532,6 +2751,15 @@ function App({
     );
   }
 
+  const networkRetryQueueItems = getNetworkRetryQueueItems({
+    draftSyncState,
+    orders,
+    homeSyncState: getHomeLocalState().syncState,
+    profileSyncState: getProfileLocalState().syncState,
+  });
+  const networkRetryQueueSummary =
+    getNetworkRetryQueueSummary(networkRetryQueueItems);
+
   return (
     <SafeAreaProvider
       initialMetrics={initialWindowMetrics ?? fallbackSafeAreaMetrics}
@@ -2547,6 +2775,7 @@ function App({
           <AuthScreen
             now={now}
             onAuthenticated={handleAuthenticated}
+            deviceId={getDeviceId()}
             platformAuthApi={platformAuthApi}
           />
         ) : screen === 'driver-home' ? (
@@ -2560,7 +2789,9 @@ function App({
           />
         ) : screen === 'network-error' ? (
           <NetworkErrorScreen
+            retryQueueItems={networkRetryQueueItems}
             onBack={() => openHome()}
+            onMarkRetryQueueFailed={markNetworkRetryQueuesFailed}
             onRetry={retryNetworkCheck}
           />
         ) : screen === 'order-draft' ? (
@@ -2576,6 +2807,8 @@ function App({
             onRetryDraftSync={retryDraftSync}
             onMarkDraftSyncFailed={markDraftSyncFailed}
             platformFileApi={platformFileApi}
+            platformMapsApi={platformMapsApi}
+            usesPlatformOrderApi={Boolean(platformOrderApi)}
             onPublish={publishOrder}
           />
         ) : screen === 'order-detail' ? (
@@ -2598,7 +2831,7 @@ function App({
             platformOrderApi={platformOrderApi}
             platformPaymentApi={platformPaymentApi}
             platformMapsApi={platformMapsApi}
-            platformPaymentSdk={paymentSdk}
+            platformPaymentSdk={resolvedPlatformPaymentSdk}
           />
         ) : screen === 'orders' ? (
           <OrdersScreen
@@ -2626,13 +2859,19 @@ function App({
             messages={messages}
             messageUnreadCount={messageUnreadCount}
             initialSupportView={homeInitialSupportView}
+            usesPlatformMessagesApi={Boolean(platformMessagesApi)}
             draftGateNotice={draftGateNotice}
             networkNotice={networkNotice}
+            networkStatusSummaryText={networkRetryQueueSummary.summaryText}
+            networkStatusActionText={
+              networkRetryQueueSummary.totalCount > 0 ? '同步详情' : '异常演练'
+            }
             messageCenterNotice={messageCenterNotice}
             platformAuthApi={platformAuthApi}
             platformProfileApi={platformProfileApi}
             platformFrequentRoutesApi={platformFrequentRoutesApi}
             platformFileApi={platformFileApi}
+            platformSupportTicketsApi={platformSupportTicketsApi}
             onLogout={handleLogout}
             onOpenNetworkError={openNetworkError}
             onOpenOrderDraft={openOrderDraft}
@@ -2654,6 +2893,67 @@ function App({
       </SafeAreaView>
     </SafeAreaProvider>
   );
+}
+
+function syncResumedPlatformPaymentToRuntimeOrders(
+  payment: PlatformPaymentRecord,
+) {
+  const runtimeState = getAppRuntimeState();
+  let changed = false;
+  const nextOrders = runtimeState.orders.map(order => {
+    if (
+      order.platformOrderId !== payment.orderId &&
+      order.id !== payment.orderNo
+    ) {
+      return order;
+    }
+
+    const nextPaymentStatus = mapPlatformPaymentRecordToOrderStatus(payment);
+    const nextPaymentSettledAtIso =
+      payment.settledAtIso ?? order.paymentSettledAtIso;
+    const nextRefundedAtIso = payment.refundedAtIso ?? order.refundedAtIso;
+
+    if (
+      order.paymentStatus === nextPaymentStatus &&
+      order.paymentChannel === payment.channel &&
+      order.paymentSettledAtIso === nextPaymentSettledAtIso &&
+      order.refundedAtIso === nextRefundedAtIso
+    ) {
+      return order;
+    }
+
+    changed = true;
+    return {
+      ...order,
+      paymentStatus: nextPaymentStatus,
+      paymentChannel: payment.channel,
+      paymentSettledAtIso: nextPaymentSettledAtIso,
+      refundedAtIso: nextRefundedAtIso,
+    };
+  });
+
+  if (!changed) {
+    return;
+  }
+
+  saveAppRuntimeState({
+    ...runtimeState,
+    orders: nextOrders,
+  });
+}
+
+function mapPlatformPaymentRecordToOrderStatus(
+  payment: PlatformPaymentRecord,
+): NonNullable<RecentOrder['paymentStatus']> {
+  if (payment.status === 'pending' || payment.status === 'processing') {
+    return 'pending';
+  }
+
+  if (payment.status === 'expired') {
+    return 'failed';
+  }
+
+  return payment.status;
 }
 
 export default App;

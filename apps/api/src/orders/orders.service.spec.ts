@@ -138,6 +138,39 @@ describe('OrdersService', () => {
     );
   }
 
+  function batchCancelAdminOrdersForTest(
+    service: OrdersService,
+    adminUserId: string,
+    idempotencyKey: string,
+    input: {
+      items: Array<{
+        orderId: string;
+        baseUpdatedAtIso: string;
+      }>;
+      reasonText: string;
+      description?: string;
+    },
+  ) {
+    return Promise.resolve().then(() =>
+      (
+        service as unknown as {
+          batchCancelAdminOrders: (
+            adminUserId: string,
+            idempotencyKey: string,
+            input: {
+              items: Array<{
+                orderId: string;
+                baseUpdatedAtIso: string;
+              }>;
+              reasonText: string;
+              description?: string;
+            },
+          ) => Promise<unknown>;
+        }
+      ).batchCancelAdminOrders(adminUserId, idempotencyKey, input),
+    );
+  }
+
   function createServiceWithCoupons() {
     const filesRepository = new InMemoryFilesRepository(() => now);
     const couponStore = new InMemoryProfileCouponsStore({
@@ -1205,6 +1238,103 @@ describe('OrdersService', () => {
           noteText: '后台取消：运营按筛选结果批量清理 waiting 单',
         }),
       ],
+    });
+  });
+
+  it('batch cancels waiting orders atomically for admin', async () => {
+    const { service } = createService();
+    const firstOrder = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    const secondOrder = await createOrderForTest(
+      service,
+      'shipper-2',
+      createInput('南山区科技园'),
+    );
+
+    await expect(
+      batchCancelAdminOrdersForTest(
+        service,
+        'admin-1',
+        'admin-batch-cancel-key',
+        {
+          items: [
+            {
+              orderId: secondOrder.id,
+              baseUpdatedAtIso: secondOrder.updatedAtIso,
+            },
+            {
+              orderId: firstOrder.id,
+              baseUpdatedAtIso: firstOrder.updatedAtIso,
+            },
+          ],
+          reasonText: '后台取消',
+          description: '运营按筛选结果批量清理 waiting 单',
+        },
+      ),
+    ).resolves.toMatchObject({
+      orderIds: [secondOrder.id, firstOrder.id],
+      updatedCount: 2,
+      items: [
+        expect.objectContaining({
+          id: secondOrder.id,
+          status: 'cancelled',
+        }),
+        expect.objectContaining({
+          id: firstOrder.id,
+          status: 'cancelled',
+        }),
+      ],
+    });
+  });
+
+  it('keeps admin batch cancel atomic when any waiting order is stale or invalid', async () => {
+    const { repository, service } = createService();
+    const waitingOrder = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    const loadingOrder = await createOrderForTest(
+      service,
+      'shipper-2',
+      createInput('南山区科技园'),
+    );
+    setInMemoryOrderStatus(repository, 1, 'loading');
+
+    await expect(
+      batchCancelAdminOrdersForTest(
+        service,
+        'admin-1',
+        'admin-batch-cancel-stale-key',
+        {
+          items: [
+            {
+              orderId: waitingOrder.id,
+              baseUpdatedAtIso: waitingOrder.updatedAtIso,
+            },
+            {
+              orderId: loadingOrder.id,
+              baseUpdatedAtIso: loadingOrder.updatedAtIso,
+            },
+          ],
+          reasonText: '后台取消',
+        },
+      ),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前订单状态不允许批量取消',
+      ),
+    );
+
+    await expect(
+      service.getOrder('shipper-1', waitingOrder.id),
+    ).resolves.toMatchObject({
+      id: waitingOrder.id,
+      status: 'waiting',
     });
   });
 

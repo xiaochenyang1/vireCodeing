@@ -132,3 +132,17 @@ export type ReviewDriverCertificationRequest =
       status: 'rejected';
       rejectionReason: string;
     };
+
+export type BatchReviewDriverCertificationRequest =
+  ReviewDriverCertificationRequest & {
+    driverIds: string[];
+    certificationType: DriverCertificationType;
+  };
+
+export type BatchReviewDriverCertificationResult = {
+  certificationType: DriverCertificationType;
+  status: Extract<CertificationStatus, 'approved' | 'rejected'>;
+  driverIds: string[];
+  updatedCount: number;
+  items: DriverCertificationSnapshot[];
+};

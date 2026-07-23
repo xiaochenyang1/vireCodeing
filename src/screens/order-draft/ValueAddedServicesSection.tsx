@@ -4,6 +4,7 @@ import { AuthField } from '../../components/AuthField';
 import { valueAddedServiceOptions } from '../../data/mockData';
 import { styles } from '../../styles';
 import type { ValueAddedServiceOption } from '../../types';
+import type { DraftValueAddedServiceEstimate } from '../../utils/orderDraft';
 
 export function ValueAddedServicesSection({
   valueAddedServiceIds,
@@ -12,6 +13,7 @@ export function ValueAddedServicesSection({
   onLoadingWorkerCountChange,
   insuredValueText,
   onInsuredValueTextChange,
+  serviceEstimate,
 }: {
   valueAddedServiceIds: ValueAddedServiceOption['id'][];
   onToggleValueAddedService: (serviceId: ValueAddedServiceOption['id']) => void;
@@ -19,13 +21,16 @@ export function ValueAddedServicesSection({
   onLoadingWorkerCountChange: (value: number) => void;
   insuredValueText: string;
   onInsuredValueTextChange: (value: string) => void;
+  serviceEstimate?: DraftValueAddedServiceEstimate;
 }) {
+  const guidanceText = serviceEstimate
+    ? '当前会基于已选增值服务生成本地参考附加费预估，不会自动叠加到一口价。'
+    : '可先记录装卸、保价和包装需求；选中后会生成本地参考附加费预估。';
+
   return (
     <View style={styles.draftCard}>
       <Text style={styles.draftSectionTitle}>增值服务</Text>
-      <Text style={styles.draftNotice}>
-        本地记录装卸、保价和包装需求，真实计费后续接入。
-      </Text>
+      <Text style={styles.draftNotice}>{guidanceText}</Text>
       <View style={styles.draftChoiceGrid}>
         {valueAddedServiceOptions.map(option => {
           const isActive = valueAddedServiceIds.includes(option.id);
@@ -92,6 +97,26 @@ export function ValueAddedServicesSection({
           onChangeText={onInsuredValueTextChange}
           keyboardType="number-pad"
         />
+      ) : null}
+      {serviceEstimate ? (
+        <View style={styles.draftInlineSection}>
+          <Text style={styles.draftFieldLabel}>本地参考附加费</Text>
+          {serviceEstimate.lineTexts.map((lineText, index) => (
+            <Text
+              key={`${index}-${lineText}`}
+              testID={`draft-service-estimate-line-${index}`}
+              style={styles.detailMeta}
+            >
+              {lineText}
+            </Text>
+          ))}
+          {serviceEstimate.totalAmountText ? (
+            <Text testID="draft-service-estimate-total" style={styles.routeMeta}>
+              {`参考附加费合计：${serviceEstimate.totalAmountText}`}
+            </Text>
+          ) : null}
+          <Text style={styles.routeMeta}>{serviceEstimate.noticeText}</Text>
+        </View>
       ) : null}
     </View>
   );

@@ -1,5 +1,5 @@
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { AuthField } from '../../components/AuthField';
 import { helpTopics, serviceChannels } from '../../data/mockData';
@@ -9,16 +9,29 @@ import type {
   SupportTicket,
   SupportTicketStatusHistoryItem,
 } from '../../types';
-import type { SupportTicketDraft } from '../../utils/homeSupport';
+import {
+  isLocalSupportTicketId,
+  type SupportTicketDraft,
+} from '../../utils/homeSupport';
 import { SupportTopBar } from './SupportTopBar';
 
 export function HelpCenterScreen({
   supportTickets,
+  noticeText,
+  ticketsTitle = '本地工单',
+  modeBadgeText = '本地版',
+  canUpdateTicketStatus = true,
+  isSubmittingTicket = false,
   onBackHome,
   onSubmitTicket,
   onUpdateTicketStatus,
 }: {
   supportTickets: SupportTicket[];
+  noticeText?: string;
+  ticketsTitle?: string;
+  modeBadgeText?: string;
+  canUpdateTicketStatus?: boolean;
+  isSubmittingTicket?: boolean;
   onBackHome: () => void;
   onSubmitTicket: (ticketDraft: SupportTicketDraft) => void;
   onUpdateTicketStatus: (
@@ -31,7 +44,17 @@ export function HelpCenterScreen({
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketNotice, setTicketNotice] = useState('');
 
+  useEffect(() => {
+    if (noticeText !== undefined) {
+      setTicketNotice(noticeText);
+    }
+  }, [noticeText]);
+
   const submitTicket = () => {
+    if (isSubmittingTicket) {
+      return;
+    }
+
     if (!selectedChannel) {
       setTicketNotice('请选择服务渠道后再提交');
       return;
@@ -46,7 +69,7 @@ export function HelpCenterScreen({
       channelName: selectedChannel.name,
       description: ticketDescription.trim(),
     });
-    setTicketNotice(`工单已提交：${selectedChannel.name}`);
+    setTicketNotice('');
     setTicketDescription('');
   };
 
@@ -78,6 +101,17 @@ export function HelpCenterScreen({
     setTicketNotice(`正在联系${channel.name}：${channel.phoneNumber}`);
   };
 
+  const getSupportTicketSourceText = (ticket: SupportTicket) => {
+    if (!isLocalSupportTicketId(ticket.id)) {
+      return '平台工单同步';
+    }
+
+    return canUpdateTicketStatus ? '本地工单' : '本地兜底工单';
+  };
+
+  const canUpdateTicketLocally = (ticket: SupportTicket) =>
+    isLocalSupportTicketId(ticket.id);
+
   return (
     <ScrollView
       style={styles.screen}
@@ -88,6 +122,7 @@ export function HelpCenterScreen({
         title="客服帮助"
         subtitle="常见问题与服务入口"
         onBackHome={onBackHome}
+        modeBadgeText={modeBadgeText}
       />
 
       <View style={styles.detailCard}>
@@ -169,19 +204,22 @@ export function HelpCenterScreen({
         ) : null}
         <Pressable
           testID="support-ticket-submit"
+          disabled={isSubmittingTicket}
           style={({ pressed }) => [
             styles.detailPrimaryButton,
             pressed && styles.pressedButton,
           ]}
           onPress={submitTicket}
         >
-          <Text style={styles.detailPrimaryButtonText}>提交工单</Text>
+          <Text style={styles.detailPrimaryButtonText}>
+            {isSubmittingTicket ? '提交中...' : '提交工单'}
+          </Text>
         </Pressable>
       </View>
 
       {supportTickets.length > 0 ? (
         <View style={styles.detailCard}>
-          <Text style={styles.draftSectionTitle}>本地工单</Text>
+          <Text style={styles.draftSectionTitle}>{ticketsTitle}</Text>
           {supportTickets.map(ticket => {
             const statusHistory = ticket.statusHistory ?? [
               {
@@ -197,6 +235,9 @@ export function HelpCenterScreen({
                 </Text>
                 <Text style={styles.detailMeta}>{ticket.description}</Text>
                 <Text style={styles.detailMeta}>
+                  {`来源：${getSupportTicketSourceText(ticket)}`}
+                </Text>
+                <Text style={styles.detailMeta}>
                   {`处理状态：${ticket.statusText}`}
                 </Text>
                 <Text style={styles.routeMeta}>{ticket.createdAtText}</Text>
@@ -208,7 +249,8 @@ export function HelpCenterScreen({
                     {`处理记录：${historyItem.actionText} · ${historyItem.timestampText}`}
                   </Text>
                 ))}
-                {ticket.statusText === '待客服跟进' ? (
+                {canUpdateTicketLocally(ticket) &&
+                ticket.statusText === '待客服跟进' ? (
                   <Pressable
                     testID={`support-ticket-accept-${ticket.id}`}
                     style={styles.detailSecondaryButton}
@@ -219,7 +261,8 @@ export function HelpCenterScreen({
                     </Text>
                   </Pressable>
                 ) : null}
-                {ticket.statusText !== '已处理' ? (
+                {canUpdateTicketLocally(ticket) &&
+                ticket.statusText !== '已处理' ? (
                   <Pressable
                     testID={`support-ticket-resolve-${ticket.id}`}
                     style={styles.detailSecondaryButton}

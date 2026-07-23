@@ -476,6 +476,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LogoutResponse'
+  /auth/sessions:
+    get:
+      summary: List current-user active auth sessions
+      description: Returns active refresh sessions for the current authenticated user. Device identifiers are returned as-is so the current mobile installation can match its stored deviceId and offer first-slice revoke-other-sessions management.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current-user active auth sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfAuthSessionListResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
+  /auth/sessions/revoke-other-sessions:
+    post:
+      summary: Revoke current-user sessions except current device
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeOtherSelfAuthSessionsRequest'
+      responses:
+        '200':
+          description: Other current-user session revoke result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeOtherSelfAuthSessionsResponse'
+        '403':
+          $ref: '#/components/responses/DisabledUserError'
   /me:
     get:
       summary: Current user profile
@@ -720,7 +759,7 @@ paths:
         - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
         - { name: status, in: query, schema: { type: string, enum: [pending, uploaded, rejected] } }
-        - { name: purpose, in: query, schema: { type: string, enum: [identity, cargo, exception, evaluation, receipt, invoice] } }
+        - { name: purpose, in: query, schema: { type: string, enum: [avatar, identity, cargo, exception, evaluation, receipt, invoice] } }
         - { name: ownerUserId, in: query, schema: { type: string, maxLength: 120 } }
         - { name: keyword, in: query, schema: { type: string, maxLength: 120 } }
       security:
@@ -1184,7 +1223,7 @@ paths:
           $ref: '#/components/responses/ShipperOnlyError'
     put:
       summary: Save current shipper profile account
-      description: Saves the current shipper's display name snapshot. It does not sync bound phone rebind, avatar files or account security settings.
+      description: Saves the current shipper's display name snapshot, optional avatar file reference, optional bound phone rebind, and the first account settings snapshot for phone protection, login protection, order notification, promotion notification, privacy confirmation time, and privacy policy version. Set avatarFileId to null to clear the current avatar snapshot. It syncs bound phone, notification, login protection, phone protection, and privacy confirmation/version snapshots, but does not sync full account security events.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -1719,7 +1758,7 @@ paths:
           $ref: '#/components/responses/ShipperOnlyError'
     put:
       summary: Save current shipper profile address book
-      description: Replaces the current shipper's common address and contact snapshot. It does not sync identity verification, coupons, invoices or account security settings.
+      description: Replaces the current shipper's common address and contact snapshot. It does not sync identity verification, coupons or invoices.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -1818,6 +1857,181 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/ShipperOnlyError'
+  /shipper/support-tickets:
+    get:
+      summary: List current shipper support tickets
+      description: Lists the current shipper's support tickets in reverse createdAt order. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow. This first slice still does not include online chat or a complete customer-service handling audit trail.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current shipper support tickets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+    post:
+      summary: Create current shipper support ticket
+      description: Creates a new pending support ticket for the current shipper. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include online chat or a complete customer-service handling audit trail.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShipperSupportTicketRequest'
+      responses:
+        '200':
+          description: Current shipper support ticket created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+  /admin/support-tickets:
+    get:
+      summary: List help-center support tickets for admin handling
+      description: Lists help-center support tickets for administrators. Supports paging, status filtering and keyword search across ticket id, shipper id, channel name and description.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ShipperSupportTicketStatus' } }
+        - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin support tickets listed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSupportTicketListResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/support-tickets/{ticketId}:
+    get:
+      summary: Get help-center support ticket detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Support ticket detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Support ticket does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: SUPPORT_TICKET_NOT_FOUND
+                message: 帮助中心工单不存在
+                requestId: req_local
+                timestamp: '2026-07-22T08:35:00.000Z'
+  /admin/support-tickets/{ticketId}/process:
+    post:
+      summary: Accept a pending help-center support ticket
+      description: Moves a pending help-center support ticket to processing and appends the admin handling note to statusHistory. Uses baseUpdatedAtIso optimistic concurrency.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: ticketId, in: path, required: true, schema: { type: string } }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShipperSupportTicketRequest'
+      responses:
+        '200':
+          description: Support ticket moved to processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: SUPPORT_TICKET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/support-tickets/{ticketId}/resolve:
+    post:
+      summary: Resolve a processing help-center support ticket
+      description: Moves a processing help-center support ticket to resolved and appends the admin handling note to statusHistory. Uses baseUpdatedAtIso optimistic concurrency.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: ticketId, in: path, required: true, schema: { type: string } }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateShipperSupportTicketRequest'
+      responses:
+        '200':
+          description: Support ticket resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: SUPPORT_TICKET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /shipper/orders:
     post:
       summary: Create shipper order
@@ -3049,6 +3263,97 @@ paths:
                 message: 订单不存在
                 requestId: req_local
                 timestamp: '2026-07-18T03:00:00.000Z'
+  /admin/orders/batch-cancel:
+    post:
+      summary: Cancel waiting admin orders in one atomic batch
+      description: Cancels multiple waiting orders from admin in one atomic batch. Requires Idempotency-Key. The request is validated atomically: any missing order, duplicate orderId, stale base version, or non-waiting order aborts the whole batch and nothing is committed.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchCancelAdminOrdersRequest'
+      responses:
+        '200':
+          description: Admin orders batch cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchCancelAdminOrdersResponse'
+        '400':
+          description: Request body is invalid or Idempotency-Key is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_idempotency_key:
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-18T03:00:00.000Z'
+                duplicate_order_ids:
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 批量取消订单 ID 不能重复
+                    requestId: req_local
+                    timestamp: '2026-07-22T08:00:00.000Z'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: At least one order does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: ORDER_NOT_FOUND
+                message: 订单不存在
+                requestId: req_local
+                timestamp: '2026-07-22T08:00:00.000Z'
+        '409':
+          description: Idempotency key was reused or expired, at least one order base version is stale, or at least one current order status does not allow admin batch cancellation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotency_key_reused:
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-22T08:00:00.000Z'
+                idempotency_key_expired:
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-22T08:00:00.000Z'
+                order_conflict:
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-22T08:00:00.000Z'
+                state_invalid:
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许批量取消
+                    requestId: req_local
+                    timestamp: '2026-07-22T08:00:00.000Z'
   /admin/orders/{orderId}/cancel:
     post:
       summary: Cancel waiting admin order
@@ -3573,6 +3878,61 @@ paths:
               example:
                 code: DRIVER_CERTIFICATION_NOT_FOUND
                 message: 司机认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/batch-review:
+    post:
+      summary: Batch review driver certifications
+      description: Allows an admin user to approve or reject multiple existing driver identity or vehicle certification records in one atomic batch. Any missing certification record or invalid request causes the whole batch to fail.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchReviewDriverCertificationRequest'
+      responses:
+        '200':
+          description: Driver certifications batch reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchReviewDriverCertificationResponse'
+        '400':
+          description: Batch review request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-06T08:00:00.000Z'
+        '404':
+          description: Any requested driver certification record does not exist, so the whole batch is rolled back
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_NOT_FOUND
+                message: 司机认证记录不存在：driver-3
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
   /admin/driver-certifications/{driverId}/vehicle/review:
@@ -5035,6 +5395,72 @@ paths:
                   driver-1,138****8001,driver,active,high,shared_device|high_session_volume,3,3,sha*******ice|dri**********d-2|dri******b-1,2026-06-26T06:12:00.000Z,2026-06-10T08:00:00.000Z,2026-06-26T05:40:00.000Z
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/auth/accounts/batch-status:
+    post:
+      summary: Batch update admin-managed auth account statuses
+      description: Accepts one target status plus multiple account ids. The backend validates the full batch and commits atomically, so any missing account or invalid target aborts the whole batch. Disabling accounts revokes all current active refresh sessions and returns per-account revoke counts.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusRequest'
+      responses:
+        '200':
+          description: Admin auth account statuses updated atomically
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: At least one account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_ACCOUNT_NOT_FOUND
+                message: 账号不存在
+                requestId: req_local
+                timestamp: '2026-07-22T05:01:00.000Z'
+  /admin/auth/accounts/batch-revoke-sessions:
+    post:
+      summary: Batch revoke admin-managed account sessions
+      description: Accepts multiple target accounts and optional keepSessionId values. The backend validates the full batch and commits atomically; every successful target also writes its own `revoke_account_sessions` governance audit event.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsRequest'
+      responses:
+        '200':
+          description: Admin auth account sessions revoked atomically
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: At least one account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_ACCOUNT_NOT_FOUND
+                message: 账号不存在
+                requestId: req_local
+                timestamp: '2026-07-22T05:02:00.000Z'
   /admin/auth/accounts/{userId}:
     get:
       summary: Get admin-managed auth account detail
@@ -5328,6 +5754,37 @@ paths:
               schema: { $ref: '#/components/schemas/AdminWithdrawalPageResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/withdrawals/batch-review:
+    post:
+      summary: Batch review driver withdrawals from admin finance
+      description: Requires items, action and reason in the request body, plus an Idempotency-Key; every accepted batch is validated and written atomically, and any missing withdrawal, stale version or wallet conflict rolls back the whole batch.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BatchReviewAdminWithdrawalsRequest' }
+      responses:
+        '200':
+          description: Batch withdrawal review completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchReviewAdminWithdrawalsResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Batch withdrawal review conflict or Idempotency-Key reuse
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: IDEMPOTENCY_KEY_REUSED
+                message: Idempotency-Key 已被其他批量提现审核使用
+                requestId: req_local
+                timestamp: '2026-07-22T09:00:00.000Z'
   /admin/finance/withdrawals/{withdrawalId}/approve:
     post:
       summary: Approve a driver withdrawal from admin finance
@@ -5688,6 +6145,73 @@ components:
           type: boolean
           enum: [true]
           example: true
+    SelfAuthSessionRecord:
+      type: object
+      required: [id, deviceId, createdAtIso, expiresAtIso]
+      properties:
+        id:
+          type: string
+          example: session-current
+        deviceId:
+          type: string
+          minLength: 1
+          example: mobile-device-current
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T08:00:00.000Z'
+        expiresAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-29T08:00:00.000Z'
+    SelfAuthSessionListData:
+      type: object
+      required: [sessions, total]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelfAuthSessionRecord'
+        total:
+          type: integer
+          minimum: 0
+          example: 2
+    SelfAuthSessionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/SelfAuthSessionListData'
+    RevokeOtherSelfAuthSessionsRequest:
+      type: object
+      required: [currentDeviceId]
+      properties:
+        currentDeviceId:
+          type: string
+          minLength: 1
+          example: mobile-device-current
+    RevokeOtherSelfAuthSessionsData:
+      type: object
+      required: [currentDeviceId, revokedCount]
+      properties:
+        currentDeviceId:
+          type: string
+          minLength: 1
+          example: mobile-device-current
+        revokedCount:
+          type: integer
+          minimum: 0
+          example: 2
+    RevokeOtherSelfAuthSessionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/RevokeOtherSelfAuthSessionsData'
     MeResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -5779,6 +6303,11 @@ components:
           maximum: 180
           description: Optional pickup longitude. Must be paired with pickupLatitude.
           example: 113.9
+        pickupDistanceMeters:
+          type: integer
+          minimum: 0
+          description: Best-effort pickup distance in meters from the driver's latest reported location. Present only in driver hall results.
+          example: 12800
         deliveryAddress:
           type: string
           minLength: 1
@@ -5889,6 +6418,67 @@ components:
           type: string
           maxLength: 200
           example: 客户临时调整发货计划
+    AdminBatchCancelOrderItem:
+      type: object
+      required: [orderId, baseUpdatedAtIso]
+      properties:
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base for this item. Must equal the current order updatedAtIso that the admin read before starting the batch.
+          example: '2026-07-22T08:00:00.000Z'
+    BatchCancelAdminOrdersRequest:
+      type: object
+      required: [items, reasonText]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Request-order batch items. Each orderId must be unique. The backend validates the whole batch atomically.
+          items:
+            $ref: '#/components/schemas/AdminBatchCancelOrderItem'
+        reasonText:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: 后台取消
+        description:
+          type: string
+          maxLength: 200
+          example: 运营按筛选结果批量清理 waiting 单
+    BatchCancelAdminOrdersResult:
+      type: object
+      required: [orderIds, updatedCount, items]
+      properties:
+        orderIds:
+          type: array
+          items:
+            type: string
+          example:
+            - order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+            - order_01J1Z7P7V2QM9B3V8M3G1N6K8T
+        updatedCount:
+          type: integer
+          minimum: 1
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperOrder'
+    BatchCancelAdminOrdersResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchCancelAdminOrdersResult'
     AdvanceShipperOrderStatusRequest:
       type: object
       required: [baseUpdatedAtIso, nextStatus]
@@ -5993,7 +6583,7 @@ components:
       properties:
         purpose:
           type: string
-          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+          enum: [avatar, identity, cargo, exception, evaluation, receipt, invoice]
           description: Business purpose for the file object.
           example: identity
         fileName:
@@ -6069,7 +6659,7 @@ components:
           example: user-1
         purpose:
           type: string
-          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+          enum: [avatar, identity, cargo, exception, evaluation, receipt, invoice]
         contentType:
           type: string
           example: image/png
@@ -6355,7 +6945,7 @@ components:
       properties:
         purpose:
           type: string
-          enum: [identity, cargo, exception, evaluation, receipt, invoice]
+          enum: [avatar, identity, cargo, exception, evaluation, receipt, invoice]
           example: cargo
         totalCount:
           type: integer
@@ -7362,6 +7952,10 @@ components:
           type: string
           format: date-time
           example: '2026-07-15T09:00:30.000Z'
+        refundedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T10:00:00.000Z'
         cancelledAtIso:
           type: string
           format: date-time
@@ -7687,6 +8281,42 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DriverCertificationListResult'
+    BatchReviewDriverCertificationResult:
+      type: object
+      required: [certificationType, status, driverIds, updatedCount, items]
+      properties:
+        certificationType:
+          type: string
+          enum: [identity, vehicle]
+          example: identity
+        status:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        driverIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [driver-1, driver-2]
+        updatedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DriverCertificationSnapshot'
+    BatchReviewDriverCertificationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchReviewDriverCertificationResult'
     DriverCertificationAttachment:
       allOf:
         - $ref: '#/components/schemas/FileUploadRecord'
@@ -7875,6 +8505,34 @@ components:
           maxLength: 200
           description: Required when status is rejected. Ignored when status is approved.
           example: 证件照片不清晰
+    BatchReviewDriverCertificationRequest:
+      type: object
+      required: [driverIds, certificationType, status]
+      properties:
+        driverIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [driver-1, driver-2]
+        certificationType:
+          type: string
+          enum: [identity, vehicle]
+          example: identity
+        status:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        rejectionReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Required when status is rejected. Ignored when status is approved.
+          example: 资料不完整
     SaveShipperOrderDraftRequest:
       type: object
       required: [draftSnapshot]
@@ -8028,19 +8686,99 @@ components:
           minLength: 1
           maxLength: 30
           example: 晨星货主
+        avatarFileId:
+          type: string
+          nullable: true
+          maxLength: 120
+          example: file-avatar-1
+        phone:
+          type: string
+          minLength: 11
+          maxLength: 11
+          pattern: ^1[3-9]\d{9}$
+          example: '13900139999'
+        phoneProtectionEnabled:
+          type: boolean
+          example: true
+        loginProtectionEnabled:
+          type: boolean
+          example: true
+        orderNotificationEnabled:
+          type: boolean
+          example: true
+        promotionNotificationEnabled:
+          type: boolean
+          example: false
+        privacyConfirmedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T08:30:00.000Z'
+        privacyPolicyVersion:
+          type: string
+          maxLength: 80
+          example: privacy-policy-v2026-07-22
+        privacyPolicyVersionTitle:
+          type: string
+          maxLength: 120
+          example: 隐私政策 v2026.07.22
     ShipperProfileAccount:
       allOf:
-        - $ref: '#/components/schemas/SaveShipperProfileAccountRequest'
         - type: object
-          required: [shipperId, phone]
+          required:
+            [
+              shipperId,
+              displayName,
+              phone,
+              phoneProtectionEnabled,
+              loginProtectionEnabled,
+              orderNotificationEnabled,
+              promotionNotificationEnabled,
+            ]
           properties:
             shipperId:
               type: string
               example: user-profile-account
+            displayName:
+              type: string
+              minLength: 1
+              maxLength: 30
+              example: 晨星货主
             phone:
               type: string
               pattern: '^1[3-9]\d{9}$'
               example: '13900139001'
+            phoneProtectionEnabled:
+              type: boolean
+              example: true
+            loginProtectionEnabled:
+              type: boolean
+              example: true
+            orderNotificationEnabled:
+              type: boolean
+              example: true
+            promotionNotificationEnabled:
+              type: boolean
+              example: false
+            privacyConfirmedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-22T08:30:00.000Z'
+            privacyPolicyVersion:
+              type: string
+              maxLength: 80
+              example: privacy-policy-v2026-07-22
+            privacyPolicyVersionTitle:
+              type: string
+              maxLength: 120
+              example: 隐私政策 v2026.07.22
+            avatarFileId:
+              type: string
+              maxLength: 120
+              example: file-avatar-1
+            avatarPublicUrl:
+              type: string
+              format: uri
+              example: https://cdn.example.com/avatar/file-avatar-1.png
     ShipperProfileAccountResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -8508,6 +9246,7 @@ components:
             - permission-matrix
             - driver-certification
             - order-management
+            - support-ticket
             - account-management
             - session-governance
             - order-attachment
@@ -8550,11 +9289,11 @@ components:
         implementedConsoleCount:
           type: integer
           minimum: 0
-          example: 11
+          example: 12
         liveMetricModuleCount:
           type: integer
           minimum: 0
-          example: 11
+          example: 12
         remainingCapabilityCount:
           type: integer
           minimum: 0
@@ -8599,6 +9338,7 @@ components:
             - account_management_manage
             - order_attachment_audit_read
             - file_maintenance_manage
+            - support_ticket_manage
             - order_exception_case_manage
             - shipper_coupon_manage
             - evaluation_audit_read
@@ -8613,6 +9353,7 @@ components:
             - permission-matrix
             - driver-certification
             - order-management
+            - support-ticket
             - session-governance
             - account-management
             - order-attachment
@@ -8630,7 +9371,7 @@ components:
           example: /api/admin/order-management-console
         summary:
           type: string
-          example: 按状态、时间和关键字检索订单列表，查看单笔详情、筛选报表、导出当前筛选 CSV，并可取消 waiting 订单。
+          example: 按状态、时间和关键字检索订单列表，查看单笔详情、筛选报表、导出当前筛选 CSV，并可单条取消或原子批量取消 waiting 订单。
         actions:
           type: array
           items:
@@ -8645,6 +9386,7 @@ components:
             type: string
           example:
             - /admin/orders
+            - /admin/orders/batch-cancel
             - /admin/orders/{orderId}/cancel
     AdminPermissionMatrixModule:
       type: object
@@ -8656,6 +9398,7 @@ components:
             - permission-matrix
             - driver-certification
             - order-management
+            - support-ticket
             - session-governance
             - account-management
             - order-attachment
@@ -8717,6 +9460,7 @@ components:
             - permission-matrix
             - driver-certification
             - order-management
+            - support-ticket
             - account-management
         capabilityKeys:
           type: array
@@ -8726,6 +9470,7 @@ components:
             - permission_matrix_read
             - order_management_manage
             - account_management_manage
+            - support_ticket_manage
             - session_governance_manage
             - finance_manage
         pendingGaps:
@@ -8752,19 +9497,19 @@ components:
         moduleCount:
           type: integer
           minimum: 0
-          example: 11
+          example: 12
         capabilityCount:
           type: integer
           minimum: 0
-          example: 11
+          example: 12
         writeCapabilityCount:
           type: integer
           minimum: 0
-          example: 8
+          example: 9
         highRiskCapabilityCount:
           type: integer
           minimum: 0
-          example: 8
+          example: 9
         profiles:
           type: array
           items:
@@ -9331,6 +10076,62 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminAuthAccountDetail'
+    BatchUpdateAdminAuthAccountStatusItem:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+    BatchUpdateAdminAuthAccountStatusRequest:
+      type: object
+      required: [items, status]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusItem'
+        status:
+          type: string
+          enum: [active, disabled]
+          example: disabled
+    BatchUpdateAdminAuthAccountStatusData:
+      type: object
+      required: [status, userIds, updatedCount, revokedSessionCount, items]
+      properties:
+        status:
+          type: string
+          enum: [active, disabled]
+          example: disabled
+        userIds:
+          type: array
+          items:
+            type: string
+          example: [driver-1, shipper-1]
+        updatedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        revokedSessionCount:
+          type: integer
+          minimum: 0
+          example: 3
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UpdateAdminAuthAccountStatusData'
+    BatchUpdateAdminAuthAccountStatusResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchUpdateAdminAuthAccountStatusData'
     UpdateAdminAuthAccountStatusRequest:
       type: object
       required: [status]
@@ -9396,6 +10197,58 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RevokeAdminAuthAccountSessionsData'
+    BatchRevokeAdminAuthAccountSessionsItem:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: driver-1
+        keepSessionId:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440112
+    BatchRevokeAdminAuthAccountSessionsRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsItem'
+    BatchRevokeAdminAuthAccountSessionsData:
+      type: object
+      required: [userIds, updatedCount, revokedCount, items]
+      properties:
+        userIds:
+          type: array
+          items:
+            type: string
+          example: [driver-1, shipper-1]
+        updatedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        revokedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevokeAdminAuthAccountSessionsData'
+    BatchRevokeAdminAuthAccountSessionsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchRevokeAdminAuthAccountSessionsData'
     AdminFinanceWriteRequest:
       type: object
       required: [expectedVersion, reason]
@@ -9409,6 +10262,38 @@ components:
           minLength: 1
           maxLength: 500
           example: 人工复核通过
+    AdminBatchReviewWithdrawalItem:
+      type: object
+      required: [withdrawalId, expectedVersion]
+      properties:
+        withdrawalId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: withdrawal-1
+        expectedVersion:
+          type: integer
+          minimum: 0
+          example: 2
+    BatchReviewAdminWithdrawalsRequest:
+      type: object
+      required: [items, action, reason]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/AdminBatchReviewWithdrawalItem'
+        action:
+          type: string
+          enum: [approve, reject]
+          example: approve
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: 财务复核后统一放款
     AdminPaymentRecord:
       allOf:
         - $ref: '#/components/schemas/PaymentOrderRecord'
@@ -9555,6 +10440,16 @@ components:
           type: string
           example: admin-1
         processedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T12:01:30.000Z'
+        payoutChannel:
+          type: string
+          example: sandbox
+        providerPayoutNo:
+          type: string
+          example: sandbox-payout-withdrawal-1
+        payoutExecutedAtIso:
           type: string
           format: date-time
           example: '2026-07-15T12:01:30.000Z'
@@ -9943,6 +10838,51 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminWithdrawalReviewResult'
+    BatchReviewedAdminWithdrawalItem:
+      type: object
+      required: [withdrawal, wallet]
+      properties:
+        withdrawal:
+          $ref: '#/components/schemas/AdminWithdrawalRecord'
+        wallet:
+          $ref: '#/components/schemas/DriverWalletRecord'
+        financialTransaction:
+          $ref: '#/components/schemas/FinancialTransactionRecord'
+    BatchReviewAdminWithdrawalsResult:
+      type: object
+      required: [kind, replayed, action, withdrawalIds, updatedCount, items]
+      properties:
+        kind:
+          type: string
+          enum: [success]
+        replayed:
+          type: boolean
+          example: false
+        action:
+          type: string
+          enum: [approve, reject]
+          example: approve
+        withdrawalIds:
+          type: array
+          items:
+            type: string
+          example: [withdrawal-1, withdrawal-2]
+        updatedCount:
+          type: integer
+          minimum: 0
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchReviewedAdminWithdrawalItem'
+    BatchReviewAdminWithdrawalsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/BatchReviewAdminWithdrawalsResult'
     ShipperSpendingSnapshot:
       type: object
       required: [shipperId, summary, items]
@@ -10616,6 +11556,143 @@ components:
               nullable: true
               allOf:
                 - $ref: '#/components/schemas/ShipperProfileFrequentRoutes'
+    ShipperSupportTicketStatus:
+      type: string
+      enum: [pending, processing, resolved]
+    ShipperSupportTicketStatusHistoryItem:
+      type: object
+      required: [actionText, timestampIso]
+      properties:
+        actionText:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 工单已提交
+        timestampIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T08:30:00.000Z'
+        fromStatus:
+          $ref: '#/components/schemas/ShipperSupportTicketStatus'
+        toStatus:
+          $ref: '#/components/schemas/ShipperSupportTicketStatus'
+        operatorUserId:
+          type: string
+          example: admin-1
+        content:
+          type: string
+          minLength: 6
+          maxLength: 500
+          example: 已联系货主核实问题，转客服受理跟进。
+    CreateShipperSupportTicketRequest:
+      type: object
+      required: [channelName, description]
+      properties:
+        channelName:
+          type: string
+          minLength: 1
+          maxLength: 30
+          example: 投诉建议
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 司机沟通不及时，希望客服协助跟进
+    UpdateShipperSupportTicketRequest:
+      type: object
+      required: [baseUpdatedAtIso, content]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T08:30:00.000Z'
+        content:
+          type: string
+          minLength: 6
+          maxLength: 500
+          example: 已联系货主核实问题，转客服受理跟进。
+    ShipperSupportTicket:
+      allOf:
+        - $ref: '#/components/schemas/CreateShipperSupportTicketRequest'
+        - type: object
+          required: [id, shipperId, status, statusHistory, createdAtIso, updatedAtIso]
+          properties:
+            id:
+              type: string
+              example: 550e8400-e29b-41d4-a716-446655440000
+            shipperId:
+              type: string
+              example: shipper-1
+            status:
+              $ref: '#/components/schemas/ShipperSupportTicketStatus'
+            statusHistory:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShipperSupportTicketStatusHistoryItem'
+            createdAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-22T08:30:00.000Z'
+            updatedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-22T08:30:00.000Z'
+    ShipperSupportTicketList:
+      type: object
+      required: [shipperId, items]
+      properties:
+        shipperId:
+          type: string
+          example: shipper-1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperSupportTicket'
+    ShipperSupportTicketResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperSupportTicket'
+    ShipperSupportTicketListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperSupportTicketList'
+    AdminSupportTicketList:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperSupportTicket'
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 20
+        total:
+          type: integer
+          minimum: 0
+          example: 12
+    AdminSupportTicketListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminSupportTicketList'
     OrderExceptionCaseStatus:
       type: string
       enum: [pending, processing, resolved, closed]

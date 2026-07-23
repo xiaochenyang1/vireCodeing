@@ -9,6 +9,7 @@ import type {
 } from './dto';
 
 const allowedPurposes = [
+  'avatar',
   'identity',
   'cargo',
   'exception',

@@ -29,6 +29,8 @@ export type InvoiceItem = (typeof invoiceRecordItems)[number];
 export type SettingItem = (typeof profileSettingItems)[number] & {
   confirmedAtText?: string;
   confirmedAtIso?: string;
+  confirmedVersionId?: string;
+  confirmedVersionTitle?: string;
 };
 
 export type VerificationFileRef = {
@@ -124,7 +126,23 @@ export type InvoiceApplicationDetails = {
 export type InvoiceRejectionReasons = Record<string, string>;
 
 export type ProfileSyncStatus = 'pending' | 'synced' | 'failed';
-export type ProfileSyncOperation = 'addressBook' | 'local';
+export type ProfileSyncOperation =
+  | 'addressBook'
+  | 'accountProfile'
+  | 'identityVerification'
+  | 'enterpriseVerification'
+  | 'invoiceApplication'
+  | 'local';
+
+export type ProfileInvoiceApplicationSyncMode = 'submit' | 'refresh';
+
+export type ProfileInvoiceApplicationSyncRequest = {
+  invoiceType: InvoiceTypeOption;
+  invoiceTitleType: InvoiceTitleOption;
+  invoiceTitle: string;
+  receiverEmail: string;
+  orderIds: string[];
+};
 
 export type ProfileSyncQueueItem = {
   id: string;
@@ -171,6 +189,8 @@ export type ProfileSyncState = {
   message: string;
   updatedAtText: string;
   updatedAtIso?: string;
+  invoiceApplicationSyncMode?: ProfileInvoiceApplicationSyncMode;
+  invoiceApplicationRequest?: ProfileInvoiceApplicationSyncRequest;
   platformUpdatedAtIso?: string;
   platformAddressIds?: string[];
   platformContactIds?: string[];
@@ -184,10 +204,20 @@ export type ProfileSyncState = {
   queueItems?: ProfileSyncQueueItem[];
 };
 
+export type ProfileSyncMutationOptions = {
+  markPendingSync?: boolean;
+  markFailed?: boolean;
+  markSynced?: boolean;
+  syncMessage?: string;
+  syncOperation?: ProfileSyncOperation;
+};
+
 export type SavedAccountSettings = {
   displayName: string;
   boundPhone: string;
   avatarPhotoCount: number;
+  avatarFileId?: string;
+  avatarPublicUrl?: string;
 };
 
 export type SavedPasswordSettings = {
@@ -278,6 +308,18 @@ function mergeSettingsWithDefaults(settings: SettingItem[]) {
     return {
       ...cloneData(defaultSetting),
       statusText: savedSetting?.statusText ?? defaultSetting.statusText,
+      ...(savedSetting?.confirmedAtText
+        ? { confirmedAtText: savedSetting.confirmedAtText }
+        : {}),
+      ...(savedSetting?.confirmedAtIso
+        ? { confirmedAtIso: savedSetting.confirmedAtIso }
+        : {}),
+      ...(savedSetting?.confirmedVersionId
+        ? { confirmedVersionId: savedSetting.confirmedVersionId }
+        : {}),
+      ...(savedSetting?.confirmedVersionTitle
+        ? { confirmedVersionTitle: savedSetting.confirmedVersionTitle }
+        : {}),
     };
   });
 }
@@ -293,7 +335,7 @@ function createDefaultProfileLocalState(): ProfileLocalState {
     invoiceDetails: {},
     invoiceRejectionReasons: {},
     invoiceType: 'normal',
-    invoiceTitle: 'enterprise',
+    invoiceTitle: 'personal',
     receiverEmail: 'finance@chenxing.example',
     selectedInvoiceOrderIds: ['invoice-order-1'],
     settings: cloneData(profileSettingItems),
@@ -307,17 +349,18 @@ function createDefaultProfileLocalState(): ProfileLocalState {
       updatedAt: '未修改',
     },
     syncState: createSyncedProfileSyncState(
-      '本地资料已初始化，等待真实账号中心 API 接入。',
+      '本地资料已初始化，等待平台资料同步。',
     ),
   };
 }
 
 export function createPendingProfileSyncState(
-  message = '个人中心资料已在本地更新，等待真实账号中心 API 接入后同步。',
+  message = '个人中心资料已在本地更新，等待平台资料同步。',
   now = Date.now(),
   operation: ProfileSyncOperation = 'local',
 ): ProfileSyncState {
   const updatedAtIso = new Date(now).toISOString();
+  const queueDescriptor = getProfileSyncQueueDescriptor(operation);
 
   return {
     status: 'pending',
@@ -327,8 +370,10 @@ export function createPendingProfileSyncState(
     updatedAtIso,
     queueItems: [
       createProfileSyncQueueItem(
+        queueDescriptor.id,
+        queueDescriptor.titleText,
         '待同步',
-        '真实账号中心 API 未接入，本地先记录待同步资料。',
+        queueDescriptor.pendingNoteText,
         updatedAtIso,
       ),
     ],
@@ -336,7 +381,7 @@ export function createPendingProfileSyncState(
 }
 
 export function createSyncedProfileSyncState(
-  message = '本地资料已记录，等待真实账号中心 API 接入。',
+  message = '本地资料已记录，等待平台资料同步。',
   now = Date.now(),
   operation: ProfileSyncOperation = 'local',
 ): ProfileSyncState {
@@ -351,11 +396,12 @@ export function createSyncedProfileSyncState(
 }
 
 export function createFailedProfileSyncState(
-  message = '个人中心资料同步失败，等待本地重试。',
+  message = '个人中心资料同步失败，已保留本地变更。',
   now = Date.now(),
   operation: ProfileSyncOperation = 'local',
 ): ProfileSyncState {
   const updatedAtIso = new Date(now).toISOString();
+  const queueDescriptor = getProfileSyncQueueDescriptor(operation);
 
   return {
     status: 'failed',
@@ -365,8 +411,10 @@ export function createFailedProfileSyncState(
     updatedAtIso,
     queueItems: [
       createProfileSyncQueueItem(
+        queueDescriptor.id,
+        queueDescriptor.titleText,
         '同步失败',
-        '真实账号中心 API 未接入，本地仅记录失败队列。',
+        queueDescriptor.failedNoteText,
         updatedAtIso,
       ),
     ],
@@ -374,18 +422,78 @@ export function createFailedProfileSyncState(
 }
 
 function createProfileSyncQueueItem(
+  id: string,
+  titleText: string,
   statusText: string,
   noteText: string,
   updatedAtIso: string,
 ): ProfileSyncQueueItem {
   return {
-    id: 'profile-local-change',
-    titleText: '个人中心资料变更',
+    id,
+    titleText,
     statusText,
     updatedAtText: '刚刚',
     updatedAtIso,
     noteText,
   };
+}
+
+function getProfileSyncQueueDescriptor(operation: ProfileSyncOperation) {
+  switch (operation) {
+    case 'addressBook':
+      return {
+        id: 'profile-address-book-change',
+        titleText: '常用地址/联系人变更',
+        pendingNoteText:
+          '常用地址/联系人已保留在本地，待平台地址簿同步完成。',
+        failedNoteText:
+          '常用地址/联系人同步未完成，已保留本地地址簿队列，请返回个人中心重试。',
+      };
+    case 'accountProfile':
+      return {
+        id: 'profile-account-profile-change',
+        titleText: '账号资料与设置',
+        pendingNoteText:
+          '账号资料与设置已保留在本地，待平台账号快照同步完成。',
+        failedNoteText:
+          '账号资料与设置同步未完成，已保留本地修改，请返回个人中心重试。',
+      };
+    case 'identityVerification':
+      return {
+        id: 'profile-identity-verification-change',
+        titleText: '实名认证资料',
+        pendingNoteText:
+          '实名认证资料已保留在本地，稍后可继续提交认证审核。',
+        failedNoteText:
+          '实名认证资料提交未完成，已保留本地资料，请返回个人中心重试。',
+      };
+    case 'enterpriseVerification':
+      return {
+        id: 'profile-enterprise-verification-change',
+        titleText: '企业认证资料',
+        pendingNoteText:
+          '企业认证资料已保留在本地，稍后可继续提交认证审核。',
+        failedNoteText:
+          '企业认证资料提交未完成，已保留本地资料，请返回个人中心重试。',
+      };
+    case 'invoiceApplication':
+      return {
+        id: 'profile-invoice-application-change',
+        titleText: '发票申请',
+        pendingNoteText:
+          '发票申请已保留在本地，稍后可继续提交平台申请。',
+        failedNoteText:
+          '发票申请同步未完成，已保留本地申请，请返回个人中心重试。',
+      };
+    default:
+      return {
+        id: 'profile-local-change',
+        titleText: '个人中心资料变更',
+        pendingNoteText: '个人中心资料已保留在本地，待平台资料同步。',
+        failedNoteText:
+          '个人中心资料同步未完成，已保留本地变更，请返回个人中心重试。',
+      };
+  }
 }
 
 function isValidSnapshot(

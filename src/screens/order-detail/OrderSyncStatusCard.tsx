@@ -2,6 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { styles } from '../../styles';
 import type { RecentOrder } from '../../types';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 
 type OrderSyncState = NonNullable<RecentOrder['syncState']>;
 
@@ -30,6 +31,18 @@ export function OrderSyncStatusCard({
       <Text style={styles.detailMeta}>
         {`同步时间：${syncState.updatedAtText}`}
       </Text>
+      {syncState.mutationContext?.baseUpdatedAtIso ? (
+        <Text style={styles.detailMeta}>
+          {`重试基线版本：${formatPlatformIsoMinute(
+            syncState.mutationContext.baseUpdatedAtIso,
+          )}`}
+        </Text>
+      ) : null}
+      {syncState.retryBlocked ? (
+        <Text style={styles.routeMeta}>
+          自动重试已停止，请根据当前同步说明确认后重新发起操作。
+        </Text>
+      ) : null}
       <Text style={styles.draftSectionTitle}>订单同步队列</Text>
       {syncQueueItems.length > 0 ? (
         syncQueueItems.map(queueItem => (

@@ -18,7 +18,10 @@ import { AdminOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { AdminFinanceService } from './admin-finance.service';
-import { parsePaymentIdempotencyKey } from './payments.validation';
+import {
+  parseBatchReviewAdminWithdrawalsRequest,
+  parsePaymentIdempotencyKey,
+} from './payments.validation';
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -126,6 +129,24 @@ export class AdminFinanceController {
   ) {
     return ok(
       await this.adminFinanceService.listWithdrawals(parseListQuery(query)),
+      getRequestId(request),
+    );
+  }
+
+  @Post('withdrawals/batch-review')
+  async batchReviewWithdrawals(
+    @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body() body: unknown,
+  ) {
+    const currentAdmin = getCurrentAdmin(request);
+    return ok(
+      await this.adminFinanceService.batchReviewWithdrawals({
+        adminId: currentAdmin.id,
+        idempotencyKey: parsePaymentIdempotencyKey(idempotencyKey),
+        requestId: getRequestId(request),
+        ...parseBatchReviewAdminWithdrawalsRequest(body),
+      }),
       getRequestId(request),
     );
   }

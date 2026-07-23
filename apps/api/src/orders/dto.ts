@@ -63,6 +63,16 @@ export type CancelShipperOrderRequest = OrderMutationConcurrencyRequest & {
   description?: string;
 };
 
+export type AdminBatchCancelOrderItem = OrderMutationConcurrencyRequest & {
+  orderId: string;
+};
+
+export type BatchCancelAdminOrdersRequest = {
+  items: AdminBatchCancelOrderItem[];
+  reasonText: string;
+  description?: string;
+};
+
 export type AdvanceShipperOrderStatusRequest =
   OrderMutationConcurrencyRequest & {
   nextStatus: Extract<ShipperOrderStatus, 'loading' | 'transporting' | 'confirming'>;
@@ -117,6 +127,7 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
   orderNo: string;
   shipperId: string;
   status: ShipperOrderStatus;
+  pickupDistanceMeters?: number;
   paymentStatus: OrderPaymentStatus;
   assignedDriverId?: string;
   paymentSettledAtIso?: string;
@@ -151,6 +162,12 @@ export type ListShipperOrdersResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type BatchCancelAdminOrdersResult = {
+  orderIds: string[];
+  updatedCount: number;
+  items: ShipperOrderRecord[];
 };
 
 export type AdminOrderReportQuery = AdminOrderFilters & {

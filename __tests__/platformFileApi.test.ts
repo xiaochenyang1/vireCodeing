@@ -397,7 +397,7 @@ describe('platform file api', () => {
 
     await expect(
       api.createUploadIntent({
-        purpose: 'avatar',
+        purpose: 'bad-purpose',
         fileName: 'cargo.jpg',
         contentType: 'image/jpeg',
         byteSize: 1024,

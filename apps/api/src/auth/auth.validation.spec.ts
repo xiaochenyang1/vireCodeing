@@ -6,6 +6,8 @@ import {
   parseAdminAuthSessionId,
   parseAdminAuthSessionGovernanceAuditListQuery,
   parseAdminAuthSessionListQuery,
+  parseBatchRevokeAdminAuthAccountSessionsRequest,
+  parseBatchUpdateAdminAuthAccountStatusRequest,
   parseAdminPasswordLoginRequest,
   parseChangePasswordRequest,
   parseLoginRequest,
@@ -13,6 +15,7 @@ import {
   parsePasswordLoginRequest,
   parseRefreshRequest,
   parseRevokeAdminAuthAccountSessionsRequest,
+  parseRevokeOtherSelfAuthSessionsRequest,
   parseRegisterRequest,
   parseRevokeOtherAdminSessionsRequest,
   parseResetPasswordRequest,
@@ -270,6 +273,16 @@ describe('auth request validation', () => {
     });
   });
 
+  it('parses a valid revoke-other-self-auth-sessions request', () => {
+    expect(
+      parseRevokeOtherSelfAuthSessionsRequest({
+        currentDeviceId: 'mobile-device-current',
+      }),
+    ).toEqual({
+      currentDeviceId: 'mobile-device-current',
+    });
+  });
+
   it('parses a valid admin auth session list query', () => {
     expect(
       parseAdminAuthSessionListQuery({
@@ -499,6 +512,18 @@ describe('auth request validation', () => {
     });
   });
 
+  it('parses a valid batch admin auth account status update request', () => {
+    expect(
+      parseBatchUpdateAdminAuthAccountStatusRequest({
+        items: [{ userId: 'driver-1' }, { userId: 'shipper-1' }],
+        status: 'disabled',
+      }),
+    ).toEqual({
+      items: [{ userId: 'driver-1' }, { userId: 'shipper-1' }],
+      status: 'disabled',
+    });
+  });
+
   it('parses a valid revoke-admin-auth-account-sessions request', () => {
     expect(
       parseRevokeAdminAuthAccountSessionsRequest({
@@ -509,6 +534,28 @@ describe('auth request validation', () => {
     });
   });
 
+  it('parses a valid batch revoke-admin-auth-account-sessions request', () => {
+    expect(
+      parseBatchRevokeAdminAuthAccountSessionsRequest({
+        items: [
+          { userId: 'driver-1' },
+          {
+            userId: 'shipper-1',
+            keepSessionId: validRefreshToken.replace('refresh.', ''),
+          },
+        ],
+      }),
+    ).toEqual({
+      items: [
+        { userId: 'driver-1' },
+        {
+          userId: 'shipper-1',
+          keepSessionId: '550e8400-e29b-41d4-a716-446655440000',
+        },
+      ],
+    });
+  });
+
   it('rejects invalid admin auth account status update requests', () => {
     expect(() =>
       parseUpdateAdminAuthAccountStatusRequest({
@@ -516,6 +563,33 @@ describe('auth request validation', () => {
       }),
     ).toThrow(
       new BusinessError(ApiErrorCode.VALIDATION_ERROR, '账号状态不支持'),
+    );
+  });
+
+  it('rejects duplicate batch admin auth account status update user ids', () => {
+    expect(() =>
+      parseBatchUpdateAdminAuthAccountStatusRequest({
+        items: [{ userId: 'driver-1' }, { userId: 'driver-1' }],
+        status: 'disabled',
+      }),
+    ).toThrow(
+      new BusinessError(
+        ApiErrorCode.VALIDATION_ERROR,
+        '批量更新账号 ID 不能重复',
+      ),
+    );
+  });
+
+  it('rejects duplicate batch admin auth account revoke user ids', () => {
+    expect(() =>
+      parseBatchRevokeAdminAuthAccountSessionsRequest({
+        items: [{ userId: 'driver-1' }, { userId: 'driver-1' }],
+      }),
+    ).toThrow(
+      new BusinessError(
+        ApiErrorCode.VALIDATION_ERROR,
+        '批量撤销会话账号 ID 不能重复',
+      ),
     );
   });
 

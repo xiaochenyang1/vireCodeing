@@ -6,10 +6,12 @@ export function SupportTopBar({
   title,
   subtitle,
   onBackHome,
+  modeBadgeText = '本地版',
 }: {
   title: string;
   subtitle: string;
   onBackHome: () => void;
+  modeBadgeText?: string;
 }) {
   return (
     <View style={styles.detailTopBar}>
@@ -25,7 +27,7 @@ export function SupportTopBar({
         <Text style={styles.detailTitle}>{title}</Text>
       </View>
       <View style={styles.draftBadge}>
-        <Text style={styles.draftBadgeText}>本地版</Text>
+        <Text style={styles.draftBadgeText}>{modeBadgeText}</Text>
       </View>
     </View>
   );

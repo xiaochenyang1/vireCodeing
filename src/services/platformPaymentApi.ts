@@ -38,6 +38,7 @@ export type PlatformPaymentRecord = {
   expiresAtIso: string;
   paidAtIso?: string;
   settledAtIso?: string;
+  refundedAtIso?: string;
   cancelledAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
@@ -54,6 +55,14 @@ export type PlatformPaymentSdk = {
     clientPayload: Record<string, unknown> | string,
   ): Promise<PlatformPaymentSdkResult>;
 };
+
+export function createSandboxPlatformPaymentSdk(): PlatformPaymentSdk {
+  return {
+    async openPayment() {
+      return { status: 'succeeded' };
+    },
+  };
+}
 
 export function createPlatformPaymentApi(config: PlatformApiConfig) {
   return {

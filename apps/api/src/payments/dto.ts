@@ -6,6 +6,7 @@ import type {
   RefundStatus,
 } from './payment-domain';
 import type { PaymentProviderChannel } from './payment-provider';
+import type { DriverWithdrawalRecord } from '../driver-orders/dto';
 
 export type ClientPaymentChannel = 'wechat' | 'alipay';
 
@@ -50,6 +51,7 @@ export type PaymentOrderRecord = {
   expiresAtIso: string;
   paidAtIso?: string;
   settledAtIso?: string;
+  refundedAtIso?: string;
   cancelledAtIso?: string;
   createdAtIso: string;
   updatedAtIso: string;
@@ -109,6 +111,16 @@ export type DriverWalletRecord = {
   updatedAtIso: string;
 };
 
+export type ReviewedDriverWithdrawalRecord = DriverWithdrawalRecord & {
+  version: number;
+  processedByAdminId?: string;
+  processedAtIso?: string;
+  financialTransactionId?: string;
+  payoutChannel?: string;
+  providerPayoutNo?: string;
+  payoutExecutedAtIso?: string;
+};
+
 export type FinancialAuditLogRecord = {
   id: string;
   actorAdminId: string;
@@ -163,4 +175,32 @@ export type FinancialOutboxEventRecord = {
   lastError?: string;
   createdAtIso: string;
   updatedAtIso: string;
+};
+
+export type AdminBatchReviewWithdrawalAction = 'approve' | 'reject';
+
+export type AdminBatchReviewWithdrawalItem = {
+  withdrawalId: string;
+  expectedVersion: number;
+};
+
+export type BatchReviewAdminWithdrawalsRequest = {
+  items: AdminBatchReviewWithdrawalItem[];
+  action: AdminBatchReviewWithdrawalAction;
+  reason: string;
+};
+
+export type BatchReviewedAdminWithdrawalItem = {
+  withdrawal: ReviewedDriverWithdrawalRecord;
+  wallet: DriverWalletRecord;
+  financialTransaction?: FinancialTransactionRecord;
+};
+
+export type BatchReviewAdminWithdrawalsResult = {
+  kind: 'success';
+  replayed: boolean;
+  action: AdminBatchReviewWithdrawalAction;
+  withdrawalIds: string[];
+  updatedCount: number;
+  items: BatchReviewedAdminWithdrawalItem[];
 };

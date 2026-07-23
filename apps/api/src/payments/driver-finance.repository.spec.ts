@@ -280,6 +280,142 @@ describe('InMemoryDriverFinanceRepository', () => {
     expect(financialStore.listFinancialTransactions()).toHaveLength(0);
     expect(financialStore.listFinancialAuditLogs()).toHaveLength(1);
   });
+
+  it('approves multiple withdrawals atomically in one batch review', async () => {
+    const financialStore = new InMemoryFinancialStore({
+      driverWallets: [
+        createWallet({
+          availableCents: 40000,
+          reservedCents: 0,
+          withdrawnCents: 0,
+          version: 0,
+        }),
+      ],
+    });
+    let idSequence = 0;
+    const repository = new InMemoryDriverFinanceRepository(financialStore, {
+      now: () => NOW,
+      createId: () => `finance-id-${++idSequence}`,
+    });
+    const firstCreated = await repository.executeIdempotentWithdrawalRequest(
+      createWithdrawalInput(),
+    );
+    const secondCreated = await repository.executeIdempotentWithdrawalRequest(
+      createWithdrawalInput({
+        idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
+        requestFingerprint: 'withdrawal-fingerprint-2',
+        amountCents: 8000,
+      }),
+    );
+    if (
+      firstCreated.kind !== 'success' ||
+      secondCreated.kind !== 'success'
+    ) {
+      throw new Error('Expected both withdrawals to be created successfully');
+    }
+
+    const input = createBatchReviewInput({
+      items: [
+        { withdrawalId: firstCreated.withdrawal.id, expectedVersion: 0 },
+        { withdrawalId: secondCreated.withdrawal.id, expectedVersion: 0 },
+      ],
+    });
+
+    const first = await repository.batchReviewWithdrawals(input);
+    const replay = await repository.batchReviewWithdrawals(input);
+
+    expect(first).toMatchObject({
+      kind: 'success',
+      replayed: false,
+      action: 'approve',
+      updatedCount: 2,
+      withdrawalIds: [firstCreated.withdrawal.id, secondCreated.withdrawal.id],
+      items: [
+        {
+          withdrawal: {
+            id: firstCreated.withdrawal.id,
+            status: 'paid',
+            financialTransactionId: 'finance-id-3',
+          },
+          financialTransaction: {
+            id: 'finance-id-3',
+            type: 'driver_withdrawal',
+          },
+        },
+        {
+          withdrawal: {
+            id: secondCreated.withdrawal.id,
+            status: 'paid',
+            financialTransactionId: 'finance-id-4',
+          },
+          financialTransaction: {
+            id: 'finance-id-4',
+            type: 'driver_withdrawal',
+          },
+        },
+      ],
+    });
+    expect(replay).toMatchObject({
+      kind: 'success',
+      replayed: true,
+      updatedCount: 2,
+      withdrawalIds: [firstCreated.withdrawal.id, secondCreated.withdrawal.id],
+    });
+    expect(financialStore.findDriverWallet('driver-1')).toMatchObject({
+      availableCents: 20000,
+      reservedCents: 0,
+      withdrawnCents: 20000,
+      version: 4,
+    });
+    expect(financialStore.listFinancialTransactions()).toHaveLength(2);
+    expect(financialStore.listFinancialAuditLogs()).toHaveLength(1);
+  });
+
+  it('keeps batch withdrawal review atomic when any target is missing', async () => {
+    const financialStore = new InMemoryFinancialStore({
+      driverWallets: [
+        createWallet({
+          availableCents: 20000,
+          reservedCents: 0,
+          withdrawnCents: 0,
+          version: 0,
+        }),
+      ],
+    });
+    const repository = new InMemoryDriverFinanceRepository(financialStore, {
+      now: () => NOW,
+      createId: () => 'finance-id-1',
+    });
+    const created = await repository.executeIdempotentWithdrawalRequest(
+      createWithdrawalInput(),
+    );
+    if (created.kind !== 'success') {
+      throw new Error('Expected withdrawal creation to succeed');
+    }
+
+    await expect(
+      repository.batchReviewWithdrawals(
+        createBatchReviewInput({
+          items: [
+            { withdrawalId: created.withdrawal.id, expectedVersion: 0 },
+            { withdrawalId: 'withdrawal-missing', expectedVersion: 0 },
+          ],
+        }),
+      ),
+    ).resolves.toEqual({ kind: 'not-found' });
+    expect(financialStore.findDriverWallet('driver-1')).toMatchObject({
+      availableCents: 8000,
+      reservedCents: 12000,
+      withdrawnCents: 0,
+      version: 1,
+    });
+    expect(created.withdrawal).toMatchObject({
+      id: 'finance-id-1',
+      status: 'reviewing',
+    });
+    expect(financialStore.listFinancialTransactions()).toHaveLength(0);
+    expect(financialStore.listFinancialAuditLogs()).toHaveLength(0);
+  });
 });
 
 describe('PrismaDriverFinanceRepository', () => {
@@ -767,6 +903,329 @@ describe('PrismaDriverFinanceRepository', () => {
     });
   });
 
+  it('approves multiple withdrawals in one atomic batch review transaction', async () => {
+    const reviewingFirst = createPrismaWithdrawal();
+    const reviewingSecond = createPrismaWithdrawal({
+      id: 'withdrawal-2',
+      driverId: 'driver-2',
+      amountCents: 8000,
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
+      requestFingerprint: 'withdrawal-fingerprint-2',
+    });
+    const paidFirst = createPrismaWithdrawal({
+      status: 'paid',
+      version: 1,
+      processedByAdminId: 'admin-1',
+      processedAt: NOW,
+      financialTransactionId: 'batch-review-id-1',
+      payoutChannel: 'sandbox',
+      providerPayoutNo: 'sandbox-payout-withdrawal-1',
+      payoutExecutedAt: NOW,
+    });
+    const paidSecond = createPrismaWithdrawal({
+      id: 'withdrawal-2',
+      driverId: 'driver-2',
+      amountCents: 8000,
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
+      requestFingerprint: 'withdrawal-fingerprint-2',
+      status: 'paid',
+      version: 1,
+      processedByAdminId: 'admin-1',
+      processedAt: NOW,
+      financialTransactionId: 'batch-review-id-2',
+      payoutChannel: 'sandbox',
+      providerPayoutNo: 'sandbox-payout-withdrawal-2',
+      payoutExecutedAt: NOW,
+    });
+    const firstWalletBefore = createPrismaWallet({
+      driverId: 'driver-1',
+      availableCents: 8000,
+      reservedCents: 12000,
+      withdrawnCents: 0,
+      version: 5,
+    });
+    const firstWalletAfter = createPrismaWallet({
+      driverId: 'driver-1',
+      availableCents: 8000,
+      reservedCents: 0,
+      withdrawnCents: 12000,
+      version: 6,
+    });
+    const secondWalletBefore = createPrismaWallet({
+      driverId: 'driver-2',
+      availableCents: 4000,
+      reservedCents: 8000,
+      withdrawnCents: 0,
+      version: 2,
+    });
+    const secondWalletAfter = createPrismaWallet({
+      driverId: 'driver-2',
+      availableCents: 4000,
+      reservedCents: 0,
+      withdrawnCents: 8000,
+      version: 3,
+    });
+    const firstTransaction = createPrismaWithdrawalTransaction({
+      id: 'batch-review-id-1',
+      transactionNo: 'FT-batch-review-id-1',
+      referenceId: 'withdrawal-1',
+    });
+    const secondTransaction = createPrismaWithdrawalTransaction({
+      id: 'batch-review-id-2',
+      transactionNo: 'FT-batch-review-id-2',
+      referenceId: 'withdrawal-2',
+      amountCents: 8000,
+      entries: [
+        {
+          id: 'entry-3',
+          transactionId: 'batch-review-id-2',
+          sequence: 1,
+          accountType: 'driver_payable',
+          accountUserId: 'driver-2',
+          direction: 'debit',
+          amountCents: 8000,
+          createdAt: NOW,
+        },
+        {
+          id: 'entry-4',
+          transactionId: 'batch-review-id-2',
+          sequence: 2,
+          accountType: 'gateway_clearing',
+          accountUserId: null,
+          direction: 'credit',
+          amountCents: 8000,
+          createdAt: NOW,
+        },
+      ],
+    });
+    const batchAuditLog = createPrismaFinancialAuditLog({
+      id: 'batch-review-id-3',
+      action: 'withdrawal.batch.approve',
+      entityType: 'driver_withdrawal_batch',
+      entityId: 'driver-withdrawal-batch-1',
+      idempotencyKey: '00000000-0000-4000-8000-000000000020',
+      requestFingerprint: 'batch-approve-fingerprint-1',
+      requestId: 'request-batch-approve-1',
+      reason: '财务复核后统一放款',
+    });
+    const transaction = {
+      driverWithdrawal: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(reviewingFirst)
+          .mockResolvedValueOnce(paidFirst)
+          .mockResolvedValueOnce(reviewingSecond)
+          .mockResolvedValueOnce(paidSecond),
+        create: jest.fn(),
+        updateMany: jest
+          .fn()
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 1 }),
+      },
+      driverWallet: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(firstWalletBefore)
+          .mockResolvedValueOnce(firstWalletAfter)
+          .mockResolvedValueOnce(secondWalletBefore)
+          .mockResolvedValueOnce(secondWalletAfter),
+        updateMany: jest
+          .fn()
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 1 }),
+      },
+      financialTransaction: {
+        findUnique: jest.fn(),
+        create: jest
+          .fn()
+          .mockResolvedValueOnce(firstTransaction)
+          .mockResolvedValueOnce(secondTransaction),
+      },
+      financialAuditLog: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(batchAuditLog),
+      },
+    };
+    let idSequence = 0;
+    const repository = new PrismaDriverFinanceRepository(
+      createPrismaFinanceClient(transaction),
+      {
+        now: () => NOW,
+        createId: () => `batch-review-id-${++idSequence}`,
+      },
+    );
+
+    await expect(
+      repository.batchReviewWithdrawals(
+        createBatchReviewInput({
+          items: [
+            { withdrawalId: 'withdrawal-1', expectedVersion: 0 },
+            { withdrawalId: 'withdrawal-2', expectedVersion: 0 },
+          ],
+        }),
+      ),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: false,
+      action: 'approve',
+      updatedCount: 2,
+      withdrawalIds: ['withdrawal-1', 'withdrawal-2'],
+      items: [
+        {
+          withdrawal: {
+            id: 'withdrawal-1',
+            status: 'paid',
+            financialTransactionId: 'batch-review-id-1',
+          },
+        },
+        {
+          withdrawal: {
+            id: 'withdrawal-2',
+            status: 'paid',
+            financialTransactionId: 'batch-review-id-2',
+          },
+        },
+      ],
+    });
+    expect(transaction.financialTransaction.create).toHaveBeenCalledTimes(2);
+    expect(transaction.financialAuditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: 'batch-review-id-3',
+        action: 'withdrawal.batch.approve',
+        entityType: 'driver_withdrawal_batch',
+        idempotencyKey: '00000000-0000-4000-8000-000000000020',
+        requestFingerprint: 'batch-approve-fingerprint-1',
+        requestId: 'request-batch-approve-1',
+        reason: '财务复核后统一放款',
+      }),
+    });
+  });
+
+  it('replays a batch withdrawal review from the audited snapshot without mutating again', async () => {
+    const batchAuditLog = createPrismaFinancialAuditLog({
+      id: 'batch-review-id-3',
+      action: 'withdrawal.batch.approve',
+      entityType: 'driver_withdrawal_batch',
+      entityId: 'driver-withdrawal-batch-1',
+      idempotencyKey: '00000000-0000-4000-8000-000000000020',
+      requestFingerprint: 'batch-approve-fingerprint-1',
+      requestId: 'request-batch-approve-1',
+      reason: '财务复核后统一放款',
+      afterState: {
+        action: 'approve',
+        items: [
+          {
+            withdrawal: {
+              id: 'withdrawal-1',
+              driverId: 'driver-1',
+              amountCents: 12000,
+              bankAccountName: '李师傅',
+              bankName: '招商银行',
+              bankAccountMasked: '**** **** **** 1234',
+              status: 'paid',
+              version: 1,
+              processedByAdminId: 'admin-1',
+              processedAtIso: NOW.toISOString(),
+              financialTransactionId: 'batch-review-id-1',
+              payoutChannel: 'sandbox',
+              providerPayoutNo: 'sandbox-payout-withdrawal-1',
+              payoutExecutedAtIso: NOW.toISOString(),
+              createdAtIso: NOW.toISOString(),
+              updatedAtIso: NOW.toISOString(),
+            },
+            wallet: {
+              driverId: 'driver-1',
+              availableCents: 8000,
+              reservedCents: 0,
+              withdrawnCents: 12000,
+              version: 6,
+              createdAtIso: NOW.toISOString(),
+              updatedAtIso: NOW.toISOString(),
+            },
+            financialTransaction: {
+              id: 'batch-review-id-1',
+              transactionNo: 'FT-batch-review-id-1',
+              type: 'driver_withdrawal',
+              referenceId: 'withdrawal-1',
+              amountCents: 12000,
+              occurredAtIso: NOW.toISOString(),
+              createdAtIso: NOW.toISOString(),
+              entries: [
+                {
+                  id: 'entry-1',
+                  transactionId: 'batch-review-id-1',
+                  sequence: 1,
+                  accountType: 'driver_payable',
+                  accountUserId: 'driver-1',
+                  direction: 'debit',
+                  amountCents: 12000,
+                  createdAtIso: NOW.toISOString(),
+                },
+                {
+                  id: 'entry-2',
+                  transactionId: 'batch-review-id-1',
+                  sequence: 2,
+                  accountType: 'gateway_clearing',
+                  direction: 'credit',
+                  amountCents: 12000,
+                  createdAtIso: NOW.toISOString(),
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    const transaction = {
+      driverWithdrawal: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      driverWallet: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      financialTransaction: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+      },
+      financialAuditLog: {
+        findUnique: jest.fn().mockResolvedValue(batchAuditLog),
+        create: jest.fn(),
+      },
+    };
+    const repository = new PrismaDriverFinanceRepository(
+      createPrismaFinanceClient(transaction),
+    );
+
+    await expect(
+      repository.batchReviewWithdrawals(createBatchReviewInput()),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: true,
+      action: 'approve',
+      updatedCount: 1,
+      withdrawalIds: ['withdrawal-1'],
+      items: [
+        {
+          withdrawal: {
+            id: 'withdrawal-1',
+            payoutChannel: 'sandbox',
+            providerPayoutNo: 'sandbox-payout-withdrawal-1',
+          },
+          financialTransaction: { id: 'batch-review-id-1' },
+        },
+      ],
+    });
+    expect(transaction.driverWithdrawal.updateMany).not.toHaveBeenCalled();
+    expect(transaction.driverWallet.updateMany).not.toHaveBeenCalled();
+    expect(transaction.financialTransaction.create).not.toHaveBeenCalled();
+    expect(transaction.financialAuditLog.create).not.toHaveBeenCalled();
+  });
+
   it('replays the audited review snapshot even when the current wallet changed later', async () => {
     const paid = createPrismaWithdrawal({
       status: 'paid',
@@ -1012,7 +1471,7 @@ function createWallet(
   };
 }
 
-function createWithdrawalInput() {
+function createWithdrawalInput(overrides: Record<string, unknown> = {}) {
   return {
     driverId: 'driver-1',
     idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
@@ -1021,6 +1480,7 @@ function createWithdrawalInput() {
     bankAccountName: '李师傅',
     bankName: '招商银行',
     bankAccountNo: '6225888800001234',
+    ...overrides,
   };
 }
 
@@ -1062,7 +1522,9 @@ function createPrismaWallet(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createPrismaWithdrawalTransaction() {
+function createPrismaWithdrawalTransaction(
+  overrides: Record<string, unknown> = {},
+) {
   return {
     id: 'review-id-1',
     transactionNo: 'FT-review-id-1',
@@ -1095,6 +1557,7 @@ function createPrismaWithdrawalTransaction() {
         createdAt: NOW,
       },
     ],
+    ...overrides,
   };
 }
 
@@ -1128,6 +1591,19 @@ function createReviewInput(overrides: Record<string, unknown> = {}) {
     requestId: 'request-approve-1',
     reason: '审核通过并付款',
     expectedVersion: 0,
+    ...overrides,
+  };
+}
+
+function createBatchReviewInput(overrides: Record<string, unknown> = {}) {
+  return {
+    adminId: 'admin-1',
+    action: 'approve' as const,
+    idempotencyKey: '00000000-0000-4000-8000-000000000020',
+    requestFingerprint: 'batch-approve-fingerprint-1',
+    requestId: 'request-batch-approve-1',
+    reason: '财务复核后统一放款',
+    items: [{ withdrawalId: 'withdrawal-1', expectedVersion: 0 }],
     ...overrides,
   };
 }

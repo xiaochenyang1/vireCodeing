@@ -131,10 +131,52 @@ export type DraftConfirmationDisplay = {
   selectedPaymentMethodLabel: string;
 };
 
+export type DraftValueAddedServiceEstimate = {
+  lineTexts: string[];
+  totalAmountText?: string;
+  noticeText: string;
+};
+
 export type DraftPreviewState = {
   isConfirming: boolean;
   notice: string;
 };
+
+export type DraftPricingCapabilityCopy = {
+  couponSectionTitle: string;
+  couponNotice: string;
+  fixedPricingEmptyCouponNotice: string;
+  negotiableCouponNotice: string;
+  paymentNotice: string;
+};
+
+export function getDraftPricingCapabilityCopy(
+  usesPlatformOrderApi: boolean,
+): DraftPricingCapabilityCopy {
+  if (usesPlatformOrderApi) {
+    return {
+      couponSectionTitle: '优惠券',
+      couponNotice:
+        '固定价发单会同步优惠券选择和实付预估，实际核销以后端订单与支付状态为准。',
+      fixedPricingEmptyCouponNotice: '暂无可用平台优惠券。',
+      negotiableCouponNotice:
+        '议价订单暂不使用优惠券，等待司机报价后再进入真实计价。',
+      paymentNotice:
+        '平台发单会同步支付方式选择；若选择在线支付，支付单会在发单后的订单页中发起。',
+    };
+  }
+
+  return {
+    couponSectionTitle: '优惠券',
+    couponNotice:
+      '本地演示会展示优惠券抵扣预估；切到平台模式后会随发单同步优惠券选择。',
+    fixedPricingEmptyCouponNotice: '暂无可用本地优惠券。',
+    negotiableCouponNotice:
+      '议价订单暂不使用优惠券，等待司机报价后再接入真实计价。',
+    paymentNotice:
+      '当前会记录支付方式选择；切到平台模式后，在线支付会在发单后的订单页中发起。',
+  };
+}
 
 export function calculateLocalCouponAdjustment(
   coupon: LocalCoupon | undefined,
@@ -596,6 +638,75 @@ export function createDraftConfirmationDisplay(
     selectedServiceLabels,
     previewPriceText,
     selectedPaymentMethodLabel,
+  };
+}
+
+export function createLocalValueAddedServiceEstimate(
+  draftState: Pick<
+    DraftOrderFormState,
+    'valueAddedServiceIds' | 'loadingWorkerCount' | 'insuredValueText'
+  >,
+): DraftValueAddedServiceEstimate | undefined {
+  if (draftState.valueAddedServiceIds.length === 0) {
+    return undefined;
+  }
+
+  const lineTexts: string[] = [];
+  const feeItems: number[] = [];
+  let hasPendingEstimate = false;
+
+  draftState.valueAddedServiceIds.forEach(serviceId => {
+    if (serviceId === 'loading') {
+      const workerCount = Math.max(1, draftState.loadingWorkerCount || 1);
+      const amountValue = workerCount * 40;
+
+      lineTexts.push(
+        `装卸协助：${formatLocalCurrency(amountValue)}（${workerCount} 人 × ￥40/人）`,
+      );
+      feeItems.push(amountValue);
+      return;
+    }
+
+    if (serviceId === 'insurance') {
+      const insuredValueText = draftState.insuredValueText?.trim() ?? '';
+
+      if (!isValidInsuredCargoValue(insuredValueText)) {
+        lineTexts.push('保价运输：待填写货值后生成预估');
+        hasPendingEstimate = true;
+        return;
+      }
+
+      const insuredValue = parseLocalAmount(insuredValueText);
+      const amountValue = Math.max(
+        Number((insuredValue * 0.003).toFixed(2)),
+        12,
+      );
+
+      lineTexts.push(
+        `保价运输：${formatLocalCurrency(amountValue)}（货值 × 0.3%，最低 ￥12）`,
+      );
+      feeItems.push(amountValue);
+      return;
+    }
+
+    if (serviceId === 'protection') {
+      lineTexts.push('防震包装：￥30（固定附加费）');
+      feeItems.push(30);
+    }
+  });
+
+  return {
+    lineTexts,
+    ...(hasPendingEstimate
+      ? {}
+      : {
+          totalAmountText: formatLocalCurrency(
+            feeItems.reduce((total, value) => total + value, 0),
+          ),
+        }),
+    noticeText: hasPendingEstimate
+      ? '补全保价货值后会生成完整附加费预估；当前不会自动叠加到一口价。'
+      : '本地参考附加费不会自动叠加到一口价，请按实际需求自行计入报价。',
   };
 }
 

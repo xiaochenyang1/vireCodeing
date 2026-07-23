@@ -1,4 +1,5 @@
 import {
+  parseBatchCancelAdminOrdersRequest,
   parseAdminOrderFilters,
   parseAdminOrderReportQuery,
   parseAdvanceShipperOrderStatusRequest,
@@ -372,6 +373,63 @@ describe('orders validation', () => {
         baseUpdatedAtIso: '2026-07-12 08:00:00',
       }),
     ).toThrow('订单版本时间无效');
+  });
+
+  it('parses admin batch cancel requests', () => {
+    expect(
+      parseBatchCancelAdminOrdersRequest({
+        items: [
+          {
+            orderId: ' order-1 ',
+            baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+          },
+          {
+            orderId: 'order-2',
+            baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+          },
+        ],
+        reasonText: ' 后台取消 ',
+        description: '  运营按筛选结果批量清理 waiting 单  ',
+      }),
+    ).toEqual({
+      items: [
+        {
+          orderId: 'order-1',
+          baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        },
+        {
+          orderId: 'order-2',
+          baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+        },
+      ],
+      reasonText: '后台取消',
+      description: '运营按筛选结果批量清理 waiting 单',
+    });
+  });
+
+  it('rejects invalid admin batch cancel requests', () => {
+    expect(() =>
+      parseBatchCancelAdminOrdersRequest({
+        items: [],
+        reasonText: '后台取消',
+      }),
+    ).toThrow('至少选择 1 笔订单');
+
+    expect(() =>
+      parseBatchCancelAdminOrdersRequest({
+        items: [
+          {
+            orderId: 'order-1',
+            baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+          },
+          {
+            orderId: ' order-1 ',
+            baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+          },
+        ],
+        reasonText: '后台取消',
+      }),
+    ).toThrow('批量取消订单 ID 不能重复');
   });
 
   it('parses an order exception report request', () => {

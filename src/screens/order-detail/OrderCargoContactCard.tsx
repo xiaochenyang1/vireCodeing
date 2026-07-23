@@ -8,6 +8,7 @@ export function OrderCargoContactCard({
   order,
   vehicleRequirementText,
   onCallContact,
+  supportsPlatformPaymentFlow = false,
 }: {
   order: RecentOrder;
   vehicleRequirementText: string;
@@ -16,8 +17,12 @@ export function OrderCargoContactCard({
     contactName?: string,
     phone?: string,
   ) => void;
+  supportsPlatformPaymentFlow?: boolean;
 }) {
-  const paymentHintText = getOnlinePaymentHintText(order);
+  const paymentHintText = getOnlinePaymentHintText(
+    order,
+    supportsPlatformPaymentFlow,
+  );
 
   return (
     <>
@@ -160,13 +165,24 @@ export function OrderCargoContactCard({
   );
 }
 
-function getOnlinePaymentHintText(order: RecentOrder) {
+function getOnlinePaymentHintText(
+  order: RecentOrder,
+  supportsPlatformPaymentFlow: boolean,
+) {
   if (order.paymentMethodText !== '在线支付') {
     return undefined;
   }
 
   if (!order.paymentStatus) {
-    return '本地演示暂不扣款，后续接入微信/支付宝。';
+    if (supportsPlatformPaymentFlow && order.platformOrderId) {
+      return '当前尚未创建支付单，可在资金状态卡选择渠道后发起支付。';
+    }
+
+    if (supportsPlatformPaymentFlow) {
+      return '当前订单还未同步到平台，在线支付需待平台订单创建后发起。';
+    }
+
+    return '当前仍是本地演示订单，切到平台模式后可在订单页继续在线支付。';
   }
 
   switch (order.paymentStatus) {

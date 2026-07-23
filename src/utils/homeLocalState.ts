@@ -66,13 +66,13 @@ function createDefaultHomeLocalState(): HomeLocalState {
     routes: cloneData(frequentRoutes),
     supportTickets: [],
     syncState: createSyncedHomeSyncState(
-      '本地常用路线已初始化，等待真实路线 API 接入。',
+      '本地常用路线已初始化，等待平台常用路线同步。',
     ),
   };
 }
 
 export function createPendingHomeSyncState(
-  message = '常用路线已在本地更新，等待真实路线 API 接入后同步。',
+  message = '常用路线已在本地更新，等待平台常用路线同步。',
   now = Date.now(),
 ): HomeSyncState {
   const updatedAtIso = new Date(now).toISOString();
@@ -85,7 +85,7 @@ export function createPendingHomeSyncState(
     queueItems: [
       createHomeSyncQueueItem(
         '待同步',
-        '真实路线 API 未接入，本地先记录待同步路线。',
+        '常用路线已保留在本地，待平台常用路线同步。',
         updatedAtIso,
       ),
     ],
@@ -93,7 +93,7 @@ export function createPendingHomeSyncState(
 }
 
 export function createSyncedHomeSyncState(
-  message = '本地常用路线已记录，等待真实路线 API 接入。',
+  message = '本地常用路线已记录，等待平台常用路线同步。',
   now = Date.now(),
 ): HomeSyncState {
   return {
@@ -119,7 +119,7 @@ export function createFailedHomeSyncState(
     queueItems: [
       createHomeSyncQueueItem(
         '同步失败',
-        '真实路线 API 未接入，本地仅记录失败队列。',
+        '常用路线同步未完成，已保留本地常用路线队列。',
         updatedAtIso,
       ),
     ],

@@ -765,6 +765,11 @@ export const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: colors.tealSoft,
   },
+  profileAvatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
   profileAvatarText: {
     color: colors.tealDark,
     fontSize: 18,

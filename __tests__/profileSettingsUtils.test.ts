@@ -4,8 +4,12 @@ import type {
   SettingItem,
 } from '../src/utils/profileLocalState';
 import {
+  createAccountAvatarStatusModel,
+  applyPlatformProfileSettingsSnapshot,
+  createAccountSecurityCheckModel,
   createConfirmedPrivacySettings,
   createLocalPermissionDeniedStatuses,
+  createPlatformProfileSettingsSnapshot,
   createUpdatedPasswordSettings,
   defaultPermissionStatuses,
   getNextSettingToggle,
@@ -15,6 +19,7 @@ import {
   getSettingDocumentState,
   isReadOnlySetting,
   localPermissionItems,
+  privacyPolicyDocumentInfo,
   validateAccountSettings,
   validatePasswordSettings,
 } from '../src/utils/profileSettings';
@@ -134,6 +139,87 @@ describe('profile settings utils', () => {
     ).toBe('');
   });
 
+  it('derives layered avatar status copy from saved and staged account snapshots', () => {
+    const savedAccount: SavedAccountSettings = {
+      displayName: '旧昵称',
+      boundPhone: '13800138000',
+      avatarPhotoCount: 0,
+    };
+
+    expect(
+      createAccountAvatarStatusModel({
+        savedAccount,
+        stagedAvatarPhotoCount: 0,
+      }),
+    ).toEqual({
+      summaryText: '头像：当前使用昵称首字占位',
+      sourceText: '来源：本地默认头像占位',
+    });
+
+    expect(
+      createAccountAvatarStatusModel({
+        savedAccount,
+        stagedAvatarPhotoCount: 1,
+      }),
+    ).toEqual({
+      summaryText: '头像凭证：本地已保存',
+      sourceText: '来源：本地图片凭证占位',
+    });
+
+    expect(
+      createAccountAvatarStatusModel({
+        savedAccount,
+        stagedAvatarPhotoCount: 1,
+        stagedAvatarFileId: 'file-avatar-1',
+        stagedAvatarPublicUrl:
+          'https://cdn.example.com/avatar/file-avatar-1.png',
+      }),
+    ).toEqual({
+      summaryText: '头像凭证：已上传待保存到平台',
+      sourceText: '来源：平台文件对象（已上传）',
+      fileIdText: '文件 ID：file-avatar-1',
+      previewText: '已生成平台公开地址。',
+    });
+
+    expect(
+      createAccountAvatarStatusModel({
+        savedAccount: {
+          ...savedAccount,
+          avatarPhotoCount: 1,
+          avatarFileId: 'file-avatar-2',
+          avatarPublicUrl:
+            'https://cdn.example.com/avatar/file-avatar-2.png',
+        },
+        stagedAvatarPhotoCount: 1,
+        stagedAvatarFileId: 'file-avatar-2',
+        stagedAvatarPublicUrl:
+          'https://cdn.example.com/avatar/file-avatar-2.png',
+      }),
+    ).toEqual({
+      summaryText: '头像：平台已同步',
+        sourceText: '来源：平台文件对象（已上传）',
+        fileIdText: '文件 ID：file-avatar-2',
+        previewText: '已生成平台公开地址。',
+      });
+
+    expect(
+      createAccountAvatarStatusModel({
+        savedAccount: {
+          ...savedAccount,
+          avatarPhotoCount: 1,
+          avatarFileId: 'file-avatar-2',
+          avatarPublicUrl:
+            'https://cdn.example.com/avatar/file-avatar-2.png',
+        },
+        stagedAvatarPhotoCount: 0,
+        stagedAvatarRemoved: true,
+      }),
+    ).toEqual({
+      summaryText: '头像：已移除待保存到平台',
+      sourceText: '来源：保存后会回退到昵称首字占位',
+    });
+  });
+
   it('creates password settings with a structured update timestamp', () => {
     const now = new Date('2026-06-30T08:30:00+08:00').getTime();
 
@@ -160,11 +246,12 @@ describe('profile settings utils', () => {
   it.each([
     ['NETWORK_ERROR', '网络连接不可用，请检查网络后重试'],
     ['AUTH_USER_DISABLED', '账号已禁用，请联系客服处理'],
+    ['VALIDATION_ERROR', '手机号已被其他账号占用'],
     ['UNKNOWN_CODE', '账号资料同步失败，请稍后重试'],
   ])('maps platform account profile error %s', (code, message) => {
     expect(
       getPlatformAccountProfileErrorMessage(
-        Object.assign(new Error('raw error'), {code}),
+        Object.assign(new Error(message), {code}),
       ),
     ).toBe(message);
   });
@@ -205,8 +292,7 @@ describe('profile settings utils', () => {
       showPrivacyPanel: true,
       showPermissionPanel: false,
       showSecurityCheckPanel: false,
-      notice:
-        '隐私政策摘要：说明位置权限、订单信息和联系方式使用范围。真实隐私协议版本留痕和后端同步仍未接入。',
+      notice: `隐私政策摘要：说明位置权限、订单信息和联系方式使用范围。当前待确认版本：${privacyPolicyDocumentInfo.versionTitle}；确认后会同步确认时间和已确认版本留痕。`,
     });
     expect(
       getSettingDocumentState('setting-permissions', appVersionInfo),
@@ -241,6 +327,8 @@ describe('profile settings utils', () => {
       statusText: '已确认',
       confirmedAtText: '刚刚',
       confirmedAtIso: new Date(now).toISOString(),
+      confirmedVersionId: privacyPolicyDocumentInfo.version,
+      confirmedVersionTitle: privacyPolicyDocumentInfo.versionTitle,
     });
     expect(
       nextSettings.find(item => item.id === 'setting-phone')?.statusText,
@@ -248,5 +336,220 @@ describe('profile settings utils', () => {
     expect(
       nextSettings.find(item => item.id === 'setting-phone'),
     ).not.toHaveProperty('confirmedAtIso');
+  });
+
+  it('creates and applies platform settings snapshots', () => {
+    const settings = cloneSettings();
+
+    expect(createPlatformProfileSettingsSnapshot(settings)).toEqual({
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: false,
+    });
+
+    const confirmedSettings = createConfirmedPrivacySettings(
+      settings,
+      Date.parse('2026-07-22T08:30:00.000Z'),
+    );
+
+    expect(createPlatformProfileSettingsSnapshot(confirmedSettings)).toEqual({
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: false,
+      privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+      privacyPolicyVersion: privacyPolicyDocumentInfo.version,
+      privacyPolicyVersionTitle: privacyPolicyDocumentInfo.versionTitle,
+    });
+
+    const syncedSettings = applyPlatformProfileSettingsSnapshot(settings, {
+      phoneProtectionEnabled: false,
+      loginProtectionEnabled: false,
+      orderNotificationEnabled: true,
+      promotionNotificationEnabled: true,
+      privacyConfirmedAtIso: '2026-07-22T08:30:00.000Z',
+      privacyPolicyVersion: privacyPolicyDocumentInfo.version,
+      privacyPolicyVersionTitle: privacyPolicyDocumentInfo.versionTitle,
+    });
+
+    expect(
+      syncedSettings.find(item => item.id === 'setting-phone')?.statusText,
+    ).toBe('已关闭');
+    expect(
+      syncedSettings.find(item => item.id === 'setting-login-protection')
+        ?.statusText,
+    ).toBe('已关闭');
+    expect(
+      syncedSettings.find(item => item.id === 'setting-promotion')?.statusText,
+    ).toBe('已开启');
+    expect(
+      syncedSettings.find(item => item.id === 'setting-privacy'),
+    ).toMatchObject({
+      statusText: '已确认',
+      confirmedAtText: '2026-07-22 08:30',
+      confirmedAtIso: '2026-07-22T08:30:00.000Z',
+      confirmedVersionId: privacyPolicyDocumentInfo.version,
+      confirmedVersionTitle: privacyPolicyDocumentInfo.versionTitle,
+    });
+
+    const unconfirmedSettings = applyPlatformProfileSettingsSnapshot(settings, {
+      phoneProtectionEnabled: true,
+      loginProtectionEnabled: true,
+      orderNotificationEnabled: false,
+      promotionNotificationEnabled: false,
+    });
+
+    expect(
+      unconfirmedSettings.find(item => item.id === 'setting-notification')
+        ?.statusText,
+    ).toBe('已关闭');
+    expect(
+      unconfirmedSettings.find(item => item.id === 'setting-privacy')
+        ?.statusText,
+    ).toBe('未确认');
+  });
+
+  it('creates a local account security check summary from the current session snapshot', () => {
+    const now = Date.parse('2026-07-22T08:30:00.000Z');
+    const securityCheck = createAccountSecurityCheckModel({
+      settings: cloneSettings(),
+      password: {
+        savedPassword: 'abc123',
+        updatedAt: '刚刚',
+        updatedAtIso: '2026-07-22T08:20:00.000Z',
+      },
+      authSession: {
+        issuedAt: Date.parse('2026-07-22T08:00:00.000Z'),
+        expiresAt: Date.parse('2026-07-29T08:00:00.000Z'),
+      },
+      now,
+    });
+
+    expect(securityCheck).toMatchObject({
+      statusText: '检查通过',
+      currentDeviceText: '本机演示设备（本地会话）',
+      deviceSummaryText: '仅检测到当前设备会话，本地未发现其他设备快照。',
+      sessionModeText: '本地演示会话',
+      sessionStatusText: '有效',
+      sessionIssuedAtText: '2026-07-22 08:00',
+      sessionExpiresAtText: '2026-07-29 08:00',
+      loginProtectionStatusText: '已开启',
+      phoneProtectionStatusText: '已开启',
+      passwordUpdatedAtText: '刚刚',
+      privacyConfirmationText: '未确认',
+      riskSummaryText: '当前未发现待处理风险',
+      riskItems: [],
+    });
+  });
+
+  it('reports expired sessions and disabled protection switches in account security checks', () => {
+    const now = Date.parse('2026-07-22T08:30:00.000Z');
+    const settings = cloneSettings().map(item => {
+      if (
+        item.id === 'setting-login-protection' ||
+        item.id === 'setting-phone'
+      ) {
+        return {
+          ...item,
+          statusText: '已关闭',
+        };
+      }
+
+      return item;
+    });
+    const securityCheck = createAccountSecurityCheckModel({
+      settings,
+      password: {
+        savedPassword: 'abc123',
+        updatedAt: '未修改',
+      },
+      authSession: {
+        issuedAt: Date.parse('2026-07-22T07:00:00.000Z'),
+        expiresAt: Date.parse('2026-07-22T08:00:00.000Z'),
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      },
+      now,
+    });
+
+    expect(securityCheck.statusText).toBe('需处理');
+    expect(securityCheck.currentDeviceText).toBe('本机演示设备（平台会话）');
+    expect(securityCheck.sessionModeText).toBe('平台登录会话');
+    expect(securityCheck.sessionStatusText).toBe('已过期');
+    expect(securityCheck.riskSummaryText).toBe('发现 3 项待处理风险');
+    expect(securityCheck.riskItems).toEqual([
+      '当前登录会话已过期，敏感操作需要重新登录。',
+      '异地登录保护已关闭，本地无法拦截异常设备登录。',
+      '手机号保护已关闭，联系信息脱敏保护未开启。',
+    ]);
+  });
+
+  it('summarizes platform device sessions and other-device risk items in account security checks', () => {
+    const now = Date.parse('2026-07-22T08:30:00.000Z');
+    const securityCheck = createAccountSecurityCheckModel({
+      settings: cloneSettings(),
+      password: {
+        savedPassword: 'abc123',
+        updatedAt: '刚刚',
+      },
+      authSession: {
+        issuedAt: Date.parse('2026-07-22T08:00:00.000Z'),
+        expiresAt: Date.parse('2026-07-22T08:45:00.000Z'),
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        deviceId: 'mobile-device-current',
+      },
+      deviceSessions: [
+        {
+          id: 'session-current',
+          deviceId: 'mobile-device-current',
+          createdAtIso: '2026-07-22T08:00:00.000Z',
+          expiresAtIso: '2026-07-29T08:00:00.000Z',
+          isCurrentDevice: true,
+        },
+        {
+          id: 'session-laptop',
+          deviceId: 'mobile-device-laptop',
+          createdAtIso: '2026-07-21T08:00:00.000Z',
+          expiresAtIso: '2026-07-28T08:00:00.000Z',
+          isCurrentDevice: false,
+        },
+      ],
+      now,
+    });
+
+    expect(securityCheck).toMatchObject({
+      statusText: '需处理',
+      currentDeviceText: '当前安装设备（已匹配平台会话）',
+      deviceSummaryText:
+        '平台共检测到 2 个活跃会话，当前设备 1 个，其它设备 1 个。',
+      sessionSourceText: '已同步平台 2 条活跃刷新会话',
+      sessionModeText: '平台刷新会话',
+      sessionStatusText: '有效',
+      sessionIssuedAtText: '2026-07-22 08:00',
+      sessionExpiresAtText: '2026-07-29 08:00',
+      currentDeviceSessionCount: 1,
+      otherDeviceSessionCount: 1,
+    });
+    expect(securityCheck.riskItems).toEqual([
+      '检测到 1 台其它设备保持登录，如非本人请立即退出其它设备。',
+    ]);
+    expect(securityCheck.deviceSessions).toEqual([
+      {
+        id: 'session-current',
+        deviceIdText: 'mobile-device-current',
+        createdAtText: '2026-07-22 08:00',
+        expiresAtText: '2026-07-29 08:00',
+        isCurrentDevice: true,
+      },
+      {
+        id: 'session-laptop',
+        deviceIdText: 'mobile-device-laptop',
+        createdAtText: '2026-07-21 08:00',
+        expiresAtText: '2026-07-28 08:00',
+        isCurrentDevice: false,
+      },
+    ]);
   });
 });

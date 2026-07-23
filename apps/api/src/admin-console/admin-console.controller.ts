@@ -27,6 +27,7 @@ import { renderOrderExceptionCaseAdminConsole } from './order-exception-case-adm
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
 import { renderShipperCouponAdminConsole } from './shipper-coupon-admin-console';
+import { renderSupportTicketAdminConsole } from './support-ticket-admin-console';
 
 @Controller('admin')
 export class AdminConsoleController {
@@ -133,6 +134,12 @@ export class AdminConsoleController {
   @Header('content-type', 'text/html; charset=utf-8')
   getOrderExceptionCaseConsole() {
     return renderOrderExceptionCaseAdminConsole();
+  }
+
+  @Get('support-ticket-console')
+  @Header('content-type', 'text/html; charset=utf-8')
+  getSupportTicketConsole() {
+    return renderSupportTicketAdminConsole();
   }
 
   @Get('evaluation-audit-console')

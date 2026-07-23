@@ -5,6 +5,7 @@ import { AuthField } from '../../components/AuthField';
 import { SectionHeader } from '../../components/SectionHeader';
 import { styles } from '../../styles';
 import type { FrequentRoute } from '../../types';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import {
   createSyncedHomeSyncState,
   type HomeSyncState,
@@ -244,7 +245,7 @@ function RouteSyncStatusCard({
 }) {
   const effectiveSyncState =
     syncState ??
-    createSyncedHomeSyncState('本地常用路线已初始化，等待真实路线 API 接入。');
+    createSyncedHomeSyncState('本地常用路线已初始化，等待平台常用路线同步。');
   const canRetry =
     effectiveSyncState.status === 'pending' ||
     effectiveSyncState.status === 'failed';
@@ -277,6 +278,13 @@ function RouteSyncStatusCard({
       <Text style={styles.routeMeta}>
         {`同步时间：${effectiveSyncState.updatedAtText}`}
       </Text>
+      {effectiveSyncState.platformUpdatedAtIso ? (
+        <Text style={styles.detailMeta}>
+          {`服务端路线版本：${formatPlatformIsoMinute(
+            effectiveSyncState.platformUpdatedAtIso,
+          )}`}
+        </Text>
+      ) : null}
       {effectiveSyncState.conflictSummaryText ? (
         <Text style={styles.detailMeta}>
           {effectiveSyncState.conflictSummaryText}

@@ -23,6 +23,8 @@ import type {
   AdminAuthSessionGovernanceAuditListQuery,
   AdminAuthSessionListQuery,
   AdminPasswordLoginRequest,
+  BatchRevokeAdminAuthAccountSessionsRequest,
+  BatchUpdateAdminAuthAccountStatusRequest,
   ChangePasswordRequest,
   LoginRequest,
   LogoutRequest,
@@ -30,6 +32,7 @@ import type {
   RefreshRequest,
   RevokeAdminAuthAccountSessionsRequest,
   RevokeOtherAdminSessionsRequest,
+  RevokeOtherSelfAuthSessionsRequest,
   RegisterRequest,
   ResetPasswordRequest,
   SendCodeRequest,
@@ -41,12 +44,16 @@ import {
   adminPasswordLoginSchema,
   adminAuthSessionGovernanceAuditListQuerySchema,
   adminAuthSessionListQuerySchema,
+  batchRevokeAdminAuthAccountSessionsSchema,
+  batchUpdateAdminAuthAccountStatusSchema,
   parseChangePasswordRequest,
   parseAdminAuthAccountId,
   parseAdminAuthAccountListQuery,
   parseAdminAuthAccountReportQuery,
   parseAdminAuthSessionGovernanceAuditListQuery,
   parseAdminAuthSessionListQuery,
+  parseBatchRevokeAdminAuthAccountSessionsRequest,
+  parseBatchUpdateAdminAuthAccountStatusRequest,
   parseAdminPasswordLoginRequest,
   parseAdminAuthSessionId,
   parseLoginRequest,
@@ -55,6 +62,7 @@ import {
   parseRefreshRequest,
   parseRevokeAdminAuthAccountSessionsRequest,
   parseRevokeOtherAdminSessionsRequest,
+  parseRevokeOtherSelfAuthSessionsRequest,
   parseRegisterRequest,
   parseResetPasswordRequest,
   parseSendCodeRequest,
@@ -65,6 +73,7 @@ import {
   registerSchema,
   revokeAdminAuthAccountSessionsSchema,
   revokeOtherAdminSessionsSchema,
+  revokeOtherSelfAuthSessionsSchema,
   resetPasswordSchema,
   sendCodeSchema,
   tokenSessionSchema,
@@ -191,6 +200,45 @@ export class AuthController {
     );
   }
 
+  @Get('auth/sessions')
+  @UseGuards(AccessTokenGuard)
+  async getCurrentUserAuthSessions(@Req() request: AuthenticatedRequest) {
+    if (!request.currentUser) {
+      throw new BusinessError(
+        ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+        '访问令牌无效',
+      );
+    }
+
+    return ok(
+      await this.authService.listSelfAuthSessions(request.currentUser.id),
+      getRequestId(request),
+    );
+  }
+
+  @Post('auth/sessions/revoke-other-sessions')
+  @UseGuards(AccessTokenGuard)
+  async revokeOtherCurrentUserAuthSessions(
+    @Body(new ZodValidationPipe(revokeOtherSelfAuthSessionsSchema))
+    body: RevokeOtherSelfAuthSessionsRequest,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    if (!request.currentUser) {
+      throw new BusinessError(
+        ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+        '访问令牌无效',
+      );
+    }
+
+    return ok(
+      await this.authService.revokeOtherSelfAuthSessions(
+        request.currentUser.id,
+        parseRevokeOtherSelfAuthSessionsRequest(body).currentDeviceId,
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Get('admin/auth/sessions')
   @UseGuards(AccessTokenGuard, AdminOnlyGuard)
   async getAdminAuthSessions(
@@ -303,6 +351,52 @@ export class AuthController {
 
     return this.authService.exportAdminAuthAccountsCsv(
       parseAdminAuthAccountListQuery(query),
+    );
+  }
+
+  @Post('admin/auth/accounts/batch-status')
+  @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+  async batchUpdateAdminAuthAccountStatus(
+    @Body(new ZodValidationPipe(batchUpdateAdminAuthAccountStatusSchema))
+    body: BatchUpdateAdminAuthAccountStatusRequest,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    if (!request.currentUser) {
+      throw new BusinessError(
+        ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+        '访问令牌无效',
+      );
+    }
+
+    return ok(
+      await this.authService.batchUpdateAdminAuthAccountStatus(
+        request.currentUser.id,
+        parseBatchUpdateAdminAuthAccountStatusRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('admin/auth/accounts/batch-revoke-sessions')
+  @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+  async batchRevokeAdminAuthAccountSessions(
+    @Body(new ZodValidationPipe(batchRevokeAdminAuthAccountSessionsSchema))
+    body: BatchRevokeAdminAuthAccountSessionsRequest,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    if (!request.currentUser) {
+      throw new BusinessError(
+        ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+        '访问令牌无效',
+      );
+    }
+
+    return ok(
+      await this.authService.batchRevokeAdminAuthAccountSessions(
+        request.currentUser.id,
+        parseBatchRevokeAdminAuthAccountSessionsRequest(body),
+      ),
+      getRequestId(request),
     );
   }
 

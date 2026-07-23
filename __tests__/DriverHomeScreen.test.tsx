@@ -142,6 +142,24 @@ function createMockDriverCertificationApi() {
   };
 }
 
+function createMockDriverMapsApi() {
+  return {
+    reportDriverLocation: jest.fn().mockResolvedValue({
+      driverId: 'driver-1',
+      latitude: 22.6,
+      longitude: 113.9,
+      source: 'sandbox' as const,
+      recordedAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+    }),
+    getDriverNavigationTargets: jest.fn().mockResolvedValue({
+      orderId: 'order-1',
+      orderNo: 'HY202607090001',
+      targets: [],
+    }),
+  };
+}
+
 function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
   return renderer.root
     .findAllByType(Text)
@@ -209,11 +227,85 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('车型匹配：中型货车、厢式货车');
   });
 
+  it('reports a sandbox hall location and refreshes nearby orders from the driver hall', async () => {
+    const hallOrder = {
+      id: 'order-hall-1',
+      orderNo: 'HY202607090001',
+      status: 'waiting' as const,
+      pickupDistanceMeters: 1200,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall
+      .mockResolvedValueOnce(createDriverOrdersPage())
+      .mockResolvedValueOnce({
+        items: [hallOrder],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      });
+    const platformMapsApi = createMockDriverMapsApi();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root.findByProps({ testID: 'driver-report-hall-location' }).props
+        .onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.reportDriverLocation).toHaveBeenCalledWith({
+      latitude: 22.6,
+      longitude: 113.9,
+      accuracyMeters: 25,
+      source: 'sandbox',
+    });
+    expect(platformDriverOrderApi.listOrderHall).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain(
+      '已上报 sandbox 大厅位置，接单范围已按最新位置刷新。',
+    );
+    expect(getRenderedText(renderer)).toContain('装货点距离：约 1.2 公里');
+  });
+
   it('blocks quoting when saved acceptance settings are offline', async () => {
     const hallOrder = {
       id: 'order-1',
       orderNo: 'HY202607090001',
       status: 'waiting' as const,
+      pickupDistanceMeters: 12800,
       pickupAddress: '宝安区福永物流园',
       deliveryAddress: '龙岗区坂田仓',
       cargoType: 'build',
@@ -273,6 +365,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(platformDriverOrderApi.quoteOrder).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain('装货点距离：约 12.8 公里');
     expect(getRenderedText(renderer)).toContain(
       '当前处于离线接单，请先打开接单开关。',
     );

@@ -6,11 +6,13 @@ import { styles } from '../../styles';
 
 export function CancellationForm({
   onSubmit,
+  usesPlatformCancellation = false,
 }: {
   onSubmit: (cancellation: {
     reasonText: string;
     description: string;
   }) => void;
+  usesPlatformCancellation?: boolean;
 }) {
   const cancelReasonOptions = [
     { id: 'plan-change', label: '计划有变' },
@@ -39,6 +41,11 @@ export function CancellationForm({
   return (
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>取消原因</Text>
+      <Text style={styles.detailMeta}>
+        {usesPlatformCancellation
+          ? '当前订单已接平台取消接口；提交后会同步平台订单状态，违约金和退款仍待客服确认。'
+          : '当前为本地取消演示；提交后只记录本地取消原因、违约提示和客服审核状态。'}
+      </Text>
       <View style={styles.draftChoiceGrid}>
         {cancelReasonOptions.map(option => {
           const active = option.id === selectedReason.id;

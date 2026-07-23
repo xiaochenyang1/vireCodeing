@@ -12,6 +12,7 @@ export function MessageCenterScreen({
   messages,
   unreadCount,
   noticeText,
+  modeBadgeText = '本地版',
   onBackHome,
   onMarkMessageRead,
   onMarkAllMessagesRead,
@@ -20,6 +21,7 @@ export function MessageCenterScreen({
   messages: MessageCenterItem[];
   unreadCount: number;
   noticeText?: string;
+  modeBadgeText?: string;
   onBackHome: () => void;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
@@ -38,6 +40,7 @@ export function MessageCenterScreen({
         title="消息中心"
         subtitle="订单、系统、客服与财务通知"
         onBackHome={onBackHome}
+        modeBadgeText={modeBadgeText}
       />
 
       <View style={styles.detailCard}>

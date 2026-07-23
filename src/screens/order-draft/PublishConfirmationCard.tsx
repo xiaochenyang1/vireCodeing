@@ -1,6 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { styles } from '../../styles';
+import type { DraftValueAddedServiceEstimate } from '../../utils/orderDraft';
 
 type CouponAdjustmentSummary = {
   couponTitleText: string;
@@ -21,6 +22,7 @@ export function PublishConfirmationCard({
   deliveryNoteText,
   expectedDeliveryTimeText,
   selectedServiceLabels,
+  serviceEstimate,
   previewPriceText,
   couponAdjustment,
   selectedPaymentMethodLabel,
@@ -41,6 +43,7 @@ export function PublishConfirmationCard({
   deliveryNoteText: string;
   expectedDeliveryTimeText: string;
   selectedServiceLabels: string[];
+  serviceEstimate?: DraftValueAddedServiceEstimate;
   previewPriceText: string;
   couponAdjustment?: CouponAdjustmentSummary;
   selectedPaymentMethodLabel: string;
@@ -87,6 +90,14 @@ export function PublishConfirmationCard({
         <Text style={styles.draftNotice}>
           增值服务：{selectedServiceLabels.join('、')}
         </Text>
+      ) : null}
+      {serviceEstimate?.totalAmountText ? (
+        <Text style={styles.draftNotice}>
+          {`增值服务参考附加费：${serviceEstimate.totalAmountText}`}
+        </Text>
+      ) : null}
+      {serviceEstimate ? (
+        <Text style={styles.routeMeta}>{serviceEstimate.noticeText}</Text>
       ) : null}
       <Text style={styles.draftNotice}>价格：{previewPriceText}</Text>
       {couponAdjustment ? (

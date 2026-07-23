@@ -1,56 +1,30 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useState } from 'react';
 
 import { styles } from '../styles';
-
-type LocalNetworkRetryQueueItem = {
-  id: string;
-  titleText: string;
-  statusText: string;
-  updatedAtText: string;
-  noteText: string;
-};
-
-function createPendingNetworkRetryQueue(): LocalNetworkRetryQueueItem[] {
-  return [
-    {
-      id: 'network-order-create',
-      titleText: '订单发布请求',
-      statusText: '待重试',
-      updatedAtText: '刚刚',
-      noteText: '真实 API 请求未接入，本地只展示待重试队列。',
-    },
-    {
-      id: 'network-profile-sync',
-      titleText: '资料同步请求',
-      statusText: '待重试',
-      updatedAtText: '刚刚',
-      noteText: '真实 API 请求未接入，本地只展示待重试队列。',
-    },
-  ];
-}
+import {
+  getNetworkRetryQueueSummary,
+  type NetworkRetryQueueItem,
+} from '../utils/networkRetryQueue';
 
 export function NetworkErrorScreen({
+  retryQueueItems,
   onBack,
+  onMarkRetryQueueFailed,
   onRetry,
 }: {
+  retryQueueItems: NetworkRetryQueueItem[];
   onBack: () => void;
+  onMarkRetryQueueFailed?: () => void;
   onRetry: () => void;
 }) {
-  const [retryQueueItems, setRetryQueueItems] = useState(
-    createPendingNetworkRetryQueue,
-  );
-
-  const markRetryQueueFailed = () => {
-    setRetryQueueItems(currentItems =>
-      currentItems.map(item => ({
-        ...item,
-        statusText: '重试失败',
-        updatedAtText: '刚刚',
-        noteText: '真实 API 请求未接入，本地仅记录失败状态。',
-      })),
-    );
-  };
+  const canMarkRetryQueueFailed =
+    Boolean(onMarkRetryQueueFailed) &&
+    retryQueueItems.some(queueItem => queueItem.syncStatus === 'pending');
+  const retryQueueSummary = getNetworkRetryQueueSummary(retryQueueItems);
+  const hasRetryQueueItems = retryQueueSummary.totalCount > 0;
+  const retrySuggestionText = hasRetryQueueItems
+    ? '检查系统网络后会先自动重试发单草稿和订单待同步队列；常用路线和个人中心仍需返回原页面继续处理。'
+    : '检查系统网络后可返回首页继续处理业务。';
 
   return (
     <ScrollView
@@ -67,13 +41,22 @@ export function NetworkErrorScreen({
           <Text style={styles.draftBackText}>返回首页</Text>
         </Pressable>
         <View style={styles.draftTitleGroup}>
-          <Text style={styles.pageKicker}>本地网络状态演练</Text>
-          <Text style={styles.pageTitle}>网络异常</Text>
+          <Text style={styles.pageKicker}>
+            {hasRetryQueueItems ? '同步队列详情' : '本地网络状态演练'}
+          </Text>
+          <Text style={styles.pageTitle}>
+            {hasRetryQueueItems ? '待处理同步' : '网络异常'}
+          </Text>
         </View>
       </View>
 
       <View style={styles.detailCard}>
-        <Text style={styles.draftSectionTitle}>当前无法连接服务</Text>
+        <Text style={styles.draftSectionTitle}>
+          {hasRetryQueueItems ? '当前存在待处理同步队列' : '当前无法连接服务'}
+        </Text>
+        {hasRetryQueueItems ? (
+          <Text style={styles.detailMeta}>{retryQueueSummary.summaryText}</Text>
+        ) : null}
         <Text style={styles.detailMeta}>
           订单、草稿、消息和个人中心仍可读取本地缓存。
         </Text>
@@ -81,37 +64,57 @@ export function NetworkErrorScreen({
           新发布、修改、资料变更等操作会继续显示本地同步边界。
         </Text>
         <Text style={styles.detailMeta}>
-          真实网络监听和真实 API 重试队列仍未接入。
+          待处理同步队列会按最近更新时间汇总展示。
         </Text>
+        <Text style={styles.detailMeta}>
+          重新检测会自动重试发单草稿和订单的待同步项。
+        </Text>
+        <Text style={styles.detailMeta}>
+          常用路线和个人中心资料仍需返回原页面继续处理。
+        </Text>
+        {hasRetryQueueItems ? (
+          <Text style={styles.detailMeta}>
+            已失败队列不会自动转为成功，仍需进入对应页面处理。
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.detailCard}>
-        <Text style={styles.draftSectionTitle}>本地 API 重试队列</Text>
-        {retryQueueItems.map(queueItem => (
-          <View key={queueItem.id} style={styles.driverInfoCard}>
-            <Text style={styles.detailMeta}>
-              {`${queueItem.titleText}：${queueItem.statusText}`}
+        <Text style={styles.draftSectionTitle}>待处理同步队列</Text>
+        {retryQueueItems.length > 0 ? (
+          retryQueueItems.map(queueItem => (
+            <View key={queueItem.id} style={styles.driverInfoCard}>
+              <Text style={styles.detailMeta}>
+                {`${queueItem.titleText}：${queueItem.statusText}`}
+              </Text>
+              <Text style={styles.detailMeta}>
+                {`队列时间：${queueItem.updatedAtText}`}
+              </Text>
+              <Text style={styles.detailMeta}>
+                {`当前说明：${queueItem.messageText}`}
+              </Text>
+              <Text style={styles.detailMeta}>{queueItem.noteText}</Text>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.detailMeta}>当前没有待处理同步队列。</Text>
+        )}
+        {canMarkRetryQueueFailed ? (
+          <Pressable
+            testID="network-retry-mark-failed"
+            style={styles.detailSecondaryButton}
+            onPress={onMarkRetryQueueFailed}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              将待同步项标记为失败
             </Text>
-            <Text style={styles.detailMeta}>
-              {`队列时间：${queueItem.updatedAtText}`}
-            </Text>
-            <Text style={styles.detailMeta}>{queueItem.noteText}</Text>
-          </View>
-        ))}
-        <Pressable
-          testID="network-retry-mark-failed"
-          style={styles.detailSecondaryButton}
-          onPress={markRetryQueueFailed}
-        >
-          <Text style={styles.detailSecondaryButtonText}>本地标记重试失败</Text>
-        </Pressable>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.detailCard}>
         <Text style={styles.draftSectionTitle}>建议处理</Text>
-        <Text style={styles.routeMeta}>
-          检查系统网络后可重新检测；本地演示版只恢复页面状态，不发起真实请求。
-        </Text>
+        <Text style={styles.routeMeta}>{retrySuggestionText}</Text>
         <Pressable
           testID="network-error-retry"
           style={({ pressed }) => [

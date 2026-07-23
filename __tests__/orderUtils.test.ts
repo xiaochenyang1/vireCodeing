@@ -168,6 +168,36 @@ test('preserves create context in every order sync state when provided', () => {
   ).toMatchObject({ createContext });
 });
 
+test('uses platform-neutral default copy for order sync states', () => {
+  const now = new Date('2026-07-23T08:30:00.000Z').getTime();
+  const updatedAtIso = new Date(now).toISOString();
+
+  expect(createPendingOrderSyncState(undefined, 'create', now)).toMatchObject({
+    message: '订单已在本地更新，等待平台订单同步。',
+    queueItems: [
+      {
+        noteText: '订单已保留在本地，待平台订单同步。',
+        updatedAtIso,
+      },
+    ],
+  });
+
+  expect(createSyncedOrderSyncState(undefined, 'create', now)).toMatchObject({
+    message: '本地订单已记录，等待平台订单同步。',
+    queueItems: [],
+  });
+
+  expect(createFailedOrderSyncState(undefined, 'create', now)).toMatchObject({
+    message: '订单同步失败，等待本地重试。',
+    queueItems: [
+      {
+        noteText: '订单同步未完成，已保留本地订单队列。',
+        updatedAtIso,
+      },
+    ],
+  });
+});
+
 test('preserves a blocked create retry decision in failed sync state', () => {
   const options = {
     createContext: {

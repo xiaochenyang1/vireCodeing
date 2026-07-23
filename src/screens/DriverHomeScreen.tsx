@@ -90,6 +90,7 @@ import {
   getDriverExecutionReceiptFileIds,
   getDriverOrderActionFailureNotice,
   getDriverReceiptUploadButtonText,
+  getDriverOrderPickupDistanceText,
   getDriverStatusText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
@@ -141,6 +142,11 @@ type DriverExecutionReceiptAttachmentState = Record<
     confirmingReceiptFiles: DriverUploadedFileRef[];
   }
 >;
+const sandboxDriverLocation = {
+  latitude: 22.6,
+  longitude: 113.9,
+  accuracyMeters: 25,
+};
 
 function getDriverCertificationFileStatusText(
   status: PlatformFileUploadRecord['status'],
@@ -399,17 +405,19 @@ export function DriverHomeScreen({
     if (!platformDriverOrderApi) {
       setOrderHallOrders([]);
       setNotice('司机订单大厅等待平台 API 配置。');
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverOrderApi
+    return platformDriverOrderApi
       .listOrderHall({ page: 1, pageSize: 20 })
       .then(result => {
         setOrderHallOrders(result.items);
         setNotice(createDriverOrderHallNotice(result.items, settingsOverride));
+        return true;
       })
       .catch(() => {
         setNotice('司机订单大厅刷新失败，请稍后重试。');
+        return false;
       });
   };
 
@@ -883,6 +891,35 @@ export function DriverHomeScreen({
     });
   };
 
+  const reportDriverHallSandboxLocation = () => {
+    if (!platformMapsApi) {
+      setNotice('上报大厅位置需要平台 API 配置。');
+      return;
+    }
+
+    platformMapsApi
+      .reportDriverLocation({
+        ...sandboxDriverLocation,
+        source: 'sandbox',
+      })
+      .then(async () => {
+        const refreshed = await refreshOrderHall(acceptanceSettings);
+
+        setNotice(
+          refreshed
+            ? '已上报 sandbox 大厅位置，接单范围已按最新位置刷新。'
+            : '已上报 sandbox 大厅位置，但订单大厅刷新失败，请手动刷新。',
+        );
+      })
+      .catch(error => {
+        setNotice(
+          error instanceof PlatformApiError
+            ? error.message || '大厅位置上报失败。'
+            : '大厅位置上报失败。',
+        );
+      });
+  };
+
   const reportSandboxDriverLocation = () => {
     if (!platformMapsApi || !selectedOrder) {
       setNotice('上报位置需要平台 API 配置。');
@@ -890,15 +927,15 @@ export function DriverHomeScreen({
     }
 
     const pickup = navigationTargets.find(item => item.type === 'pickup');
-    const latitude = pickup?.latitude ?? 22.6;
-    const longitude = pickup?.longitude ?? 113.9;
+    const latitude = pickup?.latitude ?? sandboxDriverLocation.latitude;
+    const longitude = pickup?.longitude ?? sandboxDriverLocation.longitude;
     platformMapsApi
       .reportDriverLocation({
         latitude,
         longitude,
         orderId: selectedOrder.id,
         source: 'sandbox',
-        accuracyMeters: 25,
+        accuracyMeters: sandboxDriverLocation.accuracyMeters,
       })
       .then(() => {
         setNotice('已上报 sandbox 司机位置。');
@@ -1725,8 +1762,19 @@ export function DriverHomeScreen({
           }
         />
         <Text style={styles.detailMeta}>
-          当前先保存范围设置，待地图坐标接入后用于附近单过滤。
+          当前接单范围已接入最近上报位置和订单装货点坐标；未上报位置时先按车型过滤。
         </Text>
+        {platformMapsApi ? (
+          <Pressable
+            testID="driver-report-hall-location"
+            style={styles.detailSecondaryButton}
+            onPress={reportDriverHallSandboxLocation}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              上报 sandbox 大厅位置
+            </Text>
+          </Pressable>
+        ) : null}
         {vehicleRequirementOptions.map(option => {
           const selected = acceptanceSettingsForm.vehicleTypePreferences.includes(
             option.id,
@@ -2243,6 +2291,11 @@ export function DriverHomeScreen({
             <Text style={styles.detailMeta}>
               {order.orderNo} · {order.cargoType} · {order.weightText}
             </Text>
+            {getDriverOrderPickupDistanceText(order) ? (
+              <Text style={styles.detailMeta}>
+                {`装货点距离：${getDriverOrderPickupDistanceText(order)}`}
+              </Text>
+            ) : null}
             {latestExceptionCaseHeadline ? (
               <View style={styles.orderExceptionSummary}>
                 <Text
