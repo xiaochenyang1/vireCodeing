@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { AdminConsoleModule } from './admin-console/admin-console.module';
 import { AuthModule } from './auth/auth.module';
 import { DriverCertificationModule } from './driver-certification/driver-certification.module';
@@ -21,9 +22,53 @@ import { ProfileSpendingModule } from './profile-spending/profile-spending.modul
 import { ProfileVerificationModule } from './profile-verification/profile-verification.module';
 import { PaymentsModule } from './payments/payments.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
+import { parseEnv } from './config/env';
+
+const createThrottlerOptions = (): ThrottlerModuleOptions => {
+  const env = parseEnv(process.env);
+
+  if (env.NODE_ENV === 'production') {
+    return [
+      {
+        name: 'short',
+        ttl: 1000,
+        limit: 20,
+      },
+      {
+        name: 'medium',
+        ttl: 10000,
+        limit: 100,
+      },
+      {
+        name: 'long',
+        ttl: 60000,
+        limit: 300,
+      },
+    ];
+  }
+
+  return [
+    {
+      name: 'short',
+      ttl: 1000,
+      limit: 100,
+    },
+    {
+      name: 'medium',
+      ttl: 10000,
+      limit: 500,
+    },
+    {
+      name: 'long',
+      ttl: 60000,
+      limit: 1000,
+    },
+  ];
+};
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot(createThrottlerOptions),
     AdminConsoleModule,
     AuthModule,
     DriverCertificationModule,
