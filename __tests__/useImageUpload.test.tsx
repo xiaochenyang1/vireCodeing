@@ -1,35 +1,38 @@
-/// <reference lib="dom" />
-
 import { act } from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
 import { useImageUpload } from '../src/hooks/useImageUpload';
 
-type MockFileApi = ReturnType<typeof createMockFileApi>;
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: jest.fn(),
+  MediaTypeOptions: {
+    Images: 'images',
+  },
+}));
+
+import { launchImageLibraryAsync } from 'expo-image-picker';
 
 function createMockFileApi() {
-  const mockCreateUploadIntent = jest.fn((request: {
-    purpose: string;
-    fileName: string;
-    contentType: string;
-    byteSize: number;
-  }) => {
-    const id = `file-${Math.random().toString(36).slice(2, 8)}`;
-    return Promise.resolve({
-      id,
-      ownerUserId: 'driver-1',
-      purpose: request.purpose as 'identity',
-      objectKey: `uploads/${id}`,
-      publicUrl: undefined,
-      status: 'pending' as const,
-      createdAtIso: new Date().toISOString(),
-      uploadUrl: `http://localhost:3000/files/uploads/${id}`,
-      expiresAtIso: new Date(Date.now() + 3600000).toISOString(),
-    });
-  });
-
   return {
-    createUploadIntent: mockCreateUploadIntent,
+    createUploadIntent: jest.fn((request: {
+      purpose: string;
+      fileName: string;
+      contentType: string;
+      byteSize: number;
+    }) => {
+      const id = `file-${Math.random().toString(36).slice(2, 8)}`;
+      return Promise.resolve({
+        id,
+        ownerUserId: 'driver-1',
+        purpose: request.purpose as 'identity',
+        objectKey: `uploads/${id}`,
+        publicUrl: undefined,
+        status: 'pending' as const,
+        createdAtIso: new Date().toISOString(),
+        uploadUrl: `http://localhost:3000/files/uploads/${id}`,
+        expiresAtIso: new Date(Date.now() + 3600000).toISOString(),
+      });
+    }),
     confirmUploaded: jest.fn((fileId: string) => {
       return Promise.resolve({
         id: fileId,
@@ -46,6 +49,8 @@ function createMockFileApi() {
     getPreviewMetadata: jest.fn(),
   };
 }
+
+type MockFileApi = ReturnType<typeof createMockFileApi>;
 
 describe('useImageUpload', () => {
   const mockFileApi = createMockFileApi();
@@ -69,7 +74,7 @@ describe('useImageUpload', () => {
   });
 
   afterEach(() => {
-    delete (window as unknown as Record<string, unknown>).prompt;
+    (launchImageLibraryAsync as jest.Mock).mockClear();
   });
 
   it('starts in idle state with no file', async () => {
@@ -87,6 +92,11 @@ describe('useImageUpload', () => {
   });
 
   it('reports error when platform API is not configured', async () => {
+    (launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///tmp/test.jpg', fileName: 'test.jpg', fileSize: 1024 }],
+    });
+
     let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
 
     await act(async () => {
@@ -94,10 +104,6 @@ describe('useImageUpload', () => {
         <CaptureHook api={undefined} />,
       );
     });
-
-    (window as unknown as Record<string, unknown>).prompt = jest.fn(
-      () => 'file:///tmp/test-image.jpg',
-    );
 
     await act(async () => {
       capturedHookState?.pickAndUpload();
@@ -107,9 +113,15 @@ describe('useImageUpload', () => {
       '文件上传需要平台 API 配置。',
     );
     expect(capturedHookState?.state.file).toBeUndefined();
+    expect(launchImageLibraryAsync).not.toHaveBeenCalled();
   });
 
   it('does nothing when user cancels the picker', async () => {
+    (launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: true,
+      assets: [],
+    });
+
     let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
 
     await act(async () => {
@@ -118,20 +130,26 @@ describe('useImageUpload', () => {
       );
     });
 
-    (window as unknown as Record<string, unknown>).prompt = jest.fn(() => null);
-
     await act(async () => {
       capturedHookState?.pickAndUpload();
     });
 
+    expect(launchImageLibraryAsync).toHaveBeenCalled();
     expect(mockFileApi.createUploadIntent).not.toHaveBeenCalled();
     expect(capturedHookState?.state.isUploading).toBe(false);
   });
 
-  it('calls createUploadIntent when a file is picked', async () => {
-    (window as unknown as Record<string, unknown>).prompt = jest.fn(
-      () => 'file:///tmp/test-image.jpg',
-    );
+  it('calls createUploadIntent when an image is picked', async () => {
+    (launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: 'file:///tmp/test-image.jpg',
+          fileName: 'test-image.jpg',
+          fileSize: 2048,
+        },
+      ],
+    });
 
     let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
 
@@ -145,14 +163,26 @@ describe('useImageUpload', () => {
       capturedHookState?.pickAndUpload();
     });
 
-    expect(mockFileApi.createUploadIntent).toHaveBeenCalledWith(options);
+    expect(launchImageLibraryAsync).toHaveBeenCalledWith({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    expect(mockFileApi.createUploadIntent).toHaveBeenCalled();
     expect(capturedHookState?.state.isUploading).toBe(true);
   });
 
   it('clears the uploaded file on clear()', async () => {
-    (window as unknown as Record<string, unknown>).prompt = jest.fn(
-      () => 'file:///tmp/test-image.jpg',
-    );
+    (launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: 'file:///tmp/test-image.jpg',
+          fileName: 'test-image.jpg',
+          fileSize: 2048,
+        },
+      ],
+    });
 
     let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
 
@@ -167,5 +197,26 @@ describe('useImageUpload', () => {
     expect(capturedHookState?.state.file).toBeUndefined();
     expect(capturedHookState?.state.error).toBeUndefined();
     expect(capturedHookState?.state.isUploading).toBe(false);
+  });
+
+  it('reports error when image picker fails', async () => {
+    (launchImageLibraryAsync as jest.Mock).mockRejectedValue(
+      new Error('Permission denied'),
+    );
+
+    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+
+    await act(async () => {
+      renderer = ReactTestRenderer.create(
+        <CaptureHook api={mockFileApi} />,
+      );
+    });
+
+    await act(async () => {
+      capturedHookState?.pickAndUpload();
+    });
+
+    expect(capturedHookState?.state.error).toBe('Permission denied');
+    expect(capturedHookState?.state.file).toBeUndefined();
   });
 });

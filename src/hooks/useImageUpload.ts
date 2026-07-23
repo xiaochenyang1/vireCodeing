@@ -1,5 +1,10 @@
 import { useCallback, useState } from 'react';
 
+import {
+  launchImageLibraryAsync,
+  type MediaType,
+} from 'expo-image-picker';
+
 import type {
   PlatformFileUploadConfirmationApi,
   PlatformFileUploadRecord,
@@ -7,8 +12,6 @@ import type {
 } from '../services/platformFileApi';
 import type { createPlatformFileApi } from '../services/platformFileApi';
 import { confirmPlatformFileUploadIntent } from '../services/platformFileApi';
-
-declare const window: { prompt?: (message: string) => string | null };
 
 export type FileUploadFieldFile = PlatformFileUploadRecord;
 
@@ -33,13 +36,6 @@ export type UseImageUploadResult = {
 
 type FullFileApi = ReturnType<typeof createPlatformFileApi>;
 
-/**
- * Hook that encapsulates the file upload flow:
- * 1. Let caller pick a file (via platform file picker or prompt)
- * 2. Create upload intent
- * 3. Upload binary to uploadUrl
- * 4. Confirm upload with platform
- */
 export function useImageUpload(
   platformFileApi: FullFileApi | undefined,
   options: FileUploadFieldOptions,
@@ -63,23 +59,39 @@ export function useImageUpload(
       return;
     }
 
-    // Delegate file picking to the caller via a simple prompt.
-    // In production, replace this with expo-image-picker or react-native-image-picker.
-    const fileUri = window.prompt?.(
-      `请输入要上传的图片 URI（模拟选择文件）：\n${options.fileName}`,
-    );
+    let result;
+    try {
+      result = await launchImageLibraryAsync({
+        mediaTypes: ['images'] as [MediaType],
+        quality: 0.8,
+        allowsEditing: false,
+      });
+    } catch (error) {
+      setState({
+        isUploading: false,
+        error: error instanceof Error ? error.message : '打开图片选择器失败。',
+        file: undefined,
+      });
+      return;
+    }
 
-    if (!fileUri || fileUri.trim() === '') {
+    if (result.canceled || !result.assets?.length) {
+      return;
+    }
+
+    const asset = result.assets[0];
+    const fileUri = asset.uri;
+    if (!fileUri) {
       return;
     }
 
     setState({ isUploading: true, error: undefined, file: undefined });
 
     try {
-      // Derive file info from the URI.
-      const fileName = options.fileName;
-      const contentType = options.contentType ?? guessContentType(fileUri);
-      const byteSize = await estimateByteSize(fileUri);
+      const fileName =
+        asset.fileName ?? options.fileName ?? `upload-${Date.now()}.jpg`;
+      const contentType = guessContentType(fileUri);
+      const byteSize = asset.fileSize ?? 2048;
 
       const intent = await platformFileApi.createUploadIntent({
         purpose: options.purpose as PlatformFileUploadIntent['purpose'],
@@ -88,10 +100,8 @@ export function useImageUpload(
         byteSize,
       });
 
-      // Upload the binary to the platform-provided upload URL.
       await uploadToUrl(intent.uploadUrl, fileUri, contentType);
 
-      // Confirm with platform.
       const confirmed = await confirmPlatformFileUploadIntent(
         platformFileApi,
         intent,
@@ -126,20 +136,11 @@ function guessContentType(uri: string): string {
   return 'image/jpeg';
 }
 
-async function estimateByteSize(_uri: string): Promise<number> {
-  // In a real implementation, use react-native-fs or expo-file-system.
-  // For now return a safe default that passes validation (< 10 MB).
-  return 2048;
-}
-
 async function uploadToUrl(
   uploadUrl: string,
   _fileUri: string,
   contentType: string,
 ): Promise<void> {
-  // In production, use XMLHttpRequest or fetch with the file blob.
-  // For sandbox/local testing this is a no-op because the platform
-  // accepts the confirmation without a real upload.
   if (typeof fetch !== 'undefined') {
     try {
       const response = await fetch(uploadUrl, {

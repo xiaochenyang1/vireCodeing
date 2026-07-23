@@ -69,7 +69,7 @@ describe('MapPicker', () => {
 
     // Wait for debounce (400ms) + resolve
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise<void>(resolve => setTimeout(resolve, 600));
     });
 
     const resultButton = renderer?.root.findByProps({
@@ -109,7 +109,7 @@ describe('MapPicker', () => {
 
     // Wait longer than debounce
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise<void>(resolve => setTimeout(resolve, 600));
     });
 
     // Verify no results shown (the search should not have triggered)
@@ -144,7 +144,7 @@ describe('MapPicker', () => {
     });
 
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 600));
+      await new Promise<void>(resolve => setTimeout(resolve, 600));
     });
 
     expect(
