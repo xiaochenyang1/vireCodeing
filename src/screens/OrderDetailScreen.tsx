@@ -1,4 +1,4 @@
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Clipboard, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
 import { showUnavailable } from '../components/SectionHeader';
@@ -760,7 +760,19 @@ export function OrderDetailScreen({
         </Pressable>
         <View style={styles.detailTitleGroup}>
           <Text style={styles.draftKicker}>订单详情</Text>
-          <Text style={styles.detailTitle}>{order.id}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={styles.detailTitle}>{order.id}</Text>
+            <Pressable
+              testID="order-detail-copy-order-no"
+              style={styles.detailSecondaryButton}
+              onPress={() => {
+                Clipboard.setString(order.id);
+                setLocalNotice('订单号已复制到剪贴板。');
+              }}
+            >
+              <Text style={styles.detailSecondaryButtonText}>复制</Text>
+            </Pressable>
+          </View>
         </View>
         <View style={styles.draftBadge}>
           <Text style={styles.draftBadgeText}>{status.label}</Text>
