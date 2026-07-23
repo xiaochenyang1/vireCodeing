@@ -2884,6 +2884,45 @@ export function DriverHomeScreen({
         })}
       </View>
 
+      <View style={styles.detailCard}>
+        <Text testID="driver-completed-orders-title" style={styles.detailRoute}>
+          已完成订单
+        </Text>
+        <Text style={styles.detailMeta}>
+          展示已送达并确认完成的订单
+        </Text>
+        {myOrders.filter(order => order.status === 'completed').length === 0 ? (
+          <Text style={styles.detailMeta}>暂无已完成订单。</Text>
+        ) : (
+          myOrders
+            .filter(order => order.status === 'completed')
+            .map(order => (
+              <View
+                key={order.id}
+                testID={`driver-completed-order-card-${order.orderNo}`}
+                style={styles.detailInlineGroup}
+              >
+                <Text style={styles.detailRoute}>
+                  {order.pickupAddress} → {order.deliveryAddress}
+                </Text>
+                <Text style={styles.detailMeta}>
+                  {order.orderNo} · {getDriverStatusText(order.status)}
+                </Text>
+                <Text style={styles.detailMeta}>
+                  货物：{order.cargoType} · {order.weightText}
+                </Text>
+                <Pressable
+                  testID={`driver-open-completed-order-${order.orderNo}`}
+                  style={styles.detailSecondaryButton}
+                  onPress={() => openOrderDetail(order)}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
+                </Pressable>
+              </View>
+            ))
+        )}
+      </View>
+
       {selectedOrder ? (
         <View
           testID={`driver-order-detail-${selectedOrder.orderNo}`}
