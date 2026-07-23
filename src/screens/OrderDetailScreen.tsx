@@ -1,11 +1,11 @@
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
 import { showUnavailable } from '../components/SectionHeader';
 import {
   recentOrderStatusCopy,
 } from '../data/mockData';
-import { styles, colors } from '../styles';
+import { styles } from '../styles';
 import { BonusForm } from './order-detail/BonusForm';
 import { CancellationForm } from './order-detail/CancellationForm';
 import { ChangeRequestForm } from './order-detail/ChangeRequestForm';
@@ -782,11 +782,6 @@ export function OrderDetailScreen({
         ) : null}
       </View>
 
-      <View style={styles.detailCard}>
-        <Text style={styles.draftSectionTitle}>订单进度</Text>
-        <OrderProgressTimeline status={order.status} />
-      </View>
-
       {syncState ? (
         <OrderSyncStatusCard
           syncState={syncState}
@@ -1083,170 +1078,3 @@ function getPaymentFailureNotice(error: unknown) {
   }
   return '支付请求失败，请稍后重试。';
 }
-
-const ORDER_PROGRESS_STEPS = [
-  { status: 'waiting', label: '待接单', description: '等待司机接单' },
-  { status: 'loading', label: '待装货', description: '前往装货点' },
-  { status: 'transporting', label: '运输中', description: '货物运输中' },
-  { status: 'confirming', label: '待确认', description: '等待货主确认' },
-  { status: 'completed', label: '已完成', description: '订单已完成' },
-] as const;
-
-function OrderProgressTimeline({
-  status,
-}: {
-  status: RecentOrder['status'];
-}) {
-  const currentIndex = ORDER_PROGRESS_STEPS.findIndex(
-    step => step.status === status,
-  );
-
-  return (
-    <View>
-      {ORDER_PROGRESS_STEPS.map((step, index) => {
-        const isActive = index === currentIndex;
-        const isPast = index < currentIndex;
-        const isCancelled = status === 'cancelled';
-
-        return (
-          <View
-            key={step.status}
-            style={[
-              progressTimelineStyles.stepRow,
-              isCancelled && index >= currentIndex && progressTimelineStyles.stepRowInactive,
-            ]}
-          >
-            <View style={progressTimelineStyles.stepColumn}>
-              <View
-                style={[
-                  progressTimelineStyles.stepDot,
-                  isPast && progressTimelineStyles.stepDotPast,
-                  isActive && !isCancelled && progressTimelineStyles.stepDotActive,
-                  isCancelled && progressTimelineStyles.stepDotCancelled,
-                ]}
-              >
-                {isPast ? (
-                  <Text style={progressTimelineStyles.stepCheck}>✓</Text>
-                ) : (
-                  <Text
-                    style={[
-                      progressTimelineStyles.stepNumber,
-                      isActive && progressTimelineStyles.stepNumberActive,
-                    ]}
-                  >
-                    {index + 1}
-                  </Text>
-                )}
-              </View>
-              {index < ORDER_PROGRESS_STEPS.length - 1 ? (
-                <View
-                  style={[
-                    progressTimelineStyles.stepLine,
-                    isPast && progressTimelineStyles.stepLinePast,
-                  ]}
-                />
-              ) : null}
-            </View>
-            <View style={progressTimelineStyles.stepContent}>
-              <Text
-                style={[
-                  progressTimelineStyles.stepLabel,
-                  isActive && progressTimelineStyles.stepLabelActive,
-                  isCancelled && index > currentIndex && progressTimelineStyles.stepLabelInactive,
-                ]}
-              >
-                {step.label}
-              </Text>
-              <Text
-                style={[
-                  progressTimelineStyles.stepDescription,
-                  isCancelled && index > currentIndex && progressTimelineStyles.stepDescriptionInactive,
-                ]}
-              >
-                {step.description}
-              </Text>
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const progressTimelineStyles = StyleSheet.create({
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  stepRowInactive: {
-    opacity: 0.5,
-  },
-  stepColumn: {
-    alignItems: 'center',
-    width: 32,
-  },
-  stepDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#E0E0E0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stepDotPast: {
-    backgroundColor: colors.teal,
-  },
-  stepDotActive: {
-    backgroundColor: colors.tealDark,
-  },
-  stepDotCancelled: {
-    backgroundColor: '#BDBDBD',
-  },
-  stepCheck: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  stepNumber: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  stepNumberActive: {
-    color: '#FFF',
-  },
-  stepLine: {
-    width: 2,
-    flex: 1,
-    backgroundColor: '#E0E0E0',
-    minHeight: 24,
-  },
-  stepLinePast: {
-    backgroundColor: colors.teal,
-  },
-  stepContent: {
-    flex: 1,
-    paddingBottom: 16,
-    marginLeft: 8,
-  },
-  stepLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  stepLabelActive: {
-    color: colors.tealDark,
-    fontWeight: '800',
-  },
-  stepLabelInactive: {
-    color: colors.textMuted,
-  },
-  stepDescription: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  stepDescriptionInactive: {
-    color: '#BDBDBD',
-  },
-});
