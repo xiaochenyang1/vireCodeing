@@ -139,6 +139,7 @@ model User {
   driverIdentityCertification DriverIdentityCertification? @relation("DriverIdentityCertification")
   driverVehicleCertification  DriverVehicleCertification?  @relation("DriverVehicleCertification")
   driverAcceptanceSettings    DriverAcceptanceSettings?
+  driverProfile               DriverProfile?
   driverWithdrawals           DriverWithdrawal[]            @relation("DriverWithdrawals")
   processedDriverWithdrawals  DriverWithdrawal[]            @relation("DriverWithdrawalProcessor")
   driverBankCards             DriverBankCard[]              @relation("DriverBankCards")
@@ -226,6 +227,7 @@ model FileObject {
   createdAt   DateTime   @default(now())
   owner        User       @relation(fields: [ownerUserId], references: [id])
   shipperProfileAvatar ShipperProfile? @relation("ShipperProfileAvatar")
+  driverProfileAvatar  DriverProfile?     @relation("DriverProfileAvatar")
 }
 
 model ShipperProfile {
@@ -674,6 +676,23 @@ model DriverAcceptanceSettings {
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   driver                  User     @relation(fields: [driverId], references: [id])
+}
+
+model DriverProfile {
+  driverId                 String   @id
+  displayName              String
+  avatarFileId             String?  @unique
+  phoneProtectionEnabled   Boolean  @default(true)
+  loginProtectionEnabled   Boolean  @default(true)
+  orderNotificationEnabled Boolean  @default(true)
+  promotionNotificationEnabled Boolean @default(false)
+  privacyConfirmedAt       DateTime?
+  privacyPolicyVersion     String?
+  privacyPolicyVersionTitle String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  driver                   User      @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  avatarFile               FileObject? @relation("DriverProfileAvatar", fields: [avatarFileId], references: [id], onDelete: SetNull)
 }
 
 enum DriverWithdrawalStatus {

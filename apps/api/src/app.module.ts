@@ -13,6 +13,7 @@ import { OrdersModule } from './orders/orders.module';
 import { ProfileAccountModule } from './profile-account/profile-account.module';
 import { ProfileAddressBookModule } from './profile-address-book/profile-address-book.module';
 import { ProfileCouponsModule } from './profile-coupons/profile-coupons.module';
+import { ProfileDriverModule } from './profile-driver/profile-driver.module';
 import { ProfileEvaluationsModule } from './profile-evaluations/profile-evaluations.module';
 import { ProfileFrequentRoutesModule } from './profile-frequent-routes/profile-frequent-routes.module';
 import { ProfileInvoicesModule } from './profile-invoices/profile-invoices.module';
@@ -37,6 +38,7 @@ import { SupportTicketsModule } from './support-tickets/support-tickets.module';
     ProfileAccountModule,
     ProfileAddressBookModule,
     ProfileCouponsModule,
+    ProfileDriverModule,
     ProfileEvaluationsModule,
     ProfileFrequentRoutesModule,
     ProfileInvoicesModule,
