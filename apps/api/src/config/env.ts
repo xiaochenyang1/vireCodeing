@@ -69,10 +69,14 @@ const envSchema = z.object({
   ALIPAY_SELLER_ID: z.string().min(1).optional(),
   ALIPAY_MERCHANT_PRIVATE_KEY_PEM: z.string().min(1).optional(),
   ALIPAY_PUBLIC_KEY_PEM: z.string().min(1).optional(),
-  SMS_PROVIDER: z.enum(['webhook']).optional(),
+  SMS_PROVIDER: z.enum(['development', 'mock', 'webhook']).optional(),
   SMS_WEBHOOK_URL: z.string().url().optional(),
   SMS_WEBHOOK_TOKEN: z.string().optional(),
   SMS_WEBHOOK_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  SMS_WEBHOOK_RETRY_COUNT: z.coerce.number().int().nonnegative().optional(),
+  SMS_WEBHOOK_RETRY_BASE_DELAY_MS: z.coerce.number().int().positive().optional(),
+  SMS_MOCK_DELAY_MS: z.coerce.number().int().positive().optional(),
+  SMS_MOCK_FAILURE_RATE: z.coerce.number().min(0).max(1).optional(),
   FILE_PREVIEW_URL_BASE: z.string().url().optional(),
   FILE_PREVIEW_EXPIRES_IN_SECONDS: z.coerce
     .number()
@@ -270,34 +274,42 @@ function validateProductionSmsConfig(env: ApiEnv): void {
     throw new Error('Production SMS provider is required');
   }
 
-  if (
-    env.SMS_PROVIDER === 'webhook' &&
-    !env.SMS_WEBHOOK_URL?.startsWith('https://')
-  ) {
-    throw new Error('Production SMS webhook URL must use https://');
+  if (env.SMS_PROVIDER === 'mock') {
+    throw new Error('SMS_PROVIDER=mock is not allowed in production');
   }
 
-  if (
-    env.SMS_PROVIDER === 'webhook' &&
-    (env.SMS_WEBHOOK_TOKEN?.length ?? 0) < 16
-  ) {
-    throw new Error(
-      'Production SMS webhook token must be at least 16 characters',
-    );
+  if (env.SMS_PROVIDER === 'webhook') {
+    if (!env.SMS_WEBHOOK_URL?.startsWith('https://')) {
+      throw new Error('Production SMS webhook URL must use https://');
+    }
+
+    if ((env.SMS_WEBHOOK_TOKEN?.length ?? 0) < 16) {
+      throw new Error(
+        'Production SMS webhook token must be at least 16 characters',
+      );
+    }
   }
 }
 
 function validateWebhookSmsConfig(env: ApiEnv): void {
-  if (env.SMS_PROVIDER !== 'webhook') {
-    return;
+  if (env.SMS_PROVIDER === 'webhook') {
+    if (!env.SMS_WEBHOOK_URL) {
+      throw new Error(
+        'SMS_WEBHOOK_URL is required when SMS_PROVIDER=webhook',
+      );
+    }
+
+    if (!env.SMS_WEBHOOK_TOKEN) {
+      throw new Error(
+        'SMS_WEBHOOK_TOKEN is required when SMS_PROVIDER=webhook',
+      );
+    }
   }
 
-  if (!env.SMS_WEBHOOK_URL) {
-    throw new Error('SMS_WEBHOOK_URL is required when SMS_PROVIDER=webhook');
-  }
-
-  if (!env.SMS_WEBHOOK_TOKEN) {
-    throw new Error('SMS_WEBHOOK_TOKEN is required when SMS_PROVIDER=webhook');
+  if (env.SMS_PROVIDER === 'mock') {
+    if (env.NODE_ENV === 'production') {
+      throw new Error('SMS_PROVIDER=mock is not allowed in production');
+    }
   }
 }
 
