@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../auth/dto';
 import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import { ApiTags } from '@nestjs/swagger';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
   CreateShipperSupportTicketRequest,
@@ -34,6 +35,7 @@ import {
 
 @Controller('shipper/support-tickets')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiTags('客服工单 (Support Tickets)')
 export class SupportTicketsController {
   constructor(private readonly supportTicketsService: SupportTicketsService) {}
 
@@ -65,6 +67,7 @@ export class SupportTicketsController {
 
 @Controller('admin/support-tickets')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiTags('客服工单 (Support Tickets)')
 export class AdminSupportTicketsController {
   constructor(private readonly supportTicketsService: SupportTicketsService) {}
 

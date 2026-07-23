@@ -4,6 +4,8 @@ import { AppModule } from './app.module';
 import { BusinessErrorFilter } from './common/business-error.filter';
 import { ZodValidationPipe } from './common/zod-validation.pipe';
 import { z } from 'zod';
+import { createSwaggerDocument } from './swagger-setup';
+import { SwaggerModule } from '@nestjs/swagger';
 import { parseEnv } from './config/env';
 
 type ApiApplication = {
@@ -14,14 +16,12 @@ type ApiApplication = {
   listen(port: number): Promise<unknown> | unknown;
 };
 
-type ApiNestFactory = {
-  create(
-    module: typeof AppModule,
-    options?: { rawBody: boolean },
-  ): Promise<ApiApplication>;
-};
-
 const globalBodySchema = z.object({}).passthrough();
+
+type BootstrapApiOptions = {
+  env?: NodeJS.ProcessEnv;
+  nestFactory?: typeof NestFactory;
+};
 
 export async function bootstrapApi({
   env = process.env,
@@ -39,6 +39,22 @@ export async function bootstrapApi({
   app.setGlobalPrefix('api');
   app.useGlobalFilters(new BusinessErrorFilter());
   app.useGlobalPipes(new ZodValidationPipe(globalBodySchema));
+
+  if (apiEnv.NODE_ENV !== 'production') {
+    const document = createSwaggerDocument(app, {
+      NODE_ENV: apiEnv.NODE_ENV,
+      PORT: apiEnv.PORT,
+    });
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        filter: true,
+      },
+    });
+    console.log(`Swagger docs available at http://localhost:${apiEnv.PORT}/docs`);
+  }
+
   await app.listen(apiEnv.PORT);
 }
 

@@ -8,6 +8,7 @@ import {
   UseGuards,
   Body,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -27,6 +28,8 @@ import {
 
 @Controller('me/messages')
 @UseGuards(AccessTokenGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('消息通知 (Notifications)')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 

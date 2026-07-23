@@ -12,6 +12,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
   AccessTokenGuard,
   type AuthenticatedRequest,
 } from '../auth/access-token.guard';
@@ -65,10 +71,12 @@ import {
 
 @Controller()
 @UseGuards(AccessTokenGuard, DriverOnlyGuard)
+@ApiTags('司机订单 (Driver Orders)')
 export class DriverOrdersController {
   constructor(private readonly driverOrdersService: DriverOrdersService) {}
 
   @Get('driver/order-hall')
+  @ApiOperation({ summary: '订单大厅', description: '司机查看可接的货运订单列表，支持按距离、车型、价格筛选' })
   async listOrderHall(
     @Req() request: AuthenticatedRequest,
     @Query(new ZodValidationPipe(driverOrderHallQuerySchema)) query: unknown,
@@ -108,6 +116,7 @@ export class DriverOrdersController {
   }
 
   @Get('driver/income')
+  @ApiOperation({ summary: '收入概览', description: '获取司机的收入概览（今日/本周/本月/总收入，订单数量统计）' })
   async getIncomeOverview(@Req() request: AuthenticatedRequest) {
     return ok(
       await this.driverOrdersService.getIncomeOverview(getCurrentDriver(request)),
@@ -130,6 +139,7 @@ export class DriverOrdersController {
   }
 
   @Post('driver/withdrawals')
+  @ApiOperation({ summary: '申请提现', description: '司机申请提现到绑定银行卡，支持幂等性' })
   async createWithdrawal(
     @Req() request: AuthenticatedRequest,
     @Headers('idempotency-key') idempotencyKey: unknown,
@@ -155,6 +165,7 @@ export class DriverOrdersController {
   }
 
   @Post('driver/bank-cards')
+  @ApiOperation({ summary: '添加银行卡', description: '司机添加用于收款的银行卡' })
   async createBankCard(
     @Req() request: AuthenticatedRequest,
     @Body(new ZodValidationPipe(createDriverBankCardSchema))
@@ -200,6 +211,7 @@ export class DriverOrdersController {
   }
 
   @Post('driver/orders/:orderId/quote')
+  @ApiOperation({ summary: '司机报价', description: '司机对订单进行报价，支持议价模式' })
   async quoteOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -217,6 +229,7 @@ export class DriverOrdersController {
   }
 
   @Post('driver/orders/:orderId/accept')
+  @ApiOperation({ summary: '接单', description: '司机接受订单，需要完成实名认证和车辆认证，支持幂等性' })
   async acceptOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,

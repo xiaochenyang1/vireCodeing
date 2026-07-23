@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -17,6 +18,7 @@ import {
 
 @Controller('shipper/order-draft')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiTags('订单草稿 (Order Drafts)')
 export class OrderDraftsController {
   constructor(private readonly orderDraftsService: OrderDraftsService) {}
 

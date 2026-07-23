@@ -8,6 +8,7 @@ import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ProfileEvaluationsService } from './profile-evaluations.service';
 import {
   adminEvaluationAuditListQuerySchema,
@@ -16,6 +17,8 @@ import {
 
 @Controller('shipper/profile/evaluations')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileEvaluationsController {
   constructor(
     private readonly profileEvaluationsService: ProfileEvaluationsService,
@@ -44,6 +47,7 @@ export class ProfileEvaluationsController {
 
 @Controller('admin/evaluations')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiTags('个人资料 (Profile)')
 export class AdminProfileEvaluationsController {
   constructor(
     private readonly profileEvaluationsService: ProfileEvaluationsService,

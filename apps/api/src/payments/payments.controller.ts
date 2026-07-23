@@ -5,9 +5,15 @@ import {
   Headers,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -24,10 +30,13 @@ import {
 
 @Controller('shipper/orders/:orderId/payments')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiTags('支付 (Payments)')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post()
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: '创建支付订单', description: '为指定货运订单创建支付订单，返回支付参数（微信/支付宝）' })
   async createPayment(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,

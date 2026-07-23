@@ -8,6 +8,7 @@ import { ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type {
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
@@ -22,6 +23,8 @@ import {
 
 @Controller('shipper/profile')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileVerificationController {
   constructor(
     private readonly profileVerificationService: ProfileVerificationService,

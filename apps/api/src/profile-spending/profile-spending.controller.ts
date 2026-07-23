@@ -9,8 +9,12 @@ import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ProfileSpendingService } from './profile-spending.service';
 
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
 @Controller('shipper/profile/spending-records')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileSpendingController {
   constructor(private readonly profileSpendingService: ProfileSpendingService) {}
 

@@ -9,6 +9,12 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { AuthService } from './auth.service';
@@ -82,10 +88,13 @@ import {
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 
 @Controller()
+@ApiTags('认证 (Auth)')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('auth/send-code')
+  @ApiOperation({ summary: '发送短信验证码', description: '向指定手机号发送6位数字验证码，60秒内不可重复发送，每小时最多5次' })
+  @ApiResponse({ status: 200, description: '验证码发送成功，开发环境会返回验证码明文' })
   async sendCode(
     @Body(new ZodValidationPipe(sendCodeSchema)) body: SendCodeRequest,
     @Req() request?: AuthenticatedRequest,
@@ -97,6 +106,9 @@ export class AuthController {
   }
 
   @Post('auth/login')
+  @ApiOperation({ summary: '验证码登录', description: '使用短信验证码登录，支持货主和司机两种角色' })
+  @ApiBearerAuth('access-token')
+  @ApiResponse({ status: 200, description: '登录成功，返回 access/refresh token 对' })
   async login(
     @Body(new ZodValidationPipe(loginSchema)) body: LoginRequest,
     @Req() request?: AuthenticatedRequest,
@@ -108,6 +120,8 @@ export class AuthController {
   }
 
   @Post('auth/password-login')
+  @ApiOperation({ summary: '密码登录', description: '使用手机号和密码登录，支持货主和司机两种角色' })
+  @ApiBearerAuth('access-token')
   async passwordLogin(
     @Body(new ZodValidationPipe(passwordLoginSchema)) body: PasswordLoginRequest,
     @Req() request?: AuthenticatedRequest,
@@ -133,6 +147,7 @@ export class AuthController {
   }
 
   @Post('auth/register')
+  @ApiOperation({ summary: '用户注册', description: '使用手机号和验证码注册新账号，需指定用户类型（货主/司机）' })
   async register(
     @Body(new ZodValidationPipe(registerSchema)) body: RegisterRequest,
     @Req() request?: AuthenticatedRequest,
@@ -144,6 +159,7 @@ export class AuthController {
   }
 
   @Post('auth/reset-password')
+  @ApiOperation({ summary: '重置密码', description: '通过验证码重置登录密码' })
   async resetPassword(
     @Body(new ZodValidationPipe(resetPasswordSchema))
     body: ResetPasswordRequest,
@@ -157,6 +173,8 @@ export class AuthController {
 
   @Post('auth/change-password')
   @UseGuards(AccessTokenGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: '修改密码', description: '登录状态下修改密码，需要当前密码' })
   async changePassword(
     @Body(new ZodValidationPipe(changePasswordSchema))
     body: ChangePasswordRequest,
@@ -179,6 +197,8 @@ export class AuthController {
   }
 
   @Post('auth/refresh')
+  @ApiOperation({ summary: '刷新令牌', description: '使用 refresh token 获取新的 access token' })
+  @ApiBearerAuth('access-token')
   async refresh(
     @Body(new ZodValidationPipe(tokenSessionSchema)) body: RefreshRequest,
     @Req() request?: AuthenticatedRequest,
@@ -190,6 +210,8 @@ export class AuthController {
   }
 
   @Post('auth/logout')
+  @ApiOperation({ summary: '退出登录', description: '撤销当前 refresh token，结束会话' })
+  @ApiBearerAuth('access-token')
   async logout(
     @Body(new ZodValidationPipe(tokenSessionSchema)) body: LogoutRequest,
     @Req() request?: AuthenticatedRequest,
@@ -202,6 +224,8 @@ export class AuthController {
 
   @Get('auth/sessions')
   @UseGuards(AccessTokenGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: '获取当前会话列表' })
   async getCurrentUserAuthSessions(@Req() request: AuthenticatedRequest) {
     if (!request.currentUser) {
       throw new BusinessError(

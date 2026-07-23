@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -39,6 +40,7 @@ import {
 
 @Controller('driver/certification')
 @UseGuards(AccessTokenGuard, DriverOnlyGuard)
+@ApiTags('司机认证 (Driver Certification)')
 export class DriverCertificationController {
   constructor(
     private readonly driverCertificationService: DriverCertificationService,

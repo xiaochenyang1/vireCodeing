@@ -15,8 +15,12 @@ import {
   saveShipperProfileFrequentRoutesSchema,
 } from './profile-frequent-routes.validation';
 
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
 @Controller('shipper/profile/frequent-routes')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileFrequentRoutesController {
   constructor(
     private readonly profileFrequentRoutesService: ProfileFrequentRoutesService,

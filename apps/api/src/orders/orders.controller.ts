@@ -12,6 +12,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
   AccessTokenGuard,
   type AuthenticatedRequest,
 } from '../auth/access-token.guard';
@@ -64,10 +70,12 @@ import {
 
 @Controller('shipper/orders')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiTags('货主订单 (Shipper Orders)')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
+  @ApiOperation({ summary: '创建订单', description: '货主发布货运订单，支持幂等性（通过 Idempotency-Key 头）' })
   async createOrder(
     @Req() request: AuthenticatedRequest,
     @Headers('idempotency-key') idempotencyKey: unknown,
@@ -85,6 +93,7 @@ export class OrdersController {
   }
 
   @Get()
+  @ApiOperation({ summary: '订单列表', description: '获取当前货主的订单列表，支持状态筛选、时间范围筛选和关键词搜索' })
   async listOrders(
     @Req() request: AuthenticatedRequest,
     @Query(new ZodValidationPipe(listShipperOrdersQuerySchema)) query: unknown,
@@ -99,6 +108,7 @@ export class OrdersController {
   }
 
   @Get(':orderId')
+  @ApiOperation({ summary: '订单详情', description: '获取指定订单的详细信息，包括货物、地址、司机、报价、支付状态等' })
   async getOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -110,6 +120,7 @@ export class OrdersController {
   }
 
   @Put(':orderId')
+  @ApiOperation({ summary: '更新订单', description: '修改订单信息（装货前可修改），支持幂等性' })
   async updateOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -129,6 +140,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/cancel')
+  @ApiOperation({ summary: '取消订单', description: '取消订单，根据订单状态可能产生违约金，支持幂等性' })
   async cancelOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -148,6 +160,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/complete')
+  @ApiOperation({ summary: '确认送达', description: '货主确认货物已送达，触发支付结算流程，支持幂等性' })
   async completeOrder(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -186,6 +199,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/exception')
+  @ApiOperation({ summary: '上报异常', description: '货主上报订单异常（货物损坏、地址错误等）' })
   async reportOrderException(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -220,6 +234,7 @@ export class OrdersController {
   }
 
   @Post(':orderId/evaluation')
+  @ApiOperation({ summary: '评价司机', description: '货主对司机进行星级评分和文字评价' })
   async submitOrderEvaluation(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
@@ -239,10 +254,12 @@ export class OrdersController {
 
 @Controller('admin/orders')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiTags('管理员订单 (Admin Orders)')
 export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
+  @ApiOperation({ summary: '管理员订单列表', description: '获取所有订单的分页列表' })
   async listAdminOrders(
     @Req() request: AuthenticatedRequest,
     @Query(new ZodValidationPipe(listShipperOrdersQuerySchema)) query: unknown,
@@ -258,6 +275,7 @@ export class AdminOrdersController {
   }
 
   @Get('report')
+  @ApiOperation({ summary: '订单统计报表', description: '获取订单统计报表，包括状态分布、支付分布、价格分布、热门货主等' })
   async getAdminOrderReport(
     @Req() request: AuthenticatedRequest,
     @Query(new ZodValidationPipe(adminOrderReportQuerySchema)) query: unknown,

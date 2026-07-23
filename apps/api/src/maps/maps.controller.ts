@@ -4,9 +4,11 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -32,6 +34,7 @@ import {
 } from './maps.validation';
 
 @Controller()
+@ApiTags('地图服务 (Maps)')
 export class MapsController {
   constructor(private readonly mapsService: MapsService) {}
 

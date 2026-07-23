@@ -16,6 +16,7 @@ import { AdminOnlyGuard, DriverOnlyGuard, ShipperOnlyGuard } from '../auth/role.
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ApiTags } from '@nestjs/swagger';
 import type {
   AppealOrderExceptionCaseRequest,
   ExecuteOrderExceptionCaseCompensationRequest,
@@ -40,6 +41,7 @@ import {
 
 @Controller('shipper/orders')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiTags('异常工单 (Exception Cases)')
 export class ShipperOrderExceptionCasesController {
   constructor(private readonly service: OrderExceptionCasesService) {}
 
@@ -79,6 +81,7 @@ export class ShipperOrderExceptionCasesController {
 
 @Controller('driver/orders')
 @UseGuards(AccessTokenGuard, DriverOnlyGuard)
+@ApiTags('异常工单 (Exception Cases)')
 export class DriverOrderExceptionCasesController {
   constructor(private readonly service: OrderExceptionCasesService) {}
 
@@ -118,6 +121,7 @@ export class DriverOrderExceptionCasesController {
 
 @Controller('admin/order-exception-cases')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiTags('异常工单 (Exception Cases)')
 export class AdminOrderExceptionCasesController {
   constructor(private readonly service: OrderExceptionCasesService) {}
 

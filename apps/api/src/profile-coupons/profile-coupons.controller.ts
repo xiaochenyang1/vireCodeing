@@ -21,8 +21,12 @@ import {
   parseIssueShipperCouponRequest,
 } from './profile-coupons.validation';
 
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
 @Controller('shipper/profile/coupons')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileCouponsController {
   constructor(private readonly profileCouponsService: ProfileCouponsService) {}
 
@@ -39,6 +43,7 @@ export class ProfileCouponsController {
 
 @Controller('admin/shipper-coupons')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiTags('个人资料 (Profile)')
 export class AdminProfileCouponsController {
   constructor(private readonly profileCouponsService: ProfileCouponsService) {}
 

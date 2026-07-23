@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../auth/dto';
 import { ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type { SaveShipperProfileAccountRequest } from './dto';
 import { ProfileAccountService } from './profile-account.service';
@@ -17,6 +18,8 @@ import {
 
 @Controller('shipper/profile/account')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('个人资料 (Profile)')
 export class ProfileAccountController {
   constructor(private readonly profileAccountService: ProfileAccountService) {}
 

@@ -10,6 +10,7 @@ import {
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -42,6 +43,7 @@ import {
 } from './files.validation';
 
 @Controller('files')
+@ApiTags('文件管理 (Files)')
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 
