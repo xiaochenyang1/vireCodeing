@@ -1855,6 +1855,64 @@ export function DriverHomeScreen({
         </Pressable>
       </View>
 
+      <View style={styles.detailCard} testID="driver-profile-overview">
+        <Text style={styles.detailRoute}>司机概览</Text>
+        <View style={styles.detailInlineGroup}>
+          <Text style={styles.detailRoute}>
+            {certification?.identity?.realName
+              ? `司机：${certification.identity.realName}`
+              : '司机：未实名认证'}
+          </Text>
+          {certification?.vehicle?.plateNumber ? (
+            <Text style={styles.detailMeta}>
+              车牌：{certification.vehicle.plateNumber}
+            </Text>
+          ) : null}
+          {certification?.vehicle?.vehicleType ? (
+            <Text style={styles.detailMeta}>
+              车型：{certification.vehicle.vehicleType}
+            </Text>
+          ) : null}
+          <Text style={styles.detailMeta}>
+            实名认证：
+            {certification?.identity?.status === 'approved'
+              ? '已通过'
+              : certification?.identity?.status === 'reviewing'
+                ? '审核中'
+                : certification?.identity?.status === 'rejected'
+                  ? '已驳回'
+                  : '未提交'}
+          </Text>
+          <Text style={styles.detailMeta}>
+            车辆认证：
+            {certification?.vehicle?.status === 'approved'
+              ? '已通过'
+              : certification?.vehicle?.status === 'reviewing'
+                ? '审核中'
+                : certification?.vehicle?.status === 'rejected'
+                  ? '已驳回'
+                  : '未提交'}
+          </Text>
+        </View>
+        <View style={styles.detailInlineGroup}>
+          <Text style={styles.detailMeta}>
+            已完成订单：{incomeOverview?.summary?.completedOrderCount ?? 0} 单
+          </Text>
+          <Text style={styles.detailMeta}>
+            可提现余额：
+            {incomeOverview?.summary?.availableWithdrawalCents
+              ? `${(incomeOverview.summary.availableWithdrawalCents / 100).toFixed(2)} 元`
+              : '0.00 元'}
+          </Text>
+          <Text style={styles.detailMeta}>
+            审核中提现：
+            {incomeOverview?.summary?.reviewingWithdrawalCents
+              ? `${(incomeOverview.summary.reviewingWithdrawalCents / 100).toFixed(2)} 元`
+              : '0.00 元'}
+          </Text>
+        </View>
+      </View>
+
       <Pressable
         testID="driver-refresh-orders"
         style={styles.detailPrimaryButton}
