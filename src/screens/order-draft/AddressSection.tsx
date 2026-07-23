@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
+import { MapPicker } from '../../components/MapPicker';
 import { colors, styles } from '../../styles';
 import type { DraftAddressPreview } from '../../utils/orderDraftAddress';
 import { MAX_LOCAL_ADDRESS_NOTE_LENGTH } from '../../utils/order';
@@ -9,6 +10,7 @@ import {
   type AddressItem,
   type ContactItem,
 } from '../../utils/profileLocalState';
+import type { PlatformGeocodeResult } from '../../services/platformMapsApi';
 
 export function AddressSection({
   pickupAddress,
@@ -33,6 +35,7 @@ export function AddressSection({
   deliveryAddressPreview,
   isResolvingDeliveryAddress,
   onPreviewDeliveryAddress,
+  platformMapsApi,
 }: {
   pickupAddress: string;
   onPickupAddressChange: (value: string) => void;
@@ -56,6 +59,7 @@ export function AddressSection({
   deliveryAddressPreview?: DraftAddressPreview;
   isResolvingDeliveryAddress?: boolean;
   onPreviewDeliveryAddress?: (addressText: string) => void;
+  platformMapsApi?: { geocode: (address: string) => Promise<PlatformGeocodeResult> } | undefined;
 }) {
   const {
     addresses: addressSuggestions,
@@ -214,6 +218,16 @@ export function AddressSection({
         value={pickupAddress}
         onChangeText={onPickupAddressChange}
       />
+      <MapPicker
+        testID="draft-pickup-map"
+        platformMapsApi={platformMapsApi}
+        initialAddress={pickupAddress}
+        placeholder="搜索装货地址"
+        onSelect={result => {
+          onPickupAddressChange(result.formattedAddress);
+          onPreviewPickupAddress?.(result.formattedAddress);
+        }}
+      />
       <Pressable
         testID="draft-pickup-address-preview"
         style={styles.detailSecondaryButton}
@@ -259,6 +273,16 @@ export function AddressSection({
         placeholder="例如 南山区科技园门店"
         value={deliveryAddress}
         onChangeText={onDeliveryAddressChange}
+      />
+      <MapPicker
+        testID="draft-delivery-map"
+        platformMapsApi={platformMapsApi}
+        initialAddress={deliveryAddress}
+        placeholder="搜索卸货地址"
+        onSelect={result => {
+          onDeliveryAddressChange(result.formattedAddress);
+          onPreviewDeliveryAddress?.(result.formattedAddress);
+        }}
       />
       <Pressable
         testID="draft-delivery-address-preview"

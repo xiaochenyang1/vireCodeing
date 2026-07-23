@@ -808,6 +808,7 @@ export function OrderDraftScreen({
                 setIsResolving: setIsResolvingDeliveryAddress,
               }).catch(() => undefined);
             }}
+            platformMapsApi={platformMapsApi}
           />
 
           <VehicleTimeSection
