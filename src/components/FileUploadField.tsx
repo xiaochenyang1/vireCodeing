@@ -58,7 +58,8 @@ export function FileUploadField({
   const clearTestID = `${testIDPrefix}-clear`;
 
   return (
-    <View style={styles.driverInfoCard}>
+    <View testID={testIDPrefix}>
+      <View style={styles.driverInfoCard}>
       <View style={cardStyles.previewRow}>
         <View style={cardStyles.previewFrame}>
           {resolvedPublicUrl ? (
@@ -126,6 +127,7 @@ export function FileUploadField({
           </View>
         </View>
       </View>
+    </View>
     </View>
   );
 }

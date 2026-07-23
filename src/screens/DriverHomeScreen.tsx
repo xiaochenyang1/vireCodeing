@@ -10,6 +10,7 @@ import {
 
 import { ImageCredentialCard } from '../components/ImageCredentialCard';
 import { IncomeChart } from '../components/IncomeChart';
+import { DriverOrderExecution } from '../components/DriverOrderExecution';
 import { vehicleRequirementOptions } from '../data/mockData';
 import { colors, styles } from '../styles';
 import type {
@@ -1814,6 +1815,24 @@ export function DriverHomeScreen({
     ];
   };
 
+  const selectedExecutionReceipts = selectedOrder
+    ? (() => {
+        const state =
+          executionReceiptAttachments[selectedOrder.id] ??
+          ({ transportingReceiptFiles: [], confirmingReceiptFiles: [] } as const);
+        return {
+          loading: state.transportingReceiptFiles.map(ref => ref.file),
+          confirming: state.confirmingReceiptFiles.map(ref => ref.file),
+        };
+      })()
+    : { loading: [], confirming: [] };
+
+  const isSelectedOrderAdvancing =
+    selectedOrder != null &&
+    orderMutationQueue[
+      createDriverOrderMutationQueueKey('status', selectedOrder.id)
+    ]?.operation === 'status';
+
   return (
     <ScrollView
       style={styles.screen}
@@ -3141,6 +3160,68 @@ export function DriverHomeScreen({
               {getDriverAdvanceButtonText(selectedOrder.status)}
             </Text>
           </Pressable>
+          <DriverOrderExecution
+            order={selectedOrder}
+            baseUpdatedAtIso={selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? ''}
+            navigationTargets={navigationTargets}
+            platformMapsApi={platformMapsApi as any}
+            platformFileApi={platformFileApi as any}
+            onNavigate={openDriverNavigation}
+            onReportLocation={reportSandboxDriverLocation}
+            onAdvanceStatus={request => {
+              const nextStatus = request.nextStatus as 'transporting' | 'confirming';
+              const baseUpdatedAtIso = selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';
+              const mutationContext = createOrderMutationContext(baseUpdatedAtIso);
+              executeDriverOrderMutation({
+                operation: 'status',
+                driverAccountId: resolvedDriverAccountId,
+                orderId: selectedOrder.id,
+                orderNo: selectedOrder.orderNo,
+                request: {
+                  baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+                  nextStatus,
+                  ...(request.receiptPhotoFileIds?.length
+                    ? { receiptPhotoFileIds: request.receiptPhotoFileIds }
+                    : {}),
+                },
+                mutationContext,
+              });
+            }}
+            onUploadReceipt={(fileId, fieldName) => {
+              setExecutionProofs(current => {
+                const currentOrderProofs = current[selectedOrder.id] ?? {
+                  transportingReceiptFileIds: [],
+                  confirmingReceiptFileIds: [],
+                };
+                if (fieldName === 'loadingReceiptFileId') {
+                  return {
+                    ...current,
+                    [selectedOrder.id]: {
+                      transportingReceiptFileIds: [
+                        ...currentOrderProofs.transportingReceiptFileIds,
+                        fileId,
+                      ],
+                      confirmingReceiptFileIds:
+                        currentOrderProofs.confirmingReceiptFileIds,
+                    },
+                  };
+                }
+                return {
+                  ...current,
+                  [selectedOrder.id]: {
+                    transportingReceiptFileIds:
+                      currentOrderProofs.transportingReceiptFileIds,
+                    confirmingReceiptFileIds: [
+                      ...currentOrderProofs.confirmingReceiptFileIds,
+                      fileId,
+                    ],
+                  },
+                };
+              });
+            }}
+            receiptFiles={selectedExecutionReceipts}
+            isAdvancing={isSelectedOrderAdvancing}
+          />
         </View>
       ) : null}
     </ScrollView>
