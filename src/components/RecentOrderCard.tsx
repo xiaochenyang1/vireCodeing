@@ -4,6 +4,7 @@ import { recentOrderStatusCopy } from '../data/mockData';
 import { styles } from '../styles';
 import type { RecentOrder } from '../types';
 import { formatVehicleRequirementText } from '../utils/order';
+import { formatPlatformIsoMinute } from '../utils/dateTime';
 import {
   getOrderExceptionCaseSummaryHeadline,
   getOrderExceptionCaseSummaryText,
@@ -67,6 +68,11 @@ export function RecentOrderCard({
         <View>
           <Text style={styles.orderPrice}>{order.priceText}</Text>
           <Text style={styles.orderTime}>{order.updatedAtText}</Text>
+          {order.createdAtIso ? (
+            <Text style={styles.orderTime}>
+              下单：{formatPlatformIsoMinute(order.createdAtIso)}
+            </Text>
+          ) : null}
         </View>
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           {(order.status === 'completed' || order.status === 'cancelled') &&

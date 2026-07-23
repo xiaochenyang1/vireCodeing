@@ -135,6 +135,9 @@ export function DriverOrderExecution({
   return (
     <View style={styles.detailCard} testID="driver-order-execution">
       <Text style={styles.detailRoute}>执行订单详情</Text>
+      <Text style={styles.detailMeta}>
+        订单号：{order.orderNo}
+      </Text>
 
       <View style={styles.detailInlineGroup}>
         <Text style={styles.draftSectionTitle}>订单进度</Text>

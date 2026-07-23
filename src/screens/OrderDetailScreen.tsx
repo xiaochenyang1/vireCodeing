@@ -54,6 +54,7 @@ import {
   createSyncedOrderSyncState,
   formatVehicleRequirementText,
 } from '../utils/order';
+import { formatPlatformIsoMinute } from '../utils/dateTime';
 import {
   buildDetailTimeline,
   createBonusOrderChange,
@@ -784,6 +785,11 @@ export function OrderDetailScreen({
           {order.from} → {order.to}
         </Text>
         <Text style={styles.detailMeta}>{order.updatedAtText}</Text>
+        {order.createdAtIso ? (
+          <Text style={styles.detailMeta}>
+            下单时间：{formatPlatformIsoMinute(order.createdAtIso)}
+          </Text>
+        ) : null}
         {order.pickupTimeText ? (
           <Text style={styles.detailMeta}>装货时间：{order.pickupTimeText}</Text>
         ) : null}
