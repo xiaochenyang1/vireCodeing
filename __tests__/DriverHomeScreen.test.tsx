@@ -283,6 +283,175 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('车型匹配：中型货车、厢式货车');
   });
 
+  it('manually refreshes driver home snapshots including certification, settings, income and bank cards', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.getAcceptanceSettings
+      .mockResolvedValueOnce(createDriverAcceptanceSettingsSnapshot())
+      .mockResolvedValueOnce({
+        ...createDriverAcceptanceSettingsSnapshot(),
+        isOnline: false,
+        maxDistanceKm: 30,
+        vehicleTypePreferences: ['box'],
+        updatedAtIso: '2026-07-09T02:20:00.000Z',
+      });
+    platformDriverOrderApi.getIncomeOverview
+      .mockResolvedValueOnce(createDriverIncomeOverviewSnapshot())
+      .mockResolvedValueOnce({
+        ...createDriverIncomeOverviewSnapshot(),
+        summary: {
+          ...createDriverIncomeOverviewSnapshot().summary,
+          todayIncomeCents: 40200,
+          availableWithdrawalCents: 28000,
+          completedOrderCount: 2,
+        },
+      });
+    platformDriverOrderApi.listWithdrawals
+      .mockResolvedValueOnce(createDriverWithdrawalsPage())
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'withdrawal-2',
+            driverId: 'driver-1',
+            amountCents: 18000,
+            bankAccountName: '李师傅',
+            bankName: '建设银行',
+            bankAccountMasked: '**** **** **** 5678',
+            status: 'reviewing' as const,
+            createdAtIso: '2026-07-09T03:10:00.000Z',
+            updatedAtIso: '2026-07-09T03:10:00.000Z',
+          },
+        ],
+        page: 1,
+        pageSize: 5,
+        total: 1,
+      });
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'bank-card-1',
+            driverId: 'driver-1',
+            bankName: '建设银行',
+            bankAccountName: '李师傅',
+            bankAccountMasked: '**** **** **** 5678',
+            isDefault: true,
+            createdAtIso: '2026-07-09T03:20:00.000Z',
+            updatedAtIso: '2026-07-09T03:20:00.000Z',
+          },
+        ],
+        total: 1,
+      });
+    const platformDriverCertificationApi = createMockDriverCertificationApi();
+    platformDriverCertificationApi.getCertification
+      .mockResolvedValueOnce(createDriverCertificationSnapshot())
+      .mockResolvedValueOnce({
+        ...createDriverCertificationSnapshot(),
+        identity: {
+          driverId: 'driver-1',
+          realName: '李师傅',
+          identityNumber: '11010119900307201X',
+          identityFrontFileId: 'file-id-front',
+          identityBackFileId: 'file-id-back',
+          status: 'approved' as const,
+        },
+        vehicle: {
+          driverId: 'driver-1',
+          plateNumber: '粤B12345',
+          vehicleType: '厢式货车',
+          vehicleLengthText: '4.2 米',
+          loadCapacityText: '2 吨',
+          hasTailboard: true,
+          vehiclePhotoFileId: 'file-vehicle-photo',
+          status: 'reviewing' as const,
+        },
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={platformDriverCertificationApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('接单状态：在线');
+    expect(getRenderedText(renderer)).toContain('暂无绑定银行卡。');
+    expect(getRenderedText(renderer)).toContain('实名认证：未提交');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverCertificationApi.getCertification).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.getIncomeOverview).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.listWithdrawals).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+    expect(getRenderedText(renderer)).toContain('接单状态：离线');
+    expect(getRenderedText(renderer)).toContain('接单范围：30 公里');
+    expect(getRenderedText(renderer)).toContain('车型匹配：厢式货车');
+    expect(getRenderedText(renderer)).toContain('今日收入：￥402.00');
+    expect(getRenderedText(renderer)).toContain('已完成 2 单');
+    expect(getRenderedText(renderer)).toContain('建设银行 · **** **** **** 5678');
+    expect(getRenderedText(renderer)).toContain('实名认证：已通过');
+    expect(getRenderedText(renderer)).toContain('车辆认证：审核中');
+  });
+
+  it('keeps local certification and acceptance drafts when manually refreshing the driver home screen', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    const platformDriverCertificationApi = createMockDriverCertificationApi();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={platformDriverCertificationApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-settings-max-distance-km' })
+        .props.onChangeText('88');
+      renderer.root
+        .findByProps({ testID: 'driver-cert-real-name' })
+        .props.onChangeText('本地李师傅');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(1);
+    expect(platformDriverCertificationApi.getCertification).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(platformDriverOrderApi.getIncomeOverview).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-settings-max-distance-km' }).props
+        .value,
+    ).toBe('88');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-cert-real-name' }).props.value,
+    ).toBe('本地李师傅');
+    expect(getRenderedText(renderer)).toContain(
+      '司机主页已手动刷新；已保留未保存的接单设置、司机认证草稿。',
+    );
+  });
+
   it('reports a sandbox hall location and refreshes nearby orders from the driver hall', async () => {
     const hallOrder = {
       id: 'order-hall-1',
@@ -353,7 +522,7 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain(
       '已上报 sandbox 大厅位置，接单范围已按最新位置刷新。',
     );
-    expect(getRenderedText(renderer)).toContain('装货点距离：约 1.2 公里');
+    expect(getRenderedText(renderer)).toContain('约 1.2 公里');
   });
 
   it('blocks quoting when saved acceptance settings are offline', async () => {
@@ -421,7 +590,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(platformDriverOrderApi.quoteOrder).not.toHaveBeenCalled();
-    expect(getRenderedText(renderer)).toContain('装货点距离：约 12.8 公里');
+    expect(getRenderedText(renderer)).toContain('约 12.8 公里');
     expect(getRenderedText(renderer)).toContain(
       '当前处于离线接单，请先打开接单开关。',
     );

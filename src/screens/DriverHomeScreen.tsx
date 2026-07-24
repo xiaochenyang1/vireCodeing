@@ -97,6 +97,8 @@ import {
   getDriverOrderHallPricingText,
   getDriverReceiptUploadButtonText,
   getDriverOrderPickupDistanceText,
+  isDriverAcceptanceSettingsFormDirty,
+  isDriverCertificationFormDirty,
   getDriverStatusText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
@@ -109,7 +111,6 @@ import {
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
   type DriverBankCardFormState,
-  type DailyIncomePoint,
   type DriverCertificationFileFieldName,
   type DriverCertificationFormState,
   type DriverExceptionFormState,
@@ -712,6 +713,8 @@ export function DriverHomeScreen({
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
+  const [isRefreshingHomeSnapshot, setIsRefreshingHomeSnapshot] =
+    useState(false);
   const selectedExceptionProofUploadCount = selectedOrder
     ? (exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm).photoFileIds
         .length
@@ -789,6 +792,14 @@ export function DriverHomeScreen({
     operationPermitFileId: operationPermitUpload,
     vehiclePhotoFileId: vehiclePhotoUpload,
   };
+  const hasDirtyCertificationDraft = isDriverCertificationFormDirty(
+    certificationForm,
+    certification,
+  );
+  const hasDirtyAcceptanceSettingsDraft = isDriverAcceptanceSettingsFormDirty(
+    acceptanceSettingsForm,
+    acceptanceSettings,
+  );
 
   const applyCertificationSnapshot = (
     snapshot: PlatformDriverCertificationSnapshot,
@@ -835,10 +846,10 @@ export function DriverHomeScreen({
   const refreshMyOrders = () => {
     if (!platformDriverOrderApi) {
       setMyOrders([]);
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverOrderApi
+    return platformDriverOrderApi
       .listMyOrders({
         statuses: ['loading', 'transporting', 'confirming'],
         page: 1,
@@ -846,40 +857,46 @@ export function DriverHomeScreen({
       })
       .then(result => {
         setMyOrders(result.items);
+        return true;
       })
       .catch(() => {
         setNotice('司机执行订单刷新失败，请稍后重试。');
+        return false;
       });
   };
 
   const refreshCertification = () => {
     if (!platformDriverCertificationApi) {
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverCertificationApi
+    return platformDriverCertificationApi
       .getCertification()
       .then(snapshot => {
         applyCertificationSnapshot(snapshot);
+        return true;
       })
       .catch(() => {
         setNotice('司机认证状态加载失败，请稍后重试。');
+        return false;
       });
   };
 
   const refreshAcceptanceSettings = () => {
     if (!platformDriverOrderApi) {
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverOrderApi
+    return platformDriverOrderApi
       .getAcceptanceSettings()
       .then(settings => {
         setAcceptanceSettings(settings);
         setAcceptanceSettingsForm(createAcceptanceSettingsForm(settings));
+        return true;
       })
       .catch(() => {
         setNotice('接单设置加载失败，请稍后重试。');
+        return false;
       });
   };
 
@@ -887,42 +904,92 @@ export function DriverHomeScreen({
     if (!platformDriverOrderApi) {
       setIncomeOverview(undefined);
       setWithdrawals([]);
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverOrderApi
+    const incomePromise = platformDriverOrderApi
       .getIncomeOverview()
       .then(result => {
         setIncomeOverview(result);
+        return true;
       })
       .catch(() => {
         setNotice('司机收入加载失败，请稍后重试。');
+        return false;
       });
 
-    platformDriverOrderApi
+    const withdrawalsPromise = platformDriverOrderApi
       .listWithdrawals({ page: 1, pageSize: 5 })
       .then(result => {
         setWithdrawals(Array.isArray(result.items) ? result.items : []);
+        return true;
       })
       .catch(() => {
         setNotice('提现记录加载失败，请稍后重试。');
+        return false;
       });
+
+    return Promise.all([incomePromise, withdrawalsPromise]).then(results =>
+      results.every(Boolean),
+    );
   };
 
   const refreshBankCards = () => {
     if (!platformDriverOrderApi) {
       setBankCards([]);
-      return;
+      return Promise.resolve(false);
     }
 
-    platformDriverOrderApi
+    return platformDriverOrderApi
       .listBankCards()
       .then(result => {
         setBankCards(Array.isArray(result.items) ? result.items : []);
+        return true;
       })
       .catch(() => {
         setNotice('银行卡列表加载失败，请稍后重试。');
+        return false;
       });
+  };
+
+  const refreshDriverHomeSnapshot = async () => {
+    if (isRefreshingHomeSnapshot) {
+      return;
+    }
+
+    setIsRefreshingHomeSnapshot(true);
+    setNotice('');
+
+    const skippedDrafts: string[] = [];
+    if (hasDirtyAcceptanceSettingsDraft) {
+      skippedDrafts.push('接单设置');
+    }
+    if (hasDirtyCertificationDraft) {
+      skippedDrafts.push('司机认证');
+    }
+
+    try {
+      const results = await Promise.all([
+        refreshOrderHall(),
+        refreshMyOrders(),
+        hasDirtyAcceptanceSettingsDraft
+          ? Promise.resolve(true)
+          : refreshAcceptanceSettings(),
+        refreshIncome(),
+        refreshBankCards(),
+        hasDirtyCertificationDraft ? Promise.resolve(true) : refreshCertification(),
+      ]);
+
+      if (results.every(Boolean)) {
+        setNotice(
+          skippedDrafts.length > 0
+            ? `司机主页已手动刷新；已保留未保存的${skippedDrafts.join('、')}草稿。`
+            : '司机主页已手动刷新到最新平台快照。',
+        );
+      }
+    } finally {
+      setIsRefreshingHomeSnapshot(false);
+    }
   };
 
   useEffect(() => {
@@ -2261,14 +2328,6 @@ export function DriverHomeScreen({
       });
   };
 
-  const maskBankAccountNo = (accountNo: string): string => {
-    const digits = accountNo.replace(/\s/g, '');
-    if (digits.length <= 8) {
-      return digits;
-    }
-    return `${digits.slice(0, 4)} **** **** ${digits.slice(-4)}`;
-  };
-
   const visibleOrders = filterDriverOrderHallOrders(
     orderHallOrders,
     acceptanceSettings,
@@ -2551,17 +2610,16 @@ export function DriverHomeScreen({
       </View>
 
       <Pressable
-        testID="driver-refresh-orders"
+        testID="driver-refresh-home"
         style={styles.detailPrimaryButton}
+        disabled={isRefreshingHomeSnapshot}
         onPress={() => {
-          refreshOrderHall();
-          refreshMyOrders();
-          refreshAcceptanceSettings();
-          refreshIncome();
-          refreshBankCards();
+          refreshDriverHomeSnapshot().catch(() => undefined);
         }}
       >
-        <Text style={styles.detailPrimaryButtonText}>刷新订单</Text>
+        <Text style={styles.detailPrimaryButtonText}>
+          {isRefreshingHomeSnapshot ? '刷新中...' : '刷新司机主页'}
+        </Text>
       </Pressable>
 
       {notice ? (

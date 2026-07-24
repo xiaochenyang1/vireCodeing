@@ -24,6 +24,8 @@ import {
   getLatestDriverException,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
+  isDriverAcceptanceSettingsFormDirty,
+  isDriverCertificationFormDirty,
   omitDriverEvaluationReplyQueueItem,
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
@@ -31,6 +33,7 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 import type {
   PlatformDriverAcceptanceSettings,
 } from '../src/services/platformDriverOrderApi';
+import type { PlatformDriverCertificationSnapshot } from '../src/services/platformDriverCertificationApi';
 import type { PlatformShipperOrder } from '../src/services/platformOrderApi';
 
 const order = (overrides: Partial<PlatformShipperOrder> = {}): PlatformShipperOrder =>
@@ -54,6 +57,39 @@ const acceptance = (
     updatedAtIso: '2026-07-10T00:00:00.000Z',
     ...overrides,
   }) as PlatformDriverAcceptanceSettings;
+
+const certification = (
+  overrides: Partial<PlatformDriverCertificationSnapshot> = {},
+): PlatformDriverCertificationSnapshot =>
+  ({
+    driver: {
+      id: 'driver-1',
+      phone: '13900139009',
+    },
+    identity: {
+      driverId: 'driver-1',
+      realName: '李师傅',
+      identityNumber: '11010119900307201X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      status: 'reviewing',
+    },
+    vehicle: {
+      driverId: 'driver-1',
+      plateNumber: '粤B12345',
+      vehicleType: '厢式货车',
+      vehicleLengthText: '4.2 米',
+      loadCapacityText: '2 吨',
+      hasTailboard: true,
+      drivingLicenseFileId: 'file-driving',
+      driverLicenseFileId: 'file-driver',
+      transportQualificationFileId: 'file-transport',
+      operationPermitFileId: 'file-operation',
+      vehiclePhotoFileId: 'file-vehicle',
+      status: 'reviewing',
+    },
+    ...overrides,
+  }) as PlatformDriverCertificationSnapshot;
 
 test('builds a quote request only for valid amounts and arrival text', () => {
   expect(
@@ -91,6 +127,80 @@ test('validates acceptance settings bounds and dedupe', () => {
       vehicleTypePreferences: ['a', 'a'],
     }),
   ).toBeUndefined();
+});
+
+test('detects dirty driver acceptance settings forms against the latest snapshot', () => {
+  expect(
+    isDriverAcceptanceSettingsFormDirty(
+      {
+        isOnline: true,
+        maxDistanceKmText: '50',
+        vehicleTypePreferences: ['box', 'medium'],
+      },
+      acceptance({
+        isOnline: true,
+        maxDistanceKm: 50,
+        vehicleTypePreferences: ['medium', 'box'],
+      }),
+    ),
+  ).toBe(false);
+
+  expect(
+    isDriverAcceptanceSettingsFormDirty(
+      {
+        isOnline: false,
+        maxDistanceKmText: '50',
+        vehicleTypePreferences: ['medium'],
+      },
+      acceptance({ vehicleTypePreferences: ['medium'] }),
+    ),
+  ).toBe(true);
+});
+
+test('detects dirty driver certification forms against the latest snapshot', () => {
+  expect(
+    isDriverCertificationFormDirty(
+      {
+        realName: '李师傅',
+        identityNumber: '11010119900307201X',
+        identityFrontFileId: 'file-front',
+        identityBackFileId: 'file-back',
+        plateNumber: '粤B12345',
+        vehicleType: '厢式货车',
+        vehicleLengthText: '4.2 米',
+        loadCapacityText: '2 吨',
+        hasTailboard: true,
+        drivingLicenseFileId: 'file-driving',
+        driverLicenseFileId: 'file-driver',
+        transportQualificationFileId: 'file-transport',
+        operationPermitFileId: 'file-operation',
+        vehiclePhotoFileId: 'file-vehicle',
+      },
+      certification(),
+    ),
+  ).toBe(false);
+
+  expect(
+    isDriverCertificationFormDirty(
+      {
+        realName: '李师傅-本地修改',
+        identityNumber: '11010119900307201X',
+        identityFrontFileId: 'file-front',
+        identityBackFileId: 'file-back',
+        plateNumber: '粤B12345',
+        vehicleType: '厢式货车',
+        vehicleLengthText: '4.2 米',
+        loadCapacityText: '2 吨',
+        hasTailboard: true,
+        drivingLicenseFileId: 'file-driving',
+        driverLicenseFileId: 'file-driver',
+        transportQualificationFileId: 'file-transport',
+        operationPermitFileId: 'file-operation',
+        vehiclePhotoFileId: 'file-vehicle',
+      },
+      certification(),
+    ),
+  ).toBe(true);
 });
 
 test('validates a driver withdrawal request', () => {

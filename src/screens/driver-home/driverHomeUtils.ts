@@ -1,6 +1,5 @@
 import { vehicleRequirementOptions } from '../../data/mockData';
 import type {
-  PlatformCreateDriverBankCardRequest,
   PlatformCreateDriverWithdrawalRequest,
   PlatformDriverAcceptanceSettings,
   PlatformDriverAdvanceOrderStatusRequest,
@@ -10,7 +9,6 @@ import type {
   PlatformDriverQuoteOrderRequest,
   PlatformDriverReportExceptionRequest,
   PlatformSaveDriverAcceptanceSettingsRequest,
-  PlatformUpdateDriverBankCardRequest,
   PlatformDriverWithdrawalRecord,
   PlatformDriverIncomeOverview,
 } from '../../services/platformDriverOrderApi';
@@ -319,6 +317,58 @@ export function createAcceptanceSettingsForm(
     maxDistanceKmText: String(settings.maxDistanceKm),
     vehicleTypePreferences: [...settings.vehicleTypePreferences],
   };
+}
+
+export function isDriverCertificationFormDirty(
+  form: DriverCertificationFormState,
+  snapshot?: PlatformDriverCertificationSnapshot,
+) {
+  const baseline = createDriverCertificationForm(snapshot);
+
+  return (
+    form.realName !== baseline.realName ||
+    form.identityNumber !== baseline.identityNumber ||
+    form.identityFrontFileId !== baseline.identityFrontFileId ||
+    form.identityBackFileId !== baseline.identityBackFileId ||
+    form.plateNumber !== baseline.plateNumber ||
+    form.vehicleType !== baseline.vehicleType ||
+    form.vehicleLengthText !== baseline.vehicleLengthText ||
+    form.loadCapacityText !== baseline.loadCapacityText ||
+    form.hasTailboard !== baseline.hasTailboard ||
+    form.drivingLicenseFileId !== baseline.drivingLicenseFileId ||
+    form.driverLicenseFileId !== baseline.driverLicenseFileId ||
+    form.transportQualificationFileId !== baseline.transportQualificationFileId ||
+    form.operationPermitFileId !== baseline.operationPermitFileId ||
+    form.vehiclePhotoFileId !== baseline.vehiclePhotoFileId
+  );
+}
+
+function createSortedStringList(values: string[]) {
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+export function isDriverAcceptanceSettingsFormDirty(
+  form: DriverAcceptanceSettingsFormState,
+  settings?: PlatformDriverAcceptanceSettings,
+) {
+  const baseline = settings
+    ? createAcceptanceSettingsForm(settings)
+    : emptyAcceptanceSettingsForm;
+  const currentVehicleTypes = createSortedStringList(
+    form.vehicleTypePreferences,
+  );
+  const baselineVehicleTypes = createSortedStringList(
+    baseline.vehicleTypePreferences,
+  );
+
+  return (
+    form.isOnline !== baseline.isOnline ||
+    form.maxDistanceKmText !== baseline.maxDistanceKmText ||
+    currentVehicleTypes.length !== baselineVehicleTypes.length ||
+    currentVehicleTypes.some(
+      (vehicleType, index) => vehicleType !== baselineVehicleTypes[index],
+    )
+  );
 }
 
 export function createAcceptanceSettingsRequest(
