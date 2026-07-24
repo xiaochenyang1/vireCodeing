@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationsController } from './notifications.controller';
+import {
+  NotificationDeviceTokensController,
+  NotificationsController,
+} from './notifications.controller';
 import {
   InMemoryNotificationsRepository,
   PrismaNotificationsRepository,
@@ -15,7 +18,7 @@ export const NOTIFICATIONS_REPOSITORY = Symbol('NOTIFICATIONS_REPOSITORY');
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [NotificationsController],
+  controllers: [NotificationsController, NotificationDeviceTokensController],
   providers: [
     {
       provide: SandboxPushProvider,

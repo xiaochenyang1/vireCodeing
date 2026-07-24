@@ -11,8 +11,13 @@ export type UseDevicePushTokenRegistrationResult = {
   lastError: string | null;
 };
 
+type DeviceTokenRegistrationApi = Pick<
+  PlatformNotificationsApi,
+  'registerDeviceToken'
+>;
+
 export function useDevicePushTokenRegistration(
-  platformNotificationsApi: PlatformNotificationsApi | undefined,
+  platformNotificationsApi: DeviceTokenRegistrationApi | undefined,
   pushToken: string | null,
   permissionStatus: PushNotificationPermissionStatus,
   deviceId?: string,

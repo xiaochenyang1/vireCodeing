@@ -59,6 +59,49 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('bearerFormat: JWT');
   });
 
+  it('documents push device token management endpoints for the current user', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expect(source).toContain('/me/device-token:');
+    expectPathBlockToContain(
+      source,
+      '/me/device-token',
+      "$ref: '#/components/schemas/RegisterDeviceTokenRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/me/device-token',
+      "$ref: '#/components/schemas/DevicePushTokenResponse'",
+    );
+
+    expect(source).toContain('/me/device-tokens:');
+    expectPathBlockToContain(
+      source,
+      '/me/device-tokens',
+      'List active device push tokens for the current user',
+    );
+    expectPathBlockToContain(
+      source,
+      '/me/device-tokens',
+      "$ref: '#/components/schemas/DevicePushTokenListResponse'",
+    );
+
+    expect(source).toContain('/me/device-tokens/deactivate:');
+    expectPathBlockToContain(
+      source,
+      '/me/device-tokens/deactivate',
+      "$ref: '#/components/schemas/DeactivateDeviceTokenRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/me/device-tokens/deactivate',
+      "$ref: '#/components/schemas/DeactivateDeviceTokenResponse'",
+    );
+
+    expect(source).toContain('DeactivateDeviceTokenRequest:');
+    expect(source).toContain('DeactivateDeviceTokenResponse:');
+  });
+
   it('documents success response envelopes for stage 1 auth routes', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

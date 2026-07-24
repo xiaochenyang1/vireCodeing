@@ -333,6 +333,32 @@ describe('NotificationsService', () => {
       expect(tokens).toHaveLength(0);
     });
 
+    it('trims token input before deactivating', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await service.registerDeviceToken('user-1', {
+        pushToken: 'token-1',
+        platform: 'ios',
+        deviceId: 'device-1',
+      });
+
+      await expect(
+        service.deactivateDevicePushToken('user-1', '  token-1  '),
+      ).resolves.toBe(true);
+    });
+
+    it('rejects empty token when deactivating', async () => {
+      const repository = new InMemoryNotificationsRepository();
+      const service = new NotificationsService(repository, new FakePushProvider());
+
+      await expect(
+        service.deactivateDevicePushToken('user-1', '   '),
+      ).rejects.toMatchObject({
+        code: ApiErrorCode.PUSH_TOKEN_INVALID,
+      });
+    });
+
     it('returns false when deactivating a non-existent token', async () => {
       const repository = new InMemoryNotificationsRepository();
       const service = new NotificationsService(repository, new FakePushProvider());

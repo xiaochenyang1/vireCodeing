@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type {
-  DevicePushTokenRecord,
+  DeactivateDeviceTokenInput,
   InboxMessageCategory,
   InboxMessageListQuery,
   RegisterDeviceTokenInput,
@@ -47,18 +47,41 @@ export function parseMessageId(input: unknown) {
 }
 
 const devicePlatformSchema = z.enum(['ios', 'android']);
+const pushTokenSchema = z
+  .string()
+  .trim()
+  .max(512, '推送令牌长度不能超过 512 个字符');
+const deviceIdSchema = z
+  .string()
+  .trim()
+  .max(120, '设备 ID 长度不能超过 120 个字符');
 
 export const registerDeviceTokenBodySchema = z.object({
-  pushToken: z.string().trim().min(1, '推送令牌不能为空').max(512),
+  pushToken: pushTokenSchema,
   platform: devicePlatformSchema,
-  deviceId: z.string().trim().min(1, '设备 ID 不能为空').max(120),
+  deviceId: deviceIdSchema,
 });
 
-export function parseRegisterDeviceTokenBody(input: unknown): RegisterDeviceTokenInput {
+export function parseRegisterDeviceTokenBody(
+  input: unknown,
+): RegisterDeviceTokenInput {
   const parsed = registerDeviceTokenBodySchema.parse(input);
   return {
     pushToken: parsed.pushToken,
     platform: parsed.platform,
     deviceId: parsed.deviceId,
+  };
+}
+
+export const deactivateDeviceTokenBodySchema = z.object({
+  token: pushTokenSchema,
+});
+
+export function parseDeactivateDeviceTokenBody(
+  input: unknown,
+): DeactivateDeviceTokenInput {
+  const parsed = deactivateDeviceTokenBodySchema.parse(input);
+  return {
+    token: parsed.token,
   };
 }

@@ -1,5 +1,6 @@
 import {
   PlatformApiError,
+  platformGet,
   platformPost,
   type PlatformApiConfig,
 } from './platformApiClient';
@@ -8,11 +9,6 @@ export type PlatformRegisterDeviceTokenRequest = {
   pushToken: string;
   platform: 'ios' | 'android';
   deviceId: string;
-};
-
-export type PlatformRegisterDeviceTokenResponse = {
-  registered: boolean;
-  token: string;
 };
 
 export type PlatformDevicePushTokenRecord = {
@@ -31,6 +27,10 @@ export type PlatformListDeviceTokensResponse = {
   items: PlatformDevicePushTokenRecord[];
 };
 
+export type PlatformDeactivateDeviceTokenResponse = {
+  deactivated: boolean;
+};
+
 export function createPlatformNotificationsApi(config: PlatformApiConfig) {
   return {
     async registerDeviceToken(
@@ -40,22 +40,25 @@ export function createPlatformNotificationsApi(config: PlatformApiConfig) {
 
       return platformPost<
         PlatformRegisterDeviceTokenRequest,
-        PlatformRegisterDeviceTokenResponse
+        PlatformDevicePushTokenRecord
       >(config, '/me/device-token', normalizedRequest);
     },
 
     async listDeviceTokens() {
-      return platformPost<
-        Record<string, never>,
-        PlatformListDeviceTokensResponse
-      >(config, '/me/device-tokens', {});
+      return platformGet<PlatformListDeviceTokensResponse>(
+        config,
+        '/me/device-tokens',
+      );
     },
 
     async deactivateDeviceToken(token: string) {
-      return platformPost<{ token: string }, { deactivated: boolean }>(
+      return platformPost<
+        { token: string },
+        PlatformDeactivateDeviceTokenResponse
+      >(
         config,
         '/me/device-tokens/deactivate',
-        { token },
+        { token: normalizePushToken(token) },
       );
     },
   };
@@ -68,11 +71,21 @@ export type PlatformNotificationsApi = ReturnType<
 function normalizeRegisterDeviceTokenRequest(
   request: PlatformRegisterDeviceTokenRequest,
 ): PlatformRegisterDeviceTokenRequest {
-  const pushToken = request.pushToken.trim();
+  const pushToken = normalizePushToken(request.pushToken);
   const platform = request.platform;
-  const deviceId = request.deviceId.trim();
+  const deviceId = normalizeDeviceId(request.deviceId);
 
-  if (pushToken.length === 0) {
+  return {
+    pushToken,
+    platform,
+    deviceId,
+  };
+}
+
+function normalizePushToken(pushToken: string) {
+  const normalizedPushToken = pushToken.trim();
+
+  if (normalizedPushToken.length === 0) {
     throw new PlatformApiError(
       'Push token is required',
       'PUSH_TOKEN_INVALID',
@@ -80,7 +93,13 @@ function normalizeRegisterDeviceTokenRequest(
     );
   }
 
-  if (deviceId.length === 0) {
+  return normalizedPushToken;
+}
+
+function normalizeDeviceId(deviceId: string) {
+  const normalizedDeviceId = deviceId.trim();
+
+  if (normalizedDeviceId.length === 0) {
     throw new PlatformApiError(
       'Device ID is required',
       'DEVICE_ID_INVALID',
@@ -88,9 +107,5 @@ function normalizeRegisterDeviceTokenRequest(
     );
   }
 
-  return {
-    pushToken,
-    platform,
-    deviceId,
-  };
+  return normalizedDeviceId;
 }

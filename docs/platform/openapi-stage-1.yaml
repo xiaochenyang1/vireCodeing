@@ -186,6 +186,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /me/device-tokens/deactivate:
+    post:
+      summary: Deactivate a device push token for the current user
+      description: Marks the specified device push token inactive so it will no longer receive platform push notifications for the current account.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivateDeviceTokenRequest'
+      responses:
+        '200':
+          description: Device token deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeactivateDeviceTokenResponse'
+        '400':
+          description: PUSH_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: AUTH_ACCESS_TOKEN_INVALID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /maps/geocode:
     post:
       summary: Geocode an address through the configured map provider
@@ -12826,6 +12858,15 @@ components:
           minLength: 1
           maxLength: 120
           description: Client-side device identifier
+    DeactivateDeviceTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Registered device push token to deactivate
     DevicePushTokenResponse:
       allOf:
         - $ref: '#/components/schemas/OkEnvelope'
@@ -12833,6 +12874,19 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/DevicePushTokenRecord'
+    DeactivateDeviceTokenResult:
+      type: object
+      required: [deactivated]
+      properties:
+        deactivated:
+          type: boolean
+    DeactivateDeviceTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/OkEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeactivateDeviceTokenResult'
     DevicePushTokenListResponse:
       allOf:
         - $ref: '#/components/schemas/OkEnvelope'

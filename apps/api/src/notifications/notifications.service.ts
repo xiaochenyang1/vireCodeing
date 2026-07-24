@@ -105,7 +105,16 @@ export class NotificationsService {
     userId: string,
     token: string,
   ): Promise<boolean> {
-    return this.repository.deactivateDevicePushToken(userId, token);
+    const normalizedToken = token.trim();
+
+    if (normalizedToken.length === 0) {
+      throw new BusinessError(
+        ApiErrorCode.PUSH_TOKEN_INVALID,
+        '推送令牌不能为空',
+      );
+    }
+
+    return this.repository.deactivateDevicePushToken(userId, normalizedToken);
   }
 
   async createAndPush(input: CreateInboxMessageInput): Promise<InboxMessageRecord> {

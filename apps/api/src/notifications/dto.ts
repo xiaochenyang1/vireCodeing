@@ -77,3 +77,7 @@ export type RegisterDeviceTokenInput = {
   platform: 'ios' | 'android';
   deviceId: string;
 };
+
+export type DeactivateDeviceTokenInput = {
+  token: string;
+};
