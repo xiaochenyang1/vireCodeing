@@ -12467,6 +12467,19 @@ components:
         updatedAtIso:
           type: string
           format: date-time
+        distanceToTargetMeters:
+          type: integer
+          minimum: 0
+          description: Best-effort straight-line meters to the active pickup/delivery target. Present only when the order has usable coordinates.
+        etaMinutes:
+          type: integer
+          minimum: 1
+          description: Rough ETA minutes at ~30 km/h urban truck speed. Not live traffic routing.
+        targetType:
+          type: string
+          enum: [pickup, delivery]
+        targetAddress:
+          type: string
     DriverLocationSnapshotResponse:
       allOf:
         - $ref: '#/components/schemas/OkEnvelope'

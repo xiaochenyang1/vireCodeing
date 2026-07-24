@@ -3,6 +3,9 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 import {
   buildExternalNavigationUrls,
   formatCoordinateText,
+  formatDistanceMetersText,
+  formatEtaMinutesText,
+  formatTrackingEstimateText,
 } from '../src/utils/mapsNavigation';
 
 describe('platform maps api', () => {
@@ -98,6 +101,22 @@ describe('maps navigation utils', () => {
       amapAndroid: expect.stringContaining('lat=22.6&lon=113.9'),
     });
     expect(formatCoordinateText(22.6, 113.9)).toBe('22.600000, 113.900000');
+  });
+
+  it('formats distance and ETA estimates for tracking cards', () => {
+    expect(formatDistanceMetersText(860)).toBe('860 米');
+    expect(formatDistanceMetersText(3200)).toBe('约 3.2 公里');
+    expect(formatDistanceMetersText(18500)).toBe('约 19 公里');
+    expect(formatEtaMinutesText(12)).toBe('约 12 分钟');
+    expect(formatEtaMinutesText(75)).toBe('约 1 小时 15 分钟');
+    expect(
+      formatTrackingEstimateText({
+        distanceToTargetMeters: 3200,
+        etaMinutes: 7,
+        targetType: 'delivery',
+        targetAddress: '龙岗区坂田仓',
+      }),
+    ).toBe('距卸货点（龙岗区坂田仓） 约 3.2 公里 · 预计 约 7 分钟');
   });
 
   it('falls back to address query when coordinates are missing', () => {

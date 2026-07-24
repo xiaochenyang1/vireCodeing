@@ -11,6 +11,7 @@ import { PlatformApiError } from '../../services/platformApiClient';
 import {
   buildExternalNavigationUrls,
   formatCoordinateText,
+  formatTrackingEstimateText,
 } from '../../utils/mapsNavigation';
 
 const TRACKING_REFRESH_INTERVAL_MS = 30 * 1000;
@@ -18,6 +19,7 @@ const TRACKING_REFRESH_INTERVAL_MS = 30 * 1000;
 type TrackingState = {
   locationText: string;
   detailText: string;
+  estimateText?: string;
   sourceText: string;
   notice: string;
   hasPlatformSnapshot: boolean;
@@ -79,6 +81,13 @@ function createPlatformTrackingState(
   notice: string,
   formattedAddress?: string,
 ): TrackingState {
+  const estimateText = formatTrackingEstimateText({
+    distanceToTargetMeters: snapshot.distanceToTargetMeters,
+    etaMinutes: snapshot.etaMinutes,
+    targetType: snapshot.targetType,
+    targetAddress: snapshot.targetAddress,
+  });
+
   return {
     locationText: formattedAddress
       ? `司机位置：${formattedAddress}`
@@ -86,6 +95,7 @@ function createPlatformTrackingState(
     detailText: formattedAddress
       ? `坐标：${coordinateText} · 更新时间：${snapshot.recordedAtIso}`
       : `更新时间：${snapshot.recordedAtIso}`,
+    ...(estimateText ? { estimateText } : {}),
     sourceText: getTrackingSourceText(snapshot.source),
     notice,
     hasPlatformSnapshot: true,
@@ -299,6 +309,11 @@ export function TrackingCard({
         </View>
         <Text style={styles.detailMeta}>{trackingState.locationText}</Text>
         <Text style={styles.detailMeta}>{trackingState.detailText}</Text>
+        {trackingState.estimateText ? (
+          <Text testID="order-tracking-estimate" style={styles.detailMeta}>
+            {trackingState.estimateText}
+          </Text>
+        ) : null}
         <Text style={styles.routeMeta}>{trackingState.notice}</Text>
         <Pressable
           testID="order-tracking-open-navigation"

@@ -809,6 +809,10 @@ describe('OrderDetailScreen tracking', () => {
         source: 'sandbox',
         recordedAtIso: '2026-07-21T10:00:00.000Z',
         updatedAtIso: '2026-07-21T10:00:00.000Z',
+        distanceToTargetMeters: 3200,
+        etaMinutes: 7,
+        targetType: 'delivery',
+        targetAddress: '龙岗区坂田仓',
       }),
       reverseGeocode: jest.fn().mockResolvedValue({
         latitude: 22.61,
@@ -844,11 +848,18 @@ describe('OrderDetailScreen tracking', () => {
     expect(renderedText).toContain(
       '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:00:00.000Z',
     );
+    expect(renderedText).toContain(
+      '距卸货点（龙岗区坂田仓） 约 3.2 公里 · 预计 约 7 分钟',
+    );
     expect(renderedText).toContain('已读取司机最新上报位置，30 秒自动刷新中。');
     expect(
       renderer.root.findByProps({ testID: 'order-tracking-source' }).props
         .children,
     ).toBe('沙箱位置');
+    expect(
+      renderer.root.findByProps({ testID: 'order-tracking-estimate' }).props
+        .children,
+    ).toBe('距卸货点（龙岗区坂田仓） 约 3.2 公里 · 预计 约 7 分钟');
   });
 
   it('falls back to coordinates when reverse geocoding fails', async () => {

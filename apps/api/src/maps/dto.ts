@@ -33,6 +33,18 @@ export type DriverLocationSnapshotRecord = {
   source: DriverLocationSource;
   recordedAtIso: string;
   updatedAtIso: string;
+  /**
+   * Best-effort straight-line estimate toward the active navigation target.
+   * Present only when the order has usable coordinates for the current stage.
+   */
+  distanceToTargetMeters?: number;
+  /**
+   * Rough ETA in minutes assuming ~30 km/h urban truck speed.
+   * Not a live traffic/routing ETA.
+   */
+  etaMinutes?: number;
+  targetType?: 'pickup' | 'delivery';
+  targetAddress?: string;
 };
 
 export type NavigationTarget = {

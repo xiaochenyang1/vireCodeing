@@ -21,6 +21,10 @@ export type PlatformDriverLocationSnapshot = {
   source: 'manual' | 'device' | 'sandbox';
   recordedAtIso: string;
   updatedAtIso: string;
+  distanceToTargetMeters?: number;
+  etaMinutes?: number;
+  targetType?: 'pickup' | 'delivery';
+  targetAddress?: string;
 };
 
 export type PlatformNavigationTarget = {

@@ -52,3 +52,72 @@ export function buildExternalNavigationUrls(
 export function formatCoordinateText(latitude: number, longitude: number) {
   return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 }
+
+export function formatDistanceMetersText(meters: number) {
+  if (!Number.isFinite(meters) || meters < 0) {
+    return undefined;
+  }
+
+  if (meters < 1000) {
+    return `${Math.round(meters)} 米`;
+  }
+
+  const kilometers = meters / 1000;
+  const rounded =
+    kilometers >= 10 ? Math.round(kilometers) : Math.round(kilometers * 10) / 10;
+
+  return `约 ${rounded} 公里`;
+}
+
+export function formatEtaMinutesText(etaMinutes: number) {
+  if (!Number.isFinite(etaMinutes) || etaMinutes < 1) {
+    return undefined;
+  }
+
+  const minutes = Math.round(etaMinutes);
+  if (minutes < 60) {
+    return `约 ${minutes} 分钟`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainMinutes = minutes % 60;
+  return remainMinutes === 0
+    ? `约 ${hours} 小时`
+    : `约 ${hours} 小时 ${remainMinutes} 分钟`;
+}
+
+export function formatTrackingEstimateText(input: {
+  distanceToTargetMeters?: number;
+  etaMinutes?: number;
+  targetType?: 'pickup' | 'delivery';
+  targetAddress?: string;
+}) {
+  const distanceText =
+    typeof input.distanceToTargetMeters === 'number'
+      ? formatDistanceMetersText(input.distanceToTargetMeters)
+      : undefined;
+  const etaText =
+    typeof input.etaMinutes === 'number'
+      ? formatEtaMinutesText(input.etaMinutes)
+      : undefined;
+
+  if (!distanceText && !etaText) {
+    return undefined;
+  }
+
+  const targetLabel =
+    input.targetType === 'pickup'
+      ? '装货点'
+      : input.targetType === 'delivery'
+        ? '卸货点'
+        : '目的地';
+  const addressSuffix = input.targetAddress?.trim()
+    ? `（${input.targetAddress.trim()}）`
+    : '';
+  const parts = [
+    distanceText ? `距${targetLabel}${addressSuffix} ${distanceText}` : undefined,
+    etaText ? `预计 ${etaText}` : undefined,
+  ].filter(Boolean);
+
+  return parts.join(' · ');
+}

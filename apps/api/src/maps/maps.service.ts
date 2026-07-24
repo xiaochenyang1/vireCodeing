@@ -103,7 +103,7 @@ export class MapsService {
       );
     }
 
-    return snapshot;
+    return enrichSnapshotWithTargetEstimate(snapshot, order, this.mapProvider);
   }
 
   async getDriverLocation(
@@ -148,4 +148,65 @@ function assertCoordinates(latitude: number, longitude: number) {
   ) {
     throw new BusinessError(ApiErrorCode.MAP_COORDINATES_INVALID, '坐标不合法');
   }
+}
+
+/** ~30 km/h urban truck average → 500 meters per minute. */
+const ESTIMATED_TRUCK_METERS_PER_MINUTE = 500;
+
+function enrichSnapshotWithTargetEstimate(
+  snapshot: DriverLocationSnapshotRecord,
+  order: DriverLocationOrderContext,
+  mapProvider: MapProvider,
+): DriverLocationSnapshotRecord {
+  const target = resolveActiveNavigationTarget(order);
+  if (
+    !target ||
+    typeof target.latitude !== 'number' ||
+    typeof target.longitude !== 'number' ||
+    !Number.isFinite(target.latitude) ||
+    !Number.isFinite(target.longitude)
+  ) {
+    return snapshot;
+  }
+
+  const distanceToTargetMeters = mapProvider.estimateDistanceMeters(
+    {
+      latitude: snapshot.latitude,
+      longitude: snapshot.longitude,
+    },
+    {
+      latitude: target.latitude,
+      longitude: target.longitude,
+    },
+  );
+
+  return {
+    ...snapshot,
+    distanceToTargetMeters,
+    etaMinutes: Math.max(
+      1,
+      Math.ceil(distanceToTargetMeters / ESTIMATED_TRUCK_METERS_PER_MINUTE),
+    ),
+    targetType: target.type,
+    targetAddress: target.address,
+  };
+}
+
+function resolveActiveNavigationTarget(order: DriverLocationOrderContext) {
+  if (order.status === 'loading') {
+    return order.pickup;
+  }
+
+  if (
+    order.status === 'transporting' ||
+    order.status === 'confirming' ||
+    order.status === 'completed'
+  ) {
+    return order.delivery;
+  }
+
+  return order.delivery.latitude !== undefined &&
+    order.delivery.longitude !== undefined
+    ? order.delivery
+    : order.pickup;
 }

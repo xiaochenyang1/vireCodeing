@@ -28,7 +28,7 @@ describe('MapsService', () => {
     expect(result.formattedAddress).toContain('22.610000');
   });
 
-  it('reports a driver location and lets the shipper read it', async () => {
+  it('reports a driver location and lets the shipper read it with ETA estimate', async () => {
     const service = createService(createOrderContext());
 
     const reported = await service.reportDriverLocation('driver-1', {
@@ -46,18 +46,45 @@ describe('MapsService', () => {
       longitude: 113.91,
       source: 'device',
     });
+    expect(reported.distanceToTargetMeters).toBeUndefined();
+    expect(reported.etaMinutes).toBeUndefined();
 
-    await expect(
-      service.getShipperDriverLocation('shipper-1', 'order-1'),
-    ).resolves.toMatchObject({
+    const shipperSnapshot = await service.getShipperDriverLocation(
+      'shipper-1',
+      'order-1',
+    );
+
+    expect(shipperSnapshot).toMatchObject({
       driverId: 'driver-1',
       latitude: 22.61,
       longitude: 113.91,
+      targetType: 'delivery',
+      targetAddress: '龙岗区坂田仓',
     });
+    expect(shipperSnapshot.distanceToTargetMeters).toBeGreaterThan(0);
+    expect(shipperSnapshot.etaMinutes).toBeGreaterThan(0);
     await expect(service.getDriverLocation('driver-1')).resolves.toMatchObject({
       driverId: 'driver-1',
       latitude: 22.61,
       longitude: 113.91,
+    });
+  });
+
+  it('estimates ETA toward the pickup point while the order is still loading', async () => {
+    const service = createService(createOrderContext({ status: 'loading' }));
+
+    await service.reportDriverLocation('driver-1', {
+      latitude: 22.61,
+      longitude: 113.91,
+      orderId: 'order-1',
+      source: 'device',
+    });
+
+    await expect(
+      service.getShipperDriverLocation('shipper-1', 'order-1'),
+    ).resolves.toMatchObject({
+      targetType: 'pickup',
+      targetAddress: '宝安区福永物流园',
     });
   });
 
