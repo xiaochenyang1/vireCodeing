@@ -2759,35 +2759,102 @@ test('clears a saved platform auth session when startup current user lookup repo
   }
 });
 
-test('logs out the platform refresh session before clearing local auth state', async () => {
+test('logs out the platform refresh session and deactivates current-device push tokens before clearing local auth state', async () => {
   const originalFetch = globalThis.fetch;
-  const fetchMock = jest
-    .fn()
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        expireSeconds: 300,
-        devCode: '777777',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        user: {
-          id: 'user-platform-logout',
-          phone: '13800138000',
-          userType: 'shipper',
-        },
-        tokens: {
-          accessToken: 'access.platform-logout-user.900',
-          refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
-          expiresIn: 900,
-        },
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        loggedOut: true,
-      }),
-    );
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+    const requestMethod = init?.method ?? 'GET';
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '777777',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-logout',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-logout-user.900',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'push-current-device',
+              userId: 'user-platform-logout',
+              token: 'ExponentPushToken[logout-current-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: getDeviceId(),
+              isActive: true,
+              createdAtIso: '2026-07-24T08:00:00.000Z',
+              updatedAtIso: '2026-07-24T08:05:00.000Z',
+            },
+            {
+              id: 'push-other-device',
+              userId: 'user-platform-logout',
+              token: 'ExponentPushToken[logout-other-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: 'mobile-device-other',
+              isActive: true,
+              createdAtIso: '2026-07-24T07:00:00.000Z',
+              updatedAtIso: '2026-07-24T07:05:00.000Z',
+            },
+          ],
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens/deactivate' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          deactivated:
+            requestBody?.token === 'ExponentPushToken[logout-current-token]',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/logout' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          loggedOut: true,
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
 
   installPlatformFetchMock(fetchMock);
 
@@ -2832,6 +2899,24 @@ test('logs out the platform refresh session before clearing local auth state', a
       refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440109',
       deviceId: getDeviceId(),
     });
+    expect(
+      getFetchCallBody<{
+        token: string;
+      }>(
+        findFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/me/device-tokens/deactivate',
+          method: 'POST',
+        }),
+      ),
+    ).toEqual({
+      token: 'ExponentPushToken[logout-current-token]',
+    });
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-tokens',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
     expect(getAuthSessionSnapshot()).toBeUndefined();
     expect(getRenderedText(app)).toContain('账号验证');
   } finally {

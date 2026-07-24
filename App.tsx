@@ -521,6 +521,35 @@ function App({
   } = useAppNavigation();
   const { pushToken, permissionStatus, requestPermission } =
     usePushNotifications();
+  const deactivatePushTokensForDevice = useCallback(
+    async (
+      notificationsApi:
+        | Pick<
+            ReturnType<typeof createPlatformNotificationsApi>,
+            'listDeviceTokens' | 'deactivateDeviceToken'
+          >
+        | undefined,
+      deviceId: string,
+    ) => {
+      if (!notificationsApi) {
+        return;
+      }
+
+      const result = await notificationsApi.listDeviceTokens();
+      const currentDeviceTokens = result.items.filter(
+        item => item.deviceId === deviceId,
+      );
+
+      await Promise.all(
+        currentDeviceTokens.map(item =>
+          notificationsApi
+            .deactivateDeviceToken(item.token)
+            .catch(() => undefined),
+        ),
+      );
+    },
+    [],
+  );
   const registerCurrentDevicePushToken = useCallback(
     async (token: string) => {
       if (!platformNotificationsApi) {
@@ -561,20 +590,15 @@ function App({
       return;
     }
 
-    const deviceId = resolveCurrentDeviceId();
-    const result = await platformNotificationsApi.listDeviceTokens();
-    const currentDeviceTokens = result.items.filter(
-      item => item.deviceId === deviceId,
+    await deactivatePushTokensForDevice(
+      platformNotificationsApi,
+      resolveCurrentDeviceId(),
     );
-
-    await Promise.all(
-      currentDeviceTokens.map(item =>
-        platformNotificationsApi
-          .deactivateDeviceToken(item.token)
-          .catch(() => undefined),
-      ),
-    );
-  }, [platformNotificationsApi, resolveCurrentDeviceId]);
+  }, [
+    deactivatePushTokensForDevice,
+    platformNotificationsApi,
+    resolveCurrentDeviceId,
+  ]);
   const shouldSyncRestoredPushToken =
     shouldRegisterRestoredPushToken && orderNotificationsEnabled === true;
   useDevicePushTokenRegistration(
@@ -1191,12 +1215,34 @@ function App({
 
   const handleLogout = () => {
     const currentAuthSession = getAuthSessionSnapshot();
+    const currentDeviceId = resolveCurrentDeviceId();
 
-    if (platformAuthApi && currentAuthSession?.refreshToken) {
+    if (currentAuthSession?.accessToken && resolvedPlatformApiBaseUrl) {
+      const logoutNotificationsApi = createPlatformNotificationsApi({
+        baseUrl: resolvedPlatformApiBaseUrl,
+        getAccessToken: () => currentAuthSession.accessToken,
+      });
+
+      void deactivatePushTokensForDevice(
+        logoutNotificationsApi,
+        currentDeviceId,
+      )
+        .catch(() => undefined)
+        .finally(() => {
+          if (platformAuthApi && currentAuthSession.refreshToken) {
+            platformAuthApi
+              .logout({
+                refreshToken: currentAuthSession.refreshToken,
+                deviceId: currentDeviceId,
+              })
+              .catch(() => undefined);
+          }
+        });
+    } else if (platformAuthApi && currentAuthSession?.refreshToken) {
       platformAuthApi
         .logout({
           refreshToken: currentAuthSession.refreshToken,
-          deviceId: resolveCurrentDeviceId(),
+          deviceId: currentDeviceId,
         })
         .catch(() => undefined);
     }

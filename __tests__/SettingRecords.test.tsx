@@ -1116,4 +1116,137 @@ describe('SettingRecords platform account profile', () => {
     );
     expect(renderedText).not.toContain('Android · 设备 mobile-device-tablet');
   });
+
+  it('revokes other sessions and deactivates other-device push tokens together', async () => {
+    saveAuthSession(
+      1000,
+      {
+        accessToken: 'access-token',
+        refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440111',
+        expiresIn: 900,
+      },
+      'mobile-device-current',
+    );
+    const platformAuthApi = {
+      changePassword: jest.fn(),
+      listSessions: jest.fn().mockResolvedValue({
+        sessions: [
+          {
+            id: 'session-current',
+            deviceId: 'mobile-device-current',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            expiresAtIso: '2026-07-29T08:00:00.000Z',
+          },
+          {
+            id: 'session-laptop',
+            deviceId: 'mobile-device-laptop',
+            createdAtIso: '2026-07-21T08:00:00.000Z',
+            expiresAtIso: '2026-07-28T08:00:00.000Z',
+          },
+          {
+            id: 'session-tablet',
+            deviceId: 'mobile-device-tablet',
+            createdAtIso: '2026-07-20T08:00:00.000Z',
+            expiresAtIso: '2026-07-27T08:00:00.000Z',
+          },
+        ],
+        total: 3,
+      }),
+      revokeOtherSessions: jest.fn().mockResolvedValue({
+        currentDeviceId: 'mobile-device-current',
+        revokedCount: 2,
+      }),
+    };
+    const platformNotificationsApi = {
+      listDeviceTokens: jest.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'push-current',
+            userId: 'user-1',
+            token: 'ExponentPushToken[current-device-token]',
+            platform: 'ios',
+            deviceId: 'mobile-device-current',
+            isActive: true,
+            lastUsedAtIso: '2026-07-22T08:05:00.000Z',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            updatedAtIso: '2026-07-22T08:05:00.000Z',
+          },
+          {
+            id: 'push-laptop',
+            userId: 'user-1',
+            token: 'ExponentPushToken[laptop-device-token]',
+            platform: 'android',
+            deviceId: 'mobile-device-laptop',
+            isActive: true,
+            lastUsedAtIso: '2026-07-21T09:00:00.000Z',
+            createdAtIso: '2026-07-21T08:00:00.000Z',
+            updatedAtIso: '2026-07-21T09:00:00.000Z',
+          },
+          {
+            id: 'push-tablet',
+            userId: 'user-1',
+            token: 'ExponentPushToken[tablet-device-token]',
+            platform: 'android',
+            deviceId: 'mobile-device-tablet',
+            isActive: true,
+            lastUsedAtIso: '2026-07-20T09:00:00.000Z',
+            createdAtIso: '2026-07-20T08:00:00.000Z',
+            updatedAtIso: '2026-07-20T09:00:00.000Z',
+          },
+        ],
+      }),
+      deactivateDeviceToken: jest.fn().mockResolvedValue({
+        deactivated: true,
+      }),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SettingRecords
+          now={Date.parse('2026-07-22T08:30:00.000Z')}
+          settings={cloneSettings()}
+          account={baseAccount}
+          password={basePassword}
+          platformAuthApi={platformAuthApi}
+          platformNotificationsApi={platformNotificationsApi}
+          onUpdateSettings={jest.fn()}
+          onUpdateAccount={jest.fn()}
+          onUpdatePassword={jest.fn()}
+          onLogout={jest.fn()}
+        />,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await renderer.root
+        .findByProps({ testID: 'account-security-local-check' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await renderer.root
+        .findByProps({ testID: 'account-security-revoke-other-sessions' })
+        .props.onPress();
+    });
+
+    const renderedText = getRenderedText(renderer);
+
+    expect(platformAuthApi.revokeOtherSessions).toHaveBeenCalledWith({
+      currentDeviceId: 'mobile-device-current',
+    });
+    expect(platformNotificationsApi.listDeviceTokens).toHaveBeenCalledTimes(1);
+    expect(platformNotificationsApi.deactivateDeviceToken).toHaveBeenCalledWith(
+      'ExponentPushToken[laptop-device-token]',
+    );
+    expect(platformNotificationsApi.deactivateDeviceToken).toHaveBeenCalledWith(
+      'ExponentPushToken[tablet-device-token]',
+    );
+    expect(renderedText).toContain(
+      '已退出其它 2 台设备，并停用 2 个其它设备推送。',
+    );
+    expect(renderedText).toContain(
+      '平台共检测到 1 个活跃会话，当前设备 1 个，其它设备 0 个。',
+    );
+  });
 });

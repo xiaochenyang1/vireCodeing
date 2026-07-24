@@ -839,6 +839,38 @@ export function SettingRecords({
       const result = await platformAuthApi.revokeOtherSessions({
         currentDeviceId,
       });
+      let pushCleanupNoticeSuffix = '';
+
+      if (platformNotificationsApi) {
+        try {
+          const pushDeviceResult =
+            await platformNotificationsApi.listDeviceTokens();
+          const otherDevicePushTokens = pushDeviceResult.items.filter(
+            device => device.deviceId !== currentDeviceId,
+          );
+
+          if (otherDevicePushTokens.length > 0) {
+            await Promise.all(
+              otherDevicePushTokens.map(device =>
+                platformNotificationsApi.deactivateDeviceToken(device.token),
+              ),
+            );
+            setPlatformPushDevices(
+              pushDeviceResult.items.filter(
+                device => device.deviceId === currentDeviceId,
+              ),
+            );
+            pushCleanupNoticeSuffix = `，并停用 ${otherDevicePushTokens.length} 个其它设备推送`;
+          } else {
+            setPlatformPushDevices(pushDeviceResult.items);
+            pushCleanupNoticeSuffix = '，其它设备推送已为空';
+          }
+        } catch {
+          pushCleanupNoticeSuffix =
+            '，其它设备推送清理失败，请稍后在安全检查中手动处理';
+        }
+      }
+
       setPlatformSecuritySessions(currentSessions =>
         (currentSessions ?? []).filter(
           session => session.deviceId === currentDeviceId,
@@ -846,8 +878,8 @@ export function SettingRecords({
       );
       setNotice(
         result.revokedCount > 0
-          ? `已退出其它 ${result.revokedCount} 台设备。`
-          : '当前没有其它在线设备。',
+          ? `已退出其它 ${result.revokedCount} 台设备${pushCleanupNoticeSuffix}。`
+          : `当前没有其它在线设备${pushCleanupNoticeSuffix}。`,
       );
     } catch (error) {
       setNotice(getPlatformSessionSecurityErrorMessage(error, 'revoke'));
