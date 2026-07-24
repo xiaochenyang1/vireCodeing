@@ -84,6 +84,7 @@ export type DriverShipperEvaluationFormState = {
   tagsText: string;
   content: string;
   anonymous: boolean;
+  photoFileIds: string[];
 };
 
 export type DriverExceptionFormState = {
@@ -182,6 +183,7 @@ export const emptyShipperEvaluationForm: DriverShipperEvaluationFormState = {
   tagsText: '',
   content: '',
   anonymous: false,
+  photoFileIds: [],
 };
 
 export const emptyExceptionForm: DriverExceptionFormState = {
@@ -377,6 +379,9 @@ export function createShipperEvaluationRequest(
     .filter(Boolean)
     .filter((tag, index, allTags) => allTags.indexOf(tag) === index);
   const content = form.content.trim();
+  const photoFileIds = Array.from(
+    new Set(form.photoFileIds.map(fileId => fileId.trim()).filter(Boolean)),
+  );
 
   if (
     !Number.isInteger(rating) ||
@@ -385,7 +390,8 @@ export function createShipperEvaluationRequest(
     tags.length === 0 ||
     tags.length > 6 ||
     content.length < 6 ||
-    content.length > 200
+    content.length > 200 ||
+    photoFileIds.length > 6
   ) {
     return undefined;
   }
@@ -395,6 +401,8 @@ export function createShipperEvaluationRequest(
     tags,
     content,
     ...(form.anonymous ? { anonymous: true } : {}),
+    photoCount: photoFileIds.length,
+    ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
   };
 }
 

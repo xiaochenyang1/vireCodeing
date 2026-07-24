@@ -410,6 +410,9 @@ function isValidPlatformEvaluationRecord(
     typeof item?.content === 'string' &&
     typeof item?.anonymous === 'boolean' &&
     typeof item?.photoCount === 'number' &&
+    (item?.photoFileIds === undefined ||
+      (Array.isArray(item.photoFileIds) &&
+        item.photoFileIds.every(fileId => typeof fileId === 'string'))) &&
     typeof item?.submittedAtIso === 'string'
   );
 }
@@ -439,6 +442,10 @@ function isValidPlatformReceivedEvaluationRecord(
     item.tags.every(tag => typeof tag === 'string') &&
     typeof item?.content === 'string' &&
     typeof item?.anonymous === 'boolean' &&
+    typeof item?.photoCount === 'number' &&
+    (item?.photoFileIds === undefined ||
+      (Array.isArray(item.photoFileIds) &&
+        item.photoFileIds.every(fileId => typeof fileId === 'string'))) &&
     typeof item?.submittedAtIso === 'string'
   );
 }

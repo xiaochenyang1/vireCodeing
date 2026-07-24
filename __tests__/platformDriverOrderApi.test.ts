@@ -612,6 +612,8 @@ describe('platform driver order api', () => {
       tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
       content: '  货主装货配合好，结算沟通清楚。  ',
       anonymous: true,
+      photoCount: 2,
+      photoFileIds: [' file-1 ', 'file-1', 'file-2'],
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -623,6 +625,8 @@ describe('platform driver order api', () => {
           tags: ['沟通顺畅', '装货配合'],
           content: '货主装货配合好，结算沟通清楚。',
           anonymous: true,
+          photoCount: 2,
+          photoFileIds: ['file-1', 'file-2'],
         }),
       }),
     );
@@ -632,6 +636,15 @@ describe('platform driver order api', () => {
     ['invalid rating', { rating: 0, tags: ['沟通顺畅'], content: '货主装货配合好，结算沟通清楚。' }],
     ['empty tags', { rating: 5, tags: [], content: '货主装货配合好，结算沟通清楚。' }],
     ['short content', { rating: 5, tags: ['沟通顺畅'], content: '太短' }],
+    [
+      'too many photo ids',
+      {
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+        photoFileIds: Array.from({ length: 7 }, (_, index) => `file-${index}`),
+      },
+    ],
     ['non-object request', null],
   ])(
     'rejects invalid driver shipper evaluation requests before sending them: %s',

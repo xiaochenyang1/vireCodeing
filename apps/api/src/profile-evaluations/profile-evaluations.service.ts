@@ -203,6 +203,9 @@ function createReceivedEvaluationRecord(
     return undefined;
   }
 
+  const photoFileIds = normalizeAttachmentFileIds(event.attachmentFileIds);
+  const photoCount = photoFileIds.length || parsedEvaluation.photoCount;
+
   return {
     id: event.id,
     orderId: order.id,
@@ -217,6 +220,8 @@ function createReceivedEvaluationRecord(
     tags: parsedEvaluation.tags,
     content: parsedEvaluation.content,
     anonymous: parsedEvaluation.anonymous,
+    photoCount,
+    ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
     submittedAtIso: event.createdAtIso,
   };
 }

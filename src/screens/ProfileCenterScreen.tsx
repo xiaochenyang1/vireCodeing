@@ -9,6 +9,7 @@ import {
 import { ProfileOverviewPanel } from './profile/ProfileOverviewPanel';
 import { ProfileSyncStatusCard } from './profile/ProfileSyncStatusCard';
 import { ProfileTopBar } from './profile/ProfileTopBar';
+import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 import { styles } from '../styles';
 import type { RecentOrder } from '../types';
 import type {
@@ -31,6 +32,7 @@ import {
 } from '../utils/profileAddressBook';
 import {
   createEvaluationRecords,
+  hydrateProfileEvaluationRecords,
   createLocalEvaluationRecordsFromPlatformSnapshot,
   createLocalReceivedEvaluationRecordsFromPlatformSnapshot,
   type ProfileEvaluationRecordItem,
@@ -301,6 +303,7 @@ export function ProfileCenterScreen({
   now,
   orders,
   unreadMessageCount,
+  notificationPermissionStatus,
   platformAuthApi,
   platformProfileApi,
   platformFileApi,
@@ -310,6 +313,7 @@ export function ProfileCenterScreen({
   now: number;
   orders: RecentOrder[];
   unreadMessageCount: number;
+  notificationPermissionStatus?: PushNotificationPermissionStatus;
   platformAuthApi?: ProfilePlatformAuthApi;
   platformProfileApi?: Pick<
     ReturnType<typeof createPlatformProfileApi>,
@@ -770,7 +774,7 @@ export function ProfileCenterScreen({
       platformProfileApi.getEvaluations(),
       platformProfileApi.getReceivedEvaluations(),
     ])
-      .then(([evaluationSnapshot, receivedEvaluationSnapshot]) => {
+      .then(async ([evaluationSnapshot, receivedEvaluationSnapshot]) => {
         if (
           cancelled ||
           !isValidPlatformEvaluationSnapshot(evaluationSnapshot) ||
@@ -779,7 +783,7 @@ export function ProfileCenterScreen({
           return;
         }
 
-        setPlatformEvaluationRecords(
+        const nextEvaluationRecords = await hydrateProfileEvaluationRecords(
           [
             ...createLocalEvaluationRecordsFromPlatformSnapshot(
               evaluationSnapshot,
@@ -788,7 +792,14 @@ export function ProfileCenterScreen({
               receivedEvaluationSnapshot,
             ),
           ],
+          platformFileApi,
         );
+
+        if (cancelled) {
+          return;
+        }
+
+        setPlatformEvaluationRecords(nextEvaluationRecords);
       })
       .catch(() => {
         if (!cancelled) {
@@ -799,7 +810,7 @@ export function ProfileCenterScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeSection, platformProfileApi]);
+  }, [activeSection, platformFileApi, platformProfileApi]);
   const updateProfileState = (
     updater: (current: ProfileLocalState) => ProfileLocalState,
     options: ProfileSyncMutationOptions & { syncAddressBook?: boolean } = {},
@@ -1741,6 +1752,7 @@ export function ProfileCenterScreen({
         settings={settings}
         account={account}
         password={password}
+        notificationPermissionStatus={notificationPermissionStatus}
         platformSpendingSnapshot={platformSpendingSnapshot}
         spendingNotice={spendingNotice}
         platformAuthApi={platformAuthApi}

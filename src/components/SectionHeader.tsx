@@ -1,4 +1,4 @@
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { styles } from '../styles';
 
@@ -9,23 +9,24 @@ type SectionHeaderProps = {
   onActionPress?: () => void;
 };
 
-export function showUnavailable(featureName: string) {
-  Alert.alert('暂未开放', `${featureName}将在下一阶段接入`);
-}
-
 export function SectionHeader({
   title,
   actionLabel,
   actionTestID,
   onActionPress,
 }: SectionHeaderProps) {
+  if (!onActionPress) {
+    return (
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Pressable
-        testID={actionTestID}
-        onPress={onActionPress ?? (() => showUnavailable(actionLabel))}
-      >
+      <Pressable testID={actionTestID} onPress={onActionPress}>
         <Text style={styles.sectionAction}>{actionLabel}</Text>
       </Pressable>
     </View>

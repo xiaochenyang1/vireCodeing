@@ -39,7 +39,7 @@ export function getOrderProgressAction(
       nextStatus: 'loading',
       updatedAtText: '司机已接单 · 刚刚',
       description: usesPlatformOrderActions
-        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；真实司机接单仍待后续闭环。'
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；司机接单与报价请以平台司机端状态为准。'
         : '本地演示：模拟货主选择司机报价，订单进入待装货。',
       noticeText: usesPlatformOrderActions
         ? '已提交平台状态推进请求，订单进入待装货。'
@@ -55,7 +55,7 @@ export function getOrderProgressAction(
       nextStatus: 'transporting',
       updatedAtText: '货物运输中 · 刚刚',
       description: usesPlatformOrderActions
-        ? '当前订单已接平台状态推进接口，点击后会把订单推进到运输中；装货确认仍待后续闭环。'
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到运输中；装货凭证与司机执行状态会按平台订单刷新。'
         : '本地演示：模拟司机完成装货，订单进入运输中。',
       noticeText: usesPlatformOrderActions
         ? '已提交平台状态推进请求，订单进入运输中。'
@@ -71,7 +71,7 @@ export function getOrderProgressAction(
       nextStatus: 'confirming',
       updatedAtText: '等待货主确认 · 刚刚',
       description: usesPlatformOrderActions
-        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待确认；实时送达确认仍待后续闭环。'
+        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待确认；司机送达过程请以平台执行状态和轨迹信息为准。'
         : '本地演示：模拟司机送达卸货点，等待货主确认。',
       noticeText: usesPlatformOrderActions
         ? '已提交平台状态推进请求，订单进入待确认。'

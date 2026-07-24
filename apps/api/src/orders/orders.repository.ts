@@ -1505,6 +1505,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       actorUserId: driverId,
       eventType: 'shipper_evaluation_submitted',
       noteText: createOrderEvaluationNote(input),
+      attachmentFileIds: input.photoFileIds ?? [],
       createdAtIso: nowIso,
     });
 
@@ -5296,6 +5297,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
             actorUserId: driverId,
             eventType: 'shipper_evaluation_submitted',
             noteText: createOrderEvaluationNote(input),
+            attachmentFileIds: input.photoFileIds ?? [],
           },
         },
       },

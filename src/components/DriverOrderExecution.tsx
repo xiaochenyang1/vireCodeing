@@ -7,27 +7,44 @@ import {
 } from 'react-native';
 
 import { FileUploadField } from './FileUploadField';
+import {
+  useImageUpload,
+  type UseImageUploadResult,
+} from '../hooks/useImageUpload';
 import { colors, styles } from '../styles';
-import type { PlatformFileUploadRecord } from '../services/platformFileApi';
+import type { createPlatformFileApi, PlatformFileUploadRecord } from '../services/platformFileApi';
+import type { createPlatformMapsApi, PlatformNavigationTarget } from '../services/platformMapsApi';
 import type { PlatformShipperOrder } from '../services/platformOrderApi';
-import type { PlatformNavigationTarget } from '../services/platformMapsApi';
+
+export type DriverReceiptFieldName =
+  | 'loadingReceiptFileId'
+  | 'confirmingReceiptFileId';
+
+type DriverOrderExecutionFileApi = Pick<
+  ReturnType<typeof createPlatformFileApi>,
+  'createUploadIntent' | 'confirmUploaded'
+> &
+  Partial<
+    Pick<ReturnType<typeof createPlatformFileApi>, 'confirmLocalUploadTarget'>
+  >;
 
 export type DriverOrderExecutionProps = {
   order: PlatformShipperOrder;
   baseUpdatedAtIso: string;
   navigationTargets: PlatformNavigationTarget[];
-  platformMapsApi?: {
-    geocode: (address: string) => Promise<{ latitude: number; longitude: number; formattedAddress: string }>;
-  };
-  platformFileApi?: {
-    createUploadIntent: (request: { purpose: string; fileName: string; contentType: string; byteSize: number }) => Promise<{ id: string; uploadUrl: string }>;
-    confirmUploaded: (fileId: string, request: { publicUrl?: string }) => Promise<{ id: string; status: string; publicUrl?: string }>;
-  };
+  platformMapsApi?: Pick<
+    ReturnType<typeof createPlatformMapsApi>,
+    'getDriverNavigationTargets' | 'reportDriverLocation'
+  >;
+  platformFileApi?: DriverOrderExecutionFileApi;
   onNavigate: (target: PlatformNavigationTarget) => void;
   onReportLocation: () => void;
   onCallContact?: (contactType: '装货联系人' | '卸货联系人', contactName?: string, phone?: string) => void;
   onAdvanceStatus: (request: { nextStatus: string; receiptPhotoFileIds?: string[] }) => void;
-  onUploadReceipt: (fileId: string, fieldName: string) => void;
+  onChangeReceipt: (
+    file: PlatformFileUploadRecord | undefined,
+    fieldName: DriverReceiptFieldName,
+  ) => void;
   receiptFiles: {
     loading: PlatformFileUploadRecord[];
     confirming: PlatformFileUploadRecord[];
@@ -79,7 +96,7 @@ export function DriverOrderExecution({
   onReportLocation,
   onCallContact,
   onAdvanceStatus,
-  onUploadReceipt,
+  onChangeReceipt,
   receiptFiles,
   isAdvancing,
 }: DriverOrderExecutionProps) {
@@ -100,34 +117,48 @@ export function DriverOrderExecution({
   }, [order.status]);
 
   const canAdvance = Boolean(nextStatus && !isCompleted);
+  const loadingReceiptUpload = useImageUpload(platformFileApi, {
+    purpose: 'receipt',
+    fileName: '装货凭证.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+  const confirmingReceiptUpload = useImageUpload(platformFileApi, {
+    purpose: 'receipt',
+    fileName: '到达凭证.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
 
-  const buildReceiptUploader = (stage: 'loading' | 'confirming') => {
-    if (!platformFileApi) return undefined;
+  const buildReceiptUploader = (
+    stage: 'loading' | 'confirming',
+  ): UseImageUploadResult | undefined => {
+    if (!platformFileApi) {
+      return undefined;
+    }
+
+    const uploader =
+      stage === 'loading' ? loadingReceiptUpload : confirmingReceiptUpload;
+    const fieldName: DriverReceiptFieldName =
+      stage === 'loading' ? 'loadingReceiptFileId' : 'confirmingReceiptFileId';
+    const existingFile =
+      stage === 'loading' ? receiptFiles.loading[0] : receiptFiles.confirming[0];
 
     return {
       state: {
-        isUploading: false,
-        error: undefined,
-        file: stage === 'loading'
-          ? receiptFiles.loading[0]
-          : receiptFiles.confirming[0],
-      } as const,
+        ...uploader.state,
+        file: uploader.state.file ?? existingFile,
+      },
       pickAndUpload: async () => {
-        if (!platformFileApi) return;
-
-        const fileName = stage === 'loading' ? '装货凭证.png' : '到达凭证.png';
-        const intent = await platformFileApi.createUploadIntent({
-          purpose: 'receipt',
-          fileName,
-          contentType: 'image/png',
-          byteSize: 2048,
-        });
-
-        const confirmed = await platformFileApi.confirmUploaded(intent.id, {});
-        onUploadReceipt(confirmed.id, stage === 'loading' ? 'loadingReceiptFileId' : 'confirmingReceiptFileId');
+        const result = await uploader.pickAndUpload();
+        if (result.status === 'uploaded') {
+          onChangeReceipt(result.file, fieldName);
+        }
+        return result;
       },
       clear: () => {
-        onUploadReceipt('', stage === 'loading' ? 'loadingReceiptFileId' : 'confirmingReceiptFileId');
+        uploader.clear();
+        onChangeReceipt(undefined, fieldName);
       },
     };
   };

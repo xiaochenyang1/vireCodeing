@@ -516,6 +516,7 @@ describe('DriverOrdersController', () => {
         rating: 5,
         tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
         content: '  货主装货配合好，结算沟通清楚。  ',
+        photoFileIds: [' file-1 ', 'file-1'],
       }),
     ).resolves.toMatchObject({
       code: 'OK',
@@ -528,6 +529,7 @@ describe('DriverOrdersController', () => {
         rating: 5,
         tags: ['沟通顺畅', '装货配合'],
         content: '货主装货配合好，结算沟通清楚。',
+        photoFileIds: ['file-1'],
       },
     );
   });

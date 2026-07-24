@@ -500,6 +500,11 @@ export class DriverOrdersService {
       );
     }
 
+    await this.assertShipperEvaluationProofFiles(
+      currentUser.id,
+      input.photoFileIds,
+    );
+
     return this.ordersRepository.evaluateShipper(
       order.id,
       currentUser.id,
@@ -565,53 +570,54 @@ export class DriverOrdersService {
     driverId: string,
     fileIds: string[] | undefined,
   ) {
-    if (!fileIds?.length) {
-      return;
-    }
-
-    if (!this.filesRepository) {
-      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '司机执行凭证不存在');
-    }
-
-    for (const fileId of fileIds) {
-      const file = await this.filesRepository.findFileByIdAndOwner(
-        fileId,
-        driverId,
-      );
-
-      if (!file) {
-        throw new BusinessError(
-          ApiErrorCode.FILE_NOT_FOUND,
-          '司机执行凭证不存在',
-        );
-      }
-
-      if (file.status !== 'uploaded') {
-        throw new BusinessError(
-          ApiErrorCode.FILE_STATE_INVALID,
-          '司机执行凭证尚未上传完成',
-        );
-      }
-
-      if (file.purpose !== 'receipt') {
-        throw new BusinessError(
-          ApiErrorCode.FILE_PURPOSE_INVALID,
-          '司机执行凭证用途不匹配',
-        );
-      }
-    }
+    await this.assertOwnedUploadedDriverFiles(driverId, fileIds, {
+      purpose: 'receipt',
+      notFoundMessage: '司机执行凭证不存在',
+      pendingMessage: '司机执行凭证尚未上传完成',
+      purposeMessage: '司机执行凭证用途不匹配',
+    });
   }
 
   private async assertExceptionProofFiles(
     driverId: string,
     fileIds: string[] | undefined,
   ) {
+    await this.assertOwnedUploadedDriverFiles(driverId, fileIds, {
+      purpose: 'exception',
+      notFoundMessage: '异常图片不存在',
+      pendingMessage: '异常图片尚未上传完成',
+      purposeMessage: '异常图片用途不匹配',
+    });
+  }
+
+  private async assertShipperEvaluationProofFiles(
+    driverId: string,
+    fileIds: string[] | undefined,
+  ) {
+    await this.assertOwnedUploadedDriverFiles(driverId, fileIds, {
+      purpose: 'evaluation',
+      notFoundMessage: '货主评价图片不存在',
+      pendingMessage: '货主评价图片尚未上传完成',
+      purposeMessage: '货主评价图片用途不匹配',
+    });
+  }
+
+  private async assertOwnedUploadedDriverFiles(
+    driverId: string,
+    fileIds: string[] | undefined,
+    options: {
+      purpose: 'receipt' | 'exception' | 'evaluation';
+      notFoundMessage: string;
+      pendingMessage: string;
+      purposeMessage: string;
+    },
+  ) {
     if (!fileIds?.length) {
       return;
     }
 
     if (!this.filesRepository) {
-      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常图片不存在');
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, options.notFoundMessage);
     }
 
     for (const fileId of fileIds) {
@@ -621,20 +627,20 @@ export class DriverOrdersService {
       );
 
       if (!file) {
-        throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常图片不存在');
+        throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, options.notFoundMessage);
       }
 
       if (file.status !== 'uploaded') {
         throw new BusinessError(
           ApiErrorCode.FILE_STATE_INVALID,
-          '异常图片尚未上传完成',
+          options.pendingMessage,
         );
       }
 
-      if (file.purpose !== 'exception') {
+      if (file.purpose !== options.purpose) {
         throw new BusinessError(
           ApiErrorCode.FILE_PURPOSE_INVALID,
-          '异常图片用途不匹配',
+          options.purposeMessage,
         );
       }
     }

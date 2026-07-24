@@ -60,6 +60,27 @@ jest.mock('expo-notifications', () => ({
   },
 }));
 
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: jest.fn(() =>
+    Promise.resolve({ canceled: true, assets: [] }),
+  ),
+  getCameraPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  getMediaLibraryPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  requestCameraPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  requestMediaLibraryPermissionsAsync: jest.fn(() =>
+    Promise.resolve({ status: 'granted' }),
+  ),
+  MediaTypeOptions: {
+    Images: 'images',
+  },
+}));
+
 const originalConsoleError = console.error;
 
 console.error = (...args) => {

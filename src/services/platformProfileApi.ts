@@ -233,6 +233,8 @@ export type PlatformProfileReceivedEvaluationRecord = {
   tags: string[];
   content: string;
   anonymous: boolean;
+  photoCount: number;
+  photoFileIds?: string[];
   submittedAtIso: string;
 };
 

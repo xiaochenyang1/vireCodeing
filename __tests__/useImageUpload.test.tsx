@@ -4,13 +4,19 @@ import ReactTestRenderer from 'react-test-renderer';
 import { useImageUpload } from '../src/hooks/useImageUpload';
 
 jest.mock('expo-image-picker', () => ({
+  getMediaLibraryPermissionsAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),
+  requestMediaLibraryPermissionsAsync: jest.fn(),
   MediaTypeOptions: {
     Images: 'images',
   },
 }));
 
-import { launchImageLibraryAsync } from 'expo-image-picker';
+import {
+  getMediaLibraryPermissionsAsync,
+  launchImageLibraryAsync,
+  requestMediaLibraryPermissionsAsync,
+} from 'expo-image-picker';
 
 function createMockFileApi() {
   return {
@@ -44,7 +50,18 @@ function createMockFileApi() {
         createdAtIso: new Date().toISOString(),
       });
     }),
-    confirmLocalUploadTarget: jest.fn(),
+    confirmLocalUploadTarget: jest.fn((uploadUrl: string) => {
+      const fileId = uploadUrl.split('/').pop() ?? 'file-local';
+      return Promise.resolve({
+        id: fileId,
+        ownerUserId: 'driver-1',
+        purpose: 'identity' as const,
+        objectKey: `uploads/${fileId}`,
+        publicUrl: `https://cdn.example.com/${fileId}.jpg`,
+        status: 'uploaded' as const,
+        createdAtIso: new Date().toISOString(),
+      });
+    }),
     getFileMetadata: jest.fn(),
     getPreviewMetadata: jest.fn(),
   };
@@ -71,6 +88,12 @@ describe('useImageUpload', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     capturedHookState = null;
+    (getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+      status: 'granted',
+    });
+    (requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+      status: 'granted',
+    });
   });
 
   afterEach(() => {
@@ -106,7 +129,9 @@ describe('useImageUpload', () => {
     });
 
     await act(async () => {
-      capturedHookState?.pickAndUpload();
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(capturedHookState?.state.error).toBe(
@@ -131,7 +156,9 @@ describe('useImageUpload', () => {
     });
 
     await act(async () => {
-      capturedHookState?.pickAndUpload();
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(launchImageLibraryAsync).toHaveBeenCalled();
@@ -160,7 +187,9 @@ describe('useImageUpload', () => {
     });
 
     await act(async () => {
-      capturedHookState?.pickAndUpload();
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(launchImageLibraryAsync).toHaveBeenCalledWith({
@@ -169,7 +198,8 @@ describe('useImageUpload', () => {
       allowsEditing: false,
     });
     expect(mockFileApi.createUploadIntent).toHaveBeenCalled();
-    expect(capturedHookState?.state.isUploading).toBe(true);
+    expect(capturedHookState?.state.isUploading).toBe(false);
+    expect(capturedHookState?.state.file?.status).toBe('uploaded');
   });
 
   it('clears the uploaded file on clear()', async () => {
@@ -213,10 +243,69 @@ describe('useImageUpload', () => {
     });
 
     await act(async () => {
-      capturedHookState?.pickAndUpload();
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(capturedHookState?.state.error).toBe('Permission denied');
     expect(capturedHookState?.state.file).toBeUndefined();
+  });
+
+  it('requests media-library permission before opening the picker', async () => {
+    (getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+      status: 'undetermined',
+    });
+    (requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+      status: 'granted',
+    });
+    (launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: true,
+      assets: [],
+    });
+
+    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+
+    await act(async () => {
+      renderer = ReactTestRenderer.create(
+        <CaptureHook api={mockFileApi} />,
+      );
+    });
+
+    await act(async () => {
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(requestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(launchImageLibraryAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a permission message when media-library access is denied', async () => {
+    (getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+      status: 'denied',
+    });
+
+    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
+
+    await act(async () => {
+      renderer = ReactTestRenderer.create(
+        <CaptureHook api={mockFileApi} />,
+      );
+    });
+
+    await act(async () => {
+      await capturedHookState?.pickAndUpload();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(capturedHookState?.state.error).toBe(
+      '相册权限已被拒绝，请在系统设置中开启。',
+    );
+    expect(requestMediaLibraryPermissionsAsync).not.toHaveBeenCalled();
+    expect(launchImageLibraryAsync).not.toHaveBeenCalled();
   });
 });

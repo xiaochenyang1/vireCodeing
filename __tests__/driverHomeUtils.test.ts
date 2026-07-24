@@ -133,12 +133,15 @@ test('parses shipper evaluation tags and enforces content bounds', () => {
       tagsText: '沟通顺畅、装卸高效，沟通顺畅',
       content: '货主配合很好',
       anonymous: true,
+      photoFileIds: [' file-1 ', 'file-1', 'file-2'],
     }),
   ).toEqual({
     rating: 5,
     tags: ['沟通顺畅', '装卸高效'],
     content: '货主配合很好',
     anonymous: true,
+    photoCount: 2,
+    photoFileIds: ['file-1', 'file-2'],
   });
 
   expect(
@@ -147,6 +150,17 @@ test('parses shipper evaluation tags and enforces content bounds', () => {
       tagsText: '好',
       content: '短',
       anonymous: false,
+      photoFileIds: [],
+    }),
+  ).toBeUndefined();
+
+  expect(
+    createShipperEvaluationRequest({
+      ratingText: '5',
+      tagsText: '沟通顺畅',
+      content: '货主配合很好',
+      anonymous: false,
+      photoFileIds: Array.from({ length: 7 }, (_, index) => `file-${index}`),
     }),
   ).toBeUndefined();
 });

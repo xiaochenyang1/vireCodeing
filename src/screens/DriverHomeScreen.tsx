@@ -13,6 +13,7 @@ import { ImageCredentialCard } from '../components/ImageCredentialCard';
 import { IncomeChart } from '../components/IncomeChart';
 import { DriverOrderExecution } from '../components/DriverOrderExecution';
 import { vehicleRequirementOptions } from '../data/mockData';
+import { useImageUpload } from '../hooks/useImageUpload';
 import { colors, styles } from '../styles';
 import type {
   PlatformDriverAcceptanceSettings,
@@ -35,8 +36,6 @@ import type {
 } from '../services/platformDriverCertificationApi';
 import { PlatformApiError } from '../services/platformApiClient';
 import {
-  confirmPlatformFileUploadIntent,
-  type PlatformFileUploadConfirmationApi,
   type PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../services/platformFileApi';
@@ -122,9 +121,16 @@ type PlatformDriverOrderApi = ReturnType<typeof createPlatformDriverOrderApi>;
 type PlatformDriverCertificationApi = ReturnType<
   typeof createPlatformDriverCertificationApi
 >;
-type DriverPlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<ReturnType<typeof createPlatformFileApi>, 'createUploadIntent'> &
-  Partial<Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>>;
+type DriverPlatformFileApi = Pick<
+  ReturnType<typeof createPlatformFileApi>,
+  'createUploadIntent' | 'confirmUploaded'
+> &
+  Partial<
+    Pick<
+      ReturnType<typeof createPlatformFileApi>,
+      'confirmLocalUploadTarget' | 'getFileMetadata'
+    >
+  >;
 type PlatformMapsApi = Pick<
   ReturnType<typeof createPlatformMapsApi>,
   'getDriverNavigationTargets' | 'reportDriverLocation'
@@ -142,6 +148,14 @@ type DriverCertificationAttachmentSource =
   | 'manual'
   | 'empty';
 type DriverExceptionAttachmentState = Record<string, DriverUploadedFileRef[]>;
+type DriverReportedExceptionAttachmentState = Record<
+  string,
+  DriverUploadedFileRef[]
+>;
+type DriverShipperEvaluationAttachmentState = Record<
+  string,
+  DriverUploadedFileRef[]
+>;
 type DriverExecutionReceiptAttachmentState = Record<
   string,
   {
@@ -154,6 +168,19 @@ const sandboxDriverLocation = {
   longitude: 113.9,
   accuracyMeters: 25,
 };
+
+function useDriverPngUpload(
+  platformFileApi: DriverPlatformFileApi | undefined,
+  purpose: 'identity' | 'exception' | 'receipt' | 'evaluation',
+  fileName: string,
+) {
+  return useImageUpload(platformFileApi, {
+    purpose,
+    fileName,
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+}
 
 function getDriverCertificationFileStatusText(
   status: PlatformFileUploadRecord['status'],
@@ -255,6 +282,121 @@ function mergeDriverUploadedFileRef(
   };
 }
 
+function mergeDriverUploadedFileRefs(
+  primary: DriverUploadedFileRef[] | undefined,
+  fallback: DriverUploadedFileRef[] | undefined,
+) {
+  if (!primary?.length) {
+    return fallback ? [...fallback] : [];
+  }
+
+  if (!fallback?.length) {
+    return [...primary];
+  }
+
+  const fallbackByFileId = new Map(
+    fallback.map(attachment => [attachment.file.id, attachment]),
+  );
+  const usedFallbackFileIds = new Set<string>();
+  const mergedAttachments = primary.map(attachment => {
+    const fallbackAttachment = fallbackByFileId.get(attachment.file.id);
+
+    if (fallbackAttachment) {
+      usedFallbackFileIds.add(attachment.file.id);
+    }
+
+    return (
+      mergeDriverUploadedFileRef(attachment, fallbackAttachment) ?? attachment
+    );
+  });
+
+  fallback.forEach(attachment => {
+    if (usedFallbackFileIds.has(attachment.file.id)) {
+      return;
+    }
+
+    mergedAttachments.push(attachment);
+  });
+
+  return mergedAttachments;
+}
+
+function createFallbackDriverUploadedFileRef(
+  fileId: string,
+  purpose: PlatformFileUploadRecord['purpose'],
+  fileName: string,
+  createdAtIso: string,
+) {
+  return createDriverUploadedFileRef(
+    {
+      id: fileId,
+      ownerUserId: '',
+      purpose,
+      objectKey: '',
+      status: 'uploaded',
+      createdAtIso,
+    },
+    fileName,
+  );
+}
+
+async function hydrateDriverUploadedFileRefs(
+  fileIds: string[] | undefined,
+  options: {
+    purpose: PlatformFileUploadRecord['purpose'];
+    fileName: string | ((index: number) => string);
+    createdAtIso: string;
+  },
+  platformFileApi?: DriverPlatformFileApi,
+  metadataCache = new Map<string, Promise<PlatformFileUploadRecord>>(),
+) {
+  const normalizedFileIds = (fileIds ?? [])
+    .map(fileId => fileId.trim())
+    .filter(Boolean);
+
+  return Promise.all(
+    normalizedFileIds.map(async (fileId, index) => {
+      const fileName =
+        typeof options.fileName === 'function'
+          ? options.fileName(index)
+          : options.fileName;
+
+      if (!platformFileApi?.getFileMetadata) {
+        return createFallbackDriverUploadedFileRef(
+          fileId,
+          options.purpose,
+          fileName,
+          options.createdAtIso,
+        );
+      }
+
+      let metadataPromise = metadataCache.get(fileId);
+
+      if (!metadataPromise) {
+        metadataPromise = platformFileApi.getFileMetadata(fileId);
+        metadataCache.set(fileId, metadataPromise);
+      }
+
+      try {
+        const file = await metadataPromise;
+
+        if (!file?.id) {
+          throw new Error('Driver uploaded file metadata is invalid');
+        }
+
+        return createDriverUploadedFileRef(file, fileName);
+      } catch {
+        return createFallbackDriverUploadedFileRef(
+          fileId,
+          options.purpose,
+          fileName,
+          options.createdAtIso,
+        );
+      }
+    }),
+  );
+}
+
 async function buildDriverCertificationAttachments(
   certification: PlatformDriverCertificationSnapshot,
   platformFileApi?: DriverPlatformFileApi,
@@ -297,6 +439,133 @@ async function buildDriverCertificationAttachments(
 
     return result;
   }, {});
+}
+
+async function buildDriverExecutionReceiptAttachments(
+  order: PlatformShipperOrder,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  const driverStatusEvents = (order.events ?? [])
+    .filter(event => event.eventType === 'driver_status_changed')
+    .sort((left, right) => left.createdAtIso.localeCompare(right.createdAtIso));
+  const loadingReceiptEvent = driverStatusEvents[0];
+  const arrivalReceiptEvent = driverStatusEvents[1];
+  const metadataCache = new Map<string, Promise<PlatformFileUploadRecord>>();
+  const [transportingReceiptFiles, confirmingReceiptFiles] = await Promise.all([
+    hydrateDriverUploadedFileRefs(
+      loadingReceiptEvent?.attachmentFileIds,
+      {
+        purpose: 'receipt',
+        fileName: '装货凭证.png',
+        createdAtIso: loadingReceiptEvent?.createdAtIso ?? '',
+      },
+      platformFileApi,
+      metadataCache,
+    ),
+    hydrateDriverUploadedFileRefs(
+      arrivalReceiptEvent?.attachmentFileIds,
+      {
+        purpose: 'receipt',
+        fileName: '到达凭证.png',
+        createdAtIso: arrivalReceiptEvent?.createdAtIso ?? '',
+      },
+      platformFileApi,
+      metadataCache,
+    ),
+  ]);
+
+  return {
+    transportingReceiptFiles,
+    confirmingReceiptFiles,
+  };
+}
+
+function mergeDriverExecutionReceiptAttachments(
+  hydrated: {
+    transportingReceiptFiles: DriverUploadedFileRef[];
+    confirmingReceiptFiles: DriverUploadedFileRef[];
+  },
+  current:
+    | {
+        transportingReceiptFiles: DriverUploadedFileRef[];
+        confirmingReceiptFiles: DriverUploadedFileRef[];
+      }
+    | undefined,
+) {
+  return {
+    transportingReceiptFiles: mergeDriverUploadedFileRefs(
+      hydrated.transportingReceiptFiles,
+      current?.transportingReceiptFiles,
+    ),
+    confirmingReceiptFiles: mergeDriverUploadedFileRefs(
+      hydrated.confirmingReceiptFiles,
+      current?.confirmingReceiptFiles,
+    ),
+  };
+}
+
+async function buildDriverLatestExceptionAttachments(
+  order: PlatformShipperOrder,
+  exceptionCases: PlatformOrderExceptionCase[],
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  const latestExceptionEvent = (order.events ?? [])
+    .filter(event => event.eventType === 'driver_exception_reported')
+    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+  const normalizedEventAttachmentFileIds = (latestExceptionEvent?.attachmentFileIds ??
+    [])
+    .map(fileId => fileId.trim())
+    .filter(Boolean);
+  const matchingExceptionCase =
+    normalizedEventAttachmentFileIds.length > 0 || !latestExceptionEvent?.id
+      ? undefined
+      : [...exceptionCases]
+          .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))
+          .find(
+            exceptionCase =>
+              exceptionCase.sourceEventId === latestExceptionEvent.id &&
+              exceptionCase.attachmentFileIds.some(fileId => fileId.trim()),
+          );
+  const fallbackAttachmentFileIds =
+    normalizedEventAttachmentFileIds.length > 0
+      ? latestExceptionEvent?.attachmentFileIds
+      : matchingExceptionCase?.attachmentFileIds;
+  const createdAtIso =
+    normalizedEventAttachmentFileIds.length > 0
+      ? latestExceptionEvent?.createdAtIso ?? ''
+      : matchingExceptionCase?.updatedAtIso ??
+        matchingExceptionCase?.createdAtIso ??
+        latestExceptionEvent?.createdAtIso ??
+        '';
+
+  return hydrateDriverUploadedFileRefs(
+    fallbackAttachmentFileIds,
+    {
+      purpose: 'exception',
+      fileName: index => `异常凭证-${index + 1}.png`,
+      createdAtIso,
+    },
+    platformFileApi,
+  );
+}
+
+async function buildDriverLatestShipperEvaluationAttachments(
+  order: PlatformShipperOrder,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  const latestShipperEvaluationEvent = (order.events ?? [])
+    .filter(event => event.eventType === 'shipper_evaluation_submitted')
+    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+
+  return hydrateDriverUploadedFileRefs(
+    latestShipperEvaluationEvent?.attachmentFileIds,
+    {
+      purpose: 'evaluation',
+      fileName: index => `评价货主凭证-${index + 1}.png`,
+      createdAtIso: latestShipperEvaluationEvent?.createdAtIso ?? '',
+    },
+    platformFileApi,
+  );
 }
 
 function mergeDriverCertificationAttachments(
@@ -396,6 +665,12 @@ export function DriverHomeScreen({
     useState<DriverCertificationAttachmentMap>({});
   const [exceptionAttachments, setExceptionAttachments] =
     useState<DriverExceptionAttachmentState>({});
+  const [reportedExceptionAttachments, setReportedExceptionAttachments] =
+    useState<DriverReportedExceptionAttachmentState>({});
+  const [shipperEvaluationAttachments, setShipperEvaluationAttachments] =
+    useState<DriverShipperEvaluationAttachmentState>({});
+  const [reportedShipperEvaluationAttachments, setReportedShipperEvaluationAttachments] =
+    useState<DriverShipperEvaluationAttachmentState>({});
   const [executionReceiptAttachments, setExecutionReceiptAttachments] =
     useState<DriverExecutionReceiptAttachmentState>({});
   const [executionProofs, setExecutionProofs] =
@@ -416,6 +691,83 @@ export function DriverHomeScreen({
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
+  const selectedExceptionProofUploadCount = selectedOrder
+    ? (exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm).photoFileIds
+        .length
+    : 0;
+  const selectedExceptionProofFileName = `异常凭证-${selectedExceptionProofUploadCount + 1}.png`;
+  const selectedShipperEvaluationProofUploadCount = selectedOrder
+    ? (
+        shipperEvaluationForms[selectedOrder.orderNo] ??
+        emptyShipperEvaluationForm
+      ).photoFileIds.length
+    : 0;
+  const selectedShipperEvaluationProofFileName =
+    `评价货主凭证-${selectedShipperEvaluationProofUploadCount + 1}.png`;
+  const identityFrontUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.identityFrontFileId.fileName,
+  );
+  const identityBackUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.identityBackFileId.fileName,
+  );
+  const drivingLicenseUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.drivingLicenseFileId.fileName,
+  );
+  const driverLicenseUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.driverLicenseFileId.fileName,
+  );
+  const transportQualificationUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.transportQualificationFileId.fileName,
+  );
+  const operationPermitUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.operationPermitFileId.fileName,
+  );
+  const vehiclePhotoUpload = useDriverPngUpload(
+    platformFileApi,
+    'identity',
+    driverCertificationFileUploadConfigs.vehiclePhotoFileId.fileName,
+  );
+  const loadingReceiptUpload = useDriverPngUpload(
+    platformFileApi,
+    'receipt',
+    '装货凭证.png',
+  );
+  const arrivalReceiptUpload = useDriverPngUpload(
+    platformFileApi,
+    'receipt',
+    '到达凭证.png',
+  );
+  const exceptionProofUpload = useDriverPngUpload(
+    platformFileApi,
+    'exception',
+    selectedExceptionProofFileName,
+  );
+  const shipperEvaluationProofUpload = useDriverPngUpload(
+    platformFileApi,
+    'evaluation',
+    selectedShipperEvaluationProofFileName,
+  );
+  const certificationUploaders = {
+    identityFrontFileId: identityFrontUpload,
+    identityBackFileId: identityBackUpload,
+    drivingLicenseFileId: drivingLicenseUpload,
+    driverLicenseFileId: driverLicenseUpload,
+    transportQualificationFileId: transportQualificationUpload,
+    operationPermitFileId: operationPermitUpload,
+    vehiclePhotoFileId: vehiclePhotoUpload,
+  };
 
   const applyCertificationSnapshot = (
     snapshot: PlatformDriverCertificationSnapshot,
@@ -585,6 +937,100 @@ export function DriverHomeScreen({
       isMounted = false;
     };
   }, [resolvedDriverAccountId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedOrder) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void buildDriverExecutionReceiptAttachments(
+      selectedOrder,
+      platformFileApi,
+    ).then(hydratedAttachments => {
+      if (cancelled) {
+        return;
+      }
+
+      setExecutionReceiptAttachments(current => ({
+        ...current,
+        [selectedOrder.id]: mergeDriverExecutionReceiptAttachments(
+          hydratedAttachments,
+          current[selectedOrder.id],
+        ),
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder, platformFileApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedOrder) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void buildDriverLatestExceptionAttachments(
+      selectedOrder,
+      exceptionCases,
+      platformFileApi,
+    ).then(hydratedAttachments => {
+      if (cancelled) {
+        return;
+      }
+
+      setReportedExceptionAttachments(current => ({
+        ...current,
+        [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
+          hydratedAttachments,
+          current[selectedOrder.orderNo],
+        ),
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder, exceptionCases, platformFileApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedOrder) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void buildDriverLatestShipperEvaluationAttachments(
+      selectedOrder,
+      platformFileApi,
+    ).then(hydratedAttachments => {
+      if (cancelled) {
+        return;
+      }
+
+      setReportedShipperEvaluationAttachments(current => ({
+        ...current,
+        [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
+          hydratedAttachments,
+          current[selectedOrder.orderNo],
+        ),
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder, platformFileApi]);
 
   const getForm = (orderNo: string): DriverOrderFormState =>
     forms[orderNo] ?? emptyForm;
@@ -1242,25 +1688,89 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .evaluateShipper(order.id, request)
       .then(updatedOrder => {
+        const submittedAttachments =
+          shipperEvaluationAttachments[order.orderNo] ?? [];
         setSelectedOrder(updatedOrder);
         setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
         setShipperEvaluationForms(currentForms => ({
           ...currentForms,
           [order.orderNo]: emptyShipperEvaluationForm,
         }));
+        if (submittedAttachments.length > 0) {
+          setReportedShipperEvaluationAttachments(currentAttachments => ({
+            ...currentAttachments,
+            [order.orderNo]: submittedAttachments,
+          }));
+        }
+        setShipperEvaluationAttachments(currentAttachments => {
+          if (!currentAttachments[order.orderNo]) {
+            return currentAttachments;
+          }
+
+          const nextAttachments = { ...currentAttachments };
+          delete nextAttachments[order.orderNo];
+          return nextAttachments;
+        });
         setNotice('货主评价已提交。');
       })
       .catch(error => {
-        if (
-          error instanceof PlatformApiError &&
-          error.code === 'ORDER_STATE_INVALID'
-        ) {
-          setNotice('订单完成后才能评价货主。');
-          return;
+        if (error instanceof PlatformApiError) {
+          const noticeByCode: Record<string, string> = {
+            ORDER_STATE_INVALID: '订单完成后才能评价货主。',
+            FILE_NOT_FOUND: '货主评价图片不存在，请重新上传。',
+            FILE_STATE_INVALID: '货主评价图片尚未上传完成。',
+            FILE_PURPOSE_INVALID: '货主评价图片用途不匹配，请重新上传。',
+          };
+          const mappedNotice = noticeByCode[error.code];
+
+          if (mappedNotice) {
+            setNotice(mappedNotice);
+            return;
+          }
         }
 
         setNotice('货主评价提交失败，请稍后重试。');
       });
+  };
+
+  const uploadShipperEvaluationProof = async (order: PlatformShipperOrder) => {
+    if (!platformFileApi) {
+      setNotice('货主评价图片上传需要平台文件 API 配置。');
+      return;
+    }
+
+    const currentForm =
+      shipperEvaluationForms[order.orderNo] ?? emptyShipperEvaluationForm;
+    const fileName = `评价货主凭证-${currentForm.photoFileIds.length + 1}.png`;
+
+    if (currentForm.photoFileIds.length >= 6) {
+      setNotice('评价图片最多上传 6 张。');
+      return;
+    }
+
+    const result = await shipperEvaluationProofUpload.pickAndUpload();
+
+    if (result.status === 'uploaded') {
+      updateShipperEvaluationForm(order.orderNo, {
+        photoFileIds: [...currentForm.photoFileIds, result.file.id],
+      });
+      setShipperEvaluationAttachments(current => ({
+        ...current,
+        [order.orderNo]: [
+          ...(current[order.orderNo] ?? []),
+          {
+            file: result.file,
+            fileName,
+          },
+        ],
+      }));
+      setNotice('货主评价图片已关联平台文件。');
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
+    }
   };
 
   const submitException = (order: PlatformShipperOrder) => {
@@ -1281,12 +1791,19 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .reportException(order.id, request)
       .then(updatedOrder => {
+        const submittedAttachments = exceptionAttachments[order.orderNo] ?? [];
         setSelectedOrder(updatedOrder);
         setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
         setExceptionForms(currentForms => ({
           ...currentForms,
           [order.orderNo]: emptyExceptionForm,
         }));
+        if (submittedAttachments.length > 0) {
+          setReportedExceptionAttachments(currentAttachments => ({
+            ...currentAttachments,
+            [order.orderNo]: submittedAttachments,
+          }));
+        }
         setExceptionAttachments(currentAttachments => {
           if (!currentAttachments[order.orderNo]) {
             return currentAttachments;
@@ -1334,34 +1851,28 @@ export function DriverHomeScreen({
       return;
     }
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'exception',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
+    const result = await exceptionProofUpload.pickAndUpload();
 
+    if (result.status === 'uploaded') {
       updateExceptionForm(order.orderNo, {
-        photoFileIds: [...currentForm.photoFileIds, uploadedFile.id],
+        photoFileIds: [...currentForm.photoFileIds, result.file.id],
       });
       setExceptionAttachments(current => ({
         ...current,
         [order.orderNo]: [
           ...(current[order.orderNo] ?? []),
           {
-            file: uploadedFile,
+            file: result.file,
             fileName,
           },
         ],
       }));
       setNotice('异常凭证已关联平台文件。');
-    } catch {
-      setNotice('异常凭证上传失败，请稍后重试。');
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
 
@@ -1380,31 +1891,22 @@ export function DriverHomeScreen({
 
     const isLoadingProof = order.status === 'loading';
     const fileName = isLoadingProof ? '装货凭证.png' : '到达凭证.png';
+    const uploader = isLoadingProof ? loadingReceiptUpload : arrivalReceiptUpload;
+    const result = await uploader.pickAndUpload();
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'receipt',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
-
+    if (result.status === 'uploaded') {
       setExecutionProofs(current => ({
         ...current,
         [order.id]: isLoadingProof
           ? {
-              transportingReceiptFileIds: [uploadedFile.id],
+              transportingReceiptFileIds: [result.file.id],
               confirmingReceiptFileIds:
                 current[order.id]?.confirmingReceiptFileIds ?? [],
             }
           : {
               transportingReceiptFileIds:
                 current[order.id]?.transportingReceiptFileIds ?? [],
-              confirmingReceiptFileIds: [uploadedFile.id],
+              confirmingReceiptFileIds: [result.file.id],
             },
       }));
       setExecutionReceiptAttachments(current => ({
@@ -1413,7 +1915,7 @@ export function DriverHomeScreen({
           ? {
               transportingReceiptFiles: [
                 {
-                  file: uploadedFile,
+                  file: result.file,
                   fileName,
                 },
               ],
@@ -1425,7 +1927,7 @@ export function DriverHomeScreen({
                 current[order.id]?.transportingReceiptFiles ?? [],
               confirmingReceiptFiles: [
                 {
-                  file: uploadedFile,
+                  file: result.file,
                   fileName,
                 },
               ],
@@ -1436,12 +1938,11 @@ export function DriverHomeScreen({
           ? '装货凭证已关联平台文件。'
           : '到达凭证已关联平台文件。',
       );
-    } catch {
-      setNotice(
-        isLoadingProof
-          ? '装货凭证上传失败，请稍后重试。'
-          : '到达凭证上传失败，请稍后重试。',
-      );
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
 
@@ -1739,6 +2240,15 @@ export function DriverHomeScreen({
   const selectedExceptionForm = selectedOrder
     ? exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm
     : emptyExceptionForm;
+  const selectedShipperEvaluationForm = selectedOrder
+    ? shipperEvaluationForms[selectedOrder.orderNo] ?? emptyShipperEvaluationForm
+    : emptyShipperEvaluationForm;
+  const selectedShipperEvaluationAttachmentRefs = selectedOrder
+    ? shipperEvaluationAttachments[selectedOrder.orderNo] ?? []
+    : [];
+  const selectedReportedShipperEvaluationAttachmentRefs = selectedOrder
+    ? reportedShipperEvaluationAttachments[selectedOrder.orderNo] ?? []
+    : [];
   const selectedEvaluationReplyQueueItem = selectedOrder
     ? evaluationReplyQueue[selectedOrder.id]
     : undefined;
@@ -1757,32 +2267,25 @@ export function DriverHomeScreen({
     }
 
     const uploadConfig = driverCertificationFileUploadConfigs[fieldName];
+    const result = await certificationUploaders[fieldName].pickAndUpload();
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'identity',
-        fileName: uploadConfig.fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
-
+    if (result.status === 'uploaded') {
       setCertificationForm(current => ({
         ...current,
-        [fieldName]: uploadedFile.id,
+        [fieldName]: result.file.id,
       }));
       setCertificationAttachments(current => ({
         ...current,
         [fieldName]: {
-          ...createDriverUploadedFileRef(uploadedFile, uploadConfig.fileName),
+          ...createDriverUploadedFileRef(result.file, uploadConfig.fileName),
         },
       }));
       setNotice(uploadConfig.successNotice);
-    } catch {
-      setNotice(uploadConfig.failureNotice);
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
   const createCertificationAttachmentEntry = (
@@ -1823,22 +2326,9 @@ export function DriverHomeScreen({
   const selectedExceptionAttachmentRefs = selectedOrder
     ? exceptionAttachments[selectedOrder.orderNo] ?? []
     : [];
-  const selectedExecutionReceiptAttachmentRefs = selectedOrder
-    ? selectedOrder.status === 'loading'
-      ? executionReceiptAttachments[selectedOrder.id]?.transportingReceiptFiles ??
-        []
-      : selectedOrder.status === 'transporting'
-        ? executionReceiptAttachments[selectedOrder.id]?.confirmingReceiptFiles ??
-          []
-      : []
+  const selectedReportedExceptionAttachmentRefs = selectedOrder
+    ? reportedExceptionAttachments[selectedOrder.orderNo] ?? []
     : [];
-  const selectedExecutionReceiptLabel = selectedOrder
-    ? selectedOrder.status === 'loading'
-      ? '装货凭证'
-      : selectedOrder.status === 'transporting'
-        ? '到达凭证'
-        : '执行凭证'
-    : '执行凭证';
   const createUploadedAttachmentMetaLines = (
     attachmentRef: DriverUploadedFileRef,
   ) => [
@@ -1887,6 +2377,28 @@ export function DriverHomeScreen({
         };
       })()
     : { loading: [], confirming: [] };
+  const selectedExecutionReceiptSections = selectedOrder
+    ? [
+        {
+          key: 'loading',
+          label: '装货凭证',
+          refs:
+            executionReceiptAttachments[selectedOrder.id]
+              ?.transportingReceiptFiles ?? [],
+        },
+        {
+          key: 'confirming',
+          label: '到达凭证',
+          refs:
+            executionReceiptAttachments[selectedOrder.id]
+              ?.confirmingReceiptFiles ?? [],
+        },
+      ].filter(section => section.refs.length > 0)
+    : [];
+  const selectedExecutionReceiptCount = selectedExecutionReceiptSections.reduce(
+    (count, section) => count + section.refs.length,
+    0,
+  );
 
   const isSelectedOrderAdvancing =
     selectedOrder != null &&
@@ -3165,12 +3677,33 @@ export function DriverHomeScreen({
               最新异常：{latestDriverException.noteText}
             </Text>
           ) : null}
+          {selectedReportedExceptionAttachmentRefs.length > 0 ? (
+            <View>
+              <Text style={styles.draftSectionTitle}>最近一次异常凭证</Text>
+              {selectedReportedExceptionAttachmentRefs.map(
+                (attachmentRef, index) => (
+                  <ImageCredentialCard
+                    key={`reported-exception-${attachmentRef.file.id}-${index}`}
+                    title={`异常凭证 ${index + 1}：${attachmentRef.fileName}`}
+                    publicUrl={attachmentRef.file.publicUrl}
+                    placeholderLabel={`异常凭证 ${index + 1}`}
+                    metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                    imageTestID={`driver-reported-exception-preview-image-${index + 1}`}
+                    placeholderTestID={
+                      `driver-reported-exception-preview-placeholder-${index + 1}`
+                    }
+                  />
+                ),
+              )}
+            </View>
+          ) : null}
           <ExceptionCaseProgressPanel
             cases={exceptionCases}
             isLoading={isLoadingExceptionCases}
             notice={exceptionCaseNotice}
             appealDrafts={appealDrafts}
             appealingCaseId={appealingCaseId}
+            platformFileApi={platformFileApi}
             onChangeAppealReason={(caseId, reason) =>
               setAppealDrafts(currentDrafts => ({
                 ...currentDrafts,
@@ -3287,16 +3820,37 @@ export function DriverHomeScreen({
                   司机评价货主：{latestShipperEvaluation.noteText}
                 </Text>
               ) : null}
+              {selectedReportedShipperEvaluationAttachmentRefs.length > 0 ? (
+                <View>
+                  <Text style={styles.draftSectionTitle}>
+                    最近一次评价货主凭证
+                  </Text>
+                  {selectedReportedShipperEvaluationAttachmentRefs.map(
+                    (attachmentRef, index) => (
+                      <ImageCredentialCard
+                        key={`reported-shipper-evaluation-${attachmentRef.file.id}-${index}`}
+                        title={`评价货主凭证 ${index + 1}：${attachmentRef.fileName}`}
+                        publicUrl={attachmentRef.file.publicUrl}
+                        placeholderLabel={`评价货主凭证 ${index + 1}`}
+                        metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                        imageTestID={
+                          `driver-reported-shipper-evaluation-preview-image-${index + 1}`
+                        }
+                        placeholderTestID={
+                          `driver-reported-shipper-evaluation-preview-placeholder-${index + 1}`
+                        }
+                      />
+                    ),
+                  )}
+                </View>
+              ) : null}
               <TextInput
                 testID={`driver-shipper-evaluation-rating-${selectedOrder.orderNo}`}
                 style={styles.ordersSearchInput}
                 placeholder="给货主评分，1-5"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
-                value={
-                  (shipperEvaluationForms[selectedOrder.orderNo] ??
-                    emptyShipperEvaluationForm).ratingText
-                }
+                value={selectedShipperEvaluationForm.ratingText}
                 onChangeText={ratingText =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
                     ratingText,
@@ -3308,10 +3862,7 @@ export function DriverHomeScreen({
                 style={styles.ordersSearchInput}
                 placeholder="评价标签，用顿号或逗号分隔"
                 placeholderTextColor={colors.textMuted}
-                value={
-                  (shipperEvaluationForms[selectedOrder.orderNo] ??
-                    emptyShipperEvaluationForm).tagsText
-                }
+                value={selectedShipperEvaluationForm.tagsText}
                 onChangeText={tagsText =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
                     tagsText,
@@ -3323,10 +3874,7 @@ export function DriverHomeScreen({
                 style={styles.ordersSearchInput}
                 placeholder="评价货主，至少 6 个字"
                 placeholderTextColor={colors.textMuted}
-                value={
-                  (shipperEvaluationForms[selectedOrder.orderNo] ??
-                    emptyShipperEvaluationForm).content
-                }
+                value={selectedShipperEvaluationForm.content}
                 onChangeText={content =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
                     content,
@@ -3337,21 +3885,53 @@ export function DriverHomeScreen({
                 testID={`driver-toggle-shipper-evaluation-anonymous-${selectedOrder.orderNo}`}
                 style={styles.detailSecondaryButton}
                 onPress={() => {
-                  const currentForm =
-                    shipperEvaluationForms[selectedOrder.orderNo] ??
-                    emptyShipperEvaluationForm;
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
-                    anonymous: !currentForm.anonymous,
+                    anonymous: !selectedShipperEvaluationForm.anonymous,
                   });
                 }}
               >
                 <Text style={styles.detailSecondaryButtonText}>
-                  匿名：{(shipperEvaluationForms[selectedOrder.orderNo] ??
-                    emptyShipperEvaluationForm).anonymous
-                    ? '是'
-                    : '否'}
+                  匿名：{selectedShipperEvaluationForm.anonymous ? '是' : '否'}
                 </Text>
               </Pressable>
+              <Text style={styles.detailMeta}>
+                评价凭证：{selectedShipperEvaluationForm.photoFileIds.length} / 6 张
+              </Text>
+              <Pressable
+                testID={`driver-upload-shipper-evaluation-proof-${selectedOrder.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() => {
+                  uploadShipperEvaluationProof(selectedOrder).catch(
+                    () => undefined,
+                  );
+                }}
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  上传评价货主凭证
+                </Text>
+              </Pressable>
+              {selectedShipperEvaluationAttachmentRefs.length > 0 ? (
+                <View>
+                  <Text style={styles.draftSectionTitle}>评价货主凭证清单</Text>
+                  {selectedShipperEvaluationAttachmentRefs.map(
+                    (attachmentRef, index) => (
+                      <ImageCredentialCard
+                        key={`${attachmentRef.file.id}-${index}`}
+                        title={`评价货主凭证 ${index + 1}：${attachmentRef.fileName}`}
+                        publicUrl={attachmentRef.file.publicUrl}
+                        placeholderLabel={`评价货主凭证 ${index + 1}`}
+                        metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                        imageTestID={
+                          `driver-shipper-evaluation-preview-image-${index + 1}`
+                        }
+                        placeholderTestID={
+                          `driver-shipper-evaluation-preview-placeholder-${index + 1}`
+                        }
+                      />
+                    ),
+                  )}
+                </View>
+              ) : null}
               <Pressable
                 testID={`driver-submit-shipper-evaluation-${selectedOrder.orderNo}`}
                 style={styles.detailSecondaryButton}
@@ -3382,38 +3962,34 @@ export function DriverHomeScreen({
             </View>
           ) : null}
           <Text style={styles.detailMeta}>
-            已关联凭证：
-            {
-              getDriverExecutionReceiptFileIds(
-                executionProofs,
-                selectedOrder.id,
-                selectedOrder.status,
-              ).length
-            }{' '}
-            张
+            已关联凭证：{selectedExecutionReceiptCount} 张
           </Text>
-          {selectedExecutionReceiptAttachmentRefs.length > 0 ? (
+          {selectedExecutionReceiptSections.length > 0 ? (
             <View>
-              <Text style={styles.draftSectionTitle}>
-                {selectedExecutionReceiptLabel}清单
-              </Text>
-              {selectedExecutionReceiptAttachmentRefs.map(
-                (attachmentRef, index) => (
-                  <ImageCredentialCard
-                    key={`${attachmentRef.file.id}-${index}`}
-                    title={
-                      `${selectedExecutionReceiptLabel} ${index + 1}：${attachmentRef.fileName}`
-                    }
-                    publicUrl={attachmentRef.file.publicUrl}
-                    placeholderLabel={selectedExecutionReceiptLabel}
-                    metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
-                    imageTestID={`driver-receipt-preview-image-${index + 1}`}
-                    placeholderTestID={
-                      `driver-receipt-preview-placeholder-${index + 1}`
-                    }
-                  />
-                ),
-              )}
+              {selectedExecutionReceiptSections.map(section => (
+                <View key={section.key}>
+                  <Text style={styles.draftSectionTitle}>
+                    {section.label}清单
+                  </Text>
+                  {section.refs.map((attachmentRef, index) => (
+                    <ImageCredentialCard
+                      key={`${section.key}-${attachmentRef.file.id}-${index}`}
+                      title={`${section.label} ${index + 1}：${attachmentRef.fileName}`}
+                      publicUrl={attachmentRef.file.publicUrl}
+                      placeholderLabel={section.label}
+                      metaLines={createUploadedAttachmentMetaLines(
+                        attachmentRef,
+                      )}
+                      imageTestID={
+                        `driver-receipt-preview-image-${section.key}-${index + 1}`
+                      }
+                      placeholderTestID={
+                        `driver-receipt-preview-placeholder-${section.key}-${index + 1}`
+                      }
+                    />
+                  ))}
+                </View>
+              ))}
             </View>
           ) : null}
           <Pressable
@@ -3440,8 +4016,8 @@ export function DriverHomeScreen({
             order={selectedOrder}
             baseUpdatedAtIso={selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? ''}
             navigationTargets={navigationTargets}
-            platformMapsApi={platformMapsApi as any}
-            platformFileApi={platformFileApi as any}
+            platformMapsApi={platformMapsApi}
+            platformFileApi={platformFileApi}
             onNavigate={openDriverNavigation}
             onReportLocation={reportSandboxDriverLocation}
             onCallContact={(contactType, contactName, phone) => {
@@ -3470,9 +4046,9 @@ export function DriverHomeScreen({
                     : {}),
                 },
                 mutationContext,
-              });
+                  });
             }}
-            onUploadReceipt={(fileId, fieldName) => {
+            onChangeReceipt={(file, fieldName) => {
               setExecutionProofs(current => {
                 const currentOrderProofs = current[selectedOrder.id] ?? {
                   transportingReceiptFileIds: [],
@@ -3482,10 +4058,7 @@ export function DriverHomeScreen({
                   return {
                     ...current,
                     [selectedOrder.id]: {
-                      transportingReceiptFileIds: [
-                        ...currentOrderProofs.transportingReceiptFileIds,
-                        fileId,
-                      ],
+                      transportingReceiptFileIds: file ? [file.id] : [],
                       confirmingReceiptFileIds:
                         currentOrderProofs.confirmingReceiptFileIds,
                     },
@@ -3496,10 +4069,39 @@ export function DriverHomeScreen({
                   [selectedOrder.id]: {
                     transportingReceiptFileIds:
                       currentOrderProofs.transportingReceiptFileIds,
-                    confirmingReceiptFileIds: [
-                      ...currentOrderProofs.confirmingReceiptFileIds,
-                      fileId,
-                    ],
+                    confirmingReceiptFileIds: file ? [file.id] : [],
+                  },
+                };
+              });
+              setExecutionReceiptAttachments(current => {
+                const currentOrderAttachments = current[selectedOrder.id] ?? {
+                  transportingReceiptFiles: [],
+                  confirmingReceiptFiles: [],
+                };
+                const fileName =
+                  fieldName === 'loadingReceiptFileId'
+                    ? '装货凭证.png'
+                    : '到达凭证.png';
+
+                if (fieldName === 'loadingReceiptFileId') {
+                  return {
+                    ...current,
+                    [selectedOrder.id]: {
+                      transportingReceiptFiles: file
+                        ? [{ file, fileName }]
+                        : [],
+                      confirmingReceiptFiles:
+                        currentOrderAttachments.confirmingReceiptFiles,
+                    },
+                  };
+                }
+
+                return {
+                  ...current,
+                  [selectedOrder.id]: {
+                    transportingReceiptFiles:
+                      currentOrderAttachments.transportingReceiptFiles,
+                    confirmingReceiptFiles: file ? [{ file, fileName }] : [],
                   },
                 };
               });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
+import * as ImagePicker from 'expo-image-picker';
 
 import { profileSettingItems } from '../src/data/mockData';
 import { PlatformApiError } from '../src/services/platformApiClient';
@@ -39,6 +40,7 @@ describe('SettingRecords platform account profile', () => {
   };
 
   afterEach(async () => {
+    jest.clearAllMocks();
     clearAuthSession();
     await clearDeviceId();
   });
@@ -351,6 +353,16 @@ describe('SettingRecords platform account profile', () => {
       refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440000',
       expiresIn: 900,
     });
+    (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+      canceled: false,
+      assets: [
+        {
+          uri: 'file:///tmp/avatar.png',
+          fileName: 'camera-roll-avatar.png',
+          fileSize: 4096,
+        },
+      ],
+    });
     const platformFileApi = {
       createUploadIntent: jest.fn().mockResolvedValue({
         id: 'file-avatar-1',
@@ -408,6 +420,8 @@ describe('SettingRecords platform account profile', () => {
       await renderer.root
         .findByProps({ testID: 'setting-avatar-upload' })
         .props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(onUpdateAccount).not.toHaveBeenCalled();
@@ -441,7 +455,12 @@ describe('SettingRecords platform account profile', () => {
       purpose: 'avatar',
       fileName: '头像凭证.png',
       contentType: 'image/png',
-      byteSize: 2048,
+      byteSize: 4096,
+    });
+    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: false,
     });
     expect(platformProfileApi.saveAccountProfile).toHaveBeenCalledWith({
       displayName: '平台昵称',
@@ -812,6 +831,70 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain('风险结论：发现 1 项待处理风险');
     expect(renderedText).toContain(
       '风险提示：异地登录保护已关闭，本地无法拦截异常设备登录。',
+    );
+  });
+
+  it('syncs camera and album permission statuses from the system permission panel', async () => {
+    (ImagePicker.getCameraPermissionsAsync as jest.Mock)
+      .mockResolvedValueOnce({ status: 'denied' })
+      .mockResolvedValueOnce({ status: 'denied' });
+    (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock)
+      .mockResolvedValueOnce({ status: 'undetermined' })
+      .mockResolvedValueOnce({ status: 'undetermined' });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SettingRecords
+          now={1000}
+          settings={cloneSettings()}
+          account={baseAccount}
+          password={basePassword}
+          notificationPermissionStatus="granted"
+          onUpdateSettings={jest.fn()}
+          onUpdateAccount={jest.fn()}
+          onUpdatePassword={jest.fn()}
+          onLogout={jest.fn()}
+        />,
+      );
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'setting-open-permissions' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('定位权限：未检测');
+    expect(renderedText).toContain('相机权限：系统已拒绝');
+    expect(renderedText).toContain('相册权限：系统未决定');
+    expect(renderedText).toContain('通知权限：系统已授权');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'permission-local-check' }).props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    renderedText = getRenderedText(renderer);
+
+    expect(renderedText).toContain('定位权限：本地未授权');
+    expect(renderedText).toContain('相机权限：系统已拒绝');
+    expect(renderedText).toContain('相册权限：系统未决定');
+    expect(renderedText).toContain('通知权限：系统已授权');
+    expect(renderedText).toContain(
+      '权限检查完成：通知、相机和相册已同步系统状态，定位权限仍为本地演练。',
+    );
+    expect(ImagePicker.getCameraPermissionsAsync).toHaveBeenCalledTimes(2);
+    expect(ImagePicker.getMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(
+      2,
     );
   });
 

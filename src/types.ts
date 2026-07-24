@@ -239,6 +239,8 @@ export type RecentOrder = {
     tags: string[];
     content: string;
     anonymous?: boolean;
+    photoCount?: number;
+    photoFiles?: FileAttachmentRef[];
   };
   latestExceptionCase?: RecentOrderLatestExceptionCase;
   reorderSource?: {

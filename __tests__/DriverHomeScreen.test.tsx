@@ -1,5 +1,6 @@
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
@@ -10,6 +11,7 @@ const driverEvaluationReplyQueueStorageKey =
   '@vireCodeing/driver-evaluation-reply-queue';
 const driverOrderMutationQueueStorageKey =
   '@vireCodeing/driver-order-mutation-queue:local-driver';
+const originalFetch = globalThis.fetch;
 const uuidV4Pattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -178,6 +180,55 @@ async function flushMicrotasks() {
     await Promise.resolve();
   }
 }
+
+function mockSelectedImageUpload(
+  fileName = 'picked-image.png',
+  uri = 'file:///tmp/picked-image.png',
+) {
+  (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+    status: 'granted',
+  });
+  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
+    {
+      status: 'granted',
+    },
+  );
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+    canceled: false,
+    assets: [
+      {
+        uri,
+        fileName,
+        fileSize: 2048,
+      },
+    ],
+  });
+}
+
+beforeEach(async () => {
+  await AsyncStorage.clear();
+  globalThis.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+  }) as unknown as typeof fetch;
+  (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+    status: 'granted',
+  });
+  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
+    {
+      status: 'granted',
+    },
+  );
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+    canceled: true,
+    assets: [],
+  });
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  jest.clearAllMocks();
+});
 
 describe('DriverHomeScreen certification uploads', () => {
   it('loads and saves driver acceptance settings through the driver order api', async () => {
@@ -924,6 +975,7 @@ describe('DriverHomeScreen certification uploads', () => {
         .findByProps({ testID: 'driver-cert-identity-number' })
         .props.onChangeText('11010119900307201x');
     });
+    mockSelectedImageUpload('driver-identity-upload.png');
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -1238,6 +1290,7 @@ describe('DriverHomeScreen certification uploads', () => {
         .findByProps({ testID: 'driver-cert-load-capacity' })
         .props.onChangeText('2 吨');
     });
+    mockSelectedImageUpload('driver-vehicle-upload.png');
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -1436,6 +1489,7 @@ describe('DriverHomeScreen certification uploads', () => {
         .props.onPress();
       await flushMicrotasks();
     });
+    mockSelectedImageUpload('driver-receipt-upload.png');
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -1450,8 +1504,9 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('文件 ID：file-receipt-1');
     expect(getRenderedText(renderer)).toContain('已生成预览地址。');
     expect(
-      renderer.root.findByProps({ testID: 'driver-receipt-preview-image-1' })
-        .props.source,
+      renderer.root.findByProps({
+        testID: 'driver-receipt-preview-image-loading-1',
+      }).props.source,
     ).toEqual({
       uri: 'https://cdn.example.com/file-receipt-1.png',
     });
@@ -1472,6 +1527,118 @@ describe('DriverHomeScreen certification uploads', () => {
       },
       expect.stringMatching(uuidV4Pattern),
     );
+  });
+
+  it('hydrates platform receipt history when opening an existing driver order', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607070009',
+      status: 'confirming' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-07T08:00:00.000Z',
+      updatedAtIso: '2026-07-07T10:05:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-07T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-driver-status-1',
+          eventType: 'driver_status_changed',
+          attachmentFileIds: ['file-loading-receipt-1'],
+          createdAtIso: '2026-07-07T08:05:00.000Z',
+        },
+        {
+          id: 'event-driver-status-2',
+          eventType: 'driver_status_changed',
+          attachmentFileIds: ['file-arrival-receipt-1'],
+          createdAtIso: '2026-07-07T10:00:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      confirmLocalUploadTarget: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve({
+          id: fileId,
+          ownerUserId: 'driver-1',
+          purpose: 'receipt' as const,
+          objectKey: `driver-1/receipt/${fileId}.png`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          status: 'uploaded' as const,
+          createdAtIso: '2026-07-07T08:00:00.000Z',
+        }),
+      ),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607070009' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-loading-receipt-1',
+    );
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-arrival-receipt-1',
+    );
+    expect(getRenderedText(renderer)).toContain('已关联凭证：2 张');
+    expect(getRenderedText(renderer)).toContain('装货凭证清单');
+    expect(getRenderedText(renderer)).toContain('到达凭证清单');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-receipt-preview-image-loading-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-loading-receipt-1.png',
+    });
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-receipt-preview-image-confirming-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-arrival-receipt-1.png',
+    });
   });
 
   it('restores a failed driver status mutation and retries with the original context', async () => {
@@ -1721,6 +1888,7 @@ describe('DriverHomeScreen certification uploads', () => {
         })
         .props.onChangeText('  装货时发现外包装已经破损。  ');
     });
+    mockSelectedImageUpload('driver-exception-upload.png');
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -1770,6 +1938,230 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain(
       '最新异常：货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
     );
+  });
+
+  it('hydrates the latest reported exception attachments when reopening an order', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110006',
+      status: 'transporting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:10:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-driver-exception-2',
+          actorUserId: 'driver-1',
+          eventType: 'driver_exception_reported',
+          noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 2 张',
+          attachmentFileIds: ['file-exception-history-1', 'file-exception-history-2'],
+          createdAtIso: '2026-07-11T08:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      confirmLocalUploadTarget: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve({
+          id: fileId,
+          ownerUserId: 'driver-1',
+          purpose: 'exception' as const,
+          objectKey: `driver-1/exception/${fileId}.png`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          status: 'uploaded' as const,
+          createdAtIso: '2026-07-11T08:05:00.000Z',
+        }),
+      ),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110006' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-exception-history-1',
+    );
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-exception-history-2',
+    );
+    expect(getRenderedText(renderer)).toContain('最近一次异常凭证');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-reported-exception-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-history-1.png',
+    });
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-reported-exception-preview-image-2',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-history-2.png',
+    });
+  });
+
+  it('falls back to exception case attachments when the latest exception event has no files', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110007',
+      status: 'transporting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:10:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-driver-exception-3',
+          actorUserId: 'driver-1',
+          eventType: 'driver_exception_reported',
+          noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+          attachmentFileIds: [],
+          createdAtIso: '2026-07-11T08:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.listExceptionCases.mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: 'case-driver-3',
+          caseNo: 'YC202607120007',
+          orderId: 'order-1',
+          orderNo: 'HY202607110007',
+          sourceEventId: 'event-driver-exception-3',
+          reporterUserId: 'driver-1',
+          sourceRole: 'driver',
+          typeLabel: '货物损坏',
+          description: '装货时发现外包装已经破损。',
+          attachmentFileIds: ['file-exception-case-1'],
+          status: 'processing',
+          appealStatus: 'none',
+          createdAtIso: '2026-07-11T08:06:00.000Z',
+          updatedAtIso: '2026-07-11T08:06:00.000Z',
+          actions: [],
+        },
+      ],
+    });
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      confirmLocalUploadTarget: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve({
+          id: fileId,
+          ownerUserId: 'driver-1',
+          purpose: 'exception' as const,
+          objectKey: `driver-1/exception/${fileId}.png`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          status: 'uploaded' as const,
+          createdAtIso: '2026-07-11T08:06:00.000Z',
+        }),
+      ),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110007' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-exception-case-1',
+    );
+    expect(getRenderedText(renderer)).toContain('最近一次异常凭证');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-reported-exception-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-case-1.png',
+    });
   });
 
   it('keeps the exception form and explains unfinished proof files', async () => {
@@ -1940,6 +2332,7 @@ describe('DriverHomeScreen certification uploads', () => {
         .props.onPress();
       await flushMicrotasks();
     });
+    mockSelectedImageUpload('driver-exception-cap-upload.png');
 
     for (let index = 0; index < 7; index += 1) {
       await ReactTestRenderer.act(async () => {
@@ -2153,7 +2546,8 @@ describe('DriverHomeScreen certification uploads', () => {
           id: 'event-shipper-evaluation-1',
           eventType: 'shipper_evaluation_submitted',
           noteText:
-            '5 星：沟通顺畅、装货配合；货主装货配合好，结算沟通清楚。',
+            '5 星：沟通顺畅、装货配合；评价信息：实名；图片凭证 1 张；评价正文：货主装货配合好，结算沟通清楚。',
+          attachmentFileIds: ['file-shipper-evaluation-1'],
           createdAtIso: '2026-07-09T10:20:00.000Z',
         },
       ],
@@ -2167,6 +2561,30 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     platformDriverOrderApi.getOrder.mockResolvedValue(order);
     platformDriverOrderApi.evaluateShipper.mockResolvedValue(updatedOrder);
+    const platformFileApi = {
+      createUploadIntent: jest.fn().mockResolvedValue({
+        id: 'file-shipper-evaluation-1',
+        ownerUserId: 'driver-1',
+        purpose: 'evaluation',
+        objectKey: 'driver-1/evaluation/file-shipper-evaluation-1.png',
+        status: 'pending',
+        uploadUrl:
+          'http://localhost:3000/api/files/uploads/file-shipper-evaluation-1',
+        expiresAtIso: '2026-07-09T08:15:00.000Z',
+        createdAtIso: '2026-07-09T08:00:00.000Z',
+      }),
+      confirmLocalUploadTarget: jest.fn().mockResolvedValue({
+        id: 'file-shipper-evaluation-1',
+        ownerUserId: 'driver-1',
+        purpose: 'evaluation',
+        objectKey: 'driver-1/evaluation/file-shipper-evaluation-1.png',
+        publicUrl: 'https://cdn.example.com/file-shipper-evaluation-1.png',
+        status: 'uploaded',
+        createdAtIso: '2026-07-09T08:00:00.000Z',
+      }),
+      confirmUploaded: jest.fn(),
+      getFileMetadata: jest.fn(),
+    };
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
@@ -2174,6 +2592,7 @@ describe('DriverHomeScreen certification uploads', () => {
         <DriverHomeScreen
           platformDriverOrderApi={platformDriverOrderApi}
           platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
           onLogout={jest.fn()}
         />,
       );
@@ -2205,6 +2624,33 @@ describe('DriverHomeScreen certification uploads', () => {
         .props.onChangeText('  货主装货配合好，结算沟通清楚。  ');
     });
 
+    mockSelectedImageUpload('shipper-evaluation-upload.png');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID:
+            'driver-upload-shipper-evaluation-proof-HY202607090104',
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformFileApi.createUploadIntent).toHaveBeenCalledWith({
+      purpose: 'evaluation',
+      fileName: '评价货主凭证-1.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    });
+    expect(getRenderedText(renderer)).toContain('评价货主凭证清单');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-shipper-evaluation-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-shipper-evaluation-1.png',
+    });
+
     await ReactTestRenderer.act(async () => {
       renderer.root
         .findByProps({
@@ -2220,12 +2666,22 @@ describe('DriverHomeScreen certification uploads', () => {
         rating: 5,
         tags: ['沟通顺畅', '装货配合'],
         content: '货主装货配合好，结算沟通清楚。',
+        photoCount: 1,
+        photoFileIds: ['file-shipper-evaluation-1'],
       },
     );
     expect(getRenderedText(renderer)).toContain('货主评价已提交。');
     expect(getRenderedText(renderer)).toContain(
-      '司机评价货主：5 星：沟通顺畅、装货配合；货主装货配合好，结算沟通清楚。',
+      '司机评价货主：5 星：沟通顺畅、装货配合；评价信息：实名；图片凭证 1 张；评价正文：货主装货配合好，结算沟通清楚。',
     );
+    expect(getRenderedText(renderer)).toContain('最近一次评价货主凭证');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-reported-shipper-evaluation-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-shipper-evaluation-1.png',
+    });
   });
 
   it('blocks blank driver evaluation replies before calling the api', async () => {

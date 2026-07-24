@@ -187,6 +187,7 @@ export const evaluationRecordItems = [
     timeText: '昨天 18:30',
     driverReplyText: '感谢认可，后续继续保持准时装卸。',
     driverReplyTimeText: '昨天 19:10',
+    direction: 'shipper_to_driver' as const,
   },
 ];
 

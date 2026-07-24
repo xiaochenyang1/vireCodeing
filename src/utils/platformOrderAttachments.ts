@@ -108,6 +108,23 @@ function mergeEvaluation(
   };
 }
 
+function mergeShipperEvaluation(
+  primary: RecentOrder['shipperEvaluation'],
+  fallback: RecentOrder['shipperEvaluation'],
+) {
+  if (!primary) {
+    return fallback;
+  }
+
+  const photoFiles = mergeFileAttachmentRefs(primary.photoFiles, fallback?.photoFiles);
+
+  return {
+    ...(fallback ?? {}),
+    ...primary,
+    ...(photoFiles ? { photoFiles } : {}),
+  };
+}
+
 async function hydrateFileAttachmentRefs(
   fileRefs: FileAttachmentRef[] | undefined,
   platformFileApi?: PlatformOrderFileMetadataApi,
@@ -159,11 +176,17 @@ export async function hydrateRecentOrderAttachmentRefs(
   order: RecentOrder,
   platformFileApi?: PlatformOrderFileMetadataApi,
 ) {
-  const [cargoPhotoFiles, exceptionPhotoFiles, evaluationPhotoFiles] =
+  const [
+    cargoPhotoFiles,
+    exceptionPhotoFiles,
+    evaluationPhotoFiles,
+    shipperEvaluationPhotoFiles,
+  ] =
     await Promise.all([
       hydrateFileAttachmentRefs(order.cargoPhotoFiles, platformFileApi),
       hydrateFileAttachmentRefs(order.exceptionReport?.photoFiles, platformFileApi),
       hydrateFileAttachmentRefs(order.evaluation?.photoFiles, platformFileApi),
+      hydrateFileAttachmentRefs(order.shipperEvaluation?.photoFiles, platformFileApi),
     ]);
 
   return {
@@ -185,6 +208,16 @@ export async function hydrateRecentOrderAttachmentRefs(
             ...order.evaluation,
             ...(order.evaluation.photoFiles || evaluationPhotoFiles
               ? { photoFiles: evaluationPhotoFiles }
+              : {}),
+          },
+        }
+      : {}),
+    ...(order.shipperEvaluation
+      ? {
+          shipperEvaluation: {
+            ...order.shipperEvaluation,
+            ...(order.shipperEvaluation.photoFiles || shipperEvaluationPhotoFiles
+              ? { photoFiles: shipperEvaluationPhotoFiles }
               : {}),
           },
         }
@@ -230,6 +263,14 @@ export function mergePlatformOrderWithLocalRuntimeState(
           evaluation: mergeEvaluation(
             localOrder.evaluation,
             platformOrder.evaluation,
+          ),
+        }
+      : {}),
+    ...(localOrder.shipperEvaluation || platformOrder.shipperEvaluation
+      ? {
+          shipperEvaluation: mergeShipperEvaluation(
+            localOrder.shipperEvaluation,
+            platformOrder.shipperEvaluation,
           ),
         }
       : {}),

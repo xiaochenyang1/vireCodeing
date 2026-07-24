@@ -67,6 +67,22 @@ const optionalExceptionPhotoFileIdsSchema = z
       : Array.from(new Set(value.map(fileId => fileId.trim()))),
   );
 
+const optionalShipperEvaluationPhotoFileIdsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, '评价图片文件 ID 无效')
+      .max(120, '评价图片文件 ID 无效'),
+  )
+  .max(6, '评价图片最多 6 张')
+  .optional()
+  .transform(value =>
+    value === undefined
+      ? undefined
+      : Array.from(new Set(value.map(fileId => fileId.trim()))),
+  );
+
 const driverAcceptanceVehicleTypePreferencesSchema = z
   .array(
     z
@@ -182,6 +198,8 @@ export const driverEvaluateShipperSchema = z.object({
     .min(6, '请至少填写 6 个字的评价内容')
     .max(200, '评价内容最多 200 字'),
   anonymous: z.boolean().optional(),
+  photoCount: z.number().int().min(0).max(6).optional(),
+  photoFileIds: optionalShipperEvaluationPhotoFileIdsSchema,
 });
 
 export const saveDriverAcceptanceSettingsSchema = z.object({

@@ -342,6 +342,7 @@ async function renderOrderDetail({
   onUpdateOrder = jest.fn(),
   onCompleteOrder,
   platformOrderApi,
+  platformFileApi,
   platformPaymentApi,
   platformPaymentSdk,
   platformMapsApi,
@@ -352,6 +353,12 @@ async function renderOrderDetail({
   platformOrderApi?: {
     listExceptionCases: jest.Mock;
     appealExceptionCase: jest.Mock;
+  };
+  platformFileApi?: {
+    createUploadIntent?: jest.Mock;
+    confirmUploaded?: jest.Mock;
+    confirmLocalUploadTarget?: jest.Mock;
+    getFileMetadata?: jest.Mock;
   };
   platformPaymentApi?: {
     createPayment: jest.Mock;
@@ -375,6 +382,7 @@ async function renderOrderDetail({
         onReorder={jest.fn()}
         onEditOrder={jest.fn()}
         onCompleteOrder={onCompleteOrder}
+        platformFileApi={platformFileApi}
         platformOrderApi={platformOrderApi}
         platformPaymentApi={platformPaymentApi}
         platformMapsApi={platformMapsApi}
@@ -553,6 +561,192 @@ describe('OrderDetailScreen exception case progress', () => {
     expect(renderedText).toContain(
       '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥128.00 · 更新时间：2026-07-12T08:20:00.000Z',
     );
+  });
+
+  it('renders exception case attachment previews from platform file metadata', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-case-attachments',
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({
+        total: 1,
+        items: [
+          {
+            id: 'case-attachment-1',
+            caseNo: 'YC202607120099',
+            orderId: 'order-platform-case-attachments',
+            orderNo: order.id,
+            sourceEventId: 'event-attachment-1',
+            reporterUserId: 'driver-1',
+            sourceRole: 'driver' as const,
+            typeLabel: '货物损坏',
+            description: '装货时发现外包装已经破损。',
+            attachmentFileIds: ['file-case-attachment-1'],
+            status: 'processing' as const,
+            appealStatus: 'none' as const,
+            createdAtIso: '2026-07-12T08:00:00.000Z',
+            updatedAtIso: '2026-07-12T08:00:00.000Z',
+            actions: [],
+          },
+        ],
+      }),
+      appealExceptionCase: jest.fn(),
+    };
+    const platformFileApi = {
+      getFileMetadata: jest.fn().mockResolvedValue({
+        id: 'file-case-attachment-1',
+        ownerUserId: 'driver-1',
+        purpose: 'exception' as const,
+        objectKey: 'driver-1/exception/file-case-attachment-1.png',
+        publicUrl: 'https://cdn.example.com/file-case-attachment-1.png',
+        status: 'uploaded' as const,
+        createdAtIso: '2026-07-12T08:00:00.000Z',
+      }),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+      platformFileApi,
+    });
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-case-attachment-1',
+    );
+    expect(getRenderedText(renderer)).toMatch(/附件凭证\s+1\s+张/);
+    expect(getRenderedText(renderer)).toContain(
+      '异常工单凭证：异常工单凭证 1',
+    );
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain(
+      '文件 ID：file-case-attachment-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'exception-case-proof-image-YC202607120099-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-case-attachment-1.png',
+    });
+  });
+});
+
+describe('OrderDetailScreen attachment history', () => {
+  it('renders uploaded exception proof previews from the order record', async () => {
+    const order = createOnlineOrder({
+      status: 'transporting',
+      exceptionReport: {
+        typeLabel: '司机延误',
+        description: '司机反馈高速拥堵，预计晚到 40 分钟',
+        statusText: '待客服跟进',
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-exception-history-1',
+            fileName: '异常图片凭证.png',
+            purpose: 'exception',
+            status: 'uploaded',
+            publicUrl: 'https://cdn.example.com/file-exception-history-1.png',
+          },
+        ],
+      },
+    });
+
+    const renderer = await renderOrderDetail({ order });
+
+    expect(getRenderedText(renderer)).toContain('异常图片凭证 清单');
+    expect(getRenderedText(renderer)).toContain('异常图片凭证：异常图片凭证.png');
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain(
+      '文件 ID：file-exception-history-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'order-exception-record-photo-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-history-1.png',
+    });
+  });
+
+  it('renders uploaded evaluation proof previews from the order record', async () => {
+    const order = createOnlineOrder({
+      status: 'completed',
+      evaluation: {
+        rating: 5,
+        tags: ['准时'],
+        content: '司机服务细致，整体运输体验很好',
+        anonymous: true,
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-evaluation-history-1',
+            fileName: '评价图片凭证.png',
+            purpose: 'evaluation',
+            status: 'uploaded',
+            publicUrl: 'https://cdn.example.com/file-evaluation-history-1.png',
+          },
+        ],
+      },
+    });
+
+    const renderer = await renderOrderDetail({ order });
+
+    expect(getRenderedText(renderer)).toContain('评价图片凭证 清单');
+    expect(getRenderedText(renderer)).toContain('评价图片凭证：评价图片凭证.png');
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain(
+      '文件 ID：file-evaluation-history-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'order-evaluation-record-photo-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-evaluation-history-1.png',
+    });
+  });
+
+  it('renders uploaded driver-to-shipper evaluation proofs from the order record', async () => {
+    const order = createOnlineOrder({
+      status: 'completed',
+      shipperEvaluation: {
+        rating: 4,
+        tags: ['沟通顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+        anonymous: false,
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-shipper-evaluation-history-1',
+            fileName: '司机评价图片凭证.png',
+            purpose: 'evaluation',
+            status: 'uploaded',
+            publicUrl:
+              'https://cdn.example.com/file-shipper-evaluation-history-1.png',
+          },
+        ],
+      },
+    });
+
+    const renderer = await renderOrderDetail({ order });
+
+    expect(getRenderedText(renderer)).toContain('司机评价图片凭证 清单');
+    expect(getRenderedText(renderer)).toContain(
+      '司机评价图片凭证：司机评价图片凭证.png',
+    );
+    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
+    expect(getRenderedText(renderer)).toContain(
+      '文件 ID：file-shipper-evaluation-history-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'order-shipper-evaluation-record-photo-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-shipper-evaluation-history-1.png',
+    });
   });
 });
 

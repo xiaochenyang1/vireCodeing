@@ -61,6 +61,10 @@ export function createPlatformNotificationsApi(config: PlatformApiConfig) {
   };
 }
 
+export type PlatformNotificationsApi = ReturnType<
+  typeof createPlatformNotificationsApi
+>;
+
 function normalizeRegisterDeviceTokenRequest(
   request: PlatformRegisterDeviceTokenRequest,
 ): PlatformRegisterDeviceTokenRequest {

@@ -13,6 +13,8 @@ import {
   createUpdatedPasswordSettings,
   defaultPermissionStatuses,
   getNextSettingToggle,
+  getNotificationPermissionStatusText,
+  getSystemPermissionStatusText,
   getPlatformAccountProfileErrorMessage,
   getPermissionDeniedGuideNotice,
   getPlatformPasswordChangeErrorMessage,
@@ -279,6 +281,16 @@ describe('profile settings utils', () => {
       '定位权限拒绝引导：请到系统设置中为货主端开启定位权限；当前不会拉起真实系统设置页。',
     );
     expect(getPermissionDeniedGuideNotice('missing')).toBe('');
+    expect(getNotificationPermissionStatusText('granted')).toBe('系统已授权');
+    expect(getNotificationPermissionStatusText('denied')).toBe('系统已拒绝');
+    expect(getNotificationPermissionStatusText('undetermined')).toBe(
+      '系统未决定',
+    );
+    expect(getNotificationPermissionStatusText()).toBe('未检测');
+    expect(getSystemPermissionStatusText('granted')).toBe('系统已授权');
+    expect(getSystemPermissionStatusText('denied')).toBe('系统已拒绝');
+    expect(getSystemPermissionStatusText('undetermined')).toBe('系统未决定');
+    expect(getSystemPermissionStatusText()).toBe('未检测');
   });
 
   it('returns document panel state and copy for read-only settings', () => {
@@ -301,7 +313,7 @@ describe('profile settings utils', () => {
       showPermissionPanel: true,
       showSecurityCheckPanel: false,
       notice:
-        '权限说明：定位用于发单城市与路线展示；相机用于本地图片凭证占位；相册用于选择本地图片凭证；通知用于订单状态提醒。真实系统权限弹窗尚未接入。',
+        '权限说明：定位用于发单城市与路线展示；相机用于本地图片凭证占位；相册用于选择本地图片凭证；通知用于订单状态提醒。通知、相机和相册会读取当前系统状态；定位仍未接入真实系统权限弹窗。',
     });
     expect(
       getSettingDocumentState('setting-version-update', appVersionInfo).notice,

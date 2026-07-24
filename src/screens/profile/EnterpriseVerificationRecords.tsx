@@ -3,13 +3,12 @@ import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type {
-  PlatformFileUploadConfirmationApi,
   PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../../services/platformFileApi';
-import { confirmPlatformFileUploadIntent } from '../../services/platformFileApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 import { styles } from '../../styles';
 import type {
@@ -21,11 +20,10 @@ import {
   getEnterpriseVerificationRejectionNotice,
 } from '../../utils/profileVerifications';
 
-type EnterprisePlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<
+type EnterprisePlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
-    'createUploadIntent'
-  >;
+  'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+>;
 type EnterprisePlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
   'saveEnterpriseVerification'
@@ -112,6 +110,15 @@ export function EnterpriseVerificationRecords({
   const verificationStatus = getEnterpriseVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const {
+    pickAndUpload: pickLicensePhotoAndUpload,
+    clear: clearLicensePhotoUpload,
+  } = useImageUpload(platformFileApi, {
+    purpose: 'identity',
+    fileName: '营业执照.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
 
   useEffect(() => {
     setEnterpriseName(verification?.enterpriseName ?? '');
@@ -122,6 +129,10 @@ export function EnterpriseVerificationRecords({
     setLicensePhotoCount(verification?.licensePhotoCount ?? 0);
     setLicenseFiles(verification?.licenseFiles ?? []);
   }, [verification]);
+
+  useEffect(() => {
+    clearLicensePhotoUpload();
+  }, [clearLicensePhotoUpload, verification]);
 
   const submitVerification = async () => {
     const result = createEnterpriseVerificationRequest({
@@ -200,24 +211,17 @@ export function EnterpriseVerificationRecords({
       return;
     }
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'identity',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
+    const result = await pickLicensePhotoAndUpload();
 
-      setLicenseFiles([mapPlatformFileToVerificationRef(uploadedFile, fileName)]);
+    if (result.status === 'uploaded') {
+      setLicenseFiles([mapPlatformFileToVerificationRef(result.file, fileName)]);
       setLicensePhotoCount(1);
       setNotice('营业执照凭证已关联平台文件对象。');
-    } catch {
-      setLicensePhotoCount(1);
-      setNotice('营业执照凭证上传失败，已保留本地占位。');
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
 

@@ -4,6 +4,7 @@
 
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { Linking, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
@@ -77,6 +78,18 @@ beforeEach(async () => {
   clearHomeLocalState();
   clearProfileLocalState();
   clearAppRuntimeState();
+  (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+    status: 'granted',
+  });
+  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
+    {
+      status: 'granted',
+    },
+  );
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+    canceled: true,
+    assets: [],
+  });
   delete (globalThis as PlatformRuntimeConfigGlobal).__TRUCK_PLATFORM_CONFIG__;
 });
 
@@ -113,6 +126,30 @@ function expectOrderMutationContext(
   expect(mutationContext).toMatchObject({
     idempotencyKey: expect.stringMatching(uuidV4Pattern),
     baseUpdatedAtIso,
+  });
+}
+
+function mockSelectedImageUpload(
+  fileName = 'picked-image.png',
+  uri = 'file:///tmp/picked-image.png',
+) {
+  (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
+    status: 'granted',
+  });
+  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
+    {
+      status: 'granted',
+    },
+  );
+  (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
+    canceled: false,
+    assets: [
+      {
+        uri,
+        fileName,
+        fileSize: 2048,
+      },
+    ],
   });
 }
 
@@ -1042,6 +1079,18 @@ function installPlatformFetchMock(fetchMock: jest.Mock) {
 
     if (
       requestUrl.endsWith('/exception-cases') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [],
+          total: 0,
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/driver/bank-cards') &&
       (!init?.method || init.method === 'GET')
     ) {
       return Promise.resolve(
@@ -3194,6 +3243,9 @@ test('uses locally added profile addresses as draft address suggestions', async 
   const app = await renderApp();
 
   await loginToHome(app);
+  await flushMicrotasks();
+  await flushMacrotask();
+  await flushMicrotasks();
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
@@ -7428,7 +7480,7 @@ test('requires a detailed exception description before submitting a report', asy
   expect(renderedText).not.toContain('异常记录');
 });
 
-test('submits an exception report with a local photo voucher', async () => {
+test('adds and removes local exception photo vouchers before submitting', async () => {
   const app = await renderApp();
 
   await loginToHome(app);
@@ -7448,6 +7500,7 @@ test('submits an exception report with a local photo voucher', async () => {
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'exception-type-damage' }).props.onPress();
     app.root.findByProps({ testID: 'exception-photo-add' }).props.onPress();
+    app.root.findByProps({ testID: 'exception-photo-add' }).props.onPress();
     app.root
       .findByProps({ testID: 'exception-description' })
       .props.onChangeText('卸货时发现外包装破损');
@@ -7457,11 +7510,26 @@ test('submits an exception report with a local photo voucher', async () => {
 
   expect(renderedText).toContain('异常图片凭证清单');
   expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).toContain('本地图片凭证 2：本地已保存');
   expect(renderedText).toContain('来源：本地图片凭证占位');
   expect(
     app.root.findByProps({ testID: 'exception-photo-preview-placeholder-1' })
       .props.children,
   ).toBe('异常图片 1');
+  expect(
+    app.root.findByProps({ testID: 'exception-photo-preview-placeholder-2' })
+      .props.children,
+  ).toBe('异常图片 2');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'exception-photo-remove-latest' }).props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('图片凭证 1 张');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).not.toContain('本地图片凭证 2：本地已保存');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'exception-submit' }).props.onPress();
@@ -7993,7 +8061,7 @@ test('submits an anonymous driver evaluation and shows it in profile records', a
   expect(renderedText).toContain('希望这条评价匿名展示');
 });
 
-test('submits a driver evaluation with a local photo voucher', async () => {
+test('adds and removes local evaluation photo vouchers before submitting', async () => {
   const app = await renderApp();
 
   await loginToHome(app);
@@ -8020,6 +8088,7 @@ test('submits a driver evaluation with a local photo voucher', async () => {
     app.root.findByProps({ testID: 'evaluation-rating-5' }).props.onPress();
     app.root.findByProps({ testID: 'evaluation-tag-punctual' }).props.onPress();
     app.root.findByProps({ testID: 'evaluation-photo-add' }).props.onPress();
+    app.root.findByProps({ testID: 'evaluation-photo-add' }).props.onPress();
     app.root
       .findByProps({ testID: 'evaluation-content' })
       .props.onChangeText('已补充现场交付图片');
@@ -8029,11 +8098,26 @@ test('submits a driver evaluation with a local photo voucher', async () => {
 
   expect(renderedText).toContain('评价图片凭证清单');
   expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).toContain('本地图片凭证 2：本地已保存');
   expect(renderedText).toContain('来源：本地图片凭证占位');
   expect(
     app.root.findByProps({ testID: 'evaluation-photo-preview-placeholder-1' })
       .props.children,
   ).toBe('评价图片 1');
+  expect(
+    app.root.findByProps({ testID: 'evaluation-photo-preview-placeholder-2' })
+      .props.children,
+  ).toBe('评价图片 2');
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'evaluation-photo-remove-latest' }).props.onPress();
+  });
+
+  renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('图片凭证 1 张');
+  expect(renderedText).toContain('本地图片凭证 1：本地已保存');
+  expect(renderedText).not.toContain('本地图片凭证 2：本地已保存');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'evaluation-submit' }).props.onPress();
@@ -8436,7 +8520,13 @@ test('opens an order detail from an order message', async () => {
 
   ReactTestRenderer.act(() => {
     app.root
-      .findByProps({ testID: 'message-open-order-HY20260622001' })
+      .findByProps({ testID: 'message-conversation-order-HY20260622001' })
+      .props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'support-topbar-right-action' })
       .props.onPress();
   });
 
@@ -8458,7 +8548,13 @@ test('returns to the message center after opening a detail from an order message
 
   ReactTestRenderer.act(() => {
     app.root
-      .findByProps({ testID: 'message-open-order-HY20260622001' })
+      .findByProps({ testID: 'message-conversation-order-HY20260622001' })
+      .props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'support-topbar-right-action' })
       .props.onPress();
   });
 
@@ -8473,9 +8569,9 @@ test('returns to the message center after opening a detail from an order message
   expect(renderedText).toContain('消息中心');
   expect(renderedText).toContain('订单 HY20260622001 收到 2 个司机报价');
   expect(
-    app.root.findByProps({ testID: 'message-status-message-quote-1' }).props
-      .children,
-  ).toBe('已读');
+    getAppRuntimeState().messages.find(message => message.id === 'message-quote-1')
+      ?.unread,
+  ).toBe(false);
   expect(renderedText).not.toContain('货运发单');
 });
 
@@ -8495,12 +8591,12 @@ test('marks an order message as read and updates the local unread count', async 
 
   ReactTestRenderer.act(() => {
     app.root
-      .findByProps({ testID: 'message-open-order-HY20260622001' })
+      .findByProps({ testID: 'message-conversation-order-HY20260622001' })
       .props.onPress();
   });
 
   ReactTestRenderer.act(() => {
-    app.root.findByProps({ testID: 'order-detail-back' }).props.onPress();
+    app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
   });
 
   expect(getRenderedText(app)).toContain('消息中心');
@@ -8513,15 +8609,18 @@ test('marks an order message as read and updates the local unread count', async 
     app.root.findByProps({ testID: 'home-unread-message-count' }).props
       .children,
   ).toBe(1);
+  expect(
+    getAppRuntimeState().messages.find(message => message.id === 'message-quote-1')
+      ?.unread,
+  ).toBe(false);
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
   });
 
   expect(
-    app.root.findByProps({ testID: 'message-status-message-quote-1' }).props
-      .children,
-  ).toBe('已读');
+    app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+  ).toBe('1 条未读');
 });
 
 test('marks a non-order message as read and updates the local unread count', async () => {
@@ -8570,23 +8669,23 @@ test('marks all messages as read and persists the unread count reset', async () 
 
   expect(
     app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-  ).toBe('还有 2 条未读消息');
+  ).toBe('2 条未读');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
   });
 
   expect(
-    app.root.findByProps({ testID: 'message-status-message-quote-1' }).props
-      .children,
-  ).toBe('已读');
-  expect(
     app.root.findByProps({ testID: 'message-status-message-system-1' }).props
       .children,
   ).toBe('已读');
   expect(
+    getAppRuntimeState().messages.find(message => message.id === 'message-quote-1')
+      ?.unread,
+  ).toBe(false);
+  expect(
     app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-  ).toBe('全部消息都已读');
+  ).toBe('全部已读');
   expect(getAppRuntimeState().messages.every(message => !message.unread)).toBe(
     true,
   );
@@ -8731,7 +8830,7 @@ test('rolls back a platform message read when the platform request fails', async
     ).toBe('未读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 2 条未读消息');
+    ).toBe('2 条未读');
 
     ReactTestRenderer.act(() => {
       app.root
@@ -8745,7 +8844,7 @@ test('rolls back a platform message read when the platform request fails', async
     ).toBe('已读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 1 条未读消息');
+    ).toBe('1 条未读');
     expect(getAppRuntimeState().messageUnreadCount).toBe(1);
 
     await ReactTestRenderer.act(async () => {
@@ -8758,7 +8857,7 @@ test('rolls back a platform message read when the platform request fails', async
     ).toBe('未读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 2 条未读消息');
+    ).toBe('2 条未读');
     expect(getAppRuntimeState().messageUnreadCount).toBe(2);
     expect(
       app.root.findByProps({ testID: 'message-refresh-notice' }).props.children,
@@ -8903,7 +9002,7 @@ test('rolls back mark-all-read when the platform request fails', async () => {
 
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 2 条未读消息');
+    ).toBe('2 条未读');
 
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
@@ -8911,17 +9010,17 @@ test('rolls back mark-all-read when the platform request fails', async () => {
 
     expect(
       app.root.findByProps({
-        testID: 'message-status-msg-platform-read-all-fail-1',
-      }).props.children,
-    ).toBe('已读');
-    expect(
-      app.root.findByProps({
         testID: 'message-status-msg-platform-read-all-fail-2',
       }).props.children,
     ).toBe('已读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('全部消息都已读');
+    ).toBe('全部已读');
+    expect(
+      getAppRuntimeState().messages.find(
+        message => message.id === 'msg-platform-read-all-fail-1',
+      )?.unread,
+    ).toBe(false);
     expect(getAppRuntimeState().messageUnreadCount).toBe(0);
 
     await ReactTestRenderer.act(async () => {
@@ -8930,17 +9029,17 @@ test('rolls back mark-all-read when the platform request fails', async () => {
 
     expect(
       app.root.findByProps({
-        testID: 'message-status-msg-platform-read-all-fail-1',
-      }).props.children,
-    ).toBe('未读');
-    expect(
-      app.root.findByProps({
         testID: 'message-status-msg-platform-read-all-fail-2',
       }).props.children,
     ).toBe('未读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 2 条未读消息');
+    ).toBe('2 条未读');
+    expect(
+      getAppRuntimeState().messages.find(
+        message => message.id === 'msg-platform-read-all-fail-1',
+      )?.unread,
+    ).toBe(true);
     expect(getAppRuntimeState().messageUnreadCount).toBe(2);
     expect(
       app.root.findByProps({ testID: 'message-refresh-notice' }).props.children,
@@ -9076,11 +9175,12 @@ test('uses the platform unread count even when the current page has no unread me
 
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 3 条未读消息');
+    ).toBe('3 条未读');
     expect(
-      app.root.findByProps({ testID: 'message-status-msg-platform-1' }).props
-        .children,
-    ).toBe('已读');
+      app.root.findByProps({
+        testID: 'message-conversation-order-order-platform-1',
+      }),
+    ).toBeTruthy();
 
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'message-mark-all-read' }).props.onPress();
@@ -9090,7 +9190,7 @@ test('uses the platform unread count even when the current page has no unread me
 
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('全部消息都已读');
+    ).toBe('全部已读');
     expect(getAppRuntimeState().messageUnreadCount).toBe(0);
 
     ReactTestRenderer.act(() => {
@@ -9233,7 +9333,7 @@ test('refreshes platform messages when opening the message center from home', as
     expect(renderedText).toContain('新的平台消息');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 4 条未读消息');
+    ).toBe('4 条未读');
     expect(
       app.root.findByProps({ testID: 'message-status-msg-platform-new' }).props
         .children,
@@ -9382,7 +9482,7 @@ test('shows cached message notice when a platform refresh fails and clears it af
     ).toHaveLength(0);
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('还有 2 条未读消息');
+    ).toBe('2 条未读');
     expect(messageListRequestCount).toBe(3);
   } finally {
     globalThis.fetch = originalFetch;
@@ -9523,7 +9623,7 @@ test('keeps local read state when a later platform message refresh is stale', as
     ).toBe('已读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('全部消息都已读');
+    ).toBe('全部已读');
     expect(getAppRuntimeState().messageUnreadCount).toBe(0);
 
     await ReactTestRenderer.act(async () => {
@@ -9547,7 +9647,7 @@ test('keeps local read state when a later platform message refresh is stale', as
     ).toBe('已读');
     expect(
       app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
-    ).toBe('全部消息都已读');
+    ).toBe('全部已读');
     expect(getAppRuntimeState().messageUnreadCount).toBe(0);
     expect(messageListRequestCount).toBeGreaterThanOrEqual(3);
   } finally {
@@ -13668,6 +13768,8 @@ test('shows platform evaluation records when opening evaluations in platform mod
         tags: ['沟通顺畅'],
         content: '司机评价货主同步内容',
         anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-received-1'],
         submittedAtIso: '2026-07-09T10:00:00.000Z',
       },
     ],
@@ -13728,6 +13830,48 @@ test('shows platform evaluation records when opening evaluations in platform mod
       );
     }
 
+    if (requestUrl === 'http://localhost:3000/api/files/file-eval-1') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-eval-1',
+          ownerUserId: 'user-platform-evaluation',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-eval-1.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-eval-1.png',
+          createdAtIso: '2026-07-09T09:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/files/file-eval-2') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-eval-2',
+          ownerUserId: 'user-platform-evaluation',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-eval-2.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-eval-2.png',
+          createdAtIso: '2026-07-09T09:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/files/file-received-1') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-received-1',
+          ownerUserId: 'user-platform-evaluation',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-received-1.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-received-1.png',
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        }),
+      );
+    }
+
     throw new Error(`Unexpected request: ${requestUrl}`);
   });
   installPlatformFetchMock(fetchMock);
@@ -13760,6 +13904,10 @@ test('shows platform evaluation records when opening evaluations in platform mod
     expect(renderedText).toContain('匿名平台评价同步内容');
     expect(renderedText).toContain('司机评价货主同步内容');
     expect(renderedText).toContain('司机评价：2026-07-09 10:00');
+    expect(renderedText).toContain('评价图片凭证 清单');
+    expect(renderedText).toContain('司机评价图片凭证 清单');
+    expect(renderedText).toContain('文件 ID：file-eval-1');
+    expect(renderedText).toContain('文件 ID：file-received-1');
     expect(renderedText).not.toContain('师傅准时，货物保护不错。');
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -14018,11 +14166,16 @@ test('updates local account settings and opens policy documents', async () => {
       .props.onPress();
   });
 
+  await flushMicrotasks();
+  await flushMacrotask();
+  await flushMicrotasks();
+
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('权限说明：定位用于发单城市与路线展示');
   expect(renderedText).toContain('相机用于本地图片凭证占位');
   expect(renderedText).toContain('通知用于订单状态提醒');
+  expect(renderedText).toContain('通知、相机和相册会读取当前系统状态');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'setting-open-about' }).props.onPress();
@@ -14053,21 +14206,35 @@ test('checks local permission status and shows denied guidance', async () => {
       .props.onPress();
   });
 
+  await flushMicrotasks();
+  await flushMacrotask();
+  await flushMicrotasks();
+
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('权限状态');
   expect(renderedText).toContain('定位权限：未检测');
-  expect(renderedText).toContain('真实系统权限弹窗尚未接入');
+  expect(renderedText).toContain('相机权限：系统已授权');
+  expect(renderedText).toContain('相册权限：系统已授权');
+  expect(renderedText).toContain('通知权限：系统已授权');
+  expect(renderedText).toContain('通知、相机和相册会读取当前系统状态');
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'permission-local-check' }).props.onPress();
   });
+  await flushMicrotasks();
+  await flushMacrotask();
+  await flushMicrotasks();
 
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('定位权限：本地未授权');
-  expect(renderedText).toContain('相机权限：本地未授权');
-  expect(renderedText).toContain('通知权限：本地未授权');
+  expect(renderedText).toContain('相机权限：系统已授权');
+  expect(renderedText).toContain('相册权限：系统已授权');
+  expect(renderedText).toContain('通知权限：系统已授权');
+  expect(renderedText).toContain(
+    '权限检查完成：通知、相机和相册已同步系统状态，定位权限仍为本地演练。',
+  );
 
   ReactTestRenderer.act(() => {
     app.root
@@ -19693,6 +19860,9 @@ test('attaches platform file objects to cargo photo vouchers when publishing', a
       await flushMicrotasks();
     });
     fillDigitalDraft(app);
+
+    mockSelectedImageUpload('cargo-upload.png');
+
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'draft-cargo-photo-add' }).props.onPress();
       await flushMicrotasks();
@@ -23385,85 +23555,137 @@ test('reports a platform order exception through the exception api', async () =>
     pickupAddress: '宝安临时仓',
     deliveryAddress: '南山门店新址',
   });
-  const fetchMock = jest
-    .fn()
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        expireSeconds: 300,
-        devCode: '999999',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        user: {
-          id: 'user-platform-order-exception',
-          phone: '13800138000',
-          userType: 'shipper',
-        },
-        tokens: {
-          accessToken: 'access.platform-order-exception.900',
-          refreshToken: 'refresh.platform-order-exception.604800',
-          expiresIn: 900,
-        },
-      }),
-    )
-    .mockResolvedValueOnce(createPlatformApiResponse(null))
-    .mockResolvedValueOnce(createPlatformApiResponse(transportingPlatformOrder))
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        id: 'file-exception-fast-1',
-        ownerUserId: 'user-platform-order-exception',
-        purpose: 'exception',
-        objectKey:
-          'user-platform-order-exception/exception/file-exception-fast-1.png',
-        status: 'pending',
-        uploadUrl:
-          'http://localhost:3000/api/files/uploads/file-exception-fast-1',
-        publicUrl: 'https://cdn.example.com/file-exception-fast-1.png',
-        expiresAtIso: '2026-07-03T09:10:00.000Z',
-        createdAtIso: '2026-07-03T08:55:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        ...transportingPlatformOrder,
-        updatedAtIso: '2026-07-03T09:10:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        id: 'file-exception-fast-1',
-        ownerUserId: 'user-platform-order-exception',
-        purpose: 'exception',
-        objectKey:
-          'user-platform-order-exception/exception/file-exception-fast-1.png',
-        status: 'uploaded',
-        publicUrl: 'https://cdn.example.com/file-exception-fast-1.png',
-        createdAtIso: '2026-07-03T08:55:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        ...transportingPlatformOrder,
-        status: 'confirming',
-        updatedAtIso: '2026-07-03T09:20:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        items: [
-          {
-            ...transportingPlatformOrder,
-            status: 'confirming',
-            deliveryAddress: '南山列表刷新后门店',
-            updatedAtIso: '2026-07-03T09:30:00.000Z',
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl.endsWith('/auth/send-code')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/auth/login')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-order-exception',
+            phone: '13800138000',
+            userType: 'shipper',
           },
-        ],
-        page: 1,
-        pageSize: 20,
-        total: 1,
-      }),
-    );
+          tokens: {
+            accessToken: 'access.platform-order-exception.900',
+            refreshToken: 'refresh.platform-order-exception.604800',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/shipper/order-draft')) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (requestUrl.endsWith('/shipper/orders') && init?.method === 'POST') {
+      return Promise.resolve(createPlatformApiResponse(transportingPlatformOrder));
+    }
+
+    if (requestUrl.endsWith('/files/upload-intents')) {
+      expect(requestBody).toMatchObject({
+        purpose: 'exception',
+        fileName: '异常图片凭证.png',
+        contentType: 'image/png',
+      });
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-exception-fast-1',
+          ownerUserId: 'user-platform-order-exception',
+          purpose: 'exception',
+          objectKey:
+            'user-platform-order-exception/exception/file-exception-fast-1.png',
+          status: 'pending',
+          uploadUrl:
+            'http://localhost:3000/api/files/uploads/file-exception-fast-1',
+          publicUrl: 'https://cdn.example.com/file-exception-fast-1.png',
+          expiresAtIso: '2026-07-03T09:10:00.000Z',
+          createdAtIso: '2026-07-03T08:55:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/uploads/file-exception-fast-1')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-exception-fast-1',
+          ownerUserId: 'user-platform-order-exception',
+          purpose: 'exception',
+          objectKey:
+            'user-platform-order-exception/exception/file-exception-fast-1.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-exception-fast-1.png',
+          createdAtIso: '2026-07-03T08:55:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/shipper/orders/order-platform-exception-1/exception')
+    ) {
+      expect(requestBody).toEqual({
+        typeLabel: '司机延误',
+        description: '司机反馈高速拥堵，预计晚到 40 分钟',
+        photoCount: 1,
+      });
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          ...transportingPlatformOrder,
+          updatedAtIso: '2026-07-03T09:10:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/shipper/orders/order-platform-exception-1/status')
+    ) {
+      expect(requestBody).toMatchObject({
+        baseUpdatedAtIso: '2026-07-03T09:10:00.000Z',
+        nextStatus: 'confirming',
+      });
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          ...transportingPlatformOrder,
+          status: 'confirming',
+          updatedAtIso: '2026-07-03T09:20:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/shipper/orders?page=1&pageSize=20') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              ...transportingPlatformOrder,
+              status: 'confirming',
+              deliveryAddress: '南山列表刷新后门店',
+              updatedAtIso: '2026-07-03T09:30:00.000Z',
+            },
+          ],
+          page: 1,
+          pageSize: 20,
+          total: 1,
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
 
   installPlatformFetchMock(fetchMock);
 
@@ -23492,6 +23714,9 @@ test('reports a platform order exception through the exception api', async () =>
         .findByProps({ testID: 'order-detail-secondary-action' })
         .props.onPress();
     });
+
+    mockSelectedImageUpload('exception-fast-upload.png');
+
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'exception-type-delay' }).props.onPress();
       app.root
@@ -23625,6 +23850,7 @@ test('attaches platform file objects to exception report photos', async () => {
     pickupAddress: '宝安临时仓',
     deliveryAddress: '南山门店新址',
   });
+  let exceptionUploadCount = 0;
   const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
     const requestUrl = String(url);
     const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -23673,17 +23899,18 @@ test('attaches platform file objects to exception report photos', async () => {
         contentType: 'image/png',
       });
 
+      exceptionUploadCount += 1;
+      const fileId = `file-exception-${exceptionUploadCount}`;
+
       return Promise.resolve(
         createPlatformApiResponse({
-          id: 'file-exception-1',
+          id: fileId,
           ownerUserId: 'user-platform-order-exception-file',
           purpose: 'exception',
-          objectKey:
-            'user-platform-order-exception-file/exception/file-exception-1.png',
+          objectKey: `user-platform-order-exception-file/exception/${fileId}.png`,
           status: 'pending',
-          uploadUrl:
-            'http://localhost:3000/api/files/uploads/file-exception-1',
-          publicUrl: 'https://cdn.example.com/file-exception-1.png',
+          uploadUrl: `http://localhost:3000/api/files/uploads/${fileId}`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
           expiresAtIso: '2026-07-03T09:10:00.000Z',
           createdAtIso: '2026-07-03T08:55:00.000Z',
         }),
@@ -23705,6 +23932,21 @@ test('attaches platform file objects to exception report photos', async () => {
       );
     }
 
+    if (requestUrl.endsWith('/files/uploads/file-exception-2')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-exception-2',
+          ownerUserId: 'user-platform-order-exception-file',
+          purpose: 'exception',
+          objectKey:
+            'user-platform-order-exception-file/exception/file-exception-2.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-exception-2.png',
+          createdAtIso: '2026-07-03T08:56:00.000Z',
+        }),
+      );
+    }
+
     if (
       requestUrl.endsWith(
         '/shipper/orders/order-platform-exception-file/exception',
@@ -23713,8 +23955,8 @@ test('attaches platform file objects to exception report photos', async () => {
       expect(requestBody).toEqual({
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
-        photoCount: 1,
-        photoFileIds: ['file-exception-1'],
+        photoCount: 2,
+        photoFileIds: ['file-exception-1', 'file-exception-2'],
       });
 
       return Promise.resolve(
@@ -23760,6 +24002,14 @@ test('attaches platform file objects to exception report photos', async () => {
         .findByProps({ testID: 'exception-description' })
         .props.onChangeText('司机反馈高速拥堵，预计晚到 40 分钟');
     });
+
+    mockSelectedImageUpload('exception-upload.png');
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'exception-photo-add' }).props.onPress();
+      await flushMicrotasks();
+    });
+    mockSelectedImageUpload('exception-upload-2.png');
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'exception-photo-add' }).props.onPress();
       await flushMicrotasks();
@@ -23769,14 +24019,22 @@ test('attaches platform file objects to exception report photos', async () => {
 
     expect(renderedText).toContain('异常图片凭证清单');
     expect(renderedText).toContain('异常图片凭证：异常图片凭证.png');
+    expect(renderedText).toContain('异常图片凭证：异常图片凭证2.png');
     expect(renderedText).toContain('来源：平台文件对象（已上传）');
     expect(renderedText).toContain('文件 ID：file-exception-1');
+    expect(renderedText).toContain('文件 ID：file-exception-2');
     expect(renderedText).not.toContain('本地图片凭证 1：本地已保存');
     expect(
       app.root.findByProps({ testID: 'exception-photo-preview-image-1' }).props
         .source,
     ).toEqual({
       uri: 'https://cdn.example.com/file-exception-1.png',
+    });
+    expect(
+      app.root.findByProps({ testID: 'exception-photo-preview-image-2' }).props
+        .source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-2.png',
     });
 
     await ReactTestRenderer.act(async () => {
@@ -23794,13 +24052,18 @@ test('attaches platform file objects to exception report photos', async () => {
         String(url).endsWith('/files/uploads/file-exception-1'),
       ),
     ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith('/files/uploads/file-exception-2'),
+      ),
+    ).toBe(true);
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030006',
       platformOrderId: 'order-platform-exception-file',
       exceptionReport: {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
-        photoCount: 1,
+        photoCount: 2,
         photoFiles: [
           {
             fileId: 'file-exception-1',
@@ -23808,6 +24071,13 @@ test('attaches platform file objects to exception report photos', async () => {
             purpose: 'exception',
             status: 'uploaded',
             publicUrl: 'https://cdn.example.com/file-exception-1.png',
+          },
+          {
+            fileId: 'file-exception-2',
+            fileName: '异常图片凭证2.png',
+            purpose: 'exception',
+            status: 'uploaded',
+            publicUrl: 'https://cdn.example.com/file-exception-2.png',
           },
         ],
       },
@@ -23972,70 +24242,118 @@ test('submits a platform order evaluation through the evaluation api', async () 
     pickupAddress: '宝安临时仓',
     deliveryAddress: '南山门店新址',
   });
-  const fetchMock = jest
-    .fn()
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        expireSeconds: 300,
-        devCode: '999999',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        user: {
-          id: 'user-platform-order-evaluation',
-          phone: '13800138000',
-          userType: 'shipper',
-        },
-        tokens: {
-          accessToken: 'access.platform-order-evaluation.900',
-          refreshToken: 'refresh.platform-order-evaluation.604800',
-          expiresIn: 900,
-        },
-      }),
-    )
-    .mockResolvedValueOnce(createPlatformApiResponse(null))
-    .mockResolvedValueOnce(createPlatformApiResponse(completedPlatformOrder))
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        id: 'file-evaluation-fast-1',
-        ownerUserId: 'user-platform-order-evaluation',
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl.endsWith('/auth/send-code')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/auth/login')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-order-evaluation',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-order-evaluation.900',
+            refreshToken: 'refresh.platform-order-evaluation.604800',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/shipper/order-draft')) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (requestUrl.endsWith('/shipper/orders') && init?.method === 'POST') {
+      return Promise.resolve(createPlatformApiResponse(completedPlatformOrder));
+    }
+
+    if (requestUrl.endsWith('/files/upload-intents')) {
+      expect(requestBody).toMatchObject({
         purpose: 'evaluation',
-        objectKey:
-          'user-platform-order-evaluation/evaluation/file-evaluation-fast-1.png',
-        status: 'pending',
-        uploadUrl:
-          'http://localhost:3000/api/files/uploads/file-evaluation-fast-1',
-        publicUrl: 'https://cdn.example.com/file-evaluation-fast-1.png',
-        expiresAtIso: '2026-07-03T09:20:00.000Z',
-        createdAtIso: '2026-07-03T09:05:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        ...completedPlatformOrder,
-        updatedAtIso: '2026-07-03T09:30:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        id: 'file-evaluation-fast-1',
-        ownerUserId: 'user-platform-order-evaluation',
-        purpose: 'evaluation',
-        objectKey:
-          'user-platform-order-evaluation/evaluation/file-evaluation-fast-1.png',
-        status: 'uploaded',
-        publicUrl: 'https://cdn.example.com/file-evaluation-fast-1.png',
-        createdAtIso: '2026-07-03T09:05:00.000Z',
-      }),
-    )
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        ...completedPlatformOrder,
-        deliveryAddress: '南山刷新后门店',
-        updatedAtIso: '2026-07-03T09:40:00.000Z',
-      }),
-    );
+        fileName: '评价图片凭证.png',
+        contentType: 'image/png',
+      });
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-evaluation-fast-1',
+          ownerUserId: 'user-platform-order-evaluation',
+          purpose: 'evaluation',
+          objectKey:
+            'user-platform-order-evaluation/evaluation/file-evaluation-fast-1.png',
+          status: 'pending',
+          uploadUrl:
+            'http://localhost:3000/api/files/uploads/file-evaluation-fast-1',
+          publicUrl: 'https://cdn.example.com/file-evaluation-fast-1.png',
+          expiresAtIso: '2026-07-03T09:20:00.000Z',
+          createdAtIso: '2026-07-03T09:05:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl.endsWith('/files/uploads/file-evaluation-fast-1')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-evaluation-fast-1',
+          ownerUserId: 'user-platform-order-evaluation',
+          purpose: 'evaluation',
+          objectKey:
+            'user-platform-order-evaluation/evaluation/file-evaluation-fast-1.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-evaluation-fast-1.png',
+          createdAtIso: '2026-07-03T09:05:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl.endsWith('/shipper/orders/order-platform-evaluation-1/evaluation')
+    ) {
+      expect(requestBody).toEqual({
+        rating: 5,
+        tags: ['准时'],
+        content: '司机服务细致，整体运输体验很好',
+        anonymous: false,
+        photoCount: 1,
+      });
+
+      return Promise.resolve(
+        createPlatformApiResponse({
+          ...completedPlatformOrder,
+          updatedAtIso: '2026-07-03T09:30:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/orders/order-platform-evaluation-1' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          ...completedPlatformOrder,
+          deliveryAddress: '南山刷新后门店',
+          updatedAtIso: '2026-07-03T09:40:00.000Z',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
 
   installPlatformFetchMock(fetchMock);
 
@@ -24064,6 +24382,9 @@ test('submits a platform order evaluation through the evaluation api', async () 
         .findByProps({ testID: 'order-detail-primary-action' })
         .props.onPress();
     });
+
+    mockSelectedImageUpload('evaluation-fast-upload.png');
+
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'evaluation-rating-5' }).props.onPress();
       app.root.findByProps({ testID: 'evaluation-tag-punctual' }).props.onPress();
@@ -24166,6 +24487,7 @@ test('attaches platform file objects to evaluation photos', async () => {
     pickupAddress: '宝安临时仓',
     deliveryAddress: '南山门店新址',
   });
+  let evaluationUploadCount = 0;
   const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
     const requestUrl = String(url);
     const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
@@ -24214,17 +24536,19 @@ test('attaches platform file objects to evaluation photos', async () => {
         contentType: 'image/png',
       });
 
+      evaluationUploadCount += 1;
+      const fileId = `file-evaluation-${evaluationUploadCount}`;
+
       return Promise.resolve(
         createPlatformApiResponse({
-          id: 'file-evaluation-1',
+          id: fileId,
           ownerUserId: 'user-platform-order-evaluation-file',
           purpose: 'evaluation',
           objectKey:
-            'user-platform-order-evaluation-file/evaluation/file-evaluation-1.png',
+            `user-platform-order-evaluation-file/evaluation/${fileId}.png`,
           status: 'pending',
-          uploadUrl:
-            'http://localhost:3000/api/files/uploads/file-evaluation-1',
-          publicUrl: 'https://cdn.example.com/file-evaluation-1.png',
+          uploadUrl: `http://localhost:3000/api/files/uploads/${fileId}`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
           expiresAtIso: '2026-07-03T09:20:00.000Z',
           createdAtIso: '2026-07-03T09:05:00.000Z',
         }),
@@ -24246,6 +24570,21 @@ test('attaches platform file objects to evaluation photos', async () => {
       );
     }
 
+    if (requestUrl.endsWith('/files/uploads/file-evaluation-2')) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-evaluation-2',
+          ownerUserId: 'user-platform-order-evaluation-file',
+          purpose: 'evaluation',
+          objectKey:
+            'user-platform-order-evaluation-file/evaluation/file-evaluation-2.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-evaluation-2.png',
+          createdAtIso: '2026-07-03T09:06:00.000Z',
+        }),
+      );
+    }
+
     if (
       requestUrl.endsWith(
         '/shipper/orders/order-platform-evaluation-file/evaluation',
@@ -24256,8 +24595,8 @@ test('attaches platform file objects to evaluation photos', async () => {
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
         anonymous: false,
-        photoCount: 1,
-        photoFileIds: ['file-evaluation-1'],
+        photoCount: 2,
+        photoFileIds: ['file-evaluation-1', 'file-evaluation-2'],
       });
 
       return Promise.resolve(
@@ -24304,6 +24643,14 @@ test('attaches platform file objects to evaluation photos', async () => {
         .findByProps({ testID: 'evaluation-content' })
         .props.onChangeText('司机服务细致，整体运输体验很好');
     });
+
+    mockSelectedImageUpload('evaluation-upload.png');
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'evaluation-photo-add' }).props.onPress();
+      await flushMicrotasks();
+    });
+    mockSelectedImageUpload('evaluation-upload-2.png');
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'evaluation-photo-add' }).props.onPress();
       await flushMicrotasks();
@@ -24313,14 +24660,22 @@ test('attaches platform file objects to evaluation photos', async () => {
 
     expect(renderedText).toContain('评价图片凭证清单');
     expect(renderedText).toContain('评价图片凭证：评价图片凭证.png');
+    expect(renderedText).toContain('评价图片凭证：评价图片凭证2.png');
     expect(renderedText).toContain('来源：平台文件对象（已上传）');
     expect(renderedText).toContain('文件 ID：file-evaluation-1');
+    expect(renderedText).toContain('文件 ID：file-evaluation-2');
     expect(renderedText).not.toContain('本地图片凭证 1：本地已保存');
     expect(
       app.root.findByProps({ testID: 'evaluation-photo-preview-image-1' }).props
         .source,
     ).toEqual({
       uri: 'https://cdn.example.com/file-evaluation-1.png',
+    });
+    expect(
+      app.root.findByProps({ testID: 'evaluation-photo-preview-image-2' }).props
+        .source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-evaluation-2.png',
     });
 
     await ReactTestRenderer.act(async () => {
@@ -24338,6 +24693,11 @@ test('attaches platform file objects to evaluation photos', async () => {
         String(url).endsWith('/files/uploads/file-evaluation-1'),
       ),
     ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith('/files/uploads/file-evaluation-2'),
+      ),
+    ).toBe(true);
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030007',
       platformOrderId: 'order-platform-evaluation-file',
@@ -24345,7 +24705,7 @@ test('attaches platform file objects to evaluation photos', async () => {
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
-        photoCount: 1,
+        photoCount: 2,
         photoFiles: [
           {
             fileId: 'file-evaluation-1',
@@ -24353,6 +24713,13 @@ test('attaches platform file objects to evaluation photos', async () => {
             purpose: 'evaluation',
             status: 'uploaded',
             publicUrl: 'https://cdn.example.com/file-evaluation-1.png',
+          },
+          {
+            fileId: 'file-evaluation-2',
+            fileName: '评价图片凭证2.png',
+            purpose: 'evaluation',
+            status: 'uploaded',
+            publicUrl: 'https://cdn.example.com/file-evaluation-2.png',
           },
         ],
       },
@@ -25037,6 +25404,8 @@ test('attaches platform file objects to identity verification photos', async () 
         .props.onChangeText('440300199001011234');
     });
 
+    mockSelectedImageUpload('identity-upload.png');
+
     await ReactTestRenderer.act(async () => {
       app.root
         .findByProps({ testID: 'identity-verification-front-photo' })
@@ -25262,6 +25631,8 @@ test('keeps platform identity verification locally when initial submit fails and
         .findByProps({ testID: 'identity-verification-id-number' })
         .props.onChangeText('440300199001011234');
     });
+
+    mockSelectedImageUpload('identity-retry-upload.png');
 
     await ReactTestRenderer.act(async () => {
       app.root
@@ -25519,6 +25890,8 @@ test('submits enterprise verification to platform from the profile center', asyn
         .props.onChangeText('13900139088');
     });
 
+    mockSelectedImageUpload('enterprise-license-upload.png');
+
     await ReactTestRenderer.act(async () => {
       app.root
         .findByProps({ testID: 'enterprise-verification-license-photo' })
@@ -25702,6 +26075,8 @@ test('keeps platform enterprise verification locally when initial submit fails a
         .findByProps({ testID: 'enterprise-verification-phone' })
         .props.onChangeText('13900139088');
     });
+
+    mockSelectedImageUpload('enterprise-license-retry-upload.png');
 
     await ReactTestRenderer.act(async () => {
       app.root
@@ -26166,6 +26541,7 @@ test('submits driver identity certification from the driver home', async () => {
         createdAtIso: '2026-07-09T02:20:00.000Z',
       }),
     )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
     .mockResolvedValueOnce(
       createPlatformApiResponse({
         id: 'file-id-front',
@@ -26190,6 +26566,7 @@ test('submits driver identity certification from the driver home', async () => {
         createdAtIso: '2026-07-09T02:21:00.000Z',
       }),
     )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
     .mockResolvedValueOnce(
       createPlatformApiResponse({
         id: 'file-id-back',
@@ -26248,6 +26625,7 @@ test('submits driver identity certification from the driver home', async () => {
       .findByProps({ testID: 'driver-cert-identity-number' })
       .props.onChangeText('11010119900307201x');
   });
+  mockSelectedImageUpload('driver-identity-upload.png');
 
   await ReactTestRenderer.act(async () => {
     app.root

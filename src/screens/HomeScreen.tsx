@@ -64,6 +64,7 @@ import type { createPlatformProfileApi } from '../services/platformProfileApi';
 import type { createPlatformFrequentRoutesApi } from '../services/platformFrequentRoutesApi';
 import type { createPlatformFileApi } from '../services/platformFileApi';
 import type { createPlatformSupportTicketsApi } from '../services/platformSupportTicketsApi';
+import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 import { PlatformApiError } from '../services/platformApiClient';
 import { getAuthSessionSnapshot } from '../utils/authSession';
 
@@ -291,6 +292,7 @@ export function HomeScreen({
   messages,
   messageUnreadCount,
   initialSupportView,
+  notificationPermissionStatus,
   usesPlatformMessagesApi,
   platformAuthApi,
   platformProfileApi,
@@ -319,6 +321,7 @@ export function HomeScreen({
   messages: MessageCenterItem[];
   messageUnreadCount: number;
   initialSupportView?: HomeSupportView;
+  notificationPermissionStatus?: PushNotificationPermissionStatus;
   usesPlatformMessagesApi?: boolean;
   draftGateNotice?: string;
   networkNotice?: string;
@@ -997,6 +1000,7 @@ export function HomeScreen({
         now={now}
         orders={orders}
         unreadMessageCount={messageUnreadCount}
+        notificationPermissionStatus={notificationPermissionStatus}
         platformAuthApi={platformAuthApi}
         platformProfileApi={platformProfileApi}
         platformFileApi={platformFileApi}

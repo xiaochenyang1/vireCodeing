@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useImageUpload } from '../hooks/useImageUpload';
 import { AddressSection } from './order-draft/AddressSection';
 import { CargoSection } from './order-draft/CargoSection';
 import { DraftPublishActionsCard } from './order-draft/DraftPublishActionsCard';
@@ -28,12 +29,10 @@ import type {
   VehicleRequirementOption,
 } from '../types';
 import type {
-  PlatformFileUploadConfirmationApi,
   PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../services/platformFileApi';
 import type { createPlatformMapsApi } from '../services/platformMapsApi';
-import { confirmPlatformFileUploadIntent } from '../services/platformFileApi';
 import {
   type DraftSyncState,
 } from '../utils/draftStorage';
@@ -71,11 +70,10 @@ import {
   type DraftAddressPreview,
 } from '../utils/orderDraftAddress';
 
-type DraftPlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<
+type DraftPlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
-    'createUploadIntent'
-  >;
+  'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+>;
 type DraftPlatformMapsApi = Pick<
   ReturnType<typeof createPlatformMapsApi>,
   'geocode'
@@ -221,6 +219,15 @@ export function OrderDraftScreen({
     initialDraftFormState.paymentMethod,
   );
   const [notice, setNotice] = useState('');
+  const { pickAndUpload: pickCargoPhotoAndUpload } = useImageUpload(
+    platformFileApi,
+    {
+      purpose: 'cargo',
+      fileName: `货物图片凭证${cargoPhotoCount + 1}.png`,
+      contentType: 'image/png',
+      byteSize: 2048,
+    },
+  );
   const [isConfirming, setIsConfirming] = useState(false);
   const [isEstimating, setIsEstimating] = useState(false);
   const [estimateBreakdown, setEstimateBreakdown] = useState<string[]>([]);
@@ -447,13 +454,15 @@ export function OrderDraftScreen({
   };
 
   const addCargoPhotoVoucher = async () => {
+    const previousCargoPhotoCount = cargoPhotoCountRef.current;
+    const previousCargoPhotoFiles = cargoPhotoFiles;
     const cargoPhotoChange = createAddCargoPhotoVoucherChange(
-      cargoPhotoCountRef.current,
+      previousCargoPhotoCount,
     );
     const nextCargoPhotoCount = cargoPhotoChange.cargoPhotoCount;
     setNotice(cargoPhotoChange.notice);
 
-    if (nextCargoPhotoCount === cargoPhotoCountRef.current) {
+    if (nextCargoPhotoCount === previousCargoPhotoCount) {
       return;
     }
 
@@ -465,26 +474,27 @@ export function OrderDraftScreen({
     }
 
     const fileName = `货物图片凭证${nextCargoPhotoCount}.png`;
+    const result = await pickCargoPhotoAndUpload();
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'cargo',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
-
+    if (result.status === 'uploaded') {
       setCargoPhotoFiles(currentFiles => [
         ...currentFiles.slice(0, nextCargoPhotoCount - 1),
-        mapPlatformFileToAttachmentRef(uploadedFile, fileName),
+        mapPlatformFileToAttachmentRef(result.file, fileName),
       ]);
       setNotice('货物图片凭证已关联平台文件对象。');
-    } catch {
-      setNotice('货物图片凭证上传失败，已保留本地占位。');
+      return;
+    }
+
+    if (result.status === 'cancelled') {
+      cargoPhotoCountRef.current = previousCargoPhotoCount;
+      setCargoPhotoCount(previousCargoPhotoCount);
+      setCargoPhotoFiles(previousCargoPhotoFiles);
+      setNotice('');
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
 

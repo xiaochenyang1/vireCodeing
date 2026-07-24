@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Platform } from 'react-native';
 
-import { useAppNavigation } from '../navigation/appNavigation';
 import type { PlatformNotificationsApi } from '../services/platformNotificationsApi';
 import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 
@@ -18,7 +17,6 @@ export function useDevicePushTokenRegistration(
   permissionStatus: PushNotificationPermissionStatus,
   driverAccountId?: string,
 ): UseDevicePushTokenRegistrationResult {
-  const navigation = useAppNavigation();
   const isRegisteringRef = useRef(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);

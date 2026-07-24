@@ -82,6 +82,8 @@ export type PlatformDriverEvaluateShipperRequest = {
   tags: string[];
   content: string;
   anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
 };
 
 export type PlatformDriverIncomeRecord = {
@@ -807,11 +809,29 @@ function normalizeDriverEvaluateShipperRequest(
     );
   }
 
+  if (
+    request.photoCount !== undefined &&
+    (typeof request.photoCount !== 'number' ||
+      !Number.isInteger(request.photoCount) ||
+      request.photoCount < 0 ||
+      request.photoCount > 6)
+  ) {
+    throwInvalidShipperEvaluationRequest(
+      'Platform driver shipper evaluation photoCount is invalid',
+    );
+  }
+
+  const photoFileIds = normalizeOptionalDriverShipperEvaluationPhotoFileIds(
+    request.photoFileIds,
+  );
+
   return {
     rating: request.rating,
     tags,
     content,
     ...(request.anonymous === undefined ? {} : { anonymous: request.anonymous }),
+    ...(request.photoCount === undefined ? {} : { photoCount: request.photoCount }),
+    ...(photoFileIds === undefined ? {} : { photoFileIds }),
   };
 }
 
@@ -1124,6 +1144,40 @@ function normalizeOptionalExceptionPhotoFileIds(value: unknown) {
         if (!normalizedFileId || normalizedFileId.length > 120) {
           throwInvalidExceptionRequest(
             'Platform driver exception photoFileIds are invalid',
+          );
+        }
+
+        return normalizedFileId;
+      }),
+    ),
+  );
+}
+
+function normalizeOptionalDriverShipperEvaluationPhotoFileIds(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.length > 6) {
+    throwInvalidShipperEvaluationRequest(
+      'Platform driver shipper evaluation photoFileIds are invalid',
+    );
+  }
+
+  return Array.from(
+    new Set(
+      value.map(fileId => {
+        if (typeof fileId !== 'string') {
+          throwInvalidShipperEvaluationRequest(
+            'Platform driver shipper evaluation photoFileIds must be strings',
+          );
+        }
+
+        const normalizedFileId = fileId.trim();
+
+        if (!normalizedFileId || normalizedFileId.length > 120) {
+          throwInvalidShipperEvaluationRequest(
+            'Platform driver shipper evaluation photoFileIds are invalid',
           );
         }
 

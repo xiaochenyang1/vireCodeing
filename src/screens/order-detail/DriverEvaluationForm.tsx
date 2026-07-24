@@ -1,23 +1,21 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { evaluationTagOptions } from '../../data/mockData';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import type {
-  PlatformFileUploadConfirmationApi,
   PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../../services/platformFileApi';
-import { confirmPlatformFileUploadIntent } from '../../services/platformFileApi';
 import { styles } from '../../styles';
 import type { FileAttachmentRef } from '../../types';
 
-type EvaluationPlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<
+type EvaluationPlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
-    'createUploadIntent'
-  >;
+  'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+>;
 
 type DriverEvaluationDraft = {
   rating: number;
@@ -27,6 +25,8 @@ type DriverEvaluationDraft = {
   photoCount?: number;
   photoFiles?: FileAttachmentRef[];
 };
+
+const maxEvaluationPhotoCount = 6;
 
 function getPhotoFileStatusText(status: FileAttachmentRef['status']) {
   switch (status) {
@@ -67,6 +67,16 @@ export function DriverEvaluationForm({
   const [photoCount, setPhotoCount] = useState(0);
   const [photoFiles, setPhotoFiles] = useState<FileAttachmentRef[]>([]);
   const [notice, setNotice] = useState('');
+  const photoCountRef = useRef(0);
+  const { pickAndUpload: pickEvaluationPhotoAndUpload } = useImageUpload(
+    platformFileApi,
+    {
+      purpose: 'evaluation',
+      fileName: '评价图片凭证.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+    },
+  );
   const uploadedPhotoFiles = photoFiles.slice(0, photoCount);
   const localPlaceholderIndexes = Array.from(
     { length: Math.max(photoCount - uploadedPhotoFiles.length, 0) },
@@ -117,31 +127,64 @@ export function DriverEvaluationForm({
   };
 
   const attachPhoto = async () => {
-    const fileName = '评价图片凭证.png';
-    setPhotoCount(1);
-    setPhotoFiles([]);
+    const previousPhotoCount = photoCountRef.current;
+
+    if (previousPhotoCount >= maxEvaluationPhotoCount) {
+      setNotice(`最多添加 ${maxEvaluationPhotoCount} 张评价图片凭证`);
+      return;
+    }
+
+    const previousPhotoFiles = photoFiles;
+    const nextPhotoCount = previousPhotoCount + 1;
+    photoCountRef.current = nextPhotoCount;
+    setPhotoCount(nextPhotoCount);
+    setNotice('');
 
     if (!platformFileApi) {
       return;
     }
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'evaluation',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
+    const result = await pickEvaluationPhotoAndUpload();
 
-      setPhotoFiles([mapPlatformFileToAttachmentRef(uploadedFile, fileName)]);
+    if (result.status === 'uploaded') {
+      const fileName =
+        nextPhotoCount === 1
+          ? '评价图片凭证.png'
+          : `评价图片凭证${nextPhotoCount}.png`;
+      setPhotoCount(nextPhotoCount);
+      setPhotoFiles(currentFiles => [
+        ...currentFiles.slice(0, nextPhotoCount - 1),
+        mapPlatformFileToAttachmentRef(result.file, fileName),
+      ]);
       setNotice('评价图片凭证已关联平台文件对象。');
-    } catch {
-      setNotice('评价图片凭证上传失败，已保留本地占位。');
+      return;
     }
+
+    if (result.status === 'cancelled') {
+      photoCountRef.current = previousPhotoCount;
+      setPhotoCount(previousPhotoCount);
+      setPhotoFiles(previousPhotoFiles);
+      setNotice('');
+      return;
+    }
+
+    if (result.status === 'error') {
+      photoCountRef.current = previousPhotoCount;
+      setPhotoCount(previousPhotoCount);
+      setPhotoFiles(previousPhotoFiles);
+      setNotice(result.message);
+    }
+  };
+
+  const removeLatestPhoto = () => {
+    const nextPhotoCount = Math.max(photoCountRef.current - 1, 0);
+
+    photoCountRef.current = nextPhotoCount;
+    setPhotoCount(nextPhotoCount);
+    setPhotoFiles(currentFiles =>
+      currentFiles.slice(0, Math.min(currentFiles.length, nextPhotoCount)),
+    );
+    setNotice('已移除最新评价图片凭证，本地不会删除真实文件。');
   };
 
   return (
@@ -239,7 +282,7 @@ export function DriverEvaluationForm({
             photoCount > 0 && styles.draftChoiceTextActive,
           ]}
         >
-          {photoCount > 0 ? '图片凭证 1 张' : '添加图片凭证'}
+          {photoCount > 0 ? `图片凭证 ${photoCount} 张` : '添加图片凭证'}
         </Text>
       </Pressable>
       {photoCount > 0 ? (
@@ -273,6 +316,13 @@ export function DriverEvaluationForm({
               placeholderTestID={`evaluation-photo-preview-placeholder-${voucherIndex}`}
             />
           ))}
+          <Pressable
+            testID="evaluation-photo-remove-latest"
+            style={styles.detailSecondaryButton}
+            onPress={removeLatestPhoto}
+          >
+            <Text style={styles.detailSecondaryButtonText}>移除最新凭证</Text>
+          </Pressable>
         </View>
       ) : null}
       {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}

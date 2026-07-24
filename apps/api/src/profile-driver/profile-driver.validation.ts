@@ -14,6 +14,11 @@ export const saveDriverProfileSchema = z.object({
     .max(120, '头像文件 ID 过长')
     .nullable()
     .optional(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^1[3-9]\d{9}$/, '手机号格式不正确')
+    .optional(),
   phoneProtectionEnabled: z.boolean().optional(),
   loginProtectionEnabled: z.boolean().optional(),
   orderNotificationEnabled: z.boolean().optional(),

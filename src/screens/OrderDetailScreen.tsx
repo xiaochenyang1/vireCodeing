@@ -1,7 +1,6 @@
-import { Clipboard, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Clipboard, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
-import { showUnavailable } from '../components/SectionHeader';
 import {
   recentOrderStatusCopy,
 } from '../data/mockData';
@@ -24,6 +23,7 @@ import {
   EvaluationRecordCard,
   ExceptionRecordCard,
   ModificationRequestRecordCard,
+  ShipperEvaluationRecordCard,
 } from './order-detail/OrderRecordCards';
 import { OrderSyncStatusCard } from './order-detail/OrderSyncStatusCard';
 import { PaymentStatusCard } from './order-detail/PaymentStatusCard';
@@ -124,9 +124,14 @@ export function OrderDetailScreen({
     order: RecentOrder,
     evaluation: NonNullable<RecentOrder['evaluation']>,
   ) => void;
-  platformFileApi?: Pick<
-    ReturnType<typeof createPlatformFileApi>,
-    'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+  platformFileApi?: Partial<
+    Pick<
+      ReturnType<typeof createPlatformFileApi>,
+      | 'createUploadIntent'
+      | 'confirmUploaded'
+      | 'confirmLocalUploadTarget'
+      | 'getFileMetadata'
+    >
   >;
   platformOrderApi?: Pick<
     ReturnType<typeof createPlatformOrderApi>,
@@ -154,6 +159,16 @@ export function OrderDetailScreen({
     order.status,
     usesPlatformOrderActions,
   );
+  const uploadCapablePlatformFileApi =
+    platformFileApi?.createUploadIntent &&
+    platformFileApi.confirmUploaded &&
+    platformFileApi.confirmLocalUploadTarget
+      ? {
+          createUploadIntent: platformFileApi.createUploadIntent,
+          confirmUploaded: platformFileApi.confirmUploaded,
+          confirmLocalUploadTarget: platformFileApi.confirmLocalUploadTarget,
+        }
+      : undefined;
   const vehicleRequirementText = formatVehicleRequirementText(order);
   const [exceptionCases, setExceptionCases] = useState<
     PlatformOrderExceptionCase[]
@@ -534,7 +549,12 @@ export function OrderDetailScreen({
       return;
     }
 
-    showUnavailable(primaryAction);
+    if (order.status === 'cancelled') {
+      setLocalNotice('订单已取消，无法进行此操作。');
+      return;
+    }
+
+    Alert.alert('订单状态', '该订单当前状态不支持此操作。');
   };
 
   const callOrderContact = (
@@ -835,6 +855,7 @@ export function OrderDetailScreen({
         notice={exceptionCaseNotice}
         appealDrafts={appealDrafts}
         appealingCaseId={appealingCaseId}
+        platformFileApi={platformFileApi}
         onChangeAppealReason={(caseId, reason) =>
           setAppealDrafts(currentDrafts => ({
             ...currentDrafts,
@@ -907,7 +928,7 @@ export function OrderDetailScreen({
 
       {isPanelOpen('exception') ? (
         <ExceptionReportForm
-          platformFileApi={platformFileApi}
+          platformFileApi={uploadCapablePlatformFileApi}
           onSubmit={submitExceptionReport}
         />
       ) : null}
@@ -948,7 +969,7 @@ export function OrderDetailScreen({
 
       {isPanelOpen('evaluation') ? (
         <DriverEvaluationForm
-          platformFileApi={platformFileApi}
+          platformFileApi={uploadCapablePlatformFileApi}
           onSubmit={submitEvaluation}
         />
       ) : null}
@@ -977,27 +998,7 @@ export function OrderDetailScreen({
         <EvaluationRecordCard evaluation={order.evaluation} />
       ) : null}
       {order.shipperEvaluation ? (
-        <View style={styles.detailCard}>
-          <Text style={styles.detailRoute}>司机评价</Text>
-          <View style={styles.detailInlineGroup}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={styles.detailMeta}>
-                {`评分：${'★'.repeat(order.shipperEvaluation.rating)}${'☆'.repeat(5 - order.shipperEvaluation.rating)}`}
-              </Text>
-            </View>
-            {order.shipperEvaluation.tags.map((tag, index) => (
-              <Text key={index} style={styles.detailMeta}>
-                {`#${tag}`}
-              </Text>
-            ))}
-            <Text style={styles.detailMeta}>
-              {order.shipperEvaluation.content}
-            </Text>
-            {order.shipperEvaluation.anonymous ? (
-              <Text style={styles.detailMeta}>匿名评价</Text>
-            ) : null}
-          </View>
-        </View>
+        <ShipperEvaluationRecordCard shipperEvaluation={order.shipperEvaluation} />
       ) : null}
 
       {localNotice ? (

@@ -16,6 +16,22 @@ export type UsePushNotificationsResult = {
   requestPermission: () => Promise<string | null>;
 };
 
+function normalizePermissionStatus(
+  permission: unknown,
+): PushNotificationPermissionStatus {
+  const status = (permission as { status?: unknown } | null)?.status;
+
+  if (status === 'granted') {
+    return 'granted';
+  }
+
+  if (status === 'denied') {
+    return 'denied';
+  }
+
+  return 'undetermined';
+}
+
 export function usePushNotifications(): UsePushNotificationsResult {
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<
@@ -30,15 +46,10 @@ export function usePushNotifications(): UsePushNotificationsResult {
     setError(null);
 
     try {
-      const { status: existingStatus } =
+      const existingPermission =
         await Notifications.getPermissionsAsync();
-      setPermissionStatus(
-        existingStatus === 'granted'
-          ? 'granted'
-          : existingStatus === 'denied'
-            ? 'denied'
-            : 'undetermined',
-      );
+      const existingStatus = normalizePermissionStatus(existingPermission);
+      setPermissionStatus(existingStatus);
 
       if (existingStatus === 'granted') {
         const token = await registerForPushNotificationsAsync();
@@ -51,16 +62,10 @@ export function usePushNotifications(): UsePushNotificationsResult {
         return null;
       }
 
-      const { status: newStatus } =
+      const requestedPermission =
         await Notifications.requestPermissionsAsync();
-
-      setPermissionStatus(
-        newStatus === 'granted'
-          ? 'granted'
-          : newStatus === 'denied'
-            ? 'denied'
-            : 'undetermined',
-      );
+      const newStatus = normalizePermissionStatus(requestedPermission);
+      setPermissionStatus(newStatus);
 
       if (newStatus !== 'granted') {
         setError('通知权限被拒绝，无法接收推送通知。');

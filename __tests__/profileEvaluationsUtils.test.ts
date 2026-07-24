@@ -20,6 +20,7 @@ function createEvaluationRecord(
     timeText: '刚刚提交',
     driverReplyText: '',
     driverReplyTimeText: '',
+    direction: 'shipper_to_driver',
     ...overrides,
   };
 }
@@ -92,6 +93,7 @@ test('creates local profile evaluation records from evaluated orders before mock
     timeText: '刚刚提交',
     driverReplyText: '',
     driverReplyTimeText: '',
+    direction: 'shipper_to_driver',
   });
   expect(records.some(item => item.id === 'evaluation-1')).toBe(true);
 });
@@ -120,6 +122,62 @@ test('uses anonymous copy and unknown driver fallback for local evaluation recor
   expect(anonymousRecord.driverName).toBe('匿名评价');
   expect(anonymousRecord.photoText).toBe('');
   expect(unknownDriverRecord.driverName).toBe('未知司机');
+});
+
+test('includes local driver-to-shipper evaluations in profile records', () => {
+  const records = createEvaluationRecords([
+    createOrder({
+      id: 'HY-RECEIVED',
+      driverInfo: {
+        driverId: 'driver-2',
+        driverName: '赵师傅',
+        driverPhone: '13800000001',
+        ratingText: '4.9 分',
+        vehicleText: '高栏车',
+        plateNumber: '粤B54321',
+        completedOrdersText: '420 单',
+      },
+      shipperEvaluation: {
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主配合高效，现场衔接顺畅。',
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-shipper-evaluation-1',
+            fileName: '司机评价图片凭证 1',
+            purpose: 'evaluation',
+            status: 'uploaded',
+            publicUrl:
+              'https://cdn.example.com/file-shipper-evaluation-1.png',
+          },
+        ],
+      },
+    }),
+  ]);
+
+  expect(records[0]).toEqual({
+    id: 'received-evaluation-local-HY-RECEIVED',
+    orderId: 'HY-RECEIVED',
+    driverName: '赵师傅',
+    ratingText: '5 星',
+    content: '货主配合高效，现场衔接顺畅。',
+    photoText: '图片凭证 1 张',
+    timeText: '司机评价：刚刚提交',
+    driverReplyText: '',
+    driverReplyTimeText: '',
+    direction: 'driver_to_shipper',
+    photoFiles: [
+      {
+        fileId: 'file-shipper-evaluation-1',
+        fileName: '司机评价图片凭证 1',
+        purpose: 'evaluation',
+        status: 'uploaded',
+        publicUrl:
+          'https://cdn.example.com/file-shipper-evaluation-1.png',
+      },
+    ],
+  });
 });
 
 test('creates local profile evaluation records from platform snapshot', () => {
@@ -167,6 +225,21 @@ test('creates local profile evaluation records from platform snapshot', () => {
       timeText: '平台提交：2026-07-09 09:00',
       driverReplyText: '',
       driverReplyTimeText: '',
+      direction: 'shipper_to_driver',
+      photoFiles: [
+        {
+          fileId: 'file-eval-1',
+          fileName: '评价图片凭证 1',
+          purpose: 'evaluation',
+          status: 'uploaded',
+        },
+        {
+          fileId: 'file-eval-2',
+          fileName: '评价图片凭证 2',
+          purpose: 'evaluation',
+          status: 'uploaded',
+        },
+      ],
     },
     {
       id: 'evaluation-platform-evaluation-platform-anonymous',
@@ -178,6 +251,7 @@ test('creates local profile evaluation records from platform snapshot', () => {
       timeText: '平台提交：2026-07-09 08:00',
       driverReplyText: '感谢反馈',
       driverReplyTimeText: '2026-07-09 08:30',
+      direction: 'shipper_to_driver',
     },
   ]);
 });
@@ -195,6 +269,8 @@ test('creates local received evaluation records from platform snapshot', () => {
         tags: ['沟通顺畅'],
         content: '货主配合很好',
         anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-received-1'],
         submittedAtIso: '2026-07-09T10:00:00.000Z',
       },
       {
@@ -206,6 +282,7 @@ test('creates local received evaluation records from platform snapshot', () => {
         tags: ['付款及时'],
         content: '匿名司机评价内容',
         anonymous: true,
+        photoCount: 0,
         submittedAtIso: '2026-07-09T09:30:00.000Z',
       },
     ],
@@ -218,10 +295,19 @@ test('creates local received evaluation records from platform snapshot', () => {
       driverName: '平台司机 driver-1',
       ratingText: '5 星',
       content: '货主配合很好',
-      photoText: '',
+      photoText: '图片凭证 1 张',
       timeText: '司机评价：2026-07-09 10:00',
       driverReplyText: '',
       driverReplyTimeText: '',
+      direction: 'driver_to_shipper',
+      photoFiles: [
+        {
+          fileId: 'file-received-1',
+          fileName: '司机评价图片凭证 1',
+          purpose: 'evaluation',
+          status: 'uploaded',
+        },
+      ],
     },
     {
       id: 'received-evaluation-platform-received-platform-anonymous',
@@ -233,6 +319,7 @@ test('creates local received evaluation records from platform snapshot', () => {
       timeText: '司机评价：2026-07-09 09:30',
       driverReplyText: '',
       driverReplyTimeText: '',
+      direction: 'driver_to_shipper',
     },
   ]);
 });

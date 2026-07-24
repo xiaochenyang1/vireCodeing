@@ -2948,6 +2948,7 @@ function App({
             messages={messages}
             messageUnreadCount={messageUnreadCount}
             initialSupportView={homeInitialSupportView}
+            notificationPermissionStatus={permissionStatus}
             usesPlatformMessagesApi={Boolean(platformMessagesApi)}
             draftGateNotice={draftGateNotice}
             networkNotice={networkNotice}

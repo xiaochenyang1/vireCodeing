@@ -1,9 +1,11 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 
 import { AuthField } from '../../components/AuthField';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { appVersionInfo } from '../../data/mockData';
+import type { PushNotificationPermissionStatus } from '../../hooks/usePushNotifications';
 import { styles } from '../../styles';
 import { getProfileAvatarInitial } from '../../utils/profileOverview';
 import {
@@ -16,6 +18,8 @@ import {
   createUpdatedPasswordSettings,
   defaultPermissionStatuses,
   getNextSettingToggle,
+  getNotificationPermissionStatusText,
+  getSystemPermissionStatusText,
   getPlatformAccountProfileErrorMessage,
   getPermissionDeniedGuideNotice,
   getPlatformPasswordChangeErrorMessage,
@@ -36,14 +40,12 @@ import type {
 } from '../../utils/profileLocalState';
 import { getAuthSessionSnapshot } from '../../utils/authSession';
 import { getDeviceId } from '../../utils/deviceId';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import type {
   PlatformAuthSessionRecord,
   createPlatformAuthApi,
 } from '../../services/platformAuthApi';
-import {
-  confirmPlatformFileUploadIntent,
-  type createPlatformFileApi,
-} from '../../services/platformFileApi';
+import { type createPlatformFileApi } from '../../services/platformFileApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 
 type SettingPlatformAuthApi = Pick<
@@ -65,11 +67,50 @@ type SettingPlatformFileApi = Pick<
   'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
 >;
 
+type ImagePickerPermissionStatus = 'granted' | 'denied' | 'undetermined';
+
+function getImagePickerPermissionStatus(
+  permission: unknown,
+): ImagePickerPermissionStatus | undefined {
+  const status = (permission as { status?: unknown } | null)?.status;
+
+  if (
+    status === 'granted' ||
+    status === 'denied' ||
+    status === 'undetermined'
+  ) {
+    return status;
+  }
+
+  return undefined;
+}
+
+async function readSystemMediaPermissionStatuses() {
+  const [cameraPermission, mediaLibraryPermission] = await Promise.all([
+    typeof ImagePicker.getCameraPermissionsAsync === 'function'
+      ? ImagePicker.getCameraPermissionsAsync()
+      : Promise.resolve(undefined),
+    typeof ImagePicker.getMediaLibraryPermissionsAsync === 'function'
+      ? ImagePicker.getMediaLibraryPermissionsAsync()
+      : Promise.resolve(undefined),
+  ]);
+
+  return {
+    camera: getSystemPermissionStatusText(
+      getImagePickerPermissionStatus(cameraPermission),
+    ),
+    album: getSystemPermissionStatusText(
+      getImagePickerPermissionStatus(mediaLibraryPermission),
+    ),
+  };
+}
+
 export function SettingRecords({
   now,
   settings,
   account,
   password,
+  notificationPermissionStatus,
   platformAuthApi,
   platformProfileApi,
   platformFileApi,
@@ -82,6 +123,7 @@ export function SettingRecords({
   settings: SettingItem[];
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
+  notificationPermissionStatus?: PushNotificationPermissionStatus;
   platformAuthApi?: SettingPlatformAuthApi;
   platformProfileApi?: SettingPlatformProfileApi;
   platformFileApi?: SettingPlatformFileApi;
@@ -109,7 +151,6 @@ export function SettingRecords({
   const avatarFileIdRef = useRef(account.avatarFileId);
   const avatarPublicUrlRef = useRef(account.avatarPublicUrl);
   const [avatarRemoved, setAvatarRemoved] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -122,9 +163,25 @@ export function SettingRecords({
   const [isLoadingSecuritySessions, setIsLoadingSecuritySessions] =
     useState(false);
   const [isRevokingOtherSessions, setIsRevokingOtherSessions] = useState(false);
-  const [permissionStatuses, setPermissionStatuses] = useState(
-    defaultPermissionStatuses,
-  );
+  const [isCheckingPermissionStatuses, setIsCheckingPermissionStatuses] =
+    useState(false);
+  const {
+    state: avatarImageUploadState,
+    pickAndUpload: pickAvatarAndUpload,
+    clear: clearAvatarUpload,
+  } = useImageUpload(platformFileApi, {
+    purpose: 'avatar',
+    fileName: '头像凭证.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+  const isUploadingAvatar = avatarImageUploadState.isUploading;
+  const [permissionStatuses, setPermissionStatuses] = useState(() => ({
+    ...defaultPermissionStatuses,
+    notification: getNotificationPermissionStatusText(
+      notificationPermissionStatus,
+    ),
+  }));
   const privacySetting = settings.find(item => item.id === 'setting-privacy');
   const isPrivacyConfirmed = privacySetting?.statusText === '已确认';
   const loginProtectionSetting = settings.find(
@@ -186,6 +243,52 @@ export function SettingRecords({
     account.avatarPhotoCount,
     account.avatarPublicUrl,
   ]);
+
+  useEffect(() => {
+    clearAvatarUpload();
+  }, [
+    account.avatarFileId,
+    account.avatarPhotoCount,
+    account.avatarPublicUrl,
+    clearAvatarUpload,
+  ]);
+
+  useEffect(() => {
+    setPermissionStatuses(current => ({
+      ...current,
+      notification: getNotificationPermissionStatusText(
+        notificationPermissionStatus,
+      ),
+    }));
+  }, [notificationPermissionStatus]);
+
+  useEffect(() => {
+    if (!showPermissionPanel) {
+      return;
+    }
+
+    let active = true;
+
+    readSystemMediaPermissionStatuses()
+      .then(systemPermissionStatuses => {
+        if (!active) {
+          return;
+        }
+
+        setPermissionStatuses(current => ({
+          ...current,
+          ...systemPermissionStatuses,
+          notification: getNotificationPermissionStatusText(
+            notificationPermissionStatus,
+          ),
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [notificationPermissionStatus, showPermissionPanel]);
 
   const createAccountAvatarRequestField = () => {
     if (avatarRemoved) {
@@ -434,56 +537,33 @@ export function SettingRecords({
       return;
     }
 
-    setIsUploadingAvatar(true);
     setNotice('');
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'avatar',
-        fileName: '头像凭证.png',
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
-      const nextAccount: SavedAccountSettings = {
-        ...account,
-        avatarPhotoCount: 1,
-        avatarFileId: uploadedFile.id,
-        ...(uploadedFile.publicUrl
-          ? { avatarPublicUrl: uploadedFile.publicUrl }
-          : {}),
-      };
+    const result = await pickAvatarAndUpload();
 
-      avatarPhotoCountRef.current = nextAccount.avatarPhotoCount;
-      avatarFileIdRef.current = nextAccount.avatarFileId;
-      avatarPublicUrlRef.current = nextAccount.avatarPublicUrl;
-      setAvatarRemoved(false);
-      setAvatarPhotoCount(nextAccount.avatarPhotoCount);
-      setNotice('头像凭证已上传，保存账号资料后同步到平台。');
-    } catch (error) {
-      const errorCode =
-        error instanceof Error &&
-        'code' in error &&
-        typeof error.code === 'string'
-          ? error.code
-          : undefined;
-
-      if (
-        errorCode === 'AUTH_ACCESS_TOKEN_INVALID' ||
-        errorCode === 'AUTH_ACCESS_TOKEN_MISSING'
-      ) {
-        setNotice('平台登录已过期，请重新登录后再上传头像。');
-      } else if (errorCode === 'NETWORK_ERROR') {
-        setNotice('头像上传失败，请检查网络后重试。');
-      } else {
-        setNotice('头像上传失败，请稍后重试。');
+    if (result.status !== 'uploaded') {
+      if (result.status === 'error') {
+        setNotice(result.message);
       }
-    } finally {
-      setIsUploadingAvatar(false);
+      return;
     }
+
+    const nextAccount: SavedAccountSettings = {
+      ...account,
+      avatarPhotoCount: 1,
+      avatarFileId: result.file.id,
+      ...(result.file.publicUrl
+        ? { avatarPublicUrl: result.file.publicUrl }
+        : {}),
+    };
+
+    avatarPhotoCountRef.current = nextAccount.avatarPhotoCount;
+    avatarFileIdRef.current = nextAccount.avatarFileId;
+    avatarPublicUrlRef.current = nextAccount.avatarPublicUrl;
+    setAvatarRemoved(false);
+    setAvatarPhotoCount(nextAccount.avatarPhotoCount);
+    setNotice('头像凭证已上传，保存账号资料后同步到平台。');
+    clearAvatarUpload();
   };
 
   const removeAvatar = () => {
@@ -496,6 +576,7 @@ export function SettingRecords({
     avatarFileIdRef.current = undefined;
     avatarPublicUrlRef.current = undefined;
     setAvatarPhotoCount(0);
+    clearAvatarUpload();
 
     if (!platformProfileApi) {
       setAvatarRemoved(false);
@@ -616,9 +697,36 @@ export function SettingRecords({
       });
   };
 
-  const runLocalPermissionCheck = () => {
-    setPermissionStatuses(createLocalPermissionDeniedStatuses());
-    setNotice('权限本地检查完成：真实系统权限弹窗尚未接入。');
+  const runLocalPermissionCheck = async () => {
+    setIsCheckingPermissionStatuses(true);
+
+    try {
+      const systemPermissionStatuses = await readSystemMediaPermissionStatuses();
+
+      setPermissionStatuses({
+        ...createLocalPermissionDeniedStatuses(),
+        ...systemPermissionStatuses,
+        notification: getNotificationPermissionStatusText(
+          notificationPermissionStatus,
+        ),
+      });
+      setNotice(
+        '权限检查完成：通知、相机和相册已同步系统状态，定位权限仍为本地演练。',
+      );
+    } catch {
+      setPermissionStatuses(current => ({
+        ...current,
+        location: '本地未授权',
+        notification: getNotificationPermissionStatusText(
+          notificationPermissionStatus,
+        ),
+      }));
+      setNotice(
+        '权限检查完成：通知权限已同步系统状态；相机和相册状态暂未读取成功，定位权限仍为本地演练。',
+      );
+    } finally {
+      setIsCheckingPermissionStatuses(false);
+    }
   };
 
   const openSecurityCheckPanel = () => {
@@ -1001,10 +1109,10 @@ export function SettingRecords({
         <View style={styles.driverInfoCard}>
           <View style={styles.routeHeader}>
             <Text style={styles.routeName}>权限状态</Text>
-            <Text style={styles.routeAction}>本地检查</Text>
+            <Text style={styles.routeAction}>系统 + 本地</Text>
           </View>
           <Text style={styles.detailMeta}>
-            真实系统权限弹窗尚未接入，以下状态只用于本地演练。
+            通知、相机和相册会读取当前系统状态；定位仍为本地演练，不会拉起真实系统权限弹窗。
           </Text>
           {localPermissionItems.map(permission => (
             <View key={permission.id} style={styles.driverInfoCard}>
@@ -1028,9 +1136,16 @@ export function SettingRecords({
               styles.detailPrimaryButton,
               pressed && styles.pressedButton,
             ]}
-            onPress={runLocalPermissionCheck}
+            disabled={isCheckingPermissionStatuses}
+            onPress={() => {
+              runLocalPermissionCheck().catch(() => undefined);
+            }}
           >
-            <Text style={styles.detailPrimaryButtonText}>本地检查权限</Text>
+            <Text style={styles.detailPrimaryButtonText}>
+              {isCheckingPermissionStatuses
+                ? '正在同步权限状态...'
+                : '检查权限状态'}
+            </Text>
           </Pressable>
         </View>
       ) : null}

@@ -51,7 +51,7 @@ test('returns platform progress action metadata for synced platform orders', () 
     nextStatus: 'loading',
     updatedAtText: '司机已接单 · 刚刚',
     description:
-      '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；真实司机接单仍待后续闭环。',
+      '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；司机接单与报价请以平台司机端状态为准。',
     noticeText: '已提交平台状态推进请求，订单进入待装货。',
   });
 

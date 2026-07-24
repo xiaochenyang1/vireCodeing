@@ -3,13 +3,12 @@ import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type {
-  PlatformFileUploadConfirmationApi,
   PlatformFileUploadRecord,
   createPlatformFileApi,
 } from '../../services/platformFileApi';
-import { confirmPlatformFileUploadIntent } from '../../services/platformFileApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 import { styles } from '../../styles';
 import type {
@@ -21,11 +20,10 @@ import {
   getIdentityVerificationRejectionNotice,
 } from '../../utils/profileVerifications';
 
-type IdentityPlatformFileApi = PlatformFileUploadConfirmationApi &
-  Pick<
+type IdentityPlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
-    'createUploadIntent'
-  >;
+  'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+>;
 type IdentityPlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
   'saveIdentityVerification'
@@ -122,6 +120,24 @@ export function IdentityVerificationRecords({
   const verificationStatus = getIdentityVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const {
+    pickAndUpload: pickFrontIdentityPhotoAndUpload,
+    clear: clearFrontIdentityPhotoUpload,
+  } = useImageUpload(platformFileApi, {
+    purpose: 'identity',
+    fileName: '身份证正面.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
+  const {
+    pickAndUpload: pickBackIdentityPhotoAndUpload,
+    clear: clearBackIdentityPhotoUpload,
+  } = useImageUpload(platformFileApi, {
+    purpose: 'identity',
+    fileName: '身份证反面.png',
+    contentType: 'image/png',
+    byteSize: 2048,
+  });
   const identityPhotoEntries = [
     {
       key: 'front',
@@ -146,6 +162,15 @@ export function IdentityVerificationRecords({
     setBackPhotoFile(verification?.identityPhotoFiles?.[1]);
     setFaceVerified(verification?.faceVerified ?? false);
   }, [verification]);
+
+  useEffect(() => {
+    clearFrontIdentityPhotoUpload();
+    clearBackIdentityPhotoUpload();
+  }, [
+    clearBackIdentityPhotoUpload,
+    clearFrontIdentityPhotoUpload,
+    verification,
+  ]);
 
   const submitVerification = async () => {
     const result = createIdentityVerificationRequest({
@@ -227,6 +252,10 @@ export function IdentityVerificationRecords({
     const setPhotoFile =
       side === 'front' ? setFrontPhotoFile : setBackPhotoFile;
     const label = side === 'front' ? '身份证正面' : '身份证反面';
+    const pickAndUpload =
+      side === 'front'
+        ? pickFrontIdentityPhotoAndUpload
+        : pickBackIdentityPhotoAndUpload;
 
     if (!platformFileApi) {
       setPhotoAdded(true);
@@ -234,24 +263,17 @@ export function IdentityVerificationRecords({
       return;
     }
 
-    try {
-      const intent = await platformFileApi.createUploadIntent({
-        purpose: 'identity',
-        fileName,
-        contentType: 'image/png',
-        byteSize: 2048,
-      });
-      const uploadedFile = await confirmPlatformFileUploadIntent(
-        platformFileApi,
-        intent,
-      );
+    const result = await pickAndUpload();
 
-      setPhotoFile(mapPlatformFileToVerificationRef(uploadedFile, fileName));
+    if (result.status === 'uploaded') {
+      setPhotoFile(mapPlatformFileToVerificationRef(result.file, fileName));
       setPhotoAdded(true);
       setNotice(`${label}凭证已关联平台文件对象。`);
-    } catch {
-      setPhotoAdded(true);
-      setNotice(`${label}凭证上传失败，已保留本地占位。`);
+      return;
+    }
+
+    if (result.status === 'error') {
+      setNotice(result.message);
     }
   };
 

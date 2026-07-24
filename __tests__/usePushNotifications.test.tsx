@@ -1,5 +1,4 @@
 import { act } from 'react';
-import { Platform } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
 import {
@@ -24,6 +23,16 @@ jest.mock('expo-notifications', () => ({
 
 import * as Notifications from 'expo-notifications';
 
+function getCapturedState(state: {
+  current: UsePushNotificationsResult | null;
+}): UsePushNotificationsResult {
+  if (!state.current) {
+    throw new Error('Hook state not captured');
+  }
+
+  return state.current;
+}
+
 describe('usePushNotifications', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -38,10 +47,12 @@ describe('usePushNotifications', () => {
       status: 'undetermined',
     });
 
-    let capturedState: UsePushNotificationsResult | null = null;
+    const capturedState = {
+      current: null as UsePushNotificationsResult | null,
+    };
 
     function CaptureHook() {
-      capturedState = usePushNotifications() as UsePushNotificationsResult;
+      capturedState.current = usePushNotifications();
       return null;
     }
 
@@ -49,9 +60,13 @@ describe('usePushNotifications', () => {
       ReactTestRenderer.create(<CaptureHook />);
     });
 
-    expect(capturedState?.permissionStatus).toBe('undetermined');
-    expect(capturedState?.pushToken).toBeNull();
-    expect(capturedState?.isRequestingPermission).toBe(false);
+    expect(getCapturedState(capturedState).permissionStatus).toBe(
+      'undetermined',
+    );
+    expect(getCapturedState(capturedState).pushToken).toBeNull();
+    expect(getCapturedState(capturedState).isRequestingPermission).toBe(
+      false,
+    );
   });
 
   it('grants permission and returns push token', async () => {
@@ -65,10 +80,12 @@ describe('usePushNotifications', () => {
       data: 'ExponentPushToken[test-token-123]',
     });
 
-    let capturedState: UsePushNotificationsResult | null = null;
+    const capturedState = {
+      current: null as UsePushNotificationsResult | null,
+    };
 
     function CaptureHook() {
-      capturedState = usePushNotifications() as UsePushNotificationsResult;
+      capturedState.current = usePushNotifications();
       return null;
     }
 
@@ -76,13 +93,16 @@ describe('usePushNotifications', () => {
       ReactTestRenderer.create(<CaptureHook />);
     });
 
-    const token = await act(async () => {
-      return await capturedState?.requestPermission();
+    let token: string | null = null;
+    await act(async () => {
+      token = await getCapturedState(capturedState).requestPermission();
     });
 
     expect(token).toBe('ExponentPushToken[test-token-123]');
-    expect(capturedState?.permissionStatus).toBe('granted');
-    expect(capturedState?.pushToken).toBe('ExponentPushToken[test-token-123]');
+    expect(getCapturedState(capturedState).permissionStatus).toBe('granted');
+    expect(getCapturedState(capturedState).pushToken).toBe(
+      'ExponentPushToken[test-token-123]',
+    );
   });
 
   it('handles denied permission', async () => {
@@ -90,10 +110,12 @@ describe('usePushNotifications', () => {
       status: 'denied',
     });
 
-    let capturedState: UsePushNotificationsResult | null = null;
+    const capturedState = {
+      current: null as UsePushNotificationsResult | null,
+    };
 
     function CaptureHook() {
-      capturedState = usePushNotifications() as UsePushNotificationsResult;
+      capturedState.current = usePushNotifications();
       return null;
     }
 
@@ -101,13 +123,14 @@ describe('usePushNotifications', () => {
       ReactTestRenderer.create(<CaptureHook />);
     });
 
-    const token = await act(async () => {
-      return await capturedState?.requestPermission();
+    let token: string | null = null;
+    await act(async () => {
+      token = await getCapturedState(capturedState).requestPermission();
     });
 
     expect(token).toBeNull();
-    expect(capturedState?.permissionStatus).toBe('denied');
-    expect(capturedState?.error).not.toBeNull();
+    expect(getCapturedState(capturedState).permissionStatus).toBe('denied');
+    expect(getCapturedState(capturedState).error).not.toBeNull();
   });
 
   it('handles push token error', async () => {
@@ -121,10 +144,12 @@ describe('usePushNotifications', () => {
       new Error('FCM error'),
     );
 
-    let capturedState: UsePushNotificationsResult | null = null;
+    const capturedState = {
+      current: null as UsePushNotificationsResult | null,
+    };
 
     function CaptureHook() {
-      capturedState = usePushNotifications() as UsePushNotificationsResult;
+      capturedState.current = usePushNotifications();
       return null;
     }
 
@@ -132,12 +157,13 @@ describe('usePushNotifications', () => {
       ReactTestRenderer.create(<CaptureHook />);
     });
 
-    const token = await act(async () => {
-      return await capturedState?.requestPermission();
+    let token: string | null = null;
+    await act(async () => {
+      token = await getCapturedState(capturedState).requestPermission();
     });
 
     expect(token).toBeNull();
-    expect(capturedState?.error).toBe('FCM error');
+    expect(getCapturedState(capturedState).error).toBe('FCM error');
   });
 
   it('skips permission request when already granted', async () => {
@@ -148,10 +174,12 @@ describe('usePushNotifications', () => {
       data: 'ExponentPushToken[cached-token]',
     });
 
-    let capturedState: UsePushNotificationsResult | null = null;
+    const capturedState = {
+      current: null as UsePushNotificationsResult | null,
+    };
 
     function CaptureHook() {
-      capturedState = usePushNotifications() as UsePushNotificationsResult;
+      capturedState.current = usePushNotifications();
       return null;
     }
 
@@ -159,8 +187,9 @@ describe('usePushNotifications', () => {
       ReactTestRenderer.create(<CaptureHook />);
     });
 
-    const token = await act(async () => {
-      return await capturedState?.requestPermission();
+    let token: string | null = null;
+    await act(async () => {
+      token = await getCapturedState(capturedState).requestPermission();
     });
 
     expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();

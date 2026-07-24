@@ -4,9 +4,15 @@ import type {
   SettingItem,
 } from './profileLocalState';
 import type { AuthSessionSnapshot } from './authSession';
+import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 
 export type LocalPermissionId = 'location' | 'camera' | 'album' | 'notification';
-export type LocalPermissionStatus = '未检测' | '本地未授权';
+export type LocalPermissionStatus =
+  | '未检测'
+  | '本地未授权'
+  | '系统已授权'
+  | '系统已拒绝'
+  | '系统未决定';
 export type AccountSecurityCheckStatus = '检查通过' | '需处理';
 export type AccountSecurityDeviceSession = {
   id: string;
@@ -525,6 +531,30 @@ export function getPermissionDeniedGuideNotice(permissionId: string) {
   return `${permission.title}拒绝引导：${permission.deniedGuide}；当前不会拉起真实系统设置页。`;
 }
 
+export function getSystemPermissionStatusText(
+  status?: 'granted' | 'denied' | 'undetermined',
+): LocalPermissionStatus {
+  if (status === 'granted') {
+    return '系统已授权';
+  }
+
+  if (status === 'denied') {
+    return '系统已拒绝';
+  }
+
+  if (status === 'undetermined') {
+    return '系统未决定';
+  }
+
+  return '未检测';
+}
+
+export function getNotificationPermissionStatusText(
+  status?: PushNotificationPermissionStatus,
+): LocalPermissionStatus {
+  return getSystemPermissionStatusText(status);
+}
+
 export function createAccountSecurityCheckModel({
   settings,
   password,
@@ -702,7 +732,7 @@ export function getSettingDocumentState(
     return {
       ...baseState,
       notice:
-        '权限说明：定位用于发单城市与路线展示；相机用于本地图片凭证占位；相册用于选择本地图片凭证；通知用于订单状态提醒。真实系统权限弹窗尚未接入。',
+        '权限说明：定位用于发单城市与路线展示；相机用于本地图片凭证占位；相册用于选择本地图片凭证；通知用于订单状态提醒。通知、相机和相册会读取当前系统状态；定位仍未接入真实系统权限弹窗。',
     };
   }
 

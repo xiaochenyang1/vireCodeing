@@ -4,6 +4,7 @@ import { styles } from '../../styles';
 import type { RecentOrder } from '../../types';
 import type { createPlatformAuthApi } from '../../services/platformAuthApi';
 import type { createPlatformFileApi } from '../../services/platformFileApi';
+import type { PushNotificationPermissionStatus } from '../../hooks/usePushNotifications';
 import type {
   createPlatformProfileApi,
   PlatformProfileSpendingSnapshot,
@@ -86,6 +87,7 @@ export function ProfileDetailScreen({
   settings,
   account,
   password,
+  notificationPermissionStatus,
   platformSpendingSnapshot,
   spendingNotice,
   platformAuthApi,
@@ -134,6 +136,7 @@ export function ProfileDetailScreen({
   settings: SettingItem[];
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
+  notificationPermissionStatus?: PushNotificationPermissionStatus;
   platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
   spendingNotice?: string;
   platformAuthApi?: ProfilePlatformAuthApi;
@@ -311,6 +314,7 @@ export function ProfileDetailScreen({
           settings={settings}
           account={account}
           password={password}
+          notificationPermissionStatus={notificationPermissionStatus}
           platformAuthApi={platformAuthApi}
           platformProfileApi={platformProfileApi}
           platformFileApi={platformFileApi}

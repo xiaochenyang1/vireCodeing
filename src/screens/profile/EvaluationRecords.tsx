@@ -1,12 +1,54 @@
 import { Pressable, Text, View } from 'react-native';
 import { useState } from 'react';
 
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { styles } from '../../styles';
+import type { FileAttachmentRef } from '../../types';
 import {
   filterEvaluationRecords,
   type EvaluationFilter,
+  type ProfileEvaluationDirection,
   type ProfileEvaluationRecordItem,
 } from '../../utils/profileEvaluations';
+
+function getAttachmentStatusText(status: FileAttachmentRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
+function getAttachmentTitle(direction: ProfileEvaluationDirection) {
+  return direction === 'driver_to_shipper'
+    ? '司机评价图片凭证'
+    : '评价图片凭证';
+}
+
+function getAttachmentPlaceholderLabel(direction: ProfileEvaluationDirection) {
+  return direction === 'driver_to_shipper' ? '司机评价图片' : '评价图片';
+}
+
+function createAttachmentMetaLines(file: FileAttachmentRef) {
+  const isPlatformAttachment = Boolean(file.fileId);
+
+  if (!isPlatformAttachment) {
+    return ['来源：本地图片凭证占位'];
+  }
+
+  return [
+    `来源：平台文件对象（${getAttachmentStatusText(file.status)}）`,
+    `文件 ID：${file.fileId}`,
+    ...(file.publicUrl
+      ? ['已生成预览地址。']
+      : file.objectKey
+        ? ['已写入平台对象存储。']
+        : []),
+  ];
+}
 
 export function EvaluationRecords({
   evaluationRecords,
@@ -69,6 +111,26 @@ export function EvaluationRecords({
           <Text style={styles.driverName}>{item.driverName}</Text>
           {item.photoText ? (
             <Text style={styles.detailMeta}>{item.photoText}</Text>
+          ) : null}
+          {item.photoFiles?.length ? (
+            <View style={styles.detailInlineGroup}>
+              <Text style={styles.draftSectionTitle}>
+                {getAttachmentTitle(item.direction)}清单
+              </Text>
+              {item.photoFiles.map((file, index) => (
+                <ImageCredentialCard
+                  key={`${item.id}-${file.fileId}-${index}`}
+                  title={`${getAttachmentTitle(item.direction)}：${file.fileName}`}
+                  publicUrl={file.publicUrl}
+                  placeholderLabel={getAttachmentPlaceholderLabel(
+                    item.direction,
+                  )}
+                  metaLines={createAttachmentMetaLines(file)}
+                  imageTestID={`profile-evaluation-photo-image-${item.id}-${index + 1}`}
+                  placeholderTestID={`profile-evaluation-photo-placeholder-${item.id}-${index + 1}`}
+                />
+              ))}
+            </View>
           ) : null}
           <Text style={styles.detailMeta}>{item.content}</Text>
           <Text style={styles.routeMeta}>{item.timeText}</Text>

@@ -752,11 +752,16 @@ describe('DriverOrdersService', () => {
   });
 
   it('lets a driver evaluate the shipper after a completed accepted order', async () => {
-    const { repository, service } = createService();
+    const { repository, service, filesRepository } = createService();
     const order = await createCompletedDriverOrder(
       repository,
       'driver-1',
       createOrderInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(
+      filesRepository,
+      'driver-1',
+      'evaluation',
     );
 
     await expect(
@@ -768,6 +773,8 @@ describe('DriverOrdersService', () => {
           tags: ['沟通顺畅', '装货配合'],
           content: '货主装货配合好，结算沟通清楚。',
           anonymous: true,
+          photoCount: 1,
+          photoFileIds: [proof.id],
         },
       ),
     ).resolves.toMatchObject({
@@ -777,9 +784,67 @@ describe('DriverOrdersService', () => {
           actorUserId: 'driver-1',
           eventType: 'shipper_evaluation_submitted',
           noteText: expect.stringContaining('5 星：沟通顺畅、装货配合'),
+          attachmentFileIds: [proof.id],
         }),
       ]),
     });
+  });
+
+  it('rejects pending and wrong-purpose shipper evaluation files', async () => {
+    const { repository, service, filesRepository } = createService();
+    const order = await createCompletedDriverOrder(
+      repository,
+      'driver-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const pendingFile = await filesRepository.createPendingFile('driver-1', {
+      purpose: 'evaluation',
+      fileName: 'evaluation.png',
+      contentType: 'image/png',
+      byteSize: 2048,
+      objectKey: 'driver-1/evaluation/evaluation.png',
+    });
+    const wrongPurposeFile = await createUploadedFile(
+      filesRepository,
+      'driver-1',
+      'exception',
+    );
+
+    await expect(
+      service.evaluateShipper(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          rating: 5,
+          tags: ['沟通顺畅'],
+          content: '货主装货配合好，结算沟通清楚。',
+          photoFileIds: [pendingFile.id],
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '货主评价图片尚未上传完成',
+      ),
+    );
+
+    await expect(
+      service.evaluateShipper(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          rating: 5,
+          tags: ['沟通顺畅'],
+          content: '货主装货配合好，结算沟通清楚。',
+          photoFileIds: [wrongPurposeFile.id],
+        },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.FILE_PURPOSE_INVALID,
+        '货主评价图片用途不匹配',
+      ),
+    );
   });
 
   it('rejects driver shipper evaluations before order completion', async () => {
@@ -1510,7 +1575,7 @@ async function createCompletedDriverOrder(
 async function createUploadedFile(
   filesRepository: InMemoryFilesRepository,
   ownerUserId: string,
-  purpose: 'receipt' | 'cargo' | 'exception' = 'receipt',
+  purpose: 'receipt' | 'cargo' | 'exception' | 'evaluation' = 'receipt',
 ) {
   const pendingFile = await filesRepository.createPendingFile(ownerUserId, {
     purpose,

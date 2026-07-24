@@ -223,12 +223,16 @@ describe('driver orders validation', () => {
         tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
         content: '  货主装货配合好，结算沟通清楚。  ',
         anonymous: true,
+        photoCount: 2,
+        photoFileIds: [' file-1 ', 'file-1', 'file-2'],
       }),
     ).toEqual({
       rating: 5,
       tags: ['沟通顺畅', '装货配合'],
       content: '货主装货配合好，结算沟通清楚。',
       anonymous: true,
+      photoCount: 2,
+      photoFileIds: ['file-1', 'file-2'],
     });
 
     expect(() =>
@@ -246,6 +250,18 @@ describe('driver orders validation', () => {
         content: '货主装货配合好，结算沟通清楚。',
       }),
     ).toThrow('请选择至少一个评价标签');
+
+    expect(() =>
+      parseDriverEvaluateShipperRequest({
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+        photoFileIds: Array.from(
+          { length: 7 },
+          (_, index) => `file-${index}`,
+        ),
+      }),
+    ).toThrow('评价图片最多 6 张');
 
     expect(() =>
       parseDriverEvaluateShipperRequest({

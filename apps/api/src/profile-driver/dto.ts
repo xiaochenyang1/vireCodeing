@@ -1,6 +1,7 @@
 export type SaveDriverProfileRequest = {
   displayName: string;
   avatarFileId?: string | null;
+  phone?: string;
   phoneProtectionEnabled?: boolean;
   loginProtectionEnabled?: boolean;
   orderNotificationEnabled?: boolean;

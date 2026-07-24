@@ -3,6 +3,8 @@ import ReactTestRenderer from 'react-test-renderer';
 
 import { MapPicker } from '../src/components/MapPicker';
 
+const mountedRenderers: ReactTestRenderer.ReactTestRenderer[] = [];
+
 const mockMapsApi = {
   geocode: jest.fn((address: string) => {
     return Promise.resolve({
@@ -26,6 +28,11 @@ describe('MapPicker', () => {
   });
 
   afterEach(() => {
+    ReactTestRenderer.act(() => {
+      mountedRenderers.splice(0).forEach(renderer => {
+        renderer.unmount();
+      });
+    });
     jest.useRealTimers();
   });
 
@@ -41,6 +48,9 @@ describe('MapPicker', () => {
           testID="map-picker"
         />,
       );
+      if (renderer) {
+        mountedRenderers.push(renderer);
+      }
     });
 
     expect(renderer?.root.findByProps({ testID: 'map-picker' })).toBeTruthy();
@@ -58,6 +68,9 @@ describe('MapPicker', () => {
           testID="map-picker"
         />,
       );
+      if (renderer) {
+        mountedRenderers.push(renderer);
+      }
     });
 
     const input = renderer?.root.findByProps({ testID: 'map-picker-input' });
@@ -99,6 +112,9 @@ describe('MapPicker', () => {
           testID="map-picker"
         />,
       );
+      if (renderer) {
+        mountedRenderers.push(renderer);
+      }
     });
 
     const input = renderer?.root.findByProps({ testID: 'map-picker-input' });
@@ -135,6 +151,9 @@ describe('MapPicker', () => {
           testID="map-picker"
         />,
       );
+      if (renderer) {
+        mountedRenderers.push(renderer);
+      }
     });
 
     const input = renderer?.root.findByProps({ testID: 'map-picker-input' });
@@ -166,6 +185,9 @@ describe('MapPicker', () => {
           testID="map-picker"
         />,
       );
+      if (renderer) {
+        mountedRenderers.push(renderer);
+      }
     });
 
     const picker = renderer?.root.findByProps({ testID: 'map-picker' });

@@ -28,6 +28,8 @@ export type ShipperReceivedEvaluationRecord = {
   tags: string[];
   content: string;
   anonymous: boolean;
+  photoCount: number;
+  photoFileIds?: string[];
   submittedAtIso: string;
 };
 

@@ -69,6 +69,8 @@ export type DriverEvaluateShipperRequest = {
   tags: string[];
   content: string;
   anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
 };
 
 export type DriverIncomeRecord = {

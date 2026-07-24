@@ -520,6 +520,84 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('maps versioned platform evaluation notes and driver-to-shipper evaluations with attachments', () => {
+    expect(
+      mapPlatformOrderToRecentOrder({
+        id: 'order-shipper-evaluation',
+        orderNo: 'HY202607010007',
+        shipperId: 'shipper-1',
+        status: 'completed',
+        cargoType: 'digital',
+        weightText: '1.5 吨',
+        quantityText: '8 箱',
+        pickupAddress: '宝安区平台仓',
+        pickupContact: '赵经理',
+        pickupPhone: '13900139001',
+        deliveryAddress: '南山区平台门店',
+        deliveryContact: '钱店长',
+        deliveryPhone: '13900139002',
+        vehicleRequirement: 'medium',
+        needTailboard: false,
+        needTarp: false,
+        pickupTimeIso: '2026-07-02T02:00:00.000Z',
+        pricingMode: 'fixed',
+        priceCents: 76000,
+        paymentMethod: 'cod',
+        createdAtIso: '2026-07-01T08:00:00.000Z',
+        updatedAtIso: '2026-07-01T08:25:00.000Z',
+        events: [
+          {
+            id: 'event-evaluation-versioned',
+            eventType: 'evaluation_submitted',
+            noteText:
+              '5 星：准时、服务好；评价信息：匿名；图片凭证 1 张；评价正文：司机服务细致，整体运输体验很好',
+            attachmentFileIds: ['file-evaluation-versioned-1'],
+            createdAtIso: '2026-07-01T08:20:00.000Z',
+          },
+          {
+            id: 'event-shipper-evaluation',
+            eventType: 'shipper_evaluation_submitted',
+            noteText:
+              '4 星：沟通顺畅、装货配合；评价信息：实名；图片凭证 1 张；评价正文：货主装货配合好，结算沟通清楚。',
+            attachmentFileIds: ['file-shipper-evaluation-1'],
+            createdAtIso: '2026-07-01T08:25:00.000Z',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      evaluation: {
+        rating: 5,
+        tags: ['准时', '服务好'],
+        content: '司机服务细致，整体运输体验很好',
+        anonymous: true,
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-evaluation-versioned-1',
+            fileName: '平台评价图片 1',
+            purpose: 'evaluation',
+            status: 'uploaded',
+          },
+        ],
+      },
+      shipperEvaluation: {
+        rating: 4,
+        tags: ['沟通顺畅', '装货配合'],
+        content: '货主装货配合好，结算沟通清楚。',
+        anonymous: false,
+        photoCount: 1,
+        photoFiles: [
+          {
+            fileId: 'file-shipper-evaluation-1',
+            fileName: '司机评价图片 1',
+            purpose: 'evaluation',
+            status: 'uploaded',
+          },
+        ],
+      },
+    });
+  });
+
   it('drops driver quotes whose note payload is malformed or invalid', () => {
     const order = baseOrder({
       pricingMode: 'negotiable',

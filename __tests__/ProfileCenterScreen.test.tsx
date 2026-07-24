@@ -68,7 +68,10 @@ async function renderProfileCenter(
 
 async function openProfileSection(
   renderer: ReactTestRenderer.ReactTestRenderer,
-  sectionId: 'identity-verification' | 'enterprise-verification',
+  sectionId:
+    | 'identity-verification'
+    | 'enterprise-verification'
+    | 'evaluations',
 ) {
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: `profile-entry-${sectionId}` }).props.onPress();
@@ -462,6 +465,100 @@ describe('ProfileCenterScreen verification sync guards', () => {
           objectKey: 'shipper-1/identity/file-platform-license.png',
         },
       ],
+    });
+  });
+
+  it('hydrates platform evaluation files with metadata so profile previews can render', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+
+    const platformProfileApi = createPlatformProfileApiMock({
+      getEvaluations: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        items: [
+          {
+            id: 'evaluation-platform-1',
+            orderId: 'order-platform-1',
+            orderNo: 'HY202607090101',
+            driverName: '平台司机李师傅',
+            rating: 5,
+            tags: ['准时送达'],
+            content: '平台评价内容',
+            anonymous: false,
+            photoCount: 1,
+            photoFileIds: ['file-platform-evaluation-1'],
+            submittedAtIso: '2026-07-22T08:05:00.000Z',
+          },
+        ],
+      }),
+      getReceivedEvaluations: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        items: [
+          {
+            id: 'received-platform-1',
+            orderId: 'order-platform-2',
+            orderNo: 'HY202607090102',
+            driverName: '平台司机王师傅',
+            rating: 4,
+            tags: ['沟通顺畅'],
+            content: '司机评价货主内容',
+            anonymous: false,
+            photoCount: 1,
+            photoFileIds: ['file-platform-received-1'],
+            submittedAtIso: '2026-07-22T08:10:00.000Z',
+          },
+        ],
+      }),
+    });
+    const platformFileApi = createPlatformFileApiMock({
+      getFileMetadata: jest
+        .fn()
+        .mockImplementation((fileId: string) =>
+          Promise.resolve({
+            id: fileId,
+            ownerUserId: 'shipper-1',
+            purpose: 'evaluation',
+            objectKey: `shipper-1/evaluation/${fileId}.png`,
+            status: 'uploaded',
+            publicUrl: `https://cdn.example.com/${fileId}.png`,
+            createdAtIso: '2026-07-22T08:04:00.000Z',
+          }),
+        ),
+    });
+
+    const renderer = await renderProfileCenter(
+      platformProfileApi,
+      platformFileApi,
+    );
+
+    await openProfileSection(renderer, 'evaluations');
+
+    expect(platformFileApi.getFileMetadata).toHaveBeenNthCalledWith(
+      1,
+      'file-platform-evaluation-1',
+    );
+    expect(platformFileApi.getFileMetadata).toHaveBeenNthCalledWith(
+      2,
+      'file-platform-received-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID:
+          'profile-evaluation-photo-image-evaluation-platform-evaluation-platform-1-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-platform-evaluation-1.png',
+    });
+    expect(
+      renderer.root.findByProps({
+        testID:
+          'profile-evaluation-photo-image-received-evaluation-platform-received-platform-1-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-platform-received-1.png',
     });
   });
 });

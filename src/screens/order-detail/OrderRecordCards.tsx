@@ -1,7 +1,60 @@
 import { Pressable, Text, View } from 'react-native';
 
+import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { styles } from '../../styles';
-import type { RecentOrder } from '../../types';
+import type { FileAttachmentRef, RecentOrder } from '../../types';
+
+function getAttachmentStatusText(status: FileAttachmentRef['status']) {
+  switch (status) {
+    case 'uploaded':
+      return '已上传';
+    case 'rejected':
+      return '已驳回';
+    default:
+      return '待上传';
+  }
+}
+
+function renderAttachmentCards({
+  title,
+  placeholderLabel,
+  files,
+  testIDPrefix,
+}: {
+  title: string;
+  placeholderLabel: string;
+  files: FileAttachmentRef[] | undefined;
+  testIDPrefix: string;
+}) {
+  if (!files?.length) {
+    return null;
+  }
+
+  return (
+    <View style={styles.detailInlineGroup}>
+      <Text style={styles.draftSectionTitle}>{title}清单</Text>
+      {files.map((file, index) => (
+        <ImageCredentialCard
+          key={`${file.fileId || file.fileName}-${index}`}
+          title={`${title}：${file.fileName}`}
+          publicUrl={file.publicUrl}
+          placeholderLabel={placeholderLabel}
+          metaLines={[
+            `来源：平台文件对象（${getAttachmentStatusText(file.status)}）`,
+            `文件 ID：${file.fileId}`,
+            ...(file.publicUrl
+              ? ['已生成预览地址。']
+              : file.objectKey
+                ? ['已写入平台对象存储。']
+                : []),
+          ]}
+          imageTestID={`${testIDPrefix}-image-${index + 1}`}
+          placeholderTestID={`${testIDPrefix}-placeholder-${index + 1}`}
+        />
+      ))}
+    </View>
+  );
+}
 
 export function ExceptionRecordCard({
   orderId,
@@ -12,6 +65,9 @@ export function ExceptionRecordCard({
   exceptionReport: NonNullable<RecentOrder['exceptionReport']>;
   onResolve: () => void;
 }) {
+  const photoCount =
+    exceptionReport.photoCount ?? exceptionReport.photoFiles?.length ?? 0;
+
   return (
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>异常记录</Text>
@@ -21,11 +77,17 @@ export function ExceptionRecordCard({
       <Text style={styles.detailMeta}>
         {`处理状态：${exceptionReport.statusText ?? '待客服跟进'}`}
       </Text>
-      {exceptionReport.photoCount ? (
+      {photoCount > 0 ? (
         <Text style={styles.detailMeta}>
-          {`图片凭证 ${exceptionReport.photoCount} 张`}
+          {`图片凭证 ${photoCount} 张`}
         </Text>
       ) : null}
+      {renderAttachmentCards({
+        title: '异常图片凭证',
+        placeholderLabel: '异常图片',
+        files: exceptionReport.photoFiles,
+        testIDPrefix: 'order-exception-record-photo',
+      })}
       {exceptionReport.statusText !== '已处理' ? (
         <Pressable
           testID={`exception-resolve-${orderId}`}
@@ -144,6 +206,8 @@ export function EvaluationRecordCard({
 }: {
   evaluation: NonNullable<RecentOrder['evaluation']>;
 }) {
+  const photoCount = evaluation.photoCount ?? evaluation.photoFiles?.length ?? 0;
+
   return (
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>我的评价</Text>
@@ -153,12 +217,58 @@ export function EvaluationRecordCard({
       {evaluation.anonymous ? (
         <Text style={styles.detailMeta}>匿名评价</Text>
       ) : null}
-      {evaluation.photoCount ? (
+      {photoCount > 0 ? (
         <Text style={styles.detailMeta}>
-          {`图片凭证 ${evaluation.photoCount} 张`}
+          {`图片凭证 ${photoCount} 张`}
         </Text>
       ) : null}
+      {renderAttachmentCards({
+        title: '评价图片凭证',
+        placeholderLabel: '评价图片',
+        files: evaluation.photoFiles,
+        testIDPrefix: 'order-evaluation-record-photo',
+      })}
       <Text style={styles.detailMeta}>{evaluation.content}</Text>
+    </View>
+  );
+}
+
+export function ShipperEvaluationRecordCard({
+  shipperEvaluation,
+}: {
+  shipperEvaluation: NonNullable<RecentOrder['shipperEvaluation']>;
+}) {
+  const photoCount =
+    shipperEvaluation.photoCount ?? shipperEvaluation.photoFiles?.length ?? 0;
+
+  return (
+    <View style={styles.detailCard}>
+      <Text style={styles.detailRoute}>司机评价</Text>
+      <View style={styles.detailInlineGroup}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={styles.detailMeta}>
+            {`评分：${'★'.repeat(shipperEvaluation.rating)}${'☆'.repeat(5 - shipperEvaluation.rating)}`}
+          </Text>
+        </View>
+        {shipperEvaluation.tags.map((tag, index) => (
+          <Text key={index} style={styles.detailMeta}>
+            {`#${tag}`}
+          </Text>
+        ))}
+        {shipperEvaluation.anonymous ? (
+          <Text style={styles.detailMeta}>匿名评价</Text>
+        ) : null}
+        {photoCount > 0 ? (
+          <Text style={styles.detailMeta}>{`图片凭证 ${photoCount} 张`}</Text>
+        ) : null}
+        {renderAttachmentCards({
+          title: '司机评价图片凭证',
+          placeholderLabel: '司机评价图片',
+          files: shipperEvaluation.photoFiles,
+          testIDPrefix: 'order-shipper-evaluation-record-photo',
+        })}
+        <Text style={styles.detailMeta}>{shipperEvaluation.content}</Text>
+      </View>
     </View>
   );
 }
