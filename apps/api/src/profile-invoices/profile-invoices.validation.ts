@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { CreateShipperInvoiceApplicationRequest } from './dto';
+import type {
+  CreateShipperInvoiceApplicationRequest,
+  ListAdminShipperInvoiceQuery,
+  ReviewShipperInvoiceApplicationRequest,
+} from './dto';
 
 const orderIdSchema = z
   .string()
@@ -48,4 +52,60 @@ export function parseCreateShipperInvoiceApplicationRequest(
   input: unknown,
 ): CreateShipperInvoiceApplicationRequest {
   return createShipperInvoiceApplicationSchema.parse(input);
+}
+
+export const reviewShipperInvoiceApplicationSchema = z
+  .object({
+    status: z.enum(['approved', 'rejected'], {
+      error: '审核状态只能是 approved 或 rejected',
+    }),
+    rejectionReason: z
+      .string()
+      .trim()
+      .max(200, '驳回原因最多 200 字')
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.status === 'rejected' && !value.rejectionReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rejectionReason'],
+        message: '驳回原因不能为空',
+      });
+    }
+  })
+  .transform(value =>
+    value.status === 'approved'
+      ? { status: 'approved' as const }
+      : {
+          status: 'rejected' as const,
+          rejectionReason: value.rejectionReason as string,
+        },
+  );
+
+const listAdminShipperInvoiceQuerySchema = z.object({
+  status: z
+    .string()
+    .trim()
+    .optional()
+    .default('reviewing')
+    .pipe(
+      z.enum(['reviewing', 'approved', 'rejected'], {
+        error: '发票状态筛选只能是 reviewing、approved 或 rejected',
+      }),
+    ),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
+export function parseReviewShipperInvoiceApplicationRequest(
+  input: unknown,
+): ReviewShipperInvoiceApplicationRequest {
+  return reviewShipperInvoiceApplicationSchema.parse(input);
+}
+
+export function parseListAdminShipperInvoiceQuery(
+  input: unknown,
+): ListAdminShipperInvoiceQuery {
+  return listAdminShipperInvoiceQuerySchema.parse(input);
 }

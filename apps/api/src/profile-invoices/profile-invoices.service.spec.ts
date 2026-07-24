@@ -278,6 +278,68 @@ describe('ProfileInvoicesService', () => {
     });
   });
 
+  it('lists and reviews invoice applications for admin', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(
+      () => new Date('2026-07-24T08:00:00.000Z'),
+      {
+        orders: [
+          createCompletedOrder({
+            id: 'order-1',
+            orderNo: 'HY202607240001',
+            priceCents: 31000,
+          }),
+        ],
+      },
+    );
+    const service = new ProfileInvoicesService(repository);
+    const admin = {
+      id: 'admin-1',
+      phone: '13900000000',
+      userType: 'admin' as const,
+    };
+
+    const created = await service.createApplication('shipper-1', {
+      invoiceType: 'normal',
+      invoiceTitleType: 'personal',
+      invoiceTitle: '晨星货主',
+      receiverEmail: 'finance@chenxing.example',
+      orderIds: ['order-1'],
+    });
+
+    await expect(
+      service.listAdminApplications(admin, {
+        status: 'reviewing',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: created.id, status: 'reviewing' })],
+    });
+
+    await expect(
+      service.reviewApplication(admin, created.id, { status: 'approved' }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'approved',
+    });
+  });
+
+  it('rejects non-admin users from invoice review', async () => {
+    const repository = new InMemoryProfileInvoicesRepository();
+    const service = new ProfileInvoicesService(repository);
+
+    await expect(
+      service.listAdminApplications(
+        { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
+        { status: 'reviewing', page: 1, pageSize: 20 },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+  });
+
+
   it.each([
     [
       'legacy order',
@@ -360,7 +422,12 @@ describe('ProfileInvoicesService', () => {
     };
     const prisma = {
       $transaction: jest.fn(async callback => callback(transaction)),
-      shipperInvoiceApplication: { findMany: jest.fn() },
+      shipperInvoiceApplication: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
       shipperEnterpriseVerification: { findUnique: jest.fn() },
     };
     const repository = new PrismaProfileInvoicesRepository(prisma);

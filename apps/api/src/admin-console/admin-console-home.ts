@@ -21,6 +21,12 @@ const defaultModules = [
     summary: '查看货主实名/企业认证队列，并执行单条通过或驳回。',
   },
   {
+    key: 'shipper-invoice',
+    title: '发票申请审核台',
+    route: '/api/admin/shipper-invoice-console',
+    summary: '查看货主发票申请队列，并执行单条通过或驳回。',
+  },
+  {
     key: 'order-management',
     title: '订单管理台',
     route: '/api/admin/order-management-console',

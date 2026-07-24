@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { ShipperOnlyGuard } from '../auth/role.guard';
+import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
-import { ProfileInvoicesController } from './profile-invoices.controller';
+import {
+  AdminShipperInvoicesController,
+  ProfileInvoicesController,
+} from './profile-invoices.controller';
 import {
   PrismaProfileInvoicesRepository,
   type PrismaProfileInvoicesClient,
@@ -12,7 +15,7 @@ import { ProfileInvoicesService } from './profile-invoices.service';
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [ProfileInvoicesController],
+  controllers: [ProfileInvoicesController, AdminShipperInvoicesController],
   providers: [
     {
       provide: PrismaProfileInvoicesRepository,
@@ -29,6 +32,7 @@ import { ProfileInvoicesService } from './profile-invoices.service';
       inject: [PrismaProfileInvoicesRepository],
     },
     ShipperOnlyGuard,
+    AdminOnlyGuard,
   ],
 })
 export class ProfileInvoicesModule {}

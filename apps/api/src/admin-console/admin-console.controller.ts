@@ -27,6 +27,7 @@ import { renderOrderExceptionCaseAdminConsole } from './order-exception-case-adm
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
 import { renderShipperCouponAdminConsole } from './shipper-coupon-admin-console';
+import { renderShipperInvoiceAdminConsole } from './shipper-invoice-admin-console';
 import { renderShipperVerificationAdminConsole } from './shipper-verification-admin-console';
 import { renderSupportTicketAdminConsole } from './support-ticket-admin-console';
 
@@ -93,6 +94,12 @@ export class AdminConsoleController {
   @Header('content-type', 'text/html; charset=utf-8')
   getShipperVerificationConsole() {
     return renderShipperVerificationAdminConsole();
+  }
+
+  @Get('shipper-invoice-console')
+  @Header('content-type', 'text/html; charset=utf-8')
+  getShipperInvoiceConsole() {
+    return renderShipperInvoiceAdminConsole();
   }
 
   @Get('order-management-console')

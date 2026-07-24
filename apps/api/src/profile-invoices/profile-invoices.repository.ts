@@ -1,5 +1,9 @@
+import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
   CreateShipperInvoiceApplicationRequest,
+  ListAdminShipperInvoiceQuery,
+  ListAdminShipperInvoiceResult,
+  ReviewShipperInvoiceApplicationRequest,
   ShipperEnterpriseVerificationSnapshot,
   ShipperInvoiceApplicationRecord,
   ShipperInvoiceOrderRecord,
@@ -16,6 +20,13 @@ export interface ProfileInvoicesRepository {
   findEnterpriseVerification(
     shipperId: string,
   ): Promise<ShipperEnterpriseVerificationSnapshot | undefined>;
+  listAdminApplications(
+    query: ListAdminShipperInvoiceQuery,
+  ): Promise<ListAdminShipperInvoiceResult>;
+  reviewApplication(
+    applicationId: string,
+    input: ReviewShipperInvoiceApplicationRequest,
+  ): Promise<ShipperInvoiceApplicationRecord>;
 }
 
 export type CreateEligibleInvoiceApplicationResult =
@@ -121,6 +132,62 @@ export class InMemoryProfileInvoicesRepository
   async findEnterpriseVerification(shipperId: string) {
     return this.enterpriseVerifications.get(shipperId);
   }
+
+  async listAdminApplications(
+    query: ListAdminShipperInvoiceQuery,
+  ): Promise<ListAdminShipperInvoiceResult> {
+    const allApplications = [...this.applications.values()]
+      .flat()
+      .filter(application => application.status === query.status)
+      .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso));
+    const start = (query.page - 1) * query.pageSize;
+
+    return {
+      items: allApplications.slice(start, start + query.pageSize),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: allApplications.length,
+    };
+  }
+
+  async reviewApplication(
+    applicationId: string,
+    input: ReviewShipperInvoiceApplicationRequest,
+  ): Promise<ShipperInvoiceApplicationRecord> {
+    for (const [shipperId, applications] of this.applications.entries()) {
+      const index = applications.findIndex(
+        application => application.id === applicationId,
+      );
+      if (index < 0) {
+        continue;
+      }
+
+      const current = applications[index];
+      if (current.status !== 'reviewing') {
+        throw new BusinessError(
+          ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+          '当前发票申请状态不可审核',
+        );
+      }
+
+      const updated: ShipperInvoiceApplicationRecord = {
+        ...current,
+        status: input.status,
+        ...(input.status === 'rejected'
+          ? { rejectionReason: input.rejectionReason }
+          : { rejectionReason: undefined }),
+        updatedAtIso: this.now().toISOString(),
+      };
+      applications[index] = updated;
+      this.applications.set(shipperId, applications);
+      return updated;
+    }
+
+    throw new BusinessError(
+      ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+      '发票申请不存在',
+    );
+  }
 }
 
 export type PrismaShipperInvoiceApplicationRecord = {
@@ -161,9 +228,24 @@ export type PrismaProfileInvoicesClient = {
   ): Promise<T>;
   shipperInvoiceApplication: {
     findMany(args: {
-      where: { shipperId: string };
+      where: { shipperId?: string; status?: string };
       orderBy: { createdAt: 'desc' };
+      skip?: number;
+      take?: number;
     }): Promise<PrismaShipperInvoiceApplicationRecord[]>;
+    count(args: {
+      where: { status?: string };
+    }): Promise<number>;
+    findUnique(args: {
+      where: { id: string };
+    }): Promise<PrismaShipperInvoiceApplicationRecord | null>;
+    update(args: {
+      where: { id: string };
+      data: {
+        status: 'approved' | 'rejected';
+        rejectionReason: string | null;
+      };
+    }): Promise<PrismaShipperInvoiceApplicationRecord>;
   };
   shipperEnterpriseVerification: {
     findUnique(args: {
@@ -356,6 +438,59 @@ export class PrismaProfileInvoicesRepository implements ProfileInvoicesRepositor
             : {}),
         }
       : undefined;
+  }
+
+  async listAdminApplications(
+    query: ListAdminShipperInvoiceQuery,
+  ): Promise<ListAdminShipperInvoiceResult> {
+    const where = { status: query.status };
+    const [items, total] = await Promise.all([
+      this.prisma.shipperInvoiceApplication.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.shipperInvoiceApplication.count({ where }),
+    ]);
+
+    return {
+      items: items.map(mapPrismaInvoiceApplication),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+    };
+  }
+
+  async reviewApplication(
+    applicationId: string,
+    input: ReviewShipperInvoiceApplicationRequest,
+  ): Promise<ShipperInvoiceApplicationRecord> {
+    const application = await this.prisma.shipperInvoiceApplication.findUnique({
+      where: { id: applicationId },
+    });
+    if (!application) {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+        '发票申请不存在',
+      );
+    }
+    if (application.status !== 'reviewing') {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+        '当前发票申请状态不可审核',
+      );
+    }
+
+    const updated = await this.prisma.shipperInvoiceApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: input.status,
+        rejectionReason:
+          input.status === 'rejected' ? input.rejectionReason : null,
+      },
+    });
+    return mapPrismaInvoiceApplication(updated);
   }
 }
 

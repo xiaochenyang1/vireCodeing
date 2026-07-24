@@ -12,6 +12,10 @@ const adminConsoleNavItems = [
     route: '/api/admin/shipper-verification-console',
   },
   {
+    label: '发票审核',
+    route: '/api/admin/shipper-invoice-console',
+  },
+  {
     label: '订单管理',
     route: '/api/admin/order-management-console',
   },

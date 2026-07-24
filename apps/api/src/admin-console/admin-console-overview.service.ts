@@ -110,6 +110,16 @@ function createModules(
       pendingGaps: ['审核事件审计', '附件预览', 'OCR / 人脸核验'],
     },
     {
+      key: 'shipper-invoice',
+      title: '发票申请审核台',
+      route: '/api/admin/shipper-invoice-console',
+      stage: 'first_slice',
+      summary:
+        '发票申请后台列表与通过驳回第一片已接上，还没做发票文件下载、税局回调和审核事件审计。',
+      metrics: [],
+      pendingGaps: ['发票文件下载', '税局回调', '审核事件审计'],
+    },
+    {
       key: 'order-management',
       title: '订单管理台',
       route: '/api/admin/order-management-console',

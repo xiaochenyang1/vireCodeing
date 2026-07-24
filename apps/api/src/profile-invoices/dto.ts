@@ -52,4 +52,27 @@ export type ShipperEnterpriseVerificationSnapshot = {
   status: 'reviewing' | 'approved' | 'rejected';
   rejectionReason?: string;
 };
+
+export type ReviewShipperInvoiceApplicationRequest =
+  | {
+      status: 'approved';
+      rejectionReason?: undefined;
+    }
+  | {
+      status: 'rejected';
+      rejectionReason: string;
+    };
+
+export type ListAdminShipperInvoiceQuery = {
+  status: ShipperInvoiceApplicationStatus;
+  page: number;
+  pageSize: number;
+};
+
+export type ListAdminShipperInvoiceResult = {
+  items: ShipperInvoiceApplicationRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
 import type { OrderPaymentStatus } from '../payments/payment-domain';

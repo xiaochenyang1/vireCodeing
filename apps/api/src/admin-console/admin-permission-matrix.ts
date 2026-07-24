@@ -96,6 +96,13 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
       '读取货主实名/企业认证队列，并可单条通过 / 驳回，打通货主认证审核第一片。',
   },
   {
+    key: 'shipper-invoice',
+    title: '发票申请审核台',
+    route: '/api/admin/shipper-invoice-console',
+    summary:
+      '读取货主发票申请队列，并可单条通过 / 驳回，打通发票审核第一片。',
+  },
+  {
     key: 'order-management',
     title: '订单管理台',
     route: '/api/admin/order-management-console',
