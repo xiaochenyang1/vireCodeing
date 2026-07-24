@@ -71,7 +71,8 @@ async function openProfileSection(
   sectionId:
     | 'identity-verification'
     | 'enterprise-verification'
-    | 'evaluations',
+    | 'evaluations'
+    | 'settings',
 ) {
   await ReactTestRenderer.act(async () => {
     renderer.root.findByProps({ testID: `profile-entry-${sectionId}` }).props.onPress();
@@ -144,6 +145,22 @@ function createEnterpriseDraftState() {
       '企业认证资料提交失败，已保留本地资料，请稍后重试。',
       Date.parse('2026-07-22T08:01:00.000Z'),
       'enterpriseVerification',
+    ),
+  };
+}
+
+function createAccountProfileDraftState() {
+  return {
+    ...getProfileLocalState(),
+    account: {
+      displayName: '本地昵称',
+      boundPhone: '13900139088',
+      avatarPhotoCount: 0,
+    },
+    syncState: createFailedProfileSyncState(
+      '账号资料同步失败，请稍后重试。',
+      Date.parse('2026-07-22T08:01:00.000Z'),
+      'accountProfile',
     ),
   };
 }
@@ -723,6 +740,118 @@ describe('ProfileCenterScreen verification sync guards', () => {
       }).props.source,
     ).toEqual({
       uri: 'https://cdn.example.com/file-platform-received-1.png',
+    });
+  });
+
+  it('keeps the local account profile draft and hides manual refresh while account sync is still failed', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+    saveProfileLocalState(createAccountProfileDraftState());
+
+    const platformProfileApi = createPlatformProfileApiMock({
+      getAccountProfile: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        displayName: '平台旧昵称',
+        phone: '13800138000',
+        phoneProtectionEnabled: true,
+        loginProtectionEnabled: true,
+        orderNotificationEnabled: true,
+        promotionNotificationEnabled: false,
+      }),
+    });
+
+    const renderer = await renderProfileCenter(platformProfileApi);
+
+    await openProfileSection(renderer, 'settings');
+
+    expect(
+      renderer.root.findByProps({ testID: 'setting-display-name' }).props.value,
+    ).toBe('本地昵称');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'setting-account-manual-refresh',
+      }),
+    ).toHaveLength(0);
+    expect(platformProfileApi.getAccountProfile).not.toHaveBeenCalled();
+  });
+
+  it('manually refreshes platform account profile snapshots from settings', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+
+    let accountRequestCount = 0;
+    const platformProfileApi = createPlatformProfileApiMock({
+      getAccountProfile: jest.fn().mockImplementation(() => {
+        accountRequestCount += 1;
+
+        return Promise.resolve(
+          accountRequestCount === 1
+            ? {
+                shipperId: 'shipper-1',
+                displayName: '平台旧昵称',
+                phone: '13800138000',
+                phoneProtectionEnabled: true,
+                loginProtectionEnabled: true,
+                orderNotificationEnabled: true,
+                promotionNotificationEnabled: false,
+              }
+            : {
+                shipperId: 'shipper-1',
+                displayName: '平台新昵称',
+                phone: '13900139066',
+                phoneProtectionEnabled: false,
+                loginProtectionEnabled: true,
+                orderNotificationEnabled: false,
+                promotionNotificationEnabled: true,
+                privacyConfirmedAtIso: '2026-07-22T08:20:00.000Z',
+                privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+                privacyPolicyVersionTitle: '隐私政策 v2026.07.22',
+              },
+        );
+      }),
+    });
+
+    const renderer = await renderProfileCenter(platformProfileApi);
+
+    await openProfileSection(renderer, 'settings');
+
+    expect(
+      renderer.root.findByProps({ testID: 'setting-display-name' }).props.value,
+    ).toBe('平台旧昵称');
+    expect(
+      renderer.root.findByProps({ testID: 'setting-bound-phone' }).props.value,
+    ).toBe('13800138000');
+    expect(
+      renderer.root.findByProps({
+        testID: 'setting-account-manual-refresh',
+      }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'setting-account-manual-refresh' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformProfileApi.getAccountProfile).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'setting-display-name' }).props.value,
+    ).toBe('平台新昵称');
+    expect(
+      renderer.root.findByProps({ testID: 'setting-bound-phone' }).props.value,
+    ).toBe('13900139066');
+    expect(getProfileLocalState()).toMatchObject({
+      account: {
+        displayName: '平台新昵称',
+        boundPhone: '13900139066',
+      },
     });
   });
 });

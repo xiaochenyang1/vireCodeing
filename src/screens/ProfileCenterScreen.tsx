@@ -93,6 +93,10 @@ const addressBookLoadMissingAuthMessage =
   '平台地址簿拉取需要重新登录后再同步。';
 const addressBookLoadFailureMessage =
   '平台地址簿拉取失败，已保留本地常用地址/联系人。';
+const accountProfileLoadMissingAuthMessage =
+  '平台账号资料拉取需要重新登录后再同步。';
+const accountProfileLoadFailureMessage =
+  '平台账号资料拉取失败，已保留当前资料与设置。';
 const spendingLoadMissingAuthMessage =
   '平台消费记录拉取需要重新登录后再同步。';
 const couponLoadMissingAuthMessage =
@@ -367,6 +371,8 @@ export function ProfileCenterScreen({
     useState<ProfileEvaluationRecordItem[]>();
   const [isRefreshingPlatformAddressBook, setIsRefreshingPlatformAddressBook] =
     useState(false);
+  const [isRefreshingPlatformAccountProfile, setIsRefreshingPlatformAccountProfile] =
+    useState(false);
   const [isRefreshingPlatformSpending, setIsRefreshingPlatformSpending] =
     useState(false);
   const [isRefreshingPlatformCoupons, setIsRefreshingPlatformCoupons] =
@@ -382,6 +388,7 @@ export function ProfileCenterScreen({
     setIsRefreshingPlatformEnterpriseVerification,
   ] = useState(false);
   const [addressBookNotice, setAddressBookNotice] = useState('');
+  const [accountProfileNotice, setAccountProfileNotice] = useState('');
   const [spendingNotice, setSpendingNotice] = useState('');
   const [couponNotice, setCouponNotice] = useState('');
   const [evaluationNotice, setEvaluationNotice] = useState('');
@@ -390,8 +397,8 @@ export function ProfileCenterScreen({
   const [enterpriseVerificationNotice, setEnterpriseVerificationNotice] =
     useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
-  const hasLoadedPlatformAccount = useRef(false);
   const addressBookLoadRequestVersionRef = useRef(0);
+  const accountProfileLoadRequestVersionRef = useRef(0);
   const spendingLoadRequestVersionRef = useRef(0);
   const couponLoadRequestVersionRef = useRef(0);
   const evaluationLoadRequestVersionRef = useRef(0);
@@ -429,6 +436,9 @@ export function ProfileCenterScreen({
   );
   const hasLockedAddressBookSync =
     syncState?.operation === 'addressBook' && syncState.status !== 'synced';
+  const hasLockedAccountProfileSync =
+    syncState?.operation === 'accountProfile' &&
+    syncState.status !== 'synced';
   const hasLockedIdentityVerificationSync =
     syncState?.operation === 'identityVerification' &&
     syncState.status !== 'synced';
@@ -437,6 +447,8 @@ export function ProfileCenterScreen({
     syncState.status !== 'synced';
   const canRefreshPlatformAddressBook =
     Boolean(platformProfileApi) && !hasLockedAddressBookSync;
+  const canRefreshPlatformAccountProfile =
+    Boolean(platformProfileApi) && !hasLockedAccountProfileSync;
   const canRefreshPlatformIdentityVerification =
     Boolean(platformProfileApi) && !hasLockedIdentityVerificationSync;
   const canRefreshPlatformEnterpriseVerification =
@@ -589,52 +601,94 @@ export function ProfileCenterScreen({
     hasLoadedPlatformAddressBook.current = true;
     refreshPlatformAddressBook('open');
   }, [hasLockedAddressBookSync, platformProfileApi, refreshPlatformAddressBook]);
+  const refreshPlatformAccountProfile = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi || hasLockedAccountProfileSync) {
+        return;
+      }
+
+      const requestVersion = ++accountProfileLoadRequestVersionRef.current;
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        if (source === 'manual') {
+          setAccountProfileNotice(accountProfileLoadMissingAuthMessage);
+        }
+        setIsRefreshingPlatformAccountProfile(false);
+        return;
+      }
+
+      if (source === 'manual') {
+        setAccountProfileNotice('');
+        setIsRefreshingPlatformAccountProfile(true);
+      }
+
+      platformProfileApi
+        .getAccountProfile()
+        .then(accountProfile => {
+          if (requestVersion !== accountProfileLoadRequestVersionRef.current) {
+            return;
+          }
+
+          if (!isValidPlatformAccountProfile(accountProfile)) {
+            if (source === 'manual') {
+              setAccountProfileNotice('平台当前还没有账号资料与设置快照。');
+            }
+            return;
+          }
+
+          setProfileState(current => {
+            if (
+              current.syncState?.operation === 'accountProfile' &&
+              current.syncState.status !== 'synced'
+            ) {
+              return current;
+            }
+
+            const nextAccountState = mapPlatformAccountProfileToLocalState(
+              accountProfile,
+              current.settings,
+            );
+            const nextState = {
+              ...current,
+              ...nextAccountState,
+            };
+            saveProfileLocalState(nextState);
+            return nextState;
+          });
+
+          if (source === 'manual') {
+            setAccountProfileNotice(
+              '平台账号资料与设置已手动刷新到最新快照。',
+            );
+          }
+        })
+        .catch(() => {
+          if (requestVersion !== accountProfileLoadRequestVersionRef.current) {
+            return;
+          }
+
+          if (source === 'manual') {
+            setAccountProfileNotice(accountProfileLoadFailureMessage);
+          }
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === accountProfileLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformAccountProfile(false);
+          }
+        });
+    },
+    [hasLockedAccountProfileSync, platformProfileApi],
+  );
   useEffect(() => {
-    if (
-      activeSection !== 'settings' ||
-      !platformProfileApi ||
-      hasLoadedPlatformAccount.current ||
-      !getAuthSessionSnapshot()?.accessToken ||
-      (syncState?.operation === 'accountProfile' &&
-        syncState.status !== 'synced')
-    ) {
+    if (activeSection !== 'settings' || !platformProfileApi) {
       return;
     }
 
-    let cancelled = false;
-    hasLoadedPlatformAccount.current = true;
-
-    platformProfileApi
-      .getAccountProfile()
-      .then(accountProfile => {
-        if (cancelled || !isValidPlatformAccountProfile(accountProfile)) {
-          return;
-        }
-
-        setProfileState(current => {
-          const nextAccountState = mapPlatformAccountProfileToLocalState(
-            accountProfile,
-            current.settings,
-          );
-          const nextState = {
-            ...current,
-            ...nextAccountState,
-          };
-          saveProfileLocalState(nextState);
-          return nextState;
-        });
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeSection,
-    platformProfileApi,
-    syncState?.operation,
-    syncState?.status,
-  ]);
+    refreshPlatformAccountProfile('open');
+  }, [activeSection, platformProfileApi, refreshPlatformAccountProfile]);
   const refreshPlatformIdentityVerification = useCallback(
     (source: 'open' | 'manual') => {
       if (!platformProfileApi || hasLockedIdentityVerificationSync) {
@@ -2042,6 +2096,11 @@ export function ProfileCenterScreen({
         account={account}
         password={password}
         notificationPermissionStatus={notificationPermissionStatus}
+        canRefreshPlatformAccountProfile={canRefreshPlatformAccountProfile}
+        isRefreshingPlatformAccountProfile={
+          isRefreshingPlatformAccountProfile
+        }
+        accountProfileNotice={accountProfileNotice}
         canRefreshPlatformAddressBook={canRefreshPlatformAddressBook}
         isRefreshingPlatformAddressBook={isRefreshingPlatformAddressBook}
         addressBookNotice={addressBookNotice}
@@ -2291,6 +2350,9 @@ export function ProfileCenterScreen({
             current => ({ ...current, password: nextPassword }),
             options,
           )
+        }
+        onRefreshPlatformAccountProfile={() =>
+          refreshPlatformAccountProfile('manual')
         }
         onRefreshPlatformEvaluations={() =>
           refreshPlatformEvaluations('manual')

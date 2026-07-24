@@ -152,6 +152,9 @@ export function SettingRecords({
   account,
   password,
   notificationPermissionStatus,
+  canRefreshPlatformAccountProfile = false,
+  isRefreshingPlatformAccountProfile = false,
+  accountProfileNotice,
   platformAuthApi,
   platformProfileApi,
   platformFileApi,
@@ -159,6 +162,7 @@ export function SettingRecords({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformAccountProfile,
   onLogout,
 }: {
   now: number;
@@ -166,6 +170,9 @@ export function SettingRecords({
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
+  canRefreshPlatformAccountProfile?: boolean;
+  isRefreshingPlatformAccountProfile?: boolean;
+  accountProfileNotice?: string;
   platformAuthApi?: SettingPlatformAuthApi;
   platformProfileApi?: SettingPlatformProfileApi;
   platformFileApi?: SettingPlatformFileApi;
@@ -182,6 +189,7 @@ export function SettingRecords({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformAccountProfile?: () => void;
   onLogout: () => void;
 }) {
   const [notice, setNotice] = useState('');
@@ -282,6 +290,7 @@ export function SettingRecords({
       Boolean(avatarPublicUrlRef.current) ||
       Boolean(account.avatarFileId) ||
       Boolean(account.avatarPublicUrl));
+  const noticeText = notice || accountProfileNotice;
 
   useEffect(() => {
     setDisplayName(account.displayName);
@@ -845,13 +854,13 @@ export function SettingRecords({
         try {
           const pushDeviceResult =
             await platformNotificationsApi.listDeviceTokens();
-          const otherDevicePushTokens = pushDeviceResult.items.filter(
+          const otherPlatformPushTokens = pushDeviceResult.items.filter(
             device => device.deviceId !== currentDeviceId,
           );
 
-          if (otherDevicePushTokens.length > 0) {
+          if (otherPlatformPushTokens.length > 0) {
             await Promise.all(
-              otherDevicePushTokens.map(device =>
+              otherPlatformPushTokens.map(device =>
                 platformNotificationsApi.deactivateDeviceToken(device.token),
               ),
             );
@@ -860,7 +869,7 @@ export function SettingRecords({
                 device => device.deviceId === currentDeviceId,
               ),
             );
-            pushCleanupNoticeSuffix = `，并停用 ${otherDevicePushTokens.length} 个其它设备推送`;
+            pushCleanupNoticeSuffix = `，并停用 ${otherPlatformPushTokens.length} 个其它设备推送`;
           } else {
             setPlatformPushDevices(pushDeviceResult.items);
             pushCleanupNoticeSuffix = '，其它设备推送已为空';
@@ -967,8 +976,40 @@ export function SettingRecords({
     setNotice(deniedGuideNotice);
   };
 
+  const handleAccountProfileRefresh = () => {
+    setNotice('');
+    onRefreshPlatformAccountProfile?.();
+  };
+
   return (
     <View style={styles.detailCard}>
+      {canRefreshPlatformAccountProfile ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台账号资料与设置</Text>
+          <Pressable
+            testID="setting-account-manual-refresh"
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshingPlatformAccountProfile ||
+                !onRefreshPlatformAccountProfile) &&
+                styles.buttonDisabled,
+              pressed &&
+                !isRefreshingPlatformAccountProfile &&
+                onRefreshPlatformAccountProfile &&
+                styles.pressedButton,
+            ]}
+            disabled={
+              isRefreshingPlatformAccountProfile ||
+              !onRefreshPlatformAccountProfile
+            }
+            onPress={handleAccountProfileRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshingPlatformAccountProfile ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
       <Text style={styles.draftSectionTitle}>账号资料</Text>
       <Text style={styles.detailMeta}>{`昵称：${account.displayName}`}</Text>
       <Text style={styles.routeMeta}>
@@ -1124,7 +1165,7 @@ export function SettingRecords({
         <Text style={styles.detailPrimaryButtonText}>保存登录密码</Text>
       </Pressable>
 
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       {showSecurityCheckPanel ? (
         <View style={styles.driverInfoCard}>
           <View style={styles.routeHeader}>

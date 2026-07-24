@@ -93,6 +93,9 @@ export function ProfileDetailScreen({
   account,
   password,
   notificationPermissionStatus,
+  canRefreshPlatformAccountProfile,
+  isRefreshingPlatformAccountProfile,
+  accountProfileNotice,
   canRefreshPlatformAddressBook,
   isRefreshingPlatformAddressBook,
   addressBookNotice,
@@ -137,6 +140,7 @@ export function ProfileDetailScreen({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformAccountProfile,
   onRefreshPlatformAddressBook,
   onRefreshPlatformIdentityVerification,
   onRefreshPlatformEnterpriseVerification,
@@ -166,6 +170,9 @@ export function ProfileDetailScreen({
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
+  canRefreshPlatformAccountProfile?: boolean;
+  isRefreshingPlatformAccountProfile?: boolean;
+  accountProfileNotice?: string;
   canRefreshPlatformAddressBook?: boolean;
   isRefreshingPlatformAddressBook?: boolean;
   addressBookNotice?: string;
@@ -246,6 +253,7 @@ export function ProfileDetailScreen({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformAccountProfile: () => void;
   onRefreshPlatformAddressBook: () => void;
   onRefreshPlatformIdentityVerification: () => void;
   onRefreshPlatformEnterpriseVerification: () => void;
@@ -395,6 +403,11 @@ export function ProfileDetailScreen({
           account={account}
           password={password}
           notificationPermissionStatus={notificationPermissionStatus}
+          canRefreshPlatformAccountProfile={canRefreshPlatformAccountProfile}
+          isRefreshingPlatformAccountProfile={
+            isRefreshingPlatformAccountProfile
+          }
+          accountProfileNotice={accountProfileNotice}
           platformAuthApi={platformAuthApi}
           platformProfileApi={platformProfileApi}
           platformNotificationsApi={platformNotificationsApi}
@@ -402,6 +415,7 @@ export function ProfileDetailScreen({
           onUpdateSettings={onUpdateSettings}
           onUpdateAccount={onUpdateAccount}
           onUpdatePassword={onUpdatePassword}
+          onRefreshPlatformAccountProfile={onRefreshPlatformAccountProfile}
           onLogout={onLogout}
         />
       ) : null}
