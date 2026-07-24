@@ -68,6 +68,9 @@ import {
 import {
   createAcceptanceSettingsForm,
   createAcceptanceSettingsRequest,
+  createDriverBankCardForm,
+  createDriverBankCardRequest,
+  createDriverBankCardUpdateRequest,
   createDriverAdvanceSuccessNotice,
   createDriverExceptionRequest,
   createDriverOrderHallNotice,
@@ -2263,21 +2266,12 @@ export function DriverHomeScreen({
     if (editId) {
       const card = bankCards.find(item => item.id === editId);
       if (card) {
-        setBankCardForm({
-          bankAccountName: card.bankAccountMasked.includes('****')
-            ? ''
-            : card.bankAccountName,
-          bankName: card.bankName,
-          bankAccountNo: '',
-          isDefault: card.isDefault,
-        });
+        setBankCardForm(createDriverBankCardForm(card));
         setEditingBankCardId(editId);
       }
     } else {
       setBankCardForm({
-        bankAccountName: '',
-        bankName: '',
-        bankAccountNo: '',
+        ...createDriverBankCardForm(),
         isDefault: bankCards.length === 0,
       });
       setEditingBankCardId(undefined);
@@ -2288,12 +2282,7 @@ export function DriverHomeScreen({
   const closeBankCardForm = () => {
     setShowBankCardForm(false);
     setEditingBankCardId(undefined);
-    setBankCardForm({
-      bankAccountName: '',
-      bankName: '',
-      bankAccountNo: '',
-      isDefault: false,
-    });
+    setBankCardForm(createDriverBankCardForm());
   };
 
   const submitBankCard = () => {
@@ -2302,31 +2291,47 @@ export function DriverHomeScreen({
       return;
     }
 
-    const { bankAccountName, bankName, bankAccountNo, isDefault } = bankCardForm;
-
-    if (!bankAccountName.trim() || !bankName.trim() || !bankAccountNo.trim()) {
-      setNotice('请填写完整的银行卡信息。');
-      return;
-    }
-
-    if (bankAccountNo.replace(/\s/g, '').length < 16) {
-      setNotice('请输入有效的银行卡号。');
-      return;
-    }
+    const hasBankAccountName = bankCardForm.bankAccountName.trim().length >= 2;
+    const hasBankName = bankCardForm.bankName.trim().length >= 2;
+    const hasBankAccountNo = bankCardForm.bankAccountNo.trim().length > 0;
 
     const submitPromise = editingBankCardId
-      ? platformDriverOrderApi.updateBankCard(editingBankCardId, {
-          bankAccountName: bankAccountName.trim(),
-          bankName: bankName.trim(),
-          bankAccountNo: bankAccountNo.replace(/\s/g, ''),
-          isDefault,
-        })
-      : platformDriverOrderApi.createBankCard({
-          bankAccountName: bankAccountName.trim(),
-          bankName: bankName.trim(),
-          bankAccountNo: bankAccountNo.replace(/\s/g, ''),
-          isDefault,
-        });
+      ? (() => {
+          if (!hasBankAccountName || !hasBankName) {
+            setNotice('请填写完整的银行卡信息。');
+            return undefined;
+          }
+
+          const request = createDriverBankCardUpdateRequest(bankCardForm);
+          if (!request) {
+            setNotice(
+              hasBankAccountNo
+                ? '请输入有效的银行卡号。'
+                : '请填写完整的银行卡信息。',
+            );
+            return undefined;
+          }
+
+          return platformDriverOrderApi.updateBankCard(editingBankCardId, request);
+        })()
+      : (() => {
+          if (!hasBankAccountName || !hasBankName || !hasBankAccountNo) {
+            setNotice('请填写完整的银行卡信息。');
+            return undefined;
+          }
+
+          const request = createDriverBankCardRequest(bankCardForm);
+          if (!request) {
+            setNotice('请输入有效的银行卡号。');
+            return undefined;
+          }
+
+          return platformDriverOrderApi.createBankCard(request);
+        })();
+
+    if (!submitPromise) {
+      return;
+    }
 
     submitPromise
       .then(() => {

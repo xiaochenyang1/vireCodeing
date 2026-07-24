@@ -1314,6 +1314,96 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('edits a bank card without forcing the driver to re-enter the card number', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          isDefault: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          bankAccountName: '李队长',
+          bankName: '平安银行',
+          isDefault: false,
+          updatedAtIso: '2026-07-09T03:10:00.000Z',
+        }),
+      );
+    platformDriverOrderApi.updateBankCard.mockResolvedValue({
+      id: 'bank-card-1',
+      bankAccountName: '李队长',
+      bankName: '平安银行',
+      bankAccountMasked: '**** **** **** 1234',
+      isDefault: false,
+      createdAtIso: '2026-07-09T02:20:00.000Z',
+      updatedAtIso: '2026-07-09T03:10:00.000Z',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-bank-card-1' })
+        .props.onPress();
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: 'driver-bank-card-edit-name-bank-card-1' })
+        .props.value,
+    ).toBe('招商银行');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-edit-account-name-bank-card-1',
+      }).props.value,
+    ).toBe('李师傅');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-edit-account-no-bank-card-1',
+      }).props.value,
+    ).toBe('');
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-name-bank-card-1' })
+        .props.onChangeText('平安银行');
+      renderer.root
+        .findByProps({
+          testID: 'driver-bank-card-edit-account-name-bank-card-1',
+        })
+        .props.onChangeText('李队长');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-submit-bank-card-1' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.updateBankCard).toHaveBeenCalledWith(
+      'bank-card-1',
+      {
+        bankAccountName: '李队长',
+        bankName: '平安银行',
+        isDefault: false,
+      },
+    );
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain('银行卡已更新。');
+    expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 1234');
+  });
+
   it('reuses the same withdrawal idempotency key after a transient failure', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.createWithdrawal

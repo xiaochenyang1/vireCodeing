@@ -1,5 +1,6 @@
 import { vehicleRequirementOptions } from '../../data/mockData';
 import type {
+  PlatformCreateDriverBankCardRequest,
   PlatformCreateDriverWithdrawalRequest,
   PlatformDriverAcceptanceSettings,
   PlatformDriverAdvanceOrderStatusRequest,
@@ -9,6 +10,7 @@ import type {
   PlatformDriverQuoteOrderRequest,
   PlatformDriverReportExceptionRequest,
   PlatformSaveDriverAcceptanceSettingsRequest,
+  PlatformUpdateDriverBankCardRequest,
   PlatformDriverWithdrawalRecord,
   PlatformDriverIncomeOverview,
 } from '../../services/platformDriverOrderApi';
@@ -181,6 +183,26 @@ export const emptyWithdrawalForm: DriverWithdrawalFormState = {
   bankName: '',
   bankAccountNo: '',
 };
+
+export function createDriverBankCardForm(
+  card?: PlatformDriverBankCardRecord,
+): DriverBankCardFormState {
+  if (!card) {
+    return {
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNo: '',
+      isDefault: false,
+    };
+  }
+
+  return {
+    bankAccountName: card.bankAccountName,
+    bankName: card.bankName,
+    bankAccountNo: '',
+    isDefault: card.isDefault,
+  };
+}
 
 export const emptyShipperEvaluationForm: DriverShipperEvaluationFormState = {
   ratingText: '',
@@ -437,6 +459,53 @@ export function isDriverWithdrawalFormPristine(
     form.bankAccountNo.replace(/\s+/g, '').length === 0 &&
     (form.selectedBankCardId?.trim().length ?? 0) === 0
   );
+}
+
+export function createDriverBankCardRequest(
+  form: DriverBankCardFormState,
+): PlatformCreateDriverBankCardRequest | undefined {
+  const bankAccountName = form.bankAccountName.trim();
+  const bankName = form.bankName.trim();
+  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+
+  if (
+    bankAccountName.length < 2 ||
+    bankName.length < 2 ||
+    !/^\d{10,30}$/.test(bankAccountNo) ||
+    bankAccountNo.length < 16
+  ) {
+    return undefined;
+  }
+
+  return {
+    bankAccountName,
+    bankName,
+    bankAccountNo,
+    isDefault: form.isDefault,
+  };
+}
+
+export function createDriverBankCardUpdateRequest(
+  form: DriverBankCardFormState,
+): PlatformUpdateDriverBankCardRequest | undefined {
+  const bankAccountName = form.bankAccountName.trim();
+  const bankName = form.bankName.trim();
+  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+
+  if (bankAccountName.length < 2 || bankName.length < 2) {
+    return undefined;
+  }
+
+  if (bankAccountNo && (!/^\d{10,30}$/.test(bankAccountNo) || bankAccountNo.length < 16)) {
+    return undefined;
+  }
+
+  return {
+    bankAccountName,
+    bankName,
+    ...(bankAccountNo ? { bankAccountNo } : {}),
+    isDefault: form.isDefault,
+  };
 }
 
 export function createShipperEvaluationRequest(

@@ -1,6 +1,9 @@
 import {
   canDriverReportException,
   createAcceptanceSettingsRequest,
+  createDriverBankCardForm,
+  createDriverBankCardRequest,
+  createDriverBankCardUpdateRequest,
   createDriverAdvanceSuccessNotice,
   createDriverExceptionRequest,
   createDriverOrderHallNotice,
@@ -278,6 +281,58 @@ test('detects whether the driver withdrawal form is still pristine', () => {
       selectedBankCardId: 'bank-card-1',
     }),
   ).toBe(false);
+});
+
+test('builds driver bank card create/update requests and edit forms', () => {
+  expect(
+    createDriverBankCardForm({
+      id: 'bank-card-1',
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountMasked: '**** **** **** 1234',
+      isDefault: true,
+      createdAtIso: '2026-07-09T02:20:00.000Z',
+      updatedAtIso: '2026-07-09T02:20:00.000Z',
+    }),
+  ).toEqual({
+    bankAccountName: '李师傅',
+    bankName: '招商银行',
+    bankAccountNo: '',
+    isDefault: true,
+  });
+  expect(
+    createDriverBankCardRequest({
+      bankAccountName: ' 李师傅 ',
+      bankName: ' 招商银行 ',
+      bankAccountNo: '6222 0000 1111 2222',
+      isDefault: true,
+    }),
+  ).toEqual({
+    bankAccountName: '李师傅',
+    bankName: '招商银行',
+    bankAccountNo: '6222000011112222',
+    isDefault: true,
+  });
+  expect(
+    createDriverBankCardUpdateRequest({
+      bankAccountName: ' 李队长 ',
+      bankName: ' 平安银行 ',
+      bankAccountNo: '',
+      isDefault: false,
+    }),
+  ).toEqual({
+    bankAccountName: '李队长',
+    bankName: '平安银行',
+    isDefault: false,
+  });
+  expect(
+    createDriverBankCardUpdateRequest({
+      bankAccountName: '李队长',
+      bankName: '平安银行',
+      bankAccountNo: '123',
+      isDefault: false,
+    }),
+  ).toBeUndefined();
 });
 
 test('parses shipper evaluation tags and enforces content bounds', () => {
