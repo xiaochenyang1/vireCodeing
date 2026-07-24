@@ -1,7 +1,10 @@
+import type { AuthenticatedUser } from '../auth/dto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { FilePurpose } from '../files/dto';
 import type { FilesRepository } from '../files/files.repository';
 import type {
+  ListShipperVerificationQuery,
+  ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
 } from './dto';
@@ -40,6 +43,38 @@ export class ProfileVerificationService {
     await this.assertVerificationFiles(shipperId, [input.licenseFileId]);
 
     return this.repository.saveEnterprise(shipperId, input);
+  }
+
+  async listVerifications(
+    currentUser: AuthenticatedUser,
+    query: ListShipperVerificationQuery,
+  ) {
+    this.assertAdmin(currentUser);
+    return this.repository.listVerifications(query);
+  }
+
+  async reviewIdentity(
+    currentUser: AuthenticatedUser,
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ) {
+    this.assertAdmin(currentUser);
+    return this.repository.reviewIdentity(shipperId, input);
+  }
+
+  async reviewEnterprise(
+    currentUser: AuthenticatedUser,
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ) {
+    this.assertAdmin(currentUser);
+    return this.repository.reviewEnterprise(shipperId, input);
+  }
+
+  private assertAdmin(currentUser: AuthenticatedUser) {
+    if (currentUser.userType !== 'admin') {
+      throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员');
+    }
   }
 
   private async assertVerificationFiles(

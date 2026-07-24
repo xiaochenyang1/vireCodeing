@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type {
+  ListShipperVerificationQuery,
+  ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
 } from './dto';
@@ -76,4 +78,66 @@ export function parseSaveShipperEnterpriseVerificationRequest(
   input: unknown,
 ): SaveShipperEnterpriseVerificationRequest {
   return saveShipperEnterpriseVerificationSchema.parse(input);
+}
+
+export const reviewShipperVerificationSchema = z
+  .object({
+    status: z.enum(['approved', 'rejected'], {
+      error: '审核状态只能是 approved 或 rejected',
+    }),
+    rejectionReason: z
+      .string()
+      .trim()
+      .max(200, '驳回原因最多 200 字')
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.status === 'rejected' && !value.rejectionReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rejectionReason'],
+        message: '驳回原因不能为空',
+      });
+    }
+  })
+  .transform(value =>
+    value.status === 'approved'
+      ? { status: 'approved' as const }
+      : {
+          status: 'rejected' as const,
+          rejectionReason: value.rejectionReason as string,
+        },
+  );
+
+const listShipperVerificationQuerySchema = z.object({
+  status: z
+    .string()
+    .trim()
+    .optional()
+    .default('reviewing')
+    .pipe(
+      z.enum(['reviewing', 'approved', 'rejected'], {
+        error: '认证状态筛选只能是 reviewing、approved 或 rejected',
+      }),
+    ),
+  type: z
+    .string()
+    .trim()
+    .optional()
+    .transform(value => (value === '' ? undefined : value))
+    .pipe(z.enum(['identity', 'enterprise']).optional()),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
+export function parseReviewShipperVerificationRequest(
+  input: unknown,
+): ReviewShipperVerificationRequest {
+  return reviewShipperVerificationSchema.parse(input);
+}
+
+export function parseListShipperVerificationQuery(
+  input: unknown,
+): ListShipperVerificationQuery {
+  return listShipperVerificationQuerySchema.parse(input);
 }

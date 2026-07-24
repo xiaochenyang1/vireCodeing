@@ -89,6 +89,13 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
       '读取司机认证队列、附件和审核事件，并可单条或按当前筛选结果批量通过 / 驳回实名、车辆认证。',
   },
   {
+    key: 'shipper-verification',
+    title: '货主认证审核台',
+    route: '/api/admin/shipper-verification-console',
+    summary:
+      '读取货主实名/企业认证队列，并可单条通过 / 驳回，打通货主认证审核第一片。',
+  },
+  {
     key: 'order-management',
     title: '订单管理台',
     route: '/api/admin/order-management-console',

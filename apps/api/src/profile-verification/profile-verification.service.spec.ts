@@ -183,4 +183,118 @@ describe('ProfileVerificationService', () => {
       licenseFileId: 'license-2',
     });
   });
+
+  it('lists reviewing shipper verifications for admin', async () => {
+    const repository = new InMemoryProfileVerificationRepository();
+    const filesRepository = createFilesRepository([
+      createUploadedIdentityFile('file-front'),
+      createUploadedIdentityFile('file-back'),
+      createUploadedIdentityFile('license-1'),
+    ]);
+    const service = new ProfileVerificationService(repository, filesRepository);
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+    });
+    const filesRepositoryWithEnterprise = createFilesRepository([
+      createUploadedIdentityFile('file-front'),
+      createUploadedIdentityFile('file-back'),
+      createUploadedIdentityFile('license-1', 'shipper-2'),
+    ]);
+    const serviceWithEnterprise = new ProfileVerificationService(
+      repository,
+      filesRepositoryWithEnterprise,
+    );
+
+    await serviceWithEnterprise.saveEnterprise('shipper-2', {
+      enterpriseName: '深圳星河物流有限公司',
+      creditCode: '91440300MA5FXXXX0X',
+      legalName: '李法人',
+      legalId: '440300198801011234',
+      enterprisePhone: '13800138001',
+      licenseFileId: 'license-1',
+    });
+
+    await expect(
+      serviceWithEnterprise.listVerifications(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        { status: 'reviewing', page: 1, pageSize: 20 },
+      ),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          shipperId: 'shipper-1',
+          identity: expect.objectContaining({ status: 'reviewing' }),
+        }),
+        expect.objectContaining({
+          shipperId: 'shipper-2',
+          enterprise: expect.objectContaining({ status: 'reviewing' }),
+        }),
+      ]),
+    });
+  });
+
+  it('approves and rejects shipper identity verification for admin', async () => {
+    const repository = new InMemoryProfileVerificationRepository();
+    const filesRepository = createFilesRepository([
+      createUploadedIdentityFile('file-front'),
+      createUploadedIdentityFile('file-back'),
+    ]);
+    const service = new ProfileVerificationService(repository, filesRepository);
+    const admin = { id: 'admin-1', phone: '13900000000', userType: 'admin' as const };
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+    });
+
+    await expect(
+      service.reviewIdentity(admin, 'shipper-1', { status: 'approved' }),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      status: 'approved',
+    });
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+    });
+
+    await expect(
+      service.reviewIdentity(admin, 'shipper-1', {
+        status: 'rejected',
+        rejectionReason: '证件照片不清晰',
+      }),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      status: 'rejected',
+      rejectionReason: '证件照片不清晰',
+    });
+  });
+
+  it('rejects non-admin users from shipper verification review', async () => {
+    const repository = new InMemoryProfileVerificationRepository();
+    const filesRepository = createFilesRepository([]);
+    const service = new ProfileVerificationService(repository, filesRepository);
+
+    await expect(
+      service.listVerifications(
+        { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
+        { status: 'reviewing', page: 1, pageSize: 20 },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+  });
 });

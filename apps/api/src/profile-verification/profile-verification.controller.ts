@@ -1,22 +1,36 @@
-import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
 } from '../auth/access-token.guard';
 import type { AuthenticatedUser } from '../auth/dto';
-import { ShipperOnlyGuard } from '../auth/role.guard';
+import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type {
+  ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
 } from './dto';
 import { ProfileVerificationService } from './profile-verification.service';
 import {
+  parseListShipperVerificationQuery,
+  parseReviewShipperVerificationRequest,
   parseSaveShipperEnterpriseVerificationRequest,
   parseSaveShipperIdentityVerificationRequest,
+  reviewShipperVerificationSchema,
   saveShipperEnterpriseVerificationSchema,
   saveShipperIdentityVerificationSchema,
 } from './profile-verification.validation';
@@ -86,6 +100,64 @@ export class ProfileVerificationController {
   }
 }
 
+@Controller('admin/shipper-verifications')
+@UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiBearerAuth('access-token')
+@ApiTags('管理员货主认证 (Admin Shipper Verification)')
+export class AdminShipperVerificationController {
+  constructor(
+    private readonly profileVerificationService: ProfileVerificationService,
+  ) {}
+
+  @Get()
+  async listVerifications(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return ok(
+      await this.profileVerificationService.listVerifications(
+        getCurrentAdmin(request),
+        parseListShipperVerificationQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':shipperId/identity/review')
+  async reviewIdentity(
+    @Req() request: AuthenticatedRequest,
+    @Param('shipperId') shipperId: string,
+    @Body(new ZodValidationPipe(reviewShipperVerificationSchema))
+    body: ReviewShipperVerificationRequest,
+  ) {
+    return ok(
+      await this.profileVerificationService.reviewIdentity(
+        getCurrentAdmin(request),
+        shipperId,
+        parseReviewShipperVerificationRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':shipperId/enterprise/review')
+  async reviewEnterprise(
+    @Req() request: AuthenticatedRequest,
+    @Param('shipperId') shipperId: string,
+    @Body(new ZodValidationPipe(reviewShipperVerificationSchema))
+    body: ReviewShipperVerificationRequest,
+  ) {
+    return ok(
+      await this.profileVerificationService.reviewEnterprise(
+        getCurrentAdmin(request),
+        shipperId,
+        parseReviewShipperVerificationRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+}
+
 function getCurrentShipper(request: AuthenticatedRequest): AuthenticatedUser {
   const currentUser = request.currentUser;
 
@@ -98,6 +170,23 @@ function getCurrentShipper(request: AuthenticatedRequest): AuthenticatedUser {
 
   if (currentUser.userType !== 'shipper') {
     throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是货主');
+  }
+
+  return currentUser;
+}
+
+function getCurrentAdmin(request: AuthenticatedRequest): AuthenticatedUser {
+  const currentUser = request.currentUser;
+
+  if (!currentUser) {
+    throw new BusinessError(
+      ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+      '访问令牌无效',
+    );
+  }
+
+  if (currentUser.userType !== 'admin') {
+    throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员');
   }
 
   return currentUser;

@@ -8,6 +8,10 @@ const adminConsoleNavItems = [
     route: '/api/admin/driver-certification-console',
   },
   {
+    label: '货主认证',
+    route: '/api/admin/shipper-verification-console',
+  },
+  {
     label: '订单管理',
     route: '/api/admin/order-management-console',
   },

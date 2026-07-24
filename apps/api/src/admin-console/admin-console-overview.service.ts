@@ -100,6 +100,16 @@ function createModules(
       pendingGaps: ['OCR / 人脸核验', '风控联动'],
     },
     {
+      key: 'shipper-verification',
+      title: '货主认证审核台',
+      route: '/api/admin/shipper-verification-console',
+      stage: 'first_slice',
+      summary:
+        '货主实名/企业认证后台列表与通过驳回第一片已接上，还没做人脸核验、证照 OCR 和审核事件审计。',
+      metrics: [],
+      pendingGaps: ['审核事件审计', '附件预览', 'OCR / 人脸核验'],
+    },
+    {
       key: 'order-management',
       title: '订单管理台',
       route: '/api/admin/order-management-console',

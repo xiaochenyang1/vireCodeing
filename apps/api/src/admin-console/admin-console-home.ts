@@ -15,6 +15,12 @@ const defaultModules = [
     summary: '查看实名/车辆认证队列、附件预览、审核事件，并执行单条或按当前筛选结果批量通过/驳回。',
   },
   {
+    key: 'shipper-verification',
+    title: '货主认证审核台',
+    route: '/api/admin/shipper-verification-console',
+    summary: '查看货主实名/企业认证队列，并执行单条通过或驳回。',
+  },
+  {
     key: 'order-management',
     title: '订单管理台',
     route: '/api/admin/order-management-console',

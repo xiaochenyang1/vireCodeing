@@ -37,3 +37,35 @@ export type ShipperEnterpriseVerificationRecord =
     createdAtIso: string;
     updatedAtIso: string;
   };
+
+export type ShipperVerificationType = 'identity' | 'enterprise';
+
+export type ReviewShipperVerificationRequest =
+  | {
+      status: 'approved';
+      rejectionReason?: undefined;
+    }
+  | {
+      status: 'rejected';
+      rejectionReason: string;
+    };
+
+export type ListShipperVerificationQuery = {
+  status: Extract<ShipperProfileVerificationStatus, 'reviewing' | 'approved' | 'rejected'>;
+  type?: ShipperVerificationType;
+  page: number;
+  pageSize: number;
+};
+
+export type ShipperVerificationSnapshot = {
+  shipperId: string;
+  identity?: ShipperIdentityVerificationRecord;
+  enterprise?: ShipperEnterpriseVerificationRecord;
+};
+
+export type ShipperVerificationListResult = {
+  items: ShipperVerificationSnapshot[];
+  page: number;
+  pageSize: number;
+  total: number;
+};

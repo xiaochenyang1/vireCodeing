@@ -1,8 +1,13 @@
+import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
+  ListShipperVerificationQuery,
+  ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
   ShipperEnterpriseVerificationRecord,
   ShipperIdentityVerificationRecord,
+  ShipperVerificationListResult,
+  ShipperVerificationSnapshot,
 } from './dto';
 
 export interface ProfileVerificationRepository {
@@ -19,6 +24,17 @@ export interface ProfileVerificationRepository {
   saveEnterprise(
     shipperId: string,
     input: SaveShipperEnterpriseVerificationRequest,
+  ): Promise<ShipperEnterpriseVerificationRecord>;
+  listVerifications(
+    query: ListShipperVerificationQuery,
+  ): Promise<ShipperVerificationListResult>;
+  reviewIdentity(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ): Promise<ShipperIdentityVerificationRecord>;
+  reviewEnterprise(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
   ): Promise<ShipperEnterpriseVerificationRecord>;
 }
 
@@ -81,6 +97,108 @@ export class InMemoryProfileVerificationRepository
 
     return record;
   }
+
+  async listVerifications(
+    query: ListShipperVerificationQuery,
+  ): Promise<ShipperVerificationListResult> {
+    const shipperIds = new Set<string>();
+
+    if (!query.type || query.type === 'identity') {
+      for (const [shipperId, identity] of this.identities.entries()) {
+        if (identity.status === query.status) {
+          shipperIds.add(shipperId);
+        }
+      }
+    }
+
+    if (!query.type || query.type === 'enterprise') {
+      for (const [shipperId, enterprise] of this.enterprises.entries()) {
+        if (enterprise.status === query.status) {
+          shipperIds.add(shipperId);
+        }
+      }
+    }
+
+    const orderedShipperIds = [...shipperIds].sort();
+    const start = (query.page - 1) * query.pageSize;
+    const pageShipperIds = orderedShipperIds.slice(
+      start,
+      start + query.pageSize,
+    );
+
+    return {
+      items: pageShipperIds.map(shipperId =>
+        createShipperVerificationSnapshot(
+          shipperId,
+          this.identities.get(shipperId),
+          this.enterprises.get(shipperId),
+        ),
+      ),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: orderedShipperIds.length,
+    };
+  }
+
+  async reviewIdentity(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ): Promise<ShipperIdentityVerificationRecord> {
+    const identity = this.identities.get(shipperId);
+    if (!identity) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主实名认证记录不存在',
+      );
+    }
+    if (identity.status !== 'reviewing') {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前实名认证状态不可审核',
+      );
+    }
+
+    const record: ShipperIdentityVerificationRecord = {
+      ...identity,
+      status: input.status,
+      ...(input.status === 'rejected'
+        ? { rejectionReason: input.rejectionReason }
+        : { rejectionReason: undefined }),
+      updatedAtIso: this.now().toISOString(),
+    };
+    this.identities.set(shipperId, record);
+    return record;
+  }
+
+  async reviewEnterprise(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ): Promise<ShipperEnterpriseVerificationRecord> {
+    const enterprise = this.enterprises.get(shipperId);
+    if (!enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主企业认证记录不存在',
+      );
+    }
+    if (enterprise.status !== 'reviewing') {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前企业认证状态不可审核',
+      );
+    }
+
+    const record: ShipperEnterpriseVerificationRecord = {
+      ...enterprise,
+      status: input.status,
+      ...(input.status === 'rejected'
+        ? { rejectionReason: input.rejectionReason }
+        : { rejectionReason: undefined }),
+      updatedAtIso: this.now().toISOString(),
+    };
+    this.enterprises.set(shipperId, record);
+    return record;
+  }
 }
 
 export type PrismaShipperIdentityVerificationRecord = {
@@ -115,6 +233,10 @@ export type PrismaProfileVerificationClient = {
     findUnique(args: {
       where: { shipperId: string };
     }): Promise<PrismaShipperIdentityVerificationRecord | null>;
+    findMany(args: {
+      where?: { status?: string };
+      orderBy?: { updatedAt: 'asc' | 'desc' };
+    }): Promise<PrismaShipperIdentityVerificationRecord[]>;
     upsert(args: {
       where: { shipperId: string };
       create: {
@@ -137,11 +259,22 @@ export type PrismaProfileVerificationClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaShipperIdentityVerificationRecord>;
+    update(args: {
+      where: { shipperId: string };
+      data: {
+        status: 'approved' | 'rejected';
+        rejectionReason: string | null;
+      };
+    }): Promise<PrismaShipperIdentityVerificationRecord>;
   };
   shipperEnterpriseVerification: {
     findUnique(args: {
       where: { shipperId: string };
     }): Promise<PrismaShipperEnterpriseVerificationRecord | null>;
+    findMany(args: {
+      where?: { status?: string };
+      orderBy?: { updatedAt: 'asc' | 'desc' };
+    }): Promise<PrismaShipperEnterpriseVerificationRecord[]>;
     upsert(args: {
       where: { shipperId: string };
       create: {
@@ -164,6 +297,13 @@ export type PrismaProfileVerificationClient = {
         licenseFileId: string;
         status: 'reviewing';
         rejectionReason: null;
+      };
+    }): Promise<PrismaShipperEnterpriseVerificationRecord>;
+    update(args: {
+      where: { shipperId: string };
+      data: {
+        status: 'approved' | 'rejected';
+        rejectionReason: string | null;
       };
     }): Promise<PrismaShipperEnterpriseVerificationRecord>;
   };
@@ -253,6 +393,143 @@ export class PrismaProfileVerificationRepository
 
     return mapPrismaEnterpriseVerification(enterprise);
   }
+
+  async listVerifications(
+    query: ListShipperVerificationQuery,
+  ): Promise<ShipperVerificationListResult> {
+    const [identities, enterprises] = await Promise.all([
+      !query.type || query.type === 'identity'
+        ? this.prisma.shipperIdentityVerification.findMany({
+            where: { status: query.status },
+            orderBy: { updatedAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      !query.type || query.type === 'enterprise'
+        ? this.prisma.shipperEnterpriseVerification.findMany({
+            where: { status: query.status },
+            orderBy: { updatedAt: 'desc' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const shipperIds = new Set<string>();
+    const identityByShipperId = new Map(
+      identities.map(record => [record.shipperId, record] as const),
+    );
+    const enterpriseByShipperId = new Map(
+      enterprises.map(record => [record.shipperId, record] as const),
+    );
+
+    for (const identity of identities) {
+      shipperIds.add(identity.shipperId);
+    }
+    for (const enterprise of enterprises) {
+      shipperIds.add(enterprise.shipperId);
+    }
+
+    const orderedShipperIds = [...shipperIds].sort();
+    const start = (query.page - 1) * query.pageSize;
+    const pageShipperIds = orderedShipperIds.slice(
+      start,
+      start + query.pageSize,
+    );
+
+    return {
+      items: pageShipperIds.map(shipperId =>
+        createShipperVerificationSnapshot(
+          shipperId,
+          identityByShipperId.has(shipperId)
+            ? mapPrismaIdentityVerification(
+                identityByShipperId.get(shipperId)!,
+              )
+            : undefined,
+          enterpriseByShipperId.has(shipperId)
+            ? mapPrismaEnterpriseVerification(
+                enterpriseByShipperId.get(shipperId)!,
+              )
+            : undefined,
+        ),
+      ),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: orderedShipperIds.length,
+    };
+  }
+
+  async reviewIdentity(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ): Promise<ShipperIdentityVerificationRecord> {
+    const identity = await this.prisma.shipperIdentityVerification.findUnique({
+      where: { shipperId },
+    });
+    if (!identity) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主实名认证记录不存在',
+      );
+    }
+    if (identity.status !== 'reviewing') {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前实名认证状态不可审核',
+      );
+    }
+
+    const updated = await this.prisma.shipperIdentityVerification.update({
+      where: { shipperId },
+      data: {
+        status: input.status,
+        rejectionReason:
+          input.status === 'rejected' ? input.rejectionReason : null,
+      },
+    });
+    return mapPrismaIdentityVerification(updated);
+  }
+
+  async reviewEnterprise(
+    shipperId: string,
+    input: ReviewShipperVerificationRequest,
+  ): Promise<ShipperEnterpriseVerificationRecord> {
+    const enterprise =
+      await this.prisma.shipperEnterpriseVerification.findUnique({
+        where: { shipperId },
+      });
+    if (!enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主企业认证记录不存在',
+      );
+    }
+    if (enterprise.status !== 'reviewing') {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前企业认证状态不可审核',
+      );
+    }
+
+    const updated = await this.prisma.shipperEnterpriseVerification.update({
+      where: { shipperId },
+      data: {
+        status: input.status,
+        rejectionReason:
+          input.status === 'rejected' ? input.rejectionReason : null,
+      },
+    });
+    return mapPrismaEnterpriseVerification(updated);
+  }
+}
+
+function createShipperVerificationSnapshot(
+  shipperId: string,
+  identity?: ShipperIdentityVerificationRecord,
+  enterprise?: ShipperEnterpriseVerificationRecord,
+): ShipperVerificationSnapshot {
+  return {
+    shipperId,
+    ...(identity ? { identity } : {}),
+    ...(enterprise ? { enterprise } : {}),
+  };
 }
 
 function mapPrismaIdentityVerification(

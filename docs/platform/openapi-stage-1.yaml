@@ -3920,6 +3920,177 @@ paths:
                 message: 认证附件尚未上传完成
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/shipper-verifications:
+    get:
+      summary: List shipper identity and enterprise verifications for admin review
+      description: Lists shipper verification snapshots for the admin review queue. The default status filter is reviewing.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: status
+          in: query
+          required: false
+          description: Verification status filter for either identity or enterprise records.
+          schema:
+            type: string
+            enum: [reviewing, approved, rejected]
+            default: reviewing
+          example: reviewing
+        - name: type
+          in: query
+          required: false
+          description: Optional verification type filter.
+          schema:
+            type: string
+            enum: [identity, enterprise]
+          example: identity
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          example: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+          example: 20
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Shipper verification review queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperVerificationListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/shipper-verifications/{shipperId}/identity/review:
+    post:
+      summary: Review shipper identity verification
+      description: Approves or rejects a reviewing shipper identity verification record.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: shipperId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: shipper-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewShipperVerificationRequest'
+      responses:
+        '200':
+          description: Updated shipper identity verification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperIdentityVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Shipper identity verification does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: SHIPPER_VERIFICATION_NOT_FOUND
+                message: 货主实名认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-24T08:00:00.000Z'
+        '409':
+          description: Shipper identity verification is not reviewing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: SHIPPER_VERIFICATION_STATE_INVALID
+                message: 当前实名认证状态不可审核
+                requestId: req_local
+                timestamp: '2026-07-24T08:00:00.000Z'
+  /admin/shipper-verifications/{shipperId}/enterprise/review:
+    post:
+      summary: Review shipper enterprise verification
+      description: Approves or rejects a reviewing shipper enterprise verification record.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: shipperId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: shipper-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewShipperVerificationRequest'
+      responses:
+        '200':
+          description: Updated shipper enterprise verification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperEnterpriseVerificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Shipper enterprise verification does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: SHIPPER_VERIFICATION_NOT_FOUND
+                message: 货主企业认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-24T08:00:00.000Z'
+        '409':
+          description: Shipper enterprise verification is not reviewing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: SHIPPER_VERIFICATION_STATE_INVALID
+                message: 当前企业认证状态不可审核
+                requestId: req_local
+                timestamp: '2026-07-24T08:00:00.000Z'
   /admin/driver-certifications:
     get:
       summary: List driver certifications for admin review
@@ -8938,6 +9109,56 @@ components:
           maxLength: 200
           description: Required when status is rejected. Ignored when status is approved.
           example: 证件照片不清晰
+    ReviewShipperVerificationRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        rejectionReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Required when status is rejected. Ignored when status is approved.
+          example: 证件照片不清晰
+    ShipperVerificationSnapshot:
+      type: object
+      required: [shipperId]
+      properties:
+        shipperId:
+          type: string
+          example: shipper-1
+        identity:
+          $ref: '#/components/schemas/ShipperIdentityVerification'
+        enterprise:
+          $ref: '#/components/schemas/ShipperEnterpriseVerification'
+    ShipperVerificationListResult:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipperVerificationSnapshot'
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 2
+    ShipperVerificationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/ShipperVerificationListResult'
     BatchReviewDriverCertificationRequest:
       type: object
       required: [driverIds, certificationType, status]

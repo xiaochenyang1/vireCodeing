@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { ShipperOnlyGuard } from '../auth/role.guard';
+import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { PrismaFilesRepository, type PrismaFilesClient } from '../files/files.repository';
-import { ProfileVerificationController } from './profile-verification.controller';
+import {
+  AdminShipperVerificationController,
+  ProfileVerificationController,
+} from './profile-verification.controller';
 import {
   PrismaProfileVerificationRepository,
   type PrismaProfileVerificationClient,
@@ -13,7 +16,10 @@ import { ProfileVerificationService } from './profile-verification.service';
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [ProfileVerificationController],
+  controllers: [
+    ProfileVerificationController,
+    AdminShipperVerificationController,
+  ],
   providers: [
     {
       provide: PrismaProfileVerificationRepository,
@@ -38,6 +44,7 @@ import { ProfileVerificationService } from './profile-verification.service';
       inject: [PrismaProfileVerificationRepository, PrismaFilesRepository],
     },
     ShipperOnlyGuard,
+    AdminOnlyGuard,
   ],
 })
 export class ProfileVerificationModule {}
