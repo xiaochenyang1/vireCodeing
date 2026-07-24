@@ -66,6 +66,7 @@ import {
   getOrderPrimaryActionLabel,
   getOrderProgressAction,
   getOrderSecondaryActionLabel,
+  resolveOrderAmountCents,
   type OrderProgressAction,
 } from '../utils/orderDetail';
 import {
@@ -636,6 +637,7 @@ export function OrderDetailScreen({
     const cancellationSettlement = getCancellationSettlement(
       order.status,
       usesPlatformOrderActions,
+      resolveOrderAmountCents(order),
     );
     const cancellationRecord = {
       ...cancellation,

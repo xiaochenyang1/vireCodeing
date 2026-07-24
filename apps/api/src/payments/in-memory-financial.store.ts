@@ -114,6 +114,7 @@ export class InMemoryFinancialStore {
     payment: PaymentOrderRecord,
     reason: string,
     now: Date,
+    amountCents = payment.amountCents,
   ) {
     const existing = this.refunds.find(
       item => item.paymentOrderId === payment.id,
@@ -131,7 +132,7 @@ export class InMemoryFinancialStore {
       orderId: payment.orderId,
       shipperId: payment.shipperId,
       channel: payment.channel,
-      amountCents: payment.amountCents,
+      amountCents,
       reason,
       status: 'pending',
       createdAtIso: nowIso,

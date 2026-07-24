@@ -101,6 +101,7 @@ export function getOrderProgressAction(
 export function getCancellationSettlement(
   status: RecentOrderStatus,
   usesPlatformCancellation = false,
+  orderAmountCents?: number,
 ): CancellationSettlement {
   if (status === 'waiting') {
     return {
@@ -111,6 +112,22 @@ export function getCancellationSettlement(
       refundText: '无需退款',
       reviewStatusText: '系统自动通过',
       driverNoticeText: '订单尚未分配司机，无需通知',
+    };
+  }
+
+  const penalty = resolveLocalCancellationPenalty(status, orderAmountCents);
+  if (usesPlatformCancellation && penalty) {
+    return {
+      feeText: `司机已接单，平台按规则收取违约金 ${formatPriceText(
+        `${penalty.feeCents / 100}`,
+      )}（${penalty.feeRatePercent}%）。`,
+      settlementText: `违约金 ${formatPriceText(`${penalty.feeCents / 100}`)}`,
+      refundText:
+        penalty.refundableCents > 0
+          ? `可退 ${formatPriceText(`${penalty.refundableCents / 100}`)}，平台将进入退款处理`
+          : '违约金覆盖全部支付金额，无需退款',
+      reviewStatusText: '系统规则已核算',
+      driverNoticeText: '已生成平台司机取消通知，按规则同步违约结果',
     };
   }
 
@@ -129,6 +146,57 @@ export function getCancellationSettlement(
       ? '已生成平台司机取消通知，等待客服确认后同步'
       : '已生成司机取消通知，等待客服确认后同步',
   };
+}
+
+function resolveLocalCancellationPenalty(
+  status: RecentOrderStatus,
+  orderAmountCents?: number,
+) {
+  if (
+    typeof orderAmountCents !== 'number' ||
+    !Number.isFinite(orderAmountCents) ||
+    orderAmountCents <= 0
+  ) {
+    return undefined;
+  }
+
+  const feeRatePercentByStatus: Partial<Record<RecentOrderStatus, number>> = {
+    loading: 10,
+    transporting: 20,
+    confirming: 30,
+  };
+  const feeRatePercent = feeRatePercentByStatus[status];
+  if (feeRatePercent === undefined) {
+    return undefined;
+  }
+
+  const feeCents = Math.min(
+    Math.floor(orderAmountCents),
+    Math.floor((orderAmountCents * feeRatePercent) / 100),
+  );
+  return {
+    feeCents,
+    refundableCents: Math.max(0, Math.floor(orderAmountCents) - feeCents),
+    feeRatePercent,
+  };
+}
+
+export function resolveOrderAmountCents(order: Pick<
+  RecentOrder,
+  'payablePriceText' | 'priceText'
+>) {
+  const amountText = order.payablePriceText ?? order.priceText;
+  const normalized = (amountText ?? '').trim().replace(/[^\d.]/g, '');
+  if (!normalized) {
+    return undefined;
+  }
+
+  const amountValue = Number(normalized);
+  if (!Number.isFinite(amountValue) || amountValue <= 0) {
+    return undefined;
+  }
+
+  return Math.round(amountValue * 100);
 }
 
 export function createDriverQuoteOrderChange(

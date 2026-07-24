@@ -137,6 +137,52 @@ export function resolveCancellationPaymentStatus(
   }
 }
 
+/**
+ * Deterministic cancel penalty for the first financial slice.
+ * waiting: 0
+ * loading: 10%
+ * transporting: 20%
+ * confirming: 30%
+ * Fee is floored to whole cents and never exceeds the order amount.
+ */
+export function resolveCancellationPenaltyCents(input: {
+  orderStatus: OrderBusinessStatus;
+  orderAmountCents: number;
+}): {
+  feeCents: number;
+  refundableCents: number;
+  feeRateBps: number;
+} {
+  if (
+    !Number.isSafeInteger(input.orderAmountCents) ||
+    input.orderAmountCents <= 0
+  ) {
+    return {
+      feeCents: 0,
+      refundableCents: 0,
+      feeRateBps: 0,
+    };
+  }
+
+  const feeRateBpsByStatus: Partial<Record<OrderBusinessStatus, number>> = {
+    waiting: 0,
+    loading: 1000,
+    transporting: 2000,
+    confirming: 3000,
+  };
+  const feeRateBps = feeRateBpsByStatus[input.orderStatus] ?? 0;
+  const feeCents = Math.min(
+    input.orderAmountCents,
+    Math.floor((input.orderAmountCents * feeRateBps) / 10_000),
+  );
+
+  return {
+    feeCents,
+    refundableCents: Math.max(0, input.orderAmountCents - feeCents),
+    feeRateBps,
+  };
+}
+
 export function resolveSuccessfulPaymentStatus(
   orderStatus: OrderBusinessStatus,
   currentStatus: PaymentOrderStatus,

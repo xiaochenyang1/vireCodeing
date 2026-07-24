@@ -64,6 +64,7 @@ import {
   createSettlementBreakdown,
   createShipperCompensationEntries,
   resolveCancellationPaymentStatus,
+  resolveCancellationPenaltyCents,
 } from '../payments/payment-domain';
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import type {
@@ -1966,10 +1967,12 @@ function applyInMemoryOrderFinancialMutation(
       );
     }
 
+    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
     const refund = financialStore.createRefundForPayment(
       refundPendingPayment,
-      'order_cancelled',
+      createCancellationRefundReason(penalty.feeCents),
       now,
+      penalty.refundableCents,
     );
     financialStore.createRefundOutboxEvent(refund, now);
     return;
@@ -2978,6 +2981,7 @@ async function applyPrismaOrderFinancialMutation(
       );
     }
 
+    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
     const refundId = randomUUID();
     const refundNo = `RF-${payment.paymentNo}`;
     await transaction.refund.create({
@@ -2988,8 +2992,8 @@ async function applyPrismaOrderFinancialMutation(
         orderId: currentOrder.id,
         shipperId: currentOrder.shipperId,
         channel: payment.channel,
-        amountCents: payment.amountCents,
-        reason: 'order_cancelled',
+        amountCents: penalty.refundableCents,
+        reason: createCancellationRefundReason(penalty.feeCents),
         status: 'pending',
         createdAt: now,
         updatedAt: now,
@@ -6082,6 +6086,21 @@ function createOrderCancellationNote(input: {
   return input.description
     ? `${input.reasonText}：${input.description}`
     : input.reasonText;
+}
+
+function resolveCancellationPenaltyForOrder(order: ShipperOrderRecord) {
+  const orderAmountCents =
+    order.payablePriceCents ?? order.priceCents ?? 0;
+  return resolveCancellationPenaltyCents({
+    orderStatus: order.status,
+    orderAmountCents,
+  });
+}
+
+function createCancellationRefundReason(feeCents: number) {
+  return feeCents > 0
+    ? `order_cancelled_with_penalty_${feeCents}`
+    : 'order_cancelled';
 }
 
 function canAdvanceOrderStatus(

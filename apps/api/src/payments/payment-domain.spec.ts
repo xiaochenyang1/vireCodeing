@@ -13,6 +13,7 @@ import {
   createShipperCompensationEntries,
   createWithdrawalEntries,
   resolveCancellationPaymentStatus,
+  resolveCancellationPenaltyCents,
   resolveSuccessfulPaymentStatus,
   sumSignedLedgerEntries,
 } from './payment-domain';
@@ -90,6 +91,33 @@ describe('payment domain', () => {
       );
     },
   );
+
+  it('computes deterministic cancel penalty tiers', () => {
+    expect(
+      resolveCancellationPenaltyCents({
+        orderStatus: 'waiting',
+        orderAmountCents: 10000,
+      }),
+    ).toEqual({ feeCents: 0, refundableCents: 10000, feeRateBps: 0 });
+    expect(
+      resolveCancellationPenaltyCents({
+        orderStatus: 'loading',
+        orderAmountCents: 10000,
+      }),
+    ).toEqual({ feeCents: 1000, refundableCents: 9000, feeRateBps: 1000 });
+    expect(
+      resolveCancellationPenaltyCents({
+        orderStatus: 'transporting',
+        orderAmountCents: 10000,
+      }),
+    ).toEqual({ feeCents: 2000, refundableCents: 8000, feeRateBps: 2000 });
+    expect(
+      resolveCancellationPenaltyCents({
+        orderStatus: 'confirming',
+        orderAmountCents: 999,
+      }),
+    ).toEqual({ feeCents: 299, refundableCents: 700, feeRateBps: 3000 });
+  });
 
   it('maps a late successful payment on a cancelled order to refund pending', () => {
     expect(resolveSuccessfulPaymentStatus('cancelled', 'pending')).toBe(

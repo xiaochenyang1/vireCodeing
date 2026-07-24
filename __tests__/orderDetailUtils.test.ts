@@ -100,6 +100,14 @@ test('returns platform cancellation settlement copy for platform orders', () => 
     reviewStatusText: '待客服确认',
     driverNoticeText: '已生成平台司机取消通知，等待客服确认后同步',
   });
+
+  expect(getCancellationSettlement('loading', true, 10000)).toEqual({
+    feeText: '司机已接单，平台按规则收取违约金 ￥10（10%）。',
+    settlementText: '违约金 ￥10',
+    refundText: '可退 ￥90，平台将进入退款处理',
+    reviewStatusText: '系统规则已核算',
+    driverNoticeText: '已生成平台司机取消通知，按规则同步违约结果',
+  });
 });
 
 test('creates order change and notice for selecting a driver quote', () => {
