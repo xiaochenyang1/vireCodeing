@@ -127,6 +127,12 @@ export type OrderMutationCommand =
       input: ShipperAcceptQuoteMutationInput;
     }
   | {
+      type: 'shipper_add_bonus';
+      input: {
+        bonusCents: number;
+      };
+    }
+  | {
       type: 'driver_accept';
       input: DriverAcceptOrderEventPayload;
     }
@@ -1540,6 +1546,7 @@ function createInMemoryOrderRecord(
     orderNo: `HY${formatOrderDate(now)}${String(sequence).padStart(10, '0')}`,
     shipperId,
     status: 'waiting',
+    exposureBonusCents: 0,
     paymentStatus: createInitialOrderPaymentStatus(
       input.paymentMethod,
       input.pricingMode,
@@ -1704,6 +1711,8 @@ function isOrderMutationAllowed(
         order.pricingMode === 'negotiable' &&
         !order.assignedDriverId
       );
+    case 'shipper_add_bonus':
+      return order.status === 'waiting';
     case 'driver_accept':
       return order.status === 'waiting';
     case 'driver_status':
@@ -1825,6 +1834,7 @@ function applyInMemoryOrderCouponMutation(
 
     case 'shipper_status':
     case 'shipper_accept_quote':
+    case 'shipper_add_bonus':
     case 'driver_accept':
     case 'driver_status':
       return undefined;
@@ -2218,6 +2228,22 @@ function applyInMemoryOrderMutation(
         createdAtIso: updatedAtIso,
       });
       return;
+    case 'shipper_add_bonus': {
+      const nextBonusCents =
+        (order.exposureBonusCents ?? 0) + input.mutation.input.bonusCents;
+      order.exposureBonusCents = nextBonusCents;
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'bonus_added',
+        noteText: createShipperBonusAddedNote(
+          input.mutation.input.bonusCents,
+          nextBonusCents,
+        ),
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    }
     case 'driver_accept':
       order.status = 'loading';
       order.assignedDriverId = input.actorUserId;
@@ -2651,6 +2677,7 @@ async function applyPrismaOrderCouponMutation(
 
     case 'shipper_status':
     case 'shipper_accept_quote':
+    case 'shipper_add_bonus':
     case 'driver_accept':
     case 'driver_status':
       return undefined;
@@ -3155,6 +3182,13 @@ function createPrismaOrderMutationOrderData(
         payablePriceCents: input.mutation.input.quoteCents,
         updatedAt,
       };
+    case 'shipper_add_bonus':
+      return {
+        exposureBonusCents: {
+          increment: input.mutation.input.bonusCents,
+        },
+        updatedAt,
+      };
     case 'driver_accept':
       return {
         status: 'loading',
@@ -3314,6 +3348,26 @@ async function applyPrismaOrderMutation(
         },
       });
       return;
+    case 'shipper_add_bonus': {
+      const currentOrder = await transaction.order.findUnique({
+        where: { id: input.orderId },
+        select: { exposureBonusCents: true },
+      });
+      const nextBonusCents = currentOrder?.exposureBonusCents ?? 0;
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'bonus_added',
+          noteText: createShipperBonusAddedNote(
+            input.mutation.input.bonusCents,
+            nextBonusCents,
+          ),
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    }
     case 'driver_accept':
       await transaction.orderEvent.create({
         data: {
@@ -3367,6 +3421,7 @@ export type PrismaOrderRecord = {
   pricingMode: ShipperOrderRecord['pricingMode'];
   priceCents: number | null;
   payablePriceCents: number | null;
+  exposureBonusCents?: number | null;
   paymentMethod: ShipperOrderRecord['paymentMethod'];
   paymentStatus?: ShipperOrderRecord['paymentStatus'];
   assignedDriverId?: string | null;
@@ -5683,8 +5738,20 @@ function applyDriverOrderHallFilters(
         if (leftDistance !== rightDistance) {
           return (leftDistance ?? 0) - (rightDistance ?? 0);
         }
+
+        const leftBonus = left.order.exposureBonusCents ?? 0;
+        const rightBonus = right.order.exposureBonusCents ?? 0;
+        if (leftBonus !== rightBonus) {
+          return rightBonus - leftBonus;
+        }
       } else if (leftHasDistance !== rightHasDistance) {
         return leftHasDistance ? -1 : 1;
+      }
+
+      const leftBonus = left.order.exposureBonusCents ?? 0;
+      const rightBonus = right.order.exposureBonusCents ?? 0;
+      if (leftBonus !== rightBonus) {
+        return rightBonus - leftBonus;
       }
 
       return right.order.createdAtIso.localeCompare(left.order.createdAtIso);
@@ -5801,6 +5868,7 @@ function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {
     payablePriceCents: isFixedPrice
       ? (order.payablePriceCents ?? undefined)
       : undefined,
+    exposureBonusCents: order.exposureBonusCents ?? 0,
     createdAtIso: order.createdAt.toISOString(),
     updatedAtIso: order.updatedAt.toISOString(),
     events: order.events.map(mapPrismaOrderEvent),
@@ -5964,6 +6032,13 @@ function createShipperAcceptedQuoteNote(
   ].filter((part): part is string => Boolean(part && part.trim()));
 
   return noteParts.join('；');
+}
+
+function createShipperBonusAddedNote(
+  addedBonusCents: number,
+  totalBonusCents: number,
+) {
+  return `货主追加曝光赏金 ${addedBonusCents} 分，当前总赏金 ${totalBonusCents} 分`;
 }
 
 function isOrderAcceptedByDriver(order: ShipperOrderRecord, driverId: string) {

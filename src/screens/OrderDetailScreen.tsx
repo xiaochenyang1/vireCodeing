@@ -87,6 +87,7 @@ export function OrderDetailScreen({
   onCompleteOrder,
   onAdvanceOrderStatus,
   onAcceptDriverQuote,
+  onAddBonus,
   onReportException,
   onSubmitChangeRequest,
   onSubmitEvaluation,
@@ -114,6 +115,7 @@ export function OrderDetailScreen({
     progressAction: OrderProgressAction,
   ) => void;
   onAcceptDriverQuote?: (order: RecentOrder, quote: DriverQuote) => void;
+  onAddBonus?: (order: RecentOrder, bonusAmount: string) => void;
   onReportException?: (
     order: RecentOrder,
     exceptionReport: NonNullable<RecentOrder['exceptionReport']>,
@@ -657,6 +659,13 @@ export function OrderDetailScreen({
   };
 
   const submitBonus = (bonusAmount: string) => {
+    if (onAddBonus && usesPlatformOrderActions) {
+      onAddBonus(order, bonusAmount);
+      closeAllPanels();
+      setLocalNotice('正在追加曝光赏金并同步平台订单。');
+      return;
+    }
+
     const bonusChange = createBonusOrderChange(bonusAmount, order.bonusText);
 
     updateOrderFromDetail(bonusChange.changes);

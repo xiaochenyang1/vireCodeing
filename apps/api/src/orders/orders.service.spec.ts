@@ -1589,6 +1589,46 @@ describe('OrdersService', () => {
     );
   });
 
+  it('accumulates exposure bonus on a waiting order', async () => {
+    const { service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+
+    const firstBonus = await service.addOrderBonus(
+      'shipper-1',
+      order.id,
+      'bonus-key-1',
+      {
+        bonusCents: 5000,
+        baseUpdatedAtIso: order.updatedAtIso,
+      },
+    );
+
+    expect(firstBonus).toMatchObject({
+      id: order.id,
+      status: 'waiting',
+      exposureBonusCents: 5000,
+    });
+    expect(
+      firstBonus.events.some(event => event.eventType === 'bonus_added'),
+    ).toBe(true);
+
+    const secondBonus = await service.addOrderBonus(
+      'shipper-1',
+      order.id,
+      'bonus-key-2',
+      {
+        bonusCents: 2000,
+        baseUpdatedAtIso: firstBonus.updatedAtIso,
+      },
+    );
+
+    expect(secondBonus.exposureBonusCents).toBe(7000);
+  });
+
   it('reports an exception for a transporting shipper order and records an event', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,

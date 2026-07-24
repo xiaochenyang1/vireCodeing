@@ -26,6 +26,7 @@ export type OrderSyncOperation =
   | 'complete'
   | 'status'
   | 'acceptQuote'
+  | 'bonus'
   | 'exception'
   | 'changeRequest'
   | 'evaluation'
@@ -35,6 +36,8 @@ export type OrderSyncOperation =
 export type OrderMutationContext = {
   idempotencyKey: string;
   baseUpdatedAtIso: string;
+  /** Pending one-shot payload for retryable mutations such as bonus adds. */
+  bonusCents?: number;
 };
 
 export type OrderPaymentStatus =

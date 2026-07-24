@@ -97,7 +97,7 @@ export function isPlatformOrderAdvanceStatus(
 
 export type PlatformOrderMutationOperation = Extract<
   OrderSyncOperation,
-  'update' | 'cancel' | 'complete' | 'status' | 'acceptQuote'
+  'update' | 'cancel' | 'complete' | 'status' | 'acceptQuote' | 'bonus'
 >;
 
 export function isPlatformOrderMutationOperation(
@@ -108,6 +108,7 @@ export function isPlatformOrderMutationOperation(
     operation === 'cancel' ||
     operation === 'complete' ||
     operation === 'status' ||
-    operation === 'acceptQuote'
+    operation === 'acceptQuote' ||
+    operation === 'bonus'
   );
 }

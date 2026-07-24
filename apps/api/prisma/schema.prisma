@@ -353,6 +353,7 @@ model Order {
   pricingMode          PricingMode
   priceCents           Int?
   payablePriceCents    Int?
+  exposureBonusCents   Int                @default(0)
   paymentMethod        PaymentMethod
   paymentStatus        OrderPaymentStatus @default(legacy_unverified)
   assignedDriverId     String?

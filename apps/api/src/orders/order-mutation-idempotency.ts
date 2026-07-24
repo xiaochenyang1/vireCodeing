@@ -8,6 +8,7 @@ export const ORDER_MUTATION_OPERATIONS = [
   'shipper_status',
   'shipper_complete',
   'shipper_accept_quote',
+  'shipper_add_bonus',
   'driver_accept',
   'driver_status',
 ] as const;

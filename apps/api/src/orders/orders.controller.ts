@@ -28,6 +28,7 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
   AcceptShipperOrderQuoteRequest,
+  AddShipperOrderBonusRequest,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
   CancelShipperOrderRequest,
@@ -46,6 +47,7 @@ import {
   adminOrderFiltersSchema,
   adminOrderReportQuerySchema,
   acceptShipperOrderQuoteSchema,
+  addShipperOrderBonusSchema,
   advanceShipperOrderStatusSchema,
   batchCancelAdminOrdersSchema,
   completeShipperOrderSchema,
@@ -57,6 +59,7 @@ import {
   submitShipperOrderChangeRequestSchema,
   submitShipperOrderEvaluationSchema,
   parseAcceptShipperOrderQuoteRequest,
+  parseAddShipperOrderBonusRequest,
   parseAdvanceShipperOrderStatusRequest,
   parseAdminOrderAttachmentAuditListQuery,
   parseBatchCancelAdminOrdersRequest,
@@ -220,6 +223,30 @@ export class OrdersController {
         orderId,
         parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseAcceptShipperOrderQuoteRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':orderId/bonus')
+  @ApiOperation({
+    summary: '追加曝光赏金',
+    description:
+      '货主为待接单订单追加曝光赏金，金额累计写入 exposureBonusCents，并影响司机大厅同距离排序',
+  })
+  async addOrderBonus(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(addShipperOrderBonusSchema))
+    body: AddShipperOrderBonusRequest,
+  ) {
+    return ok(
+      await this.ordersService.addOrderBonus(
+        getCurrentShipperId(request),
+        orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseAddShipperOrderBonusRequest(body),
       ),
       getRequestId(request),
     );

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   AcceptShipperOrderQuoteRequest,
+  AddShipperOrderBonusRequest,
   AdminBatchCancelOrderItem,
   AdminOrderFilters,
   AdminOrderReportQuery,
@@ -403,6 +404,15 @@ export const acceptShipperOrderQuoteSchema = z.object({
   driverId: z.string().trim().min(1, '司机 ID 不能为空').max(120),
 });
 
+export const addShipperOrderBonusSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+  bonusCents: z
+    .number({ message: '赏金金额不合法' })
+    .int('赏金金额必须是整数分')
+    .min(100, '单次追加赏金至少 1 元')
+    .max(500_000, '单次追加赏金最多 5000 元'),
+});
+
 export const reportShipperOrderExceptionSchema = z.object({
   typeLabel: z.string().trim().min(1, '异常类型不能为空').max(30),
   description: z
@@ -548,6 +558,12 @@ export function parseAcceptShipperOrderQuoteRequest(
   input: unknown,
 ): AcceptShipperOrderQuoteRequest {
   return acceptShipperOrderQuoteSchema.parse(input);
+}
+
+export function parseAddShipperOrderBonusRequest(
+  input: unknown,
+): AddShipperOrderBonusRequest {
+  return addShipperOrderBonusSchema.parse(input);
 }
 
 export function parseReportShipperOrderExceptionRequest(

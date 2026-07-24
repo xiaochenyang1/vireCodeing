@@ -71,6 +71,10 @@ export function mapPlatformOrderToRecentOrder(
     paymentMethodText: order.paymentMethod === 'online' ? '在线支付' : '货到付款',
     paymentStatus: order.paymentStatus,
     assignedDriverId: order.assignedDriverId,
+    ...(typeof order.exposureBonusCents === 'number' &&
+    order.exposureBonusCents > 0
+      ? { bonusText: formatCents(order.exposureBonusCents) }
+      : {}),
     paymentSettledAtIso: order.paymentSettledAtIso,
     refundedAtIso: order.refundedAtIso,
     createdAtIso: order.createdAtIso,

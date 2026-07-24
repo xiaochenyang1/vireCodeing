@@ -150,6 +150,7 @@ export function createDriverQuoteOrderChange(
 export function createBonusOrderChange(
   bonusAmount: string,
   currentBonusText?: string,
+  usesPlatformBonus = false,
 ): OrderDetailChange {
   const bonusText = getAccumulatedBonusText(currentBonusText, bonusAmount);
   const addedBonusText = formatPriceText(bonusAmount);
@@ -161,9 +162,17 @@ export function createBonusOrderChange(
       updatedAtText: '已追加赏金 · 刚刚',
     },
     noticeText: hasExistingBonus
-      ? `已追加赏金 ${addedBonusText}，当前总赏金 ${bonusText}，待接单订单曝光权重本地提升。`
-      : `已追加赏金 ${bonusText}，待接单订单曝光权重本地提升。`,
+      ? usesPlatformBonus
+        ? `已追加赏金 ${addedBonusText}，当前总赏金 ${bonusText}，待接单订单曝光权重将按平台赏金提升。`
+        : `已追加赏金 ${addedBonusText}，当前总赏金 ${bonusText}，待接单订单曝光权重本地提升。`
+      : usesPlatformBonus
+        ? `已追加赏金 ${bonusText}，待接单订单曝光权重将按平台赏金提升。`
+        : `已追加赏金 ${bonusText}，待接单订单曝光权重本地提升。`,
   };
+}
+
+export function getBonusAmountCents(bonusText?: string) {
+  return Math.round(getBonusAmountValue(bonusText) * 100);
 }
 
 export function getBonusAmountValue(bonusText?: string) {

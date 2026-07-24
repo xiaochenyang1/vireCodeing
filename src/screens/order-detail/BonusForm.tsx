@@ -41,7 +41,7 @@ export function BonusForm({
     <View style={styles.detailCard}>
       <Text style={styles.draftSectionTitle}>追加赏金</Text>
       <Text style={styles.detailMeta}>
-        当前会基于已追加赏金继续累加，本地记录总赏金用于提高待接单订单曝光。
+        当前会基于已追加赏金继续累加；平台订单会同步曝光赏金，用于提高待接单订单曝光。
       </Text>
       <Text style={styles.detailMeta}>{`当前曝光赏金：${currentBonusLabel}`}</Text>
       <Text style={styles.routeMeta}>{`追加后总赏金：${totalBonusLabel}`}</Text>

@@ -342,6 +342,7 @@ async function renderOrderDetail({
   onUpdateOrder = jest.fn(),
   onCompleteOrder,
   onAcceptDriverQuote,
+  onAddBonus,
   platformOrderApi,
   platformFileApi,
   platformPaymentApi,
@@ -352,6 +353,7 @@ async function renderOrderDetail({
   onUpdateOrder?: jest.Mock;
   onCompleteOrder?: jest.Mock;
   onAcceptDriverQuote?: jest.Mock;
+  onAddBonus?: jest.Mock;
   platformOrderApi?: {
     listExceptionCases: jest.Mock;
     appealExceptionCase: jest.Mock;
@@ -385,6 +387,7 @@ async function renderOrderDetail({
         onEditOrder={jest.fn()}
         onCompleteOrder={onCompleteOrder}
         onAcceptDriverQuote={onAcceptDriverQuote}
+        onAddBonus={onAddBonus}
         platformFileApi={platformFileApi}
         platformOrderApi={platformOrderApi}
         platformPaymentApi={platformPaymentApi}
@@ -496,6 +499,47 @@ describe('OrderDetailScreen status actions', () => {
     expect(onUpdateOrder).not.toHaveBeenCalled();
     expect(getRenderedText(renderer)).toContain(
       `正在选择 ${quote!.driverName} 的报价并同步平台订单。`,
+    );
+  });
+
+  it('routes platform bonus submission through the add-bonus callback', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-bonus',
+      status: 'waiting' as const,
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({ items: [] }),
+      appealExceptionCase: jest.fn(),
+    };
+    const onAddBonus = jest.fn();
+    const onUpdateOrder = jest.fn();
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+      onAddBonus,
+      onUpdateOrder,
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-bonus-action' })
+        .props.onPress();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root.findByProps({ testID: 'bonus-option-50' }).props.onPress();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root.findByProps({ testID: 'bonus-submit' }).props.onPress();
+    });
+
+    expect(onAddBonus).toHaveBeenCalledWith(order, '50');
+    expect(onUpdateOrder).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain(
+      '正在追加曝光赏金并同步平台订单。',
     );
   });
 });

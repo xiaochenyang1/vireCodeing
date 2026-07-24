@@ -93,6 +93,11 @@ export type PlatformAcceptShipperOrderQuoteRequest =
     driverId: string;
   };
 
+export type PlatformAddShipperOrderBonusRequest =
+  PlatformOrderMutationRequest & {
+    bonusCents: number;
+  };
+
 export type PlatformCompleteShipperOrderRequest = PlatformOrderMutationRequest;
 
 export type PlatformReportShipperOrderExceptionRequest = {
@@ -166,6 +171,7 @@ export type PlatformShipperOrder = PlatformCreateShipperOrderRequest & {
   shipperId: string;
   status: PlatformShipperOrderStatus;
   pickupDistanceMeters?: number;
+  exposureBonusCents?: number;
   paymentStatus?: OrderPaymentStatus;
   assignedDriverId?: string;
   paymentSettledAtIso?: string;
@@ -392,6 +398,28 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
       >(
         config,
         `/shipper/orders/${normalizedOrderId}/accept-quote`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
+    },
+    async addBonus(
+      orderId: string,
+      request: PlatformAddShipperOrderBonusRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+      const normalizedRequest = normalizeAddBonusRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
+      );
+
+      return platformPost<
+        PlatformAddShipperOrderBonusRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/bonus`,
         normalizedRequest,
         createOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
@@ -936,6 +964,48 @@ function normalizeAcceptQuoteRequest(
   };
 }
 
+function normalizeAddBonusRequest(
+  request: PlatformAddShipperOrderBonusRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform order bonus request must be an object',
+      'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const bonusCentsInput = request.bonusCents as unknown;
+  if (
+    typeof bonusCentsInput !== 'number' ||
+    !Number.isInteger(bonusCentsInput) ||
+    bonusCentsInput < 100 ||
+    bonusCentsInput > 500_000
+  ) {
+    throw new PlatformApiError(
+      'Platform order bonusCents is invalid',
+      'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
+  );
+
+  return {
+    baseUpdatedAtIso,
+    bonusCents: bonusCentsInput,
+  };
+}
+
 function normalizeAdvanceOrderStatusRequest(
   request: PlatformAdvanceShipperOrderStatusRequest,
 ) {
@@ -1373,7 +1443,8 @@ function normalizeOrderMutationIdempotencyKey(
     | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
     | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
-    | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+    | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(
@@ -1408,6 +1479,7 @@ function normalizeOrderMutationBaseUpdatedAtIso(
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
     | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
     | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_BONUS_REQUEST_INVALID'
     | 'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {

@@ -2642,6 +2642,60 @@ paths:
                     message: 当前订单状态不允许推进到目标状态
                     requestId: req_local
                     timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/bonus:
+    post:
+      summary: Add exposure bonus for a waiting shipper order
+      description: Accumulates exposureBonusCents on a waiting order and appends a bonus_added event. Requires Idempotency-Key and baseUpdatedAtIso. Driver hall uses bonus as a secondary sort key after distance.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddShipperOrderBonusRequest'
+      responses:
+        '200':
+          description: Exposure bonus accumulated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency key was reused or expired, order base version is stale, or the order is not waiting / exceeds bonus caps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /shipper/orders/{orderId}/accept-quote:
     post:
       summary: Accept a driver quote for a negotiable waiting order
@@ -6758,6 +6812,21 @@ components:
           type: string
           description: Driver user id that already submitted a driver_quote_submitted event for this order.
           example: driver_01J1Z7P7V2QM9B3V8M3G1N6K8S
+    AddShipperOrderBonusRequest:
+      type: object
+      required: [baseUpdatedAtIso, bonusCents]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-02T09:00:00.000Z'
+        bonusCents:
+          type: integer
+          minimum: 100
+          maximum: 500000
+          description: Bonus amount to add in cents. Accumulates into exposureBonusCents.
+          example: 5000
     CompleteShipperOrderRequest:
       type: object
       required: [baseUpdatedAtIso]
@@ -7362,6 +7431,11 @@ components:
             assignedDriverId:
               type: string
               example: driver-1
+            exposureBonusCents:
+              type: integer
+              minimum: 0
+              description: Accumulated exposure bonus in cents for waiting-order hall ranking.
+              example: 5000
             paymentSettledAtIso:
               type: string
               format: date-time

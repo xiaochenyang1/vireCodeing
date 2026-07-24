@@ -82,6 +82,10 @@ export type AcceptShipperOrderQuoteRequest = OrderMutationConcurrencyRequest & {
   driverId: string;
 };
 
+export type AddShipperOrderBonusRequest = OrderMutationConcurrencyRequest & {
+  bonusCents: number;
+};
+
 export type CompleteShipperOrderRequest = OrderMutationConcurrencyRequest;
 
 export type ReportShipperOrderExceptionRequest = {
@@ -132,6 +136,7 @@ export type ShipperOrderRecord = CreateShipperOrderRequest & {
   shipperId: string;
   status: ShipperOrderStatus;
   pickupDistanceMeters?: number;
+  exposureBonusCents?: number;
   paymentStatus: OrderPaymentStatus;
   assignedDriverId?: string;
   paymentSettledAtIso?: string;

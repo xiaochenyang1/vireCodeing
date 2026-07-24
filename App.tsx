@@ -36,7 +36,9 @@ import {
   getOrderMutationRetryContext,
 } from './src/utils/orderMutationSync';
 import {
+  createBonusOrderChange,
   createDriverQuoteOrderChange,
+  getBonusAmountCents,
   type OrderProgressAction,
 } from './src/utils/orderDetail';
 import type { DriverQuote } from './src/types';
@@ -2323,6 +2325,39 @@ function App({
     }
 
     if (
+      order.syncState?.operation === 'bonus' &&
+      order.platformOrderId &&
+      retryMutationContext &&
+      typeof retryMutationContext.bonusCents === 'number' &&
+      retryMutationContext.bonusCents >= 100
+    ) {
+      platformOrderApi
+        .addBonus(
+          order.platformOrderId,
+          {
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+            bonusCents: retryMutationContext.bonusCents,
+          },
+          retryMutationContext.idempotencyKey,
+        )
+        .then(platformOrder => {
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
+            bonusText: order.bonusText,
+          });
+        })
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'bonus',
+            message: '平台追加赏金重试失败，已继续保留本地赏金记录。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
+        });
+      return;
+    }
+
+    if (
       order.syncState?.operation === 'exception' &&
       order.platformOrderId &&
       order.exceptionReport
@@ -2739,6 +2774,71 @@ function App({
       });
   };
 
+  const addBonusFromDetail = (order: RecentOrder, bonusAmount: string) => {
+    const bonusChange = createBonusOrderChange(
+      bonusAmount,
+      order.bonusText,
+      true,
+    );
+    const localBonusChanges: Partial<RecentOrder> = {
+      ...bonusChange.changes,
+      updatedAtIso: new Date(nowRef.current).toISOString(),
+    };
+    const bonusCents = getBonusAmountCents(bonusAmount);
+    const mutationContext = {
+      ...createOrderMutationContext(
+        order.updatedAtIso ?? order.createdAtIso,
+      ),
+      bonusCents,
+    };
+
+    if (isPlatformOrderActionMissingAuth(order)) {
+      keepPlatformOrderActionQueuedUntilLogin(
+        order,
+        localBonusChanges,
+        'bonus',
+        '追加赏金',
+        mutationContext,
+      );
+      return;
+    }
+
+    if (
+      !platformOrderApi ||
+      !getAuthSessionSnapshot()?.accessToken ||
+      !order.platformOrderId ||
+      bonusCents < 100
+    ) {
+      updateOrder(order.id, localBonusChanges);
+      return;
+    }
+
+    platformOrderApi
+      .addBonus(
+        order.platformOrderId,
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          bonusCents,
+        },
+        mutationContext.idempotencyKey,
+      )
+      .then(platformOrder => {
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
+          bonusText: bonusChange.changes.bonusText,
+        });
+      })
+      .catch(error => {
+        handlePlatformOrderMutationFailure({
+          error,
+          order,
+          operation: 'bonus',
+          message: '平台追加赏金失败，已保留本地赏金记录。',
+          mutationContext,
+          changes: localBonusChanges,
+        }).catch(() => undefined);
+      });
+  };
+
   const cancelOrderFromDetail = (
     order: RecentOrder,
     cancellation: NonNullable<RecentOrder['cancellation']>,
@@ -3010,6 +3110,7 @@ function App({
             onCompleteOrder={completeOrderFromDetail}
             onAdvanceOrderStatus={advanceOrderStatusFromDetail}
             onAcceptDriverQuote={acceptDriverQuoteFromDetail}
+            onAddBonus={addBonusFromDetail}
             onReportException={reportOrderExceptionFromDetail}
             onSubmitChangeRequest={submitOrderChangeRequestFromDetail}
             onSubmitEvaluation={submitOrderEvaluationFromDetail}

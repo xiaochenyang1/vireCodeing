@@ -7,6 +7,7 @@ import {
 import type { FilesRepository } from '../files/files.repository';
 import type {
   AcceptShipperOrderQuoteRequest,
+  AddShipperOrderBonusRequest,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
   BatchCancelAdminOrdersResult,
@@ -730,6 +731,69 @@ export class OrdersService {
     });
 
     return acceptedOrder;
+  }
+
+  async addOrderBonus(
+    shipperId: string,
+    orderId: string,
+    idempotencyKey: string,
+    input: AddShipperOrderBonusRequest,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_add_bonus',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单已不可追加赏金',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
+    const order = await this.repository.findOrderById(orderId);
+
+    if (!order || order.shipperId !== shipperId) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    if (order.status !== 'waiting') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '只有待接单订单可以追加曝光赏金',
+      );
+    }
+
+    const currentBonusCents = order.exposureBonusCents ?? 0;
+    if (currentBonusCents + input.bonusCents > 500_000) {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '订单曝光赏金累计不能超过 5000 元',
+      );
+    }
+
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_add_bonus',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_add_bonus',
+          input: {
+            bonusCents: input.bonusCents,
+          },
+        },
+      }),
+      '当前订单已不可追加赏金',
+    ).order;
   }
 
   private findLatestDriverQuoteEvent(
