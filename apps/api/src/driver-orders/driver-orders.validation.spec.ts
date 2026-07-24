@@ -1,6 +1,7 @@
 import {
   parseCreateDriverWithdrawalRequest,
   parseDriverAcceptOrderRequest,
+  parseDriverCancelOrderRequest,
   parseSaveDriverAcceptanceSettingsRequest,
   parseDriverAdvanceOrderStatusRequest,
   parseDriverMyOrdersQuery,
@@ -85,6 +86,45 @@ describe('driver orders validation', () => {
     expect(() =>
       parseDriverAcceptOrderRequest({
         noteText: '马上联系货主',
+      }),
+    ).toThrow('订单版本时间无效');
+  });
+
+  it('parses driver cancel order requests', () => {
+    expect(
+      parseDriverCancelOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        reasonText: '  车辆故障  ',
+        description: '  无法继续前往装货点  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      reasonText: '车辆故障',
+      description: '无法继续前往装货点',
+    });
+
+    expect(
+      parseDriverCancelOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        reasonText: '计划有变',
+        description: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      reasonText: '计划有变',
+    });
+
+    expect(() =>
+      parseDriverCancelOrderRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        reasonText: '   ',
+      }),
+    ).toThrow('取消原因不能为空');
+
+    expect(() =>
+      parseDriverCancelOrderRequest({
+        baseUpdatedAtIso: 'not-a-date',
+        reasonText: '车辆故障',
       }),
     ).toThrow('订单版本时间无效');
   });

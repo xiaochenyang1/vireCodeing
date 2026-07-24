@@ -303,6 +303,43 @@ describe('DriverOrdersController', () => {
     );
   });
 
+  it('cancels an executing order for the authenticated driver', async () => {
+    const service = {
+      cancelOrder: jest.fn().mockResolvedValue({
+        id: 'order-1',
+        status: 'cancelled',
+      }),
+    } as unknown as DriverOrdersService;
+    const controller = new DriverOrdersController(service);
+
+    await expect(
+      controller.cancelOrder(
+        createRequest('driver-1'),
+        'order-1',
+        IDEMPOTENCY_KEY,
+        {
+          baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+          reasonText: '  车辆故障  ',
+          description: '  无法继续前往装货点  ',
+        },
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { id: 'order-1', status: 'cancelled' },
+    });
+
+    expect(service.cancelOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
+      'order-1',
+      IDEMPOTENCY_KEY,
+      {
+        baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+        reasonText: '车辆故障',
+        description: '无法继续前往装货点',
+      },
+    );
+  });
+
   it('lists current driver accepted orders', async () => {
     const service = {
       listMyOrders: jest.fn().mockResolvedValue({
