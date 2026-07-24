@@ -11,11 +11,19 @@ import type { ContactItem } from '../../utils/profileLocalState';
 
 export function ContactRecords({
   contacts,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
   onAddContact,
   onDeleteContact,
   onUpdateContact,
 }: {
   contacts: ContactItem[];
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
   onAddContact: (contact: ContactInput) => void;
   onDeleteContact: (contactId: string) => void;
   onUpdateContact: (contactId: string, changes: ContactInput) => void;
@@ -25,7 +33,9 @@ export function ContactRecords({
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
   const [editingContactId, setEditingContactId] = useState<string>();
-  const [notice, setNotice] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
+  const platformNotice = canRefresh ? notice : '';
+  const noticeText = actionNotice || platformNotice;
 
   const submit = () => {
     const result = createContactInput({
@@ -38,16 +48,16 @@ export function ContactRecords({
     });
 
     if (!result.contact) {
-      setNotice(result.noticeText);
+      setActionNotice(result.noticeText);
       return;
     }
 
     if (editingContactId) {
       onUpdateContact(editingContactId, result.contact);
-      setNotice('常用联系人已更新');
+      setActionNotice('常用联系人已更新');
     } else {
       onAddContact(result.contact);
-      setNotice('常用联系人已添加');
+      setActionNotice('常用联系人已添加');
     }
 
     setName('');
@@ -63,11 +73,36 @@ export function ContactRecords({
     setPhone(item.phoneText);
     setNote(item.noteText);
     setEditingContactId(item.id);
-    setNotice(`正在编辑：${item.name}`);
+    setActionNotice(`正在编辑：${item.name}`);
+  };
+
+  const handleRefresh = () => {
+    setActionNotice('');
+    onRefresh?.();
   };
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台地址簿</Text>
+          <Pressable
+            testID="profile-address-book-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       <Text style={styles.draftSectionTitle}>新增常用联系人</Text>
       <AuthField
         testID="profile-contact-name"
@@ -98,7 +133,6 @@ export function ContactRecords({
         value={note}
         onChangeText={setNote}
       />
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
         testID="profile-contact-submit"
         style={({ pressed }) => [

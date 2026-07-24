@@ -12,11 +12,19 @@ import type { AddressItem } from '../../utils/profileLocalState';
 
 export function AddressRecords({
   addresses,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
   onAddAddress,
   onDeleteAddress,
   onUpdateAddress,
 }: {
   addresses: AddressItem[];
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
   onAddAddress: (address: AddressInput) => void;
   onDeleteAddress: (addressId: string) => void;
   onUpdateAddress: (addressId: string, changes: AddressInput) => void;
@@ -28,7 +36,9 @@ export function AddressRecords({
   const [editingAddressId, setEditingAddressId] = useState<string>();
   const [pendingDeleteAddressId, setPendingDeleteAddressId] =
     useState<string>();
-  const [notice, setNotice] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
+  const platformNotice = canRefresh ? notice : '';
+  const noticeText = actionNotice || platformNotice;
 
   const submit = () => {
     setPendingDeleteAddressId(undefined);
@@ -42,16 +52,16 @@ export function AddressRecords({
     });
 
     if (!result.address) {
-      setNotice(result.noticeText);
+      setActionNotice(result.noticeText);
       return;
     }
 
     if (editingAddressId) {
       onUpdateAddress(editingAddressId, result.address);
-      setNotice('常用地址已更新');
+      setActionNotice('常用地址已更新');
     } else {
       onAddAddress(result.address);
-      setNotice('常用地址已添加');
+      setActionNotice('常用地址已添加');
     }
 
     setName('');
@@ -68,7 +78,7 @@ export function AddressRecords({
     setTag(item.tagText);
     setEditingAddressId(item.id);
     setPendingDeleteAddressId(undefined);
-    setNotice(`正在编辑：${item.name}`);
+    setActionNotice(`正在编辑：${item.name}`);
   };
 
   const requestDeleteAddress = (item: AddressItem) => {
@@ -81,16 +91,42 @@ export function AddressRecords({
     if (confirmation.confirmed) {
       onDeleteAddress(item.id);
       setPendingDeleteAddressId(confirmation.pendingDeleteAddressId);
-      setNotice(confirmation.noticeText);
+      setActionNotice(confirmation.noticeText);
       return;
     }
 
     setPendingDeleteAddressId(confirmation.pendingDeleteAddressId);
-    setNotice(confirmation.noticeText);
+    setActionNotice(confirmation.noticeText);
+  };
+
+  const handleRefresh = () => {
+    setPendingDeleteAddressId(undefined);
+    setActionNotice('');
+    onRefresh?.();
   };
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台地址簿</Text>
+          <Pressable
+            testID="profile-address-book-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       <Text style={styles.draftSectionTitle}>新增常用地址</Text>
       <AuthField
         testID="profile-address-name"
@@ -120,7 +156,6 @@ export function AddressRecords({
         value={tag}
         onChangeText={setTag}
       />
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
         testID="profile-address-submit"
         style={({ pressed }) => [

@@ -16274,6 +16274,231 @@ test('loads the platform profile address book when opening profile center', asyn
   }
 });
 
+test('hides the manual refresh button in local address book mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-addresses' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'profile-address-book-manual-refresh' }),
+  ).toHaveLength(0);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+  });
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-contacts' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'profile-address-book-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
+test('manual refreshes platform address book from profile', async () => {
+  const originalFetch = globalThis.fetch;
+  let addressBookRequestCount = 0;
+  const initialPlatformAddressBook = {
+    shipperId: 'user-profile-address-book-manual-refresh',
+    addresses: [
+      {
+        id: 'address-platform-refresh-1',
+        name: '平台宝安仓',
+        address: '宝安区平台仓库',
+        contactText: '平台仓管 A 13900139011',
+        tagText: '平台旧仓',
+      },
+    ],
+    contacts: [
+      {
+        id: 'contact-platform-refresh-1',
+        name: '平台仓管 A',
+        roleText: '装货联系人',
+        phoneText: '13900139011',
+        noteText: '平台旧联系人',
+      },
+    ],
+    updatedAtIso: '2026-07-03T08:30:00.000Z',
+  };
+  const refreshedPlatformAddressBook = {
+    shipperId: 'user-profile-address-book-manual-refresh',
+    addresses: [
+      {
+        id: 'address-platform-refresh-2',
+        name: '平台龙岗仓',
+        address: '龙岗区平台新仓',
+        contactText: '平台仓管 B 13900139012',
+        tagText: '平台新仓',
+      },
+    ],
+    contacts: [
+      {
+        id: 'contact-platform-refresh-2',
+        name: '平台仓管 B',
+        roleText: '卸货联系人',
+        phoneText: '13900139012',
+        noteText: '平台新联系人',
+      },
+    ],
+    updatedAtIso: '2026-07-03T09:00:00.000Z',
+  };
+  const fetchMock = jest.fn((url, init) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-profile-address-book-manual-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.profile-address-book-manual-refresh',
+            refreshToken:
+              'refresh.profile-address-book-manual-refresh.604800',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      addressBookRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          addressBookRequestCount === 1
+            ? initialPlatformAddressBook
+            : refreshedPlatformAddressBook,
+        ),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-addresses' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台地址簿已拉取到本地常用地址/联系人。');
+    expect(renderedText).toContain('平台宝安仓');
+    expect(renderedText).toContain('平台仓管 A 13900139011');
+    expect(renderedText).not.toContain('平台龙岗仓');
+    expect(
+      app.root.findByProps({ testID: 'profile-address-book-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'profile-address-book-manual-refresh' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain(
+      '平台地址簿已手动刷新到本地常用地址/联系人。',
+    );
+    expect(renderedText).toContain('平台龙岗仓');
+    expect(renderedText).toContain('平台仓管 B 13900139012');
+    expect(renderedText).not.toContain('平台宝安仓');
+    expect(addressBookRequestCount).toBe(2);
+    expect(getProfileLocalState()).toMatchObject({
+      addresses: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'address-platform-refresh-2',
+          name: '平台龙岗仓',
+          tagText: '平台新仓',
+        }),
+      ]),
+      contacts: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'contact-platform-refresh-2',
+          name: '平台仓管 B',
+          noteText: '平台新联系人',
+        }),
+      ]),
+      syncState: {
+        status: 'synced',
+        operation: 'addressBook',
+        platformUpdatedAtIso: '2026-07-03T09:00:00.000Z',
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/address-book',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.profile-address-book-manual-refresh',
+        }),
+      }),
+    );
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-back-overview' }).props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'profile-entry-contacts' }).props.onPress();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台仓管 B');
+    expect(renderedText).toContain('13900139012');
+    expect(
+      app.root.findByProps({ testID: 'profile-address-book-manual-refresh' }),
+    ).toBeTruthy();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uses platform-loaded profile address book entries as draft suggestions', async () => {
   const originalFetch = globalThis.fetch;
   const fetchMock = jest
@@ -16706,6 +16931,9 @@ test('keeps local pending profile address book changes when platform profile ope
       app.root.findByProps({ testID: 'profile-entry-addresses' }).props.onPress();
     });
 
+    expect(
+      app.root.findAllByProps({ testID: 'profile-address-book-manual-refresh' }),
+    ).toHaveLength(0);
     expect(getRenderedText(app)).toContain('本地待同步仓');
     expect(getRenderedText(app)).not.toContain('平台旧仓');
     expect(getProfileLocalState()).toMatchObject({

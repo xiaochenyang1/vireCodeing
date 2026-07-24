@@ -93,6 +93,9 @@ export function ProfileDetailScreen({
   account,
   password,
   notificationPermissionStatus,
+  canRefreshPlatformAddressBook,
+  isRefreshingPlatformAddressBook,
+  addressBookNotice,
   canRefreshPlatformEvaluations,
   isRefreshingPlatformEvaluations,
   evaluationNotice,
@@ -128,6 +131,7 @@ export function ProfileDetailScreen({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformAddressBook,
   onRefreshPlatformEvaluations,
   onRefreshPlatformCoupons,
   onRefreshPlatformSpending,
@@ -154,6 +158,9 @@ export function ProfileDetailScreen({
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
+  canRefreshPlatformAddressBook?: boolean;
+  isRefreshingPlatformAddressBook?: boolean;
+  addressBookNotice?: string;
   canRefreshPlatformEvaluations?: boolean;
   isRefreshingPlatformEvaluations?: boolean;
   evaluationNotice?: string;
@@ -225,6 +232,7 @@ export function ProfileDetailScreen({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformAddressBook: () => void;
   onRefreshPlatformEvaluations: () => void;
   onRefreshPlatformCoupons: () => void;
   onRefreshPlatformSpending: () => void;
@@ -262,6 +270,10 @@ export function ProfileDetailScreen({
       {sectionId === 'addresses' ? (
         <AddressRecords
           addresses={addresses}
+          canRefresh={canRefreshPlatformAddressBook}
+          isRefreshing={isRefreshingPlatformAddressBook}
+          notice={addressBookNotice}
+          onRefresh={onRefreshPlatformAddressBook}
           onAddAddress={onAddAddress}
           onDeleteAddress={onDeleteAddress}
           onUpdateAddress={onUpdateAddress}
@@ -270,6 +282,10 @@ export function ProfileDetailScreen({
       {sectionId === 'contacts' ? (
         <ContactRecords
           contacts={contacts}
+          canRefresh={canRefreshPlatformAddressBook}
+          isRefreshing={isRefreshingPlatformAddressBook}
+          notice={addressBookNotice}
+          onRefresh={onRefreshPlatformAddressBook}
           onAddContact={onAddContact}
           onDeleteContact={onDeleteContact}
           onUpdateContact={onUpdateContact}

@@ -357,17 +357,21 @@ export function ProfileCenterScreen({
     useState<PlatformProfileSpendingSnapshot>();
   const [platformEvaluationRecords, setPlatformEvaluationRecords] =
     useState<ProfileEvaluationRecordItem[]>();
+  const [isRefreshingPlatformAddressBook, setIsRefreshingPlatformAddressBook] =
+    useState(false);
   const [isRefreshingPlatformSpending, setIsRefreshingPlatformSpending] =
     useState(false);
   const [isRefreshingPlatformCoupons, setIsRefreshingPlatformCoupons] =
     useState(false);
   const [isRefreshingPlatformEvaluations, setIsRefreshingPlatformEvaluations] =
     useState(false);
+  const [addressBookNotice, setAddressBookNotice] = useState('');
   const [spendingNotice, setSpendingNotice] = useState('');
   const [couponNotice, setCouponNotice] = useState('');
   const [evaluationNotice, setEvaluationNotice] = useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
   const hasLoadedPlatformAccount = useRef(false);
+  const addressBookLoadRequestVersionRef = useRef(0);
   const spendingLoadRequestVersionRef = useRef(0);
   const couponLoadRequestVersionRef = useRef(0);
   const evaluationLoadRequestVersionRef = useRef(0);
@@ -401,6 +405,10 @@ export function ProfileCenterScreen({
   const profileEntryConfigsForMode = getProfileEntryConfigs(
     Boolean(platformProfileApi),
   );
+  const hasLockedAddressBookSync =
+    syncState?.operation === 'addressBook' && syncState.status !== 'synced';
+  const canRefreshPlatformAddressBook =
+    Boolean(platformProfileApi) && !hasLockedAddressBookSync;
 
   useEffect(() => {
     onOrderNotificationsEnabledChange?.(
@@ -408,89 +416,17 @@ export function ProfileCenterScreen({
     );
   }, [onOrderNotificationsEnabledChange, settings]);
 
-  useEffect(() => {
-    if (!platformProfileApi || hasLoadedPlatformAddressBook.current) {
-      return;
-    }
+  const refreshPlatformAddressBook = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi || hasLockedAddressBookSync) {
+        return;
+      }
 
-    if (
-      syncState?.operation === 'addressBook' &&
-      syncState.status !== 'synced'
-    ) {
-      return;
-    }
+      const requestVersion = ++addressBookLoadRequestVersionRef.current;
 
-    let cancelled = false;
-    hasLoadedPlatformAddressBook.current = true;
-
-    if (!getAuthSessionSnapshot()?.accessToken) {
-      setProfileState(current => {
-        const failedState = {
-          ...current,
-          syncState: {
-            ...createFailedProfileSyncState(
-              addressBookLoadMissingAuthMessage,
-              now,
-              'addressBook',
-            ),
-            platformUpdatedAtIso: current.syncState?.platformUpdatedAtIso,
-            platformAddressIds: current.syncState?.platformAddressIds,
-            platformContactIds: current.syncState?.platformContactIds,
-          },
-        };
-        saveProfileLocalState(failedState);
-        return failedState;
-      });
-      return;
-    }
-
-    platformProfileApi
-      .getAddressBook()
-      .then(addressBook => {
-        if (cancelled || !addressBook) {
-          return;
-        }
-
-        setProfileState(current => {
-          if (
-            current.syncState?.operation === 'addressBook' &&
-            current.syncState.status !== 'synced'
-          ) {
-            return current;
-          }
-
-          const addressBookState =
-            mapPlatformAddressBookToLocalState(addressBook);
-          const syncedState = {
-            ...current,
-            addresses: addressBookState.addresses,
-            contacts: addressBookState.contacts,
-            syncState: {
-              ...createSyncedProfileSyncState(
-                '平台地址簿已拉取到本地常用地址/联系人。',
-                now,
-                'addressBook',
-              ),
-              platformUpdatedAtIso: addressBook.updatedAtIso,
-              platformAddressIds: getProfileItemIds(addressBookState.addresses),
-              platformContactIds: getProfileItemIds(addressBookState.contacts),
-            },
-          };
-          saveProfileLocalState(syncedState);
-          return syncedState;
-        });
-      })
-      .catch(error => {
-        if (cancelled) {
-          return;
-        }
-
-        const message =
-          error instanceof PlatformApiError &&
-          error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-            ? addressBookLoadMissingAuthMessage
-            : addressBookLoadFailureMessage;
-
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setAddressBookNotice('');
+        setIsRefreshingPlatformAddressBook(false);
         setProfileState(current => {
           if (
             current.syncState?.operation === 'addressBook' &&
@@ -502,7 +438,11 @@ export function ProfileCenterScreen({
           const failedState = {
             ...current,
             syncState: {
-              ...createFailedProfileSyncState(message, now, 'addressBook'),
+              ...createFailedProfileSyncState(
+                addressBookLoadMissingAuthMessage,
+                now,
+                'addressBook',
+              ),
               platformUpdatedAtIso: current.syncState?.platformUpdatedAtIso,
               platformAddressIds: current.syncState?.platformAddressIds,
               platformContactIds: current.syncState?.platformContactIds,
@@ -511,12 +451,112 @@ export function ProfileCenterScreen({
           saveProfileLocalState(failedState);
           return failedState;
         });
-      });
+        return;
+      }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [now, platformProfileApi, syncState?.operation, syncState?.status]);
+      if (source === 'manual') {
+        setAddressBookNotice('');
+        setIsRefreshingPlatformAddressBook(true);
+      }
+
+      platformProfileApi
+        .getAddressBook()
+        .then(addressBook => {
+          if (
+            requestVersion !== addressBookLoadRequestVersionRef.current ||
+            !addressBook
+          ) {
+            return;
+          }
+
+          const message =
+            source === 'manual'
+              ? '平台地址簿已手动刷新到本地常用地址/联系人。'
+              : '平台地址簿已拉取到本地常用地址/联系人。';
+
+          setProfileState(current => {
+            if (
+              current.syncState?.operation === 'addressBook' &&
+              current.syncState.status !== 'synced'
+            ) {
+              return current;
+            }
+
+            const addressBookState =
+              mapPlatformAddressBookToLocalState(addressBook);
+            const syncedState = {
+              ...current,
+              addresses: addressBookState.addresses,
+              contacts: addressBookState.contacts,
+              syncState: {
+                ...createSyncedProfileSyncState(message, now, 'addressBook'),
+                platformUpdatedAtIso: addressBook.updatedAtIso,
+                platformAddressIds: getProfileItemIds(addressBookState.addresses),
+                platformContactIds: getProfileItemIds(addressBookState.contacts),
+              },
+            };
+            saveProfileLocalState(syncedState);
+            return syncedState;
+          });
+          setAddressBookNotice(message);
+        })
+        .catch(error => {
+          if (requestVersion !== addressBookLoadRequestVersionRef.current) {
+            return;
+          }
+
+          setAddressBookNotice('');
+          const message =
+            error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? addressBookLoadMissingAuthMessage
+              : addressBookLoadFailureMessage;
+
+          setProfileState(current => {
+            if (
+              current.syncState?.operation === 'addressBook' &&
+              current.syncState.status !== 'synced'
+            ) {
+              return current;
+            }
+
+            const failedState = {
+              ...current,
+              syncState: {
+                ...createFailedProfileSyncState(message, now, 'addressBook'),
+                platformUpdatedAtIso: current.syncState?.platformUpdatedAtIso,
+                platformAddressIds: current.syncState?.platformAddressIds,
+                platformContactIds: current.syncState?.platformContactIds,
+              },
+            };
+            saveProfileLocalState(failedState);
+            return failedState;
+          });
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === addressBookLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformAddressBook(false);
+          }
+        });
+    },
+    [hasLockedAddressBookSync, now, platformProfileApi],
+  );
+
+  useEffect(() => {
+    if (!platformProfileApi || hasLoadedPlatformAddressBook.current) {
+      return;
+    }
+
+    if (hasLockedAddressBookSync) {
+      return;
+    }
+
+    hasLoadedPlatformAddressBook.current = true;
+    refreshPlatformAddressBook('open');
+  }, [hasLockedAddressBookSync, platformProfileApi, refreshPlatformAddressBook]);
   useEffect(() => {
     if (
       activeSection !== 'settings' ||
@@ -1141,6 +1181,7 @@ export function ProfileCenterScreen({
       return undefined;
     }
 
+    setAddressBookNotice('');
     if (!getAuthSessionSnapshot()?.accessToken) {
       return keepAddressBookQueuedUntilLogin(state, missingAuthMessage);
     }
@@ -1851,6 +1892,9 @@ export function ProfileCenterScreen({
         account={account}
         password={password}
         notificationPermissionStatus={notificationPermissionStatus}
+        canRefreshPlatformAddressBook={canRefreshPlatformAddressBook}
+        isRefreshingPlatformAddressBook={isRefreshingPlatformAddressBook}
+        addressBookNotice={addressBookNotice}
         canRefreshPlatformEvaluations={Boolean(platformProfileApi)}
         isRefreshingPlatformEvaluations={isRefreshingPlatformEvaluations}
         evaluationNotice={evaluationNotice}
@@ -1867,7 +1911,8 @@ export function ProfileCenterScreen({
           platformProfileApi as ProfilePlatformProfileApi | undefined
         }
         platformFileApi={platformFileApi}
-        onAddAddress={address =>
+        onAddAddress={address => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
@@ -1877,18 +1922,20 @@ export function ProfileCenterScreen({
               ],
             }),
             { syncAddressBook: true },
-          )
-        }
-        onDeleteAddress={addressId =>
+          );
+        }}
+        onDeleteAddress={addressId => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
               addresses: deleteProfileAddress(current.addresses, addressId),
             }),
             { syncAddressBook: true },
-          )
-        }
-        onUpdateAddress={(addressId, changes) =>
+          );
+        }}
+        onUpdateAddress={(addressId, changes) => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
@@ -1899,9 +1946,10 @@ export function ProfileCenterScreen({
               ),
             }),
             { syncAddressBook: true },
-          )
-        }
-        onAddContact={contact =>
+          );
+        }}
+        onAddContact={contact => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
@@ -1911,18 +1959,20 @@ export function ProfileCenterScreen({
               ],
             }),
             { syncAddressBook: true },
-          )
-        }
-        onDeleteContact={contactId =>
+          );
+        }}
+        onDeleteContact={contactId => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
               contacts: deleteProfileContact(current.contacts, contactId),
             }),
             { syncAddressBook: true },
-          )
-        }
-        onUpdateContact={(contactId, changes) =>
+          );
+        }}
+        onUpdateContact={(contactId, changes) => {
+          setAddressBookNotice('');
           updateProfileState(
             current => ({
               ...current,
@@ -1933,8 +1983,8 @@ export function ProfileCenterScreen({
               ),
             }),
             { syncAddressBook: true },
-          )
-        }
+          );
+        }}
         onSubmitIdentityVerification={(request, options) =>
           updateProfileState(
             current => ({
@@ -2084,6 +2134,9 @@ export function ProfileCenterScreen({
         onRefreshPlatformCoupons={() => refreshPlatformCoupons('manual')}
         onRefreshPlatformSpending={() =>
           refreshPlatformSpendingRecords('manual')
+        }
+        onRefreshPlatformAddressBook={() =>
+          refreshPlatformAddressBook('manual')
         }
         onBackOverview={() => setActiveSection(undefined)}
         onLogout={onLogout}
