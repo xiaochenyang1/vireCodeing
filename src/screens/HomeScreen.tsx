@@ -63,6 +63,7 @@ import type { createPlatformAuthApi } from '../services/platformAuthApi';
 import type { createPlatformProfileApi } from '../services/platformProfileApi';
 import type { createPlatformFrequentRoutesApi } from '../services/platformFrequentRoutesApi';
 import type { createPlatformFileApi } from '../services/platformFileApi';
+import type { createPlatformNotificationsApi } from '../services/platformNotificationsApi';
 import type { createPlatformSupportTicketsApi } from '../services/platformSupportTicketsApi';
 import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 import { PlatformApiError } from '../services/platformApiClient';
@@ -103,6 +104,10 @@ type HomePlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
   'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
 >;
+type HomePlatformNotificationsApi = Pick<
+  ReturnType<typeof createPlatformNotificationsApi>,
+  'listDeviceTokens' | 'deactivateDeviceToken'
+>;
 type HomePlatformSupportTicketsApi = Pick<
   ReturnType<typeof createPlatformSupportTicketsApi>,
   'getSupportTickets' | 'createSupportTicket'
@@ -116,8 +121,7 @@ const frequentRouteLoadFailureMessage =
   '平台常用路线拉取失败，已保留本地常用路线。';
 const supportTicketLoadMissingAuthMessage =
   '平台工单拉取需要重新登录，当前保留本地工单。';
-const supportTicketLoadFailureMessage =
-  '平台工单拉取失败，当前保留本地工单。';
+const supportTicketLoadFailureMessage = '平台工单拉取失败，当前保留本地工单。';
 const supportTicketSubmitMissingAuthMessage =
   '平台工单提交需要重新登录，已改为本地保存工单。';
 const supportTicketSubmitFailureMessage =
@@ -135,7 +139,8 @@ function getSupportTicketsTitle(
     return '本地工单';
   }
 
-  const hasLocalFallbackTickets = hasLocalFallbackSupportTickets(supportTickets);
+  const hasLocalFallbackTickets =
+    hasLocalFallbackSupportTickets(supportTickets);
 
   if (!hasLocalFallbackTickets) {
     return '平台工单';
@@ -156,7 +161,8 @@ function getPlatformSupportTicketLoadNotice(
   platformTicketCount: number,
   supportTickets: SupportTicket[],
 ) {
-  const hasLocalFallbackTickets = hasLocalFallbackSupportTickets(supportTickets);
+  const hasLocalFallbackTickets =
+    hasLocalFallbackSupportTickets(supportTickets);
 
   if (platformTicketCount > 0) {
     return hasLocalFallbackTickets
@@ -297,6 +303,7 @@ export function HomeScreen({
   platformAuthApi,
   platformProfileApi,
   platformFrequentRoutesApi,
+  platformNotificationsApi,
   platformFileApi,
   platformSupportTicketsApi,
   onLogout,
@@ -331,6 +338,7 @@ export function HomeScreen({
   platformAuthApi?: HomePlatformAuthApi;
   platformProfileApi?: HomePlatformProfileApi;
   platformFrequentRoutesApi?: HomePlatformFrequentRoutesApi;
+  platformNotificationsApi?: HomePlatformNotificationsApi;
   platformFileApi?: HomePlatformFileApi;
   platformSupportTicketsApi?: HomePlatformSupportTicketsApi;
   onLogout: () => void;
@@ -352,10 +360,14 @@ export function HomeScreen({
   const [supportView, setSupportView] = useState<HomeSupportView>(
     initialSupportView ?? 'home',
   );
-  const [selectedCity, setSelectedCity] = useState(initialHomeState.selectedCity);
+  const [selectedCity, setSelectedCity] = useState(
+    initialHomeState.selectedCity,
+  );
   const [showCitySelector, setShowCitySelector] = useState(false);
   const [cityNotice, setCityNotice] = useState('');
-  const [routes, setRoutes] = useState<FrequentRoute[]>(initialHomeState.routes);
+  const [routes, setRoutes] = useState<FrequentRoute[]>(
+    initialHomeState.routes,
+  );
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(
     initialHomeState.supportTickets,
   );
@@ -363,16 +375,20 @@ export function HomeScreen({
     'local' | 'platform'
   >(inferSupportTicketMode(initialHomeState.supportTickets));
   const [supportTicketNotice, setSupportTicketNotice] = useState('');
-  const [routeSyncState, setRouteSyncState] = useState<HomeSyncState | undefined>(
-    initialHomeState.syncState,
-  );
+  const [routeSyncState, setRouteSyncState] = useState<
+    HomeSyncState | undefined
+  >(initialHomeState.syncState);
   const hasLoadedPlatformFrequentRoutes = useRef(false);
   const supportTicketLoadRequestVersionRef = useRef(0);
   const supportTicketSubmitRequestVersionRef = useRef(0);
-  const [isSubmittingPlatformSupportTicket, setIsSubmittingPlatformSupportTicket] =
-    useState(false);
-  const [isRefreshingPlatformSupportTickets, setIsRefreshingPlatformSupportTickets] =
-    useState(false);
+  const [
+    isSubmittingPlatformSupportTicket,
+    setIsSubmittingPlatformSupportTicket,
+  ] = useState(false);
+  const [
+    isRefreshingPlatformSupportTickets,
+    setIsRefreshingPlatformSupportTickets,
+  ] = useState(false);
 
   const getCurrentHomeState = (): HomeDashboardLocalState => ({
     selectedCity,
@@ -449,10 +465,7 @@ export function HomeScreen({
           createHomeLocalStateSnapshot(nextHomeState, {
             routes: platformRoutes.routes,
             syncState: {
-              ...createSyncedHomeSyncState(
-                '平台常用路线已同步到本地。',
-                now,
-              ),
+              ...createSyncedHomeSyncState('平台常用路线已同步到本地。', now),
               platformUpdatedAtIso: platformRoutes.updatedAtIso,
               platformRouteIds: createPlatformRouteIds(platformRoutes.routes),
             },
@@ -586,10 +599,7 @@ export function HomeScreen({
           createHomeLocalStateSnapshot(currentHomeState, {
             routes: platformRoutes.routes,
             syncState: {
-              ...createSyncedHomeSyncState(
-                '平台常用路线已拉取到本地。',
-                now,
-              ),
+              ...createSyncedHomeSyncState('平台常用路线已拉取到本地。', now),
               platformUpdatedAtIso: platformRoutes.updatedAtIso,
               platformRouteIds: createPlatformRouteIds(platformRoutes.routes),
             },
@@ -680,10 +690,7 @@ export function HomeScreen({
           }
         });
     },
-    [
-      now,
-      platformSupportTicketsApi,
-    ],
+    [now, platformSupportTicketsApi],
   );
 
   useEffect(() => {
@@ -692,7 +699,12 @@ export function HomeScreen({
     }
 
     refreshPlatformSupportTickets('open');
-  }, [now, platformSupportTicketsApi, refreshPlatformSupportTickets, supportView]);
+  }, [
+    now,
+    platformSupportTicketsApi,
+    refreshPlatformSupportTickets,
+    supportView,
+  ]);
 
   const openSupportView = (nextSupportView: HomeSupportView) => {
     const supportViewChange = createHomeSupportViewChange(nextSupportView);
@@ -717,7 +729,9 @@ export function HomeScreen({
       );
 
       applyHomeLocalState(nextHomeState);
-      setSupportTicketMode(inferSupportTicketMode(nextHomeState.supportTickets));
+      setSupportTicketMode(
+        inferSupportTicketMode(nextHomeState.supportTickets),
+      );
       setSupportTicketNotice(noticeText);
     };
 
@@ -748,7 +762,8 @@ export function HomeScreen({
             mapPlatformSupportTicketToLocal(platformTicket, new Date(now)),
             ...currentHomeState.supportTickets.filter(
               ticket =>
-                !isLocalSupportTicketId(ticket.id) && ticket.id !== platformTicket.id,
+                !isLocalSupportTicketId(ticket.id) &&
+                ticket.id !== platformTicket.id,
             ),
           ],
           currentHomeState.supportTickets,
@@ -922,10 +937,7 @@ export function HomeScreen({
     syncFrequentRoutesToPlatform(nextHomeState);
   };
 
-  const updateRoute = (
-    routeId: string,
-    routeUpdates: FrequentRouteDraft,
-  ) => {
+  const updateRoute = (routeId: string, routeUpdates: FrequentRouteDraft) => {
     const nextHomeState = createHomeRouteUpdatedState(
       getCurrentHomeState(),
       routeId,
@@ -1003,6 +1015,7 @@ export function HomeScreen({
         notificationPermissionStatus={notificationPermissionStatus}
         platformAuthApi={platformAuthApi}
         platformProfileApi={platformProfileApi}
+        platformNotificationsApi={platformNotificationsApi}
         platformFileApi={platformFileApi}
         onBackHome={backHome}
         onLogout={onLogout}

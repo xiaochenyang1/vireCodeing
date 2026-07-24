@@ -95,9 +95,7 @@ import {
   saveProfileLocalState,
 } from './src/utils/profileLocalState';
 import { createHomeRouteSyncFailedState } from './src/utils/homeDashboard';
-import {
-  createOrderCouponUsageChanges,
-} from './src/utils/profileCoupons';
+import { createOrderCouponUsageChanges } from './src/utils/profileCoupons';
 import {
   getNetworkRetryQueueItems,
   getNetworkRetryQueueSummary,
@@ -201,8 +199,7 @@ const draftConflictMissingAuthSyncMessage =
   '平台发单草稿冲突处理需要重新登录后再同步。';
 const draftRestoreMissingAuthSyncMessage =
   '平台发单草稿恢复需要重新登录后再同步。';
-const draftRestoreFailureSyncMessage =
-  '平台发单草稿恢复失败，已保留本地草稿。';
+const draftRestoreFailureSyncMessage = '平台发单草稿恢复失败，已保留本地草稿。';
 const platformMessageRefreshFailureNotice =
   '平台消息刷新失败，当前显示本地缓存。';
 const platformMessageReadFailureNotice =
@@ -215,7 +212,11 @@ function normalizeMessageUnreadCount(
   messages: MessageCenterItem[],
   locallyReadOverrideCount = 0,
 ) {
-  if (Number.isInteger(unreadCount) && unreadCount !== undefined && unreadCount >= 0) {
+  if (
+    Number.isInteger(unreadCount) &&
+    unreadCount !== undefined &&
+    unreadCount >= 0
+  ) {
     return Math.max(
       messages.filter(message => message.unread).length,
       unreadCount - locallyReadOverrideCount,
@@ -235,10 +236,7 @@ function mergePlatformMessagesWithLocalReadState(
   let locallyReadOverrideCount = 0;
 
   const nextMessages = platformMessages.map(message => {
-    if (
-      message.unread &&
-      localMessageReadStateById.get(message.id) === false
-    ) {
+    if (message.unread && localMessageReadStateById.get(message.id) === false) {
       locallyReadOverrideCount += 1;
       return {
         ...message,
@@ -320,12 +318,9 @@ function createPlatformOrderCreateFailure(
   if (failureAction === 'retry') {
     return {
       shouldRefresh: false,
-      syncState: createFailedOrderSyncState(
-        fallbackMessage,
-        'create',
-        now,
-        { createContext },
-      ),
+      syncState: createFailedOrderSyncState(fallbackMessage, 'create', now, {
+        createContext,
+      }),
     };
   }
 
@@ -333,9 +328,9 @@ function createPlatformOrderCreateFailure(
     failureAction === 'contract-error'
       ? '平台创建接口返回契约异常（ORDER_CONFLICT），已停止自动重试并保留本地订单。'
       : error instanceof PlatformApiError &&
-          error.code === 'IDEMPOTENCY_KEY_REUSED'
-        ? '平台发布凭证与原请求不一致，已刷新平台订单；自动重试已停止，请确认后重新发布。'
-        : '平台发布凭证已过期，已刷新平台订单；自动重试已停止，请确认后重新发布。';
+        error.code === 'IDEMPOTENCY_KEY_REUSED'
+      ? '平台发布凭证与原请求不一致，已刷新平台订单；自动重试已停止，请确认后重新发布。'
+      : '平台发布凭证已过期，已刷新平台订单；自动重试已停止，请确认后重新发布。';
 
   return {
     shouldRefresh: failureAction === 'refresh',
@@ -518,11 +513,8 @@ function App({
     goOrders,
     goOrderDetail,
   } = useAppNavigation();
-  const {
-    pushToken,
-    permissionStatus,
-    requestPermission,
-  } = usePushNotifications();
+  const { pushToken, permissionStatus, requestPermission } =
+    usePushNotifications();
   useDevicePushTokenRegistration(
     shouldRegisterRestoredPushToken ? platformNotificationsApi : undefined,
     pushToken,
@@ -559,10 +551,7 @@ function App({
     DraftSyncState | undefined
   >(undefined);
   const persistMessageRuntimeState = useCallback(
-    (
-      nextMessages: MessageCenterItem[],
-      nextMessageUnreadCount: number,
-    ) => {
+    (nextMessages: MessageCenterItem[], nextMessageUnreadCount: number) => {
       saveAppRuntimeState({
         ...getAppRuntimeState(),
         messages: nextMessages,
@@ -593,8 +582,7 @@ function App({
               boundPhone: user.phone,
             },
         syncState:
-          currentProfileSyncState &&
-          currentProfileSyncState.status !== 'synced'
+          currentProfileSyncState && currentProfileSyncState.status !== 'synced'
             ? currentProfileSyncState
             : createSyncedProfileSyncState(
                 '平台认证手机号已同步到本地资料快照。',
@@ -650,8 +638,7 @@ function App({
       await hydrateAuthSession(now, LEGACY_DEFAULT_DEVICE_ID);
       const hydratedAuthSession = getAuthSessionSnapshot();
       await hydrateDeviceId(hydratedAuthSession?.deviceId);
-      const currentDeviceId =
-        hydratedAuthSession?.deviceId ?? getDeviceId();
+      const currentDeviceId = hydratedAuthSession?.deviceId ?? getDeviceId();
       const restoredPlatformSession =
         Boolean(platformAuthApi) && Boolean(hydratedAuthSession?.refreshToken);
 
@@ -733,8 +720,8 @@ function App({
             ? 'driver-home'
             : 'home'
           : isOnboardingCompleted
-            ? 'auth'
-            : 'onboarding',
+          ? 'auth'
+          : 'onboarding',
       );
       setIsHydrated(true);
       if (
@@ -809,7 +796,8 @@ function App({
   }, [permissionStatus, requestPermission, shouldRegisterRestoredPushToken]);
 
   // Notification response listener: navigate when user taps a notification
-  const notificationResponseRef = useRef<Notifications.NotificationResponse | null>(null);
+  const notificationResponseRef =
+    useRef<Notifications.NotificationResponse | null>(null);
 
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(
@@ -835,7 +823,9 @@ function App({
         const orderId = data?.orderId as string | undefined;
         if (orderId) {
           // Refresh the specific order detail if we're viewing it
-          setSelectedOrderId(current => current === orderId ? current : current);
+          setSelectedOrderId(current =>
+            current === orderId ? current : current,
+          );
         }
       },
     );
@@ -875,11 +865,7 @@ function App({
     platformMessagesApi
       .listMessages({ page: 1, pageSize: 50 })
       .then(result => {
-        applyPlatformMessages(
-          result,
-          refreshRequestId,
-          mutationVersionAtStart,
-        );
+        applyPlatformMessages(result, refreshRequestId, mutationVersionAtStart);
       })
       .catch(() => {
         setMessageCenterNotice(platformMessageRefreshFailureNotice);
@@ -969,7 +955,9 @@ function App({
     }
 
     try {
-      const latestPlatformOrder = await platformOrderApi.getOrder(platformOrderId);
+      const latestPlatformOrder = await platformOrderApi.getOrder(
+        platformOrderId,
+      );
 
       await applyPlatformOrderSnapshot(
         orderId,
@@ -1005,10 +993,7 @@ function App({
   }) => {
     const failureAction = getOrderMutationFailureAction(error);
 
-    if (
-      failureAction === 'refresh' &&
-      order.platformOrderId
-    ) {
+    if (failureAction === 'refresh' && order.platformOrderId) {
       await refreshPlatformOrderAfterMutationFailure(
         order.id,
         order.platformOrderId,
@@ -1018,10 +1003,7 @@ function App({
       return;
     }
 
-    if (
-      failureAction === 'reinitiate' &&
-      order.platformOrderId
-    ) {
+    if (failureAction === 'reinitiate' && order.platformOrderId) {
       await refreshPlatformOrderAfterMutationFailure(
         order.id,
         order.platformOrderId,
@@ -1059,7 +1041,11 @@ function App({
     openHome();
 
     // Register push token with the platform if available
-    if (pushToken && platformNotificationsApi && permissionStatus === 'granted') {
+    if (
+      pushToken &&
+      platformNotificationsApi &&
+      permissionStatus === 'granted'
+    ) {
       platformNotificationsApi
         .registerDeviceToken({
           pushToken,
@@ -1182,8 +1168,9 @@ function App({
       return;
     }
 
-    const platformOrderId = orders.find(order => order.id === orderId)
-      ?.platformOrderId;
+    const platformOrderId = orders.find(
+      order => order.id === orderId,
+    )?.platformOrderId;
 
     if (!platformOrderId) {
       return;
@@ -1212,7 +1199,9 @@ function App({
     platformOrderApi
       .getOrder(platformOrderId)
       .then(async platformOrder => {
-        const platformRecentOrder = await mapHydratedPlatformOrder(platformOrder);
+        const platformRecentOrder = await mapHydratedPlatformOrder(
+          platformOrder,
+        );
 
         setSelectedOrderId(currentSelectedOrderId =>
           currentSelectedOrderId === orderId
@@ -1252,7 +1241,9 @@ function App({
       });
   };
 
-  const refreshPlatformOrders = (query: PlatformListShipperOrdersQuery = {}) => {
+  const refreshPlatformOrders = (
+    query: PlatformListShipperOrdersQuery = {},
+  ) => {
     if (!platformOrderApi) {
       return;
     }
@@ -1405,9 +1396,7 @@ function App({
       return;
     }
 
-    openDraftWithPrefill(
-      createPrefillFromOrder(matchedOrder, now),
-    );
+    openDraftWithPrefill(createPrefillFromOrder(matchedOrder, now));
   };
 
   const openOrderDraft = () => {
@@ -1558,11 +1547,7 @@ function App({
   const markSavedDraftAsFailed = useCallback(
     (message: string, baseUpdatedAtIso?: string) => {
       const failedSnapshot = markSavedDraftFailed(
-        createFailedDraftSyncState(
-          message,
-          nowRef.current,
-          baseUpdatedAtIso,
-        ),
+        createFailedDraftSyncState(message, nowRef.current, baseUpdatedAtIso),
       );
 
       if (failedSnapshot) {
@@ -1576,10 +1561,7 @@ function App({
   const showLatestPlatformDraftConflict = useCallback(
     (baseUpdatedAtIso?: string) => {
       if (!platformOrderDraftApi) {
-        markSavedDraftAsFailed(
-          draftSaveConflictSyncMessage,
-          baseUpdatedAtIso,
-        );
+        markSavedDraftAsFailed(draftSaveConflictSyncMessage, baseUpdatedAtIso);
         return;
       }
 
@@ -1691,7 +1673,7 @@ function App({
         .catch(error => {
           handleDraftSaveFailure(
             error,
-              '平台发单草稿同步失败，已保留本地草稿。',
+            '平台发单草稿同步失败，已保留本地草稿。',
             baseUpdatedAtIso,
           );
         });
@@ -1748,7 +1730,7 @@ function App({
         .catch(error => {
           handleDraftSaveFailure(
             error,
-              '平台发单草稿重试失败，已保留本地草稿。',
+            '平台发单草稿重试失败，已保留本地草稿。',
             baseUpdatedAtIso,
           );
         });
@@ -1792,7 +1774,9 @@ function App({
           }
         : order,
     );
-    const hasPendingOrders = nextOrders.some((order, index) => order !== orders[index]);
+    const hasPendingOrders = nextOrders.some(
+      (order, index) => order !== orders[index],
+    );
 
     if (hasPendingOrders) {
       setOrders(nextOrders);
@@ -1851,12 +1835,11 @@ function App({
 
     if (editingOrderId) {
       const previousOrder = orders.find(order => order.id === editingOrderId);
-      const mutationContext =
-        previousOrder?.platformOrderId
-          ? createOrderMutationContext(
-              previousOrder.updatedAtIso ?? previousOrder.createdAtIso,
-            )
-          : undefined;
+      const mutationContext = previousOrder?.platformOrderId
+        ? createOrderMutationContext(
+            previousOrder.updatedAtIso ?? previousOrder.createdAtIso,
+          )
+        : undefined;
       const localOrderChanges = createOrderUpdateFromDraft(
         draftOrder,
         now,
@@ -1888,7 +1871,11 @@ function App({
             editingOrderId,
             platformOrder,
           );
-          syncLocalCouponUsage(draftOrder, updatedOrder.id, previousOrder.couponId);
+          syncLocalCouponUsage(
+            draftOrder,
+            updatedOrder.id,
+            previousOrder.couponId,
+          );
           removeSavedDraft();
           setDraftConflictPlatformPrefill(undefined);
           setDraftPrefill(undefined);
@@ -1939,7 +1926,11 @@ function App({
             nowRef.current,
           ),
         });
-        syncLocalCouponUsage(draftOrder, editingOrderId, previousOrder.couponId);
+        syncLocalCouponUsage(
+          draftOrder,
+          editingOrderId,
+          previousOrder.couponId,
+        );
         removeSavedDraft();
         setDraftConflictPlatformPrefill(undefined);
         setDraftPrefill(undefined);
@@ -2151,12 +2142,12 @@ function App({
                 nowRef.current,
               )
             : retryOperation === 'create' && retryCreateContext
-              ? createFailedOrderSyncState(
-                  '平台订单重试需要重新登录后再同步。',
-                  'create',
-                  nowRef.current,
-                  { createContext: retryCreateContext },
-                )
+            ? createFailedOrderSyncState(
+                '平台订单重试需要重新登录后再同步。',
+                'create',
+                nowRef.current,
+                { createContext: retryCreateContext },
+              )
             : createFailedOrderSyncState(
                 '平台订单重试需要重新登录后再同步。',
                 retryOperation ?? 'local',
@@ -2812,9 +2803,7 @@ function App({
     };
     const bonusCents = getBonusAmountCents(bonusAmount);
     const mutationContext = {
-      ...createOrderMutationContext(
-        order.updatedAtIso ?? order.createdAtIso,
-      ),
+      ...createOrderMutationContext(order.updatedAtIso ?? order.createdAtIso),
       bonusCents,
     };
 
@@ -3068,8 +3057,9 @@ function App({
     homeSyncState: getHomeLocalState().syncState,
     profileSyncState: getProfileLocalState().syncState,
   });
-  const networkRetryQueueSummary =
-    getNetworkRetryQueueSummary(networkRetryQueueItems);
+  const networkRetryQueueSummary = getNetworkRetryQueueSummary(
+    networkRetryQueueItems,
+  );
 
   return (
     <SafeAreaProvider
@@ -3185,6 +3175,7 @@ function App({
             platformAuthApi={platformAuthApi}
             platformProfileApi={platformProfileApi}
             platformFrequentRoutesApi={platformFrequentRoutesApi}
+            platformNotificationsApi={platformNotificationsApi}
             platformFileApi={platformFileApi}
             platformSupportTicketsApi={platformSupportTicketsApi}
             onLogout={handleLogout}

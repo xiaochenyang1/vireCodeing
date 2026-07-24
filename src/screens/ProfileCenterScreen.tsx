@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ProfileDetailScreen,
   type ProfilePlatformAuthApi,
+  type ProfilePlatformNotificationsApi,
   type ProfilePlatformProfileApi,
 } from './profile/ProfileDetailScreen';
 import { ProfileOverviewPanel } from './profile/ProfileOverviewPanel';
@@ -298,7 +299,6 @@ async function hydrateEnterpriseVerificationSnapshot(
     : localVerification;
 }
 
-
 export function ProfileCenterScreen({
   now,
   orders,
@@ -306,6 +306,7 @@ export function ProfileCenterScreen({
   notificationPermissionStatus,
   platformAuthApi,
   platformProfileApi,
+  platformNotificationsApi,
   platformFileApi,
   onBackHome,
   onLogout,
@@ -315,6 +316,7 @@ export function ProfileCenterScreen({
   unreadMessageCount: number;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
   platformAuthApi?: ProfilePlatformAuthApi;
+  platformNotificationsApi?: ProfilePlatformNotificationsApi;
   platformProfileApi?: Pick<
     ReturnType<typeof createPlatformProfileApi>,
     | 'getAccountProfile'
@@ -527,7 +529,12 @@ export function ProfileCenterScreen({
     return () => {
       cancelled = true;
     };
-  }, [activeSection, platformProfileApi, syncState?.operation, syncState?.status]);
+  }, [
+    activeSection,
+    platformProfileApi,
+    syncState?.operation,
+    syncState?.status,
+  ]);
   useEffect(() => {
     if (
       activeSection !== 'identity-verification' ||
@@ -565,8 +572,7 @@ export function ProfileCenterScreen({
               syncState: current.syncState,
               operation: 'identityVerification',
               localUpdatedAtIso: current.identityVerification?.updatedAtIso,
-              platformUpdatedAtIso:
-                identityVerificationSnapshot.updatedAtIso,
+              platformUpdatedAtIso: identityVerificationSnapshot.updatedAtIso,
             })
           ) {
             return current;
@@ -602,9 +608,7 @@ export function ProfileCenterScreen({
       .then(async enterpriseVerificationSnapshot => {
         if (
           cancelled ||
-          !isValidPlatformEnterpriseVerification(
-            enterpriseVerificationSnapshot,
-          )
+          !isValidPlatformEnterpriseVerification(enterpriseVerificationSnapshot)
         ) {
           return;
         }
@@ -625,8 +629,7 @@ export function ProfileCenterScreen({
               syncState: current.syncState,
               operation: 'enterpriseVerification',
               localUpdatedAtIso: current.enterpriseVerification?.updatedAtIso,
-              platformUpdatedAtIso:
-                enterpriseVerificationSnapshot.updatedAtIso,
+              platformUpdatedAtIso: enterpriseVerificationSnapshot.updatedAtIso,
             })
           ) {
             return current;
@@ -699,9 +702,7 @@ export function ProfileCenterScreen({
         }
 
         const validInvoiceApplications = invoiceApplications.filter(
-          (
-            application,
-          ): application is PlatformProfileInvoiceApplication =>
+          (application): application is PlatformProfileInvoiceApplication =>
             isPlatformInvoiceApplicationSnapshot(application),
         );
 
@@ -818,72 +819,72 @@ export function ProfileCenterScreen({
     setProfileState(current => {
       const nextState = updater(current);
       const syncOperation =
-        options.syncOperation ?? (options.syncAddressBook ? 'addressBook' : 'local');
-      const syncedState =
-        options.markSynced
-          ? {
-              ...nextState,
-              syncState: {
-                ...createSyncedProfileSyncState(
-                  options.syncMessage,
-                  now,
-                  syncOperation,
-                ),
-                platformUpdatedAtIso: options.syncAddressBook
-                  ? current.syncState?.platformUpdatedAtIso
-                  : undefined,
-                platformAddressIds: options.syncAddressBook
-                  ? current.syncState?.platformAddressIds
-                  : undefined,
-                platformContactIds: options.syncAddressBook
-                  ? current.syncState?.platformContactIds
-                  : undefined,
-              },
-            }
-          : options.markFailed
-          ? {
-              ...nextState,
-              syncState: {
-                ...createFailedProfileSyncState(
-                  options.syncMessage,
-                  now,
-                  syncOperation,
-                ),
-                platformUpdatedAtIso: options.syncAddressBook
-                  ? current.syncState?.platformUpdatedAtIso
-                  : undefined,
-                platformAddressIds: options.syncAddressBook
-                  ? current.syncState?.platformAddressIds
-                  : undefined,
-                platformContactIds: options.syncAddressBook
-                  ? current.syncState?.platformContactIds
-                  : undefined,
-              },
-            }
-          : options.markPendingSync === false
-          ? nextState
-          : {
-              ...nextState,
-              syncState: {
-                ...createPendingProfileSyncState(
-                  options.syncMessage ??
-                    (options.syncAddressBook
-                      ? '常用地址/联系人已在本地更新，正在同步平台地址簿。'
-                      : undefined),
-                  now,
-                  syncOperation,
-                ),
-                platformUpdatedAtIso: options.syncAddressBook
-                  ? current.syncState?.platformUpdatedAtIso
-                  : undefined,
-                platformAddressIds: options.syncAddressBook
-                  ? current.syncState?.platformAddressIds
-                  : undefined,
-                platformContactIds: options.syncAddressBook
-                  ? current.syncState?.platformContactIds
-                  : undefined,
-              },
-            };
+        options.syncOperation ??
+        (options.syncAddressBook ? 'addressBook' : 'local');
+      const syncedState = options.markSynced
+        ? {
+            ...nextState,
+            syncState: {
+              ...createSyncedProfileSyncState(
+                options.syncMessage,
+                now,
+                syncOperation,
+              ),
+              platformUpdatedAtIso: options.syncAddressBook
+                ? current.syncState?.platformUpdatedAtIso
+                : undefined,
+              platformAddressIds: options.syncAddressBook
+                ? current.syncState?.platformAddressIds
+                : undefined,
+              platformContactIds: options.syncAddressBook
+                ? current.syncState?.platformContactIds
+                : undefined,
+            },
+          }
+        : options.markFailed
+        ? {
+            ...nextState,
+            syncState: {
+              ...createFailedProfileSyncState(
+                options.syncMessage,
+                now,
+                syncOperation,
+              ),
+              platformUpdatedAtIso: options.syncAddressBook
+                ? current.syncState?.platformUpdatedAtIso
+                : undefined,
+              platformAddressIds: options.syncAddressBook
+                ? current.syncState?.platformAddressIds
+                : undefined,
+              platformContactIds: options.syncAddressBook
+                ? current.syncState?.platformContactIds
+                : undefined,
+            },
+          }
+        : options.markPendingSync === false
+        ? nextState
+        : {
+            ...nextState,
+            syncState: {
+              ...createPendingProfileSyncState(
+                options.syncMessage ??
+                  (options.syncAddressBook
+                    ? '常用地址/联系人已在本地更新，正在同步平台地址簿。'
+                    : undefined),
+                now,
+                syncOperation,
+              ),
+              platformUpdatedAtIso: options.syncAddressBook
+                ? current.syncState?.platformUpdatedAtIso
+                : undefined,
+              platformAddressIds: options.syncAddressBook
+                ? current.syncState?.platformAddressIds
+                : undefined,
+              platformContactIds: options.syncAddressBook
+                ? current.syncState?.platformContactIds
+                : undefined,
+            },
+          };
       saveProfileLocalState(syncedState);
 
       if (options.syncAddressBook) {
@@ -911,9 +912,7 @@ export function ProfileCenterScreen({
 
     const invoiceApplications = await platformProfileApi.getInvoices();
     const validInvoiceApplications = invoiceApplications.filter(
-      (
-        application,
-      ): application is PlatformProfileInvoiceApplication =>
+      (application): application is PlatformProfileInvoiceApplication =>
         isPlatformInvoiceApplicationSnapshot(application),
     );
 
@@ -949,11 +948,7 @@ export function ProfileCenterScreen({
           ? { selectedInvoiceOrderIds: [] }
           : {}),
         syncState: {
-          ...createFailedProfileSyncState(
-            message,
-            now,
-            'invoiceApplication',
-          ),
+          ...createFailedProfileSyncState(message, now, 'invoiceApplication'),
           invoiceApplicationSyncMode: mode,
           ...(request ? { invoiceApplicationRequest: request } : {}),
         },
@@ -1183,14 +1178,11 @@ export function ProfileCenterScreen({
     }
 
     if (!platformProfileApi) {
-      updateProfileState(
-        current => current,
-        {
-          markSynced: true,
-          syncMessage: '实名认证资料已按本地演示状态记录。',
-          syncOperation: 'identityVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markSynced: true,
+        syncMessage: '实名认证资料已按本地演示状态记录。',
+        syncOperation: 'identityVerification',
+      });
       return;
     }
 
@@ -1200,38 +1192,29 @@ export function ProfileCenterScreen({
       currentVerification.identityPhotoFiles?.[1]?.fileId;
 
     if (!identityFrontFileId || !identityBackFileId) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '实名认证重试需要先补齐身份证正反面凭证。',
-          syncOperation: 'identityVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '实名认证重试需要先补齐身份证正反面凭证。',
+        syncOperation: 'identityVerification',
+      });
       return;
     }
 
     if (!currentVerification.faceVerified) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '实名认证重试需要先完成人脸核验。',
-          syncOperation: 'identityVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '实名认证重试需要先完成人脸核验。',
+        syncOperation: 'identityVerification',
+      });
       return;
     }
 
     if (!getAuthSessionSnapshot()?.accessToken) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '实名认证重试需要重新登录后再同步。',
-          syncOperation: 'identityVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '实名认证重试需要重新登录后再同步。',
+        syncOperation: 'identityVerification',
+      });
       return;
     }
 
@@ -1262,18 +1245,15 @@ export function ProfileCenterScreen({
         );
       })
       .catch(error => {
-        updateProfileState(
-          current => current,
-          {
-            markFailed: true,
-            syncMessage:
-              error instanceof PlatformApiError &&
-              error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-                ? '实名认证重试需要重新登录后再同步。'
-                : '实名认证资料重试提交失败，已保留本地资料。',
-            syncOperation: 'identityVerification',
-          },
-        );
+        updateProfileState(current => current, {
+          markFailed: true,
+          syncMessage:
+            error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? '实名认证重试需要重新登录后再同步。'
+              : '实名认证资料重试提交失败，已保留本地资料。',
+          syncOperation: 'identityVerification',
+        });
       });
   };
 
@@ -1281,26 +1261,20 @@ export function ProfileCenterScreen({
     const currentProfileState = getProfileLocalState();
 
     if (!platformProfileApi) {
-      updateProfileState(
-        current => current,
-        {
-          markSynced: true,
-          syncMessage: '账号资料与设置已按本地演示状态记录。',
-          syncOperation: 'accountProfile',
-        },
-      );
+      updateProfileState(current => current, {
+        markSynced: true,
+        syncMessage: '账号资料与设置已按本地演示状态记录。',
+        syncOperation: 'accountProfile',
+      });
       return;
     }
 
     if (!getAuthSessionSnapshot()?.accessToken) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '账号资料与设置重试需要重新登录后再同步。',
-          syncOperation: 'accountProfile',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '账号资料与设置重试需要重新登录后再同步。',
+        syncOperation: 'accountProfile',
+      });
       return;
     }
 
@@ -1325,25 +1299,22 @@ export function ProfileCenterScreen({
         );
       })
       .catch(error => {
-        updateProfileState(
-          current => current,
-          {
-            markFailed: true,
-            syncMessage:
-              error instanceof PlatformApiError &&
-              (error.code === 'AUTH_ACCESS_TOKEN_INVALID' ||
-                error.code === 'AUTH_ACCESS_TOKEN_MISSING')
-                ? '账号资料与设置重试需要重新登录后再同步。'
-                : error instanceof PlatformApiError &&
-                  error.code === 'NETWORK_ERROR'
-                ? '账号资料与设置重试失败，请检查网络后重试。'
-                : error instanceof PlatformApiError &&
-                  /[\u4e00-\u9fa5]/.test(error.message)
-                ? error.message
-                : '账号资料与设置重试失败，请稍后重试。',
-            syncOperation: 'accountProfile',
-          },
-        );
+        updateProfileState(current => current, {
+          markFailed: true,
+          syncMessage:
+            error instanceof PlatformApiError &&
+            (error.code === 'AUTH_ACCESS_TOKEN_INVALID' ||
+              error.code === 'AUTH_ACCESS_TOKEN_MISSING')
+              ? '账号资料与设置重试需要重新登录后再同步。'
+              : error instanceof PlatformApiError &&
+                error.code === 'NETWORK_ERROR'
+              ? '账号资料与设置重试失败，请检查网络后重试。'
+              : error instanceof PlatformApiError &&
+                /[\u4e00-\u9fa5]/.test(error.message)
+              ? error.message
+              : '账号资料与设置重试失败，请稍后重试。',
+          syncOperation: 'accountProfile',
+        });
       });
   };
 
@@ -1356,40 +1327,31 @@ export function ProfileCenterScreen({
     }
 
     if (!platformProfileApi) {
-      updateProfileState(
-        current => current,
-        {
-          markSynced: true,
-          syncMessage: '企业认证资料已按本地演示状态记录。',
-          syncOperation: 'enterpriseVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markSynced: true,
+        syncMessage: '企业认证资料已按本地演示状态记录。',
+        syncOperation: 'enterpriseVerification',
+      });
       return;
     }
 
     const licenseFileId = currentVerification.licenseFiles?.[0]?.fileId;
 
     if (!licenseFileId) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '企业认证重试需要先补齐营业执照凭证。',
-          syncOperation: 'enterpriseVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '企业认证重试需要先补齐营业执照凭证。',
+        syncOperation: 'enterpriseVerification',
+      });
       return;
     }
 
     if (!getAuthSessionSnapshot()?.accessToken) {
-      updateProfileState(
-        current => current,
-        {
-          markFailed: true,
-          syncMessage: '企业认证重试需要重新登录后再同步。',
-          syncOperation: 'enterpriseVerification',
-        },
-      );
+      updateProfileState(current => current, {
+        markFailed: true,
+        syncMessage: '企业认证重试需要重新登录后再同步。',
+        syncOperation: 'enterpriseVerification',
+      });
       return;
     }
 
@@ -1421,18 +1383,15 @@ export function ProfileCenterScreen({
         );
       })
       .catch(error => {
-        updateProfileState(
-          current => current,
-          {
-            markFailed: true,
-            syncMessage:
-              error instanceof PlatformApiError &&
-              error.code === 'AUTH_ACCESS_TOKEN_MISSING'
-                ? '企业认证重试需要重新登录后再同步。'
-                : '企业认证资料重试提交失败，已保留本地资料。',
-            syncOperation: 'enterpriseVerification',
-          },
-        );
+        updateProfileState(current => current, {
+          markFailed: true,
+          syncMessage:
+            error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+              ? '企业认证重试需要重新登录后再同步。'
+              : '企业认证资料重试提交失败，已保留本地资料。',
+          syncOperation: 'enterpriseVerification',
+        });
       });
   };
 
@@ -1580,9 +1539,10 @@ export function ProfileCenterScreen({
           addresses: upsertProfileItem(current.addresses, conflictAddress),
           syncState: createResolvedAddressBookConflictSyncState({
             ...current.syncState,
-            conflictAddressItems: current.syncState.conflictAddressItems?.filter(
-              address => address.id !== addressId,
-            ),
+            conflictAddressItems:
+              current.syncState.conflictAddressItems?.filter(
+                address => address.id !== addressId,
+              ),
           }),
         };
       },
@@ -1697,9 +1657,10 @@ export function ProfileCenterScreen({
           contacts: upsertProfileItem(current.contacts, conflictContact),
           syncState: createResolvedAddressBookConflictSyncState({
             ...current.syncState,
-            conflictContactItems: current.syncState.conflictContactItems?.filter(
-              contact => contact.id !== contactId,
-            ),
+            conflictContactItems:
+              current.syncState.conflictContactItems?.filter(
+                contact => contact.id !== contactId,
+              ),
           }),
         };
       },
@@ -1716,7 +1677,9 @@ export function ProfileCenterScreen({
 
         return {
           ...current,
-          contacts: current.contacts.filter(contact => contact.id !== contactId),
+          contacts: current.contacts.filter(
+            contact => contact.id !== contactId,
+          ),
           syncState: createResolvedAddressBookConflictSyncState({
             ...current.syncState,
             conflictDeletedContactItems:
@@ -1756,59 +1719,78 @@ export function ProfileCenterScreen({
         platformSpendingSnapshot={platformSpendingSnapshot}
         spendingNotice={spendingNotice}
         platformAuthApi={platformAuthApi}
+        platformNotificationsApi={platformNotificationsApi}
         platformProfileApi={
           platformProfileApi as ProfilePlatformProfileApi | undefined
         }
         platformFileApi={platformFileApi}
         onAddAddress={address =>
-          updateProfileState(current => ({
-            ...current,
-            addresses: [
-              ...current.addresses,
-              createLocalProfileAddress(current.addresses, address),
-            ],
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              addresses: [
+                ...current.addresses,
+                createLocalProfileAddress(current.addresses, address),
+              ],
+            }),
+            { syncAddressBook: true },
+          )
         }
         onDeleteAddress={addressId =>
-          updateProfileState(current => ({
-            ...current,
-            addresses: deleteProfileAddress(current.addresses, addressId),
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              addresses: deleteProfileAddress(current.addresses, addressId),
+            }),
+            { syncAddressBook: true },
+          )
         }
         onUpdateAddress={(addressId, changes) =>
-          updateProfileState(current => ({
-            ...current,
-            addresses: updateProfileAddress(
-              current.addresses,
-              addressId,
-              changes,
-            ),
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              addresses: updateProfileAddress(
+                current.addresses,
+                addressId,
+                changes,
+              ),
+            }),
+            { syncAddressBook: true },
+          )
         }
         onAddContact={contact =>
-          updateProfileState(current => ({
-            ...current,
-            contacts: [
-              ...current.contacts,
-              createLocalProfileContact(current.contacts, contact),
-            ],
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              contacts: [
+                ...current.contacts,
+                createLocalProfileContact(current.contacts, contact),
+              ],
+            }),
+            { syncAddressBook: true },
+          )
         }
         onDeleteContact={contactId =>
-          updateProfileState(current => ({
-            ...current,
-            contacts: deleteProfileContact(current.contacts, contactId),
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              contacts: deleteProfileContact(current.contacts, contactId),
+            }),
+            { syncAddressBook: true },
+          )
         }
         onUpdateContact={(contactId, changes) =>
-          updateProfileState(current => ({
-            ...current,
-            contacts: updateProfileContact(
-              current.contacts,
-              contactId,
-              changes,
-            ),
-          }), { syncAddressBook: true })
+          updateProfileState(
+            current => ({
+              ...current,
+              contacts: updateProfileContact(
+                current.contacts,
+                contactId,
+                changes,
+              ),
+            }),
+            { syncAddressBook: true },
+          )
         }
         onSubmitIdentityVerification={(request, options) =>
           updateProfileState(
@@ -1823,11 +1805,11 @@ export function ProfileCenterScreen({
                   syncOperation: 'identityVerification',
                 }
               : platformProfileApi
-                ? {
-                    markSynced: true,
-                    syncMessage: platformIdentityVerificationSyncedMessage,
-                    syncOperation: 'identityVerification',
-                  }
+              ? {
+                  markSynced: true,
+                  syncMessage: platformIdentityVerificationSyncedMessage,
+                  syncOperation: 'identityVerification',
+                }
               : {
                   markPendingSync: !platformProfileApi,
                   syncMessage: !platformProfileApi
@@ -1862,11 +1844,11 @@ export function ProfileCenterScreen({
                   syncOperation: 'enterpriseVerification',
                 }
               : platformProfileApi
-                ? {
-                    markSynced: true,
-                    syncMessage: platformEnterpriseVerificationSyncedMessage,
-                    syncOperation: 'enterpriseVerification',
-                  }
+              ? {
+                  markSynced: true,
+                  syncMessage: platformEnterpriseVerificationSyncedMessage,
+                  syncOperation: 'enterpriseVerification',
+                }
               : {
                   markPendingSync: !platformProfileApi,
                   syncMessage: !platformProfileApi
@@ -1916,16 +1898,22 @@ export function ProfileCenterScreen({
           )
         }
         onUpdateInvoiceSelections={nextSelectedInvoiceOrderIds =>
-          updateProfileState(current => ({
-            ...current,
-            selectedInvoiceOrderIds: nextSelectedInvoiceOrderIds,
-          }), { markPendingSync: false })
+          updateProfileState(
+            current => ({
+              ...current,
+              selectedInvoiceOrderIds: nextSelectedInvoiceOrderIds,
+            }),
+            { markPendingSync: false },
+          )
         }
         onUpdateInvoiceMeta={changes =>
-          updateProfileState(current => ({
-            ...current,
-            ...changes,
-          }), { markPendingSync: false })
+          updateProfileState(
+            current => ({
+              ...current,
+              ...changes,
+            }),
+            { markPendingSync: false },
+          )
         }
         onRefreshPlatformInvoices={refreshPlatformInvoices}
         onMarkInvoiceApplicationSyncFailed={markInvoiceApplicationSyncFailed}

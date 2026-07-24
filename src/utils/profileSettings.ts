@@ -6,7 +6,11 @@ import type {
 import type { AuthSessionSnapshot } from './authSession';
 import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
 
-export type LocalPermissionId = 'location' | 'camera' | 'album' | 'notification';
+export type LocalPermissionId =
+  | 'location'
+  | 'camera'
+  | 'album'
+  | 'notification';
 export type LocalPermissionStatus =
   | '未检测'
   | '本地未授权'
@@ -128,12 +132,11 @@ export function getNextSettingToggle(
     return undefined;
   }
 
-  const nextStatusText =
-    target.statusText === '已开启' ? '已关闭' : '已开启';
+  const nextStatusText = target.statusText === '已开启' ? '已关闭' : '已开启';
 
   return {
     settings: settings.map(item =>
-      item.id === settingId ? {...item, statusText: nextStatusText} : item,
+      item.id === settingId ? { ...item, statusText: nextStatusText } : item,
     ),
     notice: `设置已更新：${target.title}${nextStatusText}`,
   };
@@ -176,8 +179,7 @@ export function createPlatformProfileSettingsSnapshot(
           ...(hasPrivacyPolicyVersionSnapshot
             ? {
                 privacyPolicyVersion: privacySetting.confirmedVersionId,
-                privacyPolicyVersionTitle:
-                  privacySetting.confirmedVersionTitle,
+                privacyPolicyVersionTitle: privacySetting.confirmedVersionTitle,
               }
             : {}),
         }
@@ -240,7 +242,10 @@ export function applyPlatformProfileSettingsSnapshot(
     }
 
     if (item.id === 'setting-privacy') {
-      if (!hasSettingsSnapshot && snapshot.privacyConfirmedAtIso === undefined) {
+      if (
+        !hasSettingsSnapshot &&
+        snapshot.privacyConfirmedAtIso === undefined
+      ) {
         return item;
       }
 
@@ -407,9 +412,7 @@ export function createAccountAvatarStatusModel({
 
 export function getPlatformPasswordChangeErrorMessage(error: unknown) {
   const errorCode =
-    error instanceof Error &&
-    'code' in error &&
-    typeof error.code === 'string'
+    error instanceof Error && 'code' in error && typeof error.code === 'string'
       ? error.code
       : undefined;
 
@@ -430,9 +433,7 @@ export function getPlatformPasswordChangeErrorMessage(error: unknown) {
 
 export function getPlatformAccountProfileErrorMessage(error: unknown) {
   const errorCode =
-    error instanceof Error &&
-    'code' in error &&
-    typeof error.code === 'string'
+    error instanceof Error && 'code' in error && typeof error.code === 'string'
       ? error.code
       : undefined;
 
@@ -479,9 +480,7 @@ export function getPlatformSessionSecurityErrorMessage(
   action: 'list' | 'revoke',
 ) {
   const errorCode =
-    error instanceof Error &&
-    'code' in error &&
-    typeof error.code === 'string'
+    error instanceof Error && 'code' in error && typeof error.code === 'string'
       ? error.code
       : undefined;
 
@@ -509,6 +508,39 @@ export function getPlatformSessionSecurityErrorMessage(
     : '退出其它设备失败，请稍后重试。';
 }
 
+export function getPlatformPushDeviceErrorMessage(
+  error: unknown,
+  action: 'list' | 'deactivate',
+) {
+  const errorCode =
+    error instanceof Error && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : undefined;
+
+  if (errorCode === 'NETWORK_ERROR') {
+    return action === 'list'
+      ? '推送设备同步失败，请检查网络后重试。'
+      : '停用设备推送失败，请检查网络后重试。';
+  }
+
+  if (
+    errorCode === 'AUTH_ACCESS_TOKEN_INVALID' ||
+    errorCode === 'AUTH_ACCESS_TOKEN_MISSING'
+  ) {
+    return action === 'list'
+      ? '平台登录已过期，请重新登录后再检查推送设备。'
+      : '平台登录已过期，请重新登录后再管理推送设备。';
+  }
+
+  if (errorCode === 'AUTH_USER_DISABLED') {
+    return '账号已禁用，请联系客服处理';
+  }
+
+  return action === 'list'
+    ? '推送设备同步失败，请稍后重试。'
+    : '停用设备推送失败，请稍后重试。';
+}
+
 export function createLocalPermissionDeniedStatuses(): Record<
   LocalPermissionId,
   LocalPermissionStatus
@@ -522,7 +554,9 @@ export function createLocalPermissionDeniedStatuses(): Record<
 }
 
 export function getPermissionDeniedGuideNotice(permissionId: string) {
-  const permission = localPermissionItems.find(item => item.id === permissionId);
+  const permission = localPermissionItems.find(
+    item => item.id === permissionId,
+  );
 
   if (!permission) {
     return '';
@@ -640,15 +674,15 @@ export function createAccountSecurityCheckModel({
         ? '当前安装设备（已匹配平台会话）'
         : '当前安装设备（未匹配到平台会话）'
       : usesPlatformSession
-        ? '本机演示设备（平台会话）'
-        : hasAuthSession
-          ? '本机演示设备（本地会话）'
-          : '未检测到设备会话',
+      ? '本机演示设备（平台会话）'
+      : hasAuthSession
+      ? '本机演示设备（本地会话）'
+      : '未检测到设备会话',
     deviceSummaryText: hasPlatformDeviceSessions
       ? `平台共检测到 ${normalizedDeviceSessions.length} 个活跃会话，当前设备 ${currentDeviceSessionCount} 个，其它设备 ${otherDeviceSessionCount} 个。`
       : hasAuthSession
-        ? '仅检测到当前设备会话，本地未发现其他设备快照。'
-        : '当前未检测到可用设备会话快照。',
+      ? '仅检测到当前设备会话，本地未发现其他设备快照。'
+      : '当前未检测到可用设备会话快照。',
     sessionSourceText: hasPlatformDeviceSessions
       ? `已同步平台 ${normalizedDeviceSessions.length} 条活跃刷新会话`
       : '已生成本地快照',
@@ -657,29 +691,29 @@ export function createAccountSecurityCheckModel({
       : usesPlatformSession
       ? '平台登录会话'
       : hasAuthSession
-        ? '本地演示会话'
-        : '未检测到登录会话',
+      ? '本地演示会话'
+      : '未检测到登录会话',
     sessionStatusText: hasPlatformDeviceSessions
       ? !currentDeviceSession
         ? '未登录'
         : currentPlatformSessionExpired
-          ? '已过期'
-          : '有效'
+        ? '已过期'
+        : '有效'
       : !hasAuthSession
-        ? '未登录'
-        : sessionExpired
-          ? '已过期'
-          : '有效',
+      ? '未登录'
+      : sessionExpired
+      ? '已过期'
+      : '有效',
     sessionIssuedAtText: currentDeviceSession
       ? currentDeviceSession.createdAtText
       : authSession
-        ? formatTimestampMinute(authSession.issuedAt)
-        : '未记录',
+      ? formatTimestampMinute(authSession.issuedAt)
+      : '未记录',
     sessionExpiresAtText: currentDeviceSession
       ? currentDeviceSession.expiresAtText
       : authSession
-        ? formatTimestampMinute(authSession.expiresAt)
-        : '未记录',
+      ? formatTimestampMinute(authSession.expiresAt)
+      : '未记录',
     loginProtectionStatusText,
     phoneProtectionStatusText,
     passwordUpdatedAtText: password.updatedAt,

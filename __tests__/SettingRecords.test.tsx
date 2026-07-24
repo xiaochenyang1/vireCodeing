@@ -115,10 +115,9 @@ describe('SettingRecords platform account profile', () => {
         syncOperation: 'accountProfile',
       },
     );
-    expect(onUpdateSettings).toHaveBeenCalledWith(
-      expect.any(Array),
-      { markPendingSync: false },
-    );
+    expect(onUpdateSettings).toHaveBeenCalledWith(expect.any(Array), {
+      markPendingSync: false,
+    });
     expect(getRenderedText(renderer)).toContain('昵称和手机号已同步到平台。');
   });
 
@@ -129,14 +128,16 @@ describe('SettingRecords platform account profile', () => {
       expiresIn: 900,
     });
     const platformProfileApi = {
-      saveAccountProfile: jest.fn().mockRejectedValue(
-        new PlatformApiError(
-          'Network request failed',
-          'NETWORK_ERROR',
-          0,
-          undefined,
+      saveAccountProfile: jest
+        .fn()
+        .mockRejectedValue(
+          new PlatformApiError(
+            'Network request failed',
+            'NETWORK_ERROR',
+            0,
+            undefined,
+          ),
         ),
-      ),
     };
     const onUpdateAccount = jest.fn();
 
@@ -193,14 +194,16 @@ describe('SettingRecords platform account profile', () => {
       expiresIn: 900,
     });
     const platformProfileApi = {
-      saveAccountProfile: jest.fn().mockRejectedValue(
-        new PlatformApiError(
-          '手机号已被其他账号占用',
-          'VALIDATION_ERROR',
-          400,
-          'req-test',
+      saveAccountProfile: jest
+        .fn()
+        .mockRejectedValue(
+          new PlatformApiError(
+            '手机号已被其他账号占用',
+            'VALIDATION_ERROR',
+            400,
+            'req-test',
+          ),
         ),
-      ),
     };
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -267,8 +270,8 @@ describe('SettingRecords platform account profile', () => {
     });
 
     expect(
-      renderer.root.findByProps({ testID: 'setting-avatar-preview-image' }).props
-        .source,
+      renderer.root.findByProps({ testID: 'setting-avatar-preview-image' })
+        .props.source,
     ).toEqual({
       uri: 'https://cdn.example.com/avatar/file-avatar-synced.png',
     });
@@ -348,6 +351,12 @@ describe('SettingRecords platform account profile', () => {
   });
 
   it('uploads an avatar through the platform file api and syncs the avatar file id when saving account settings', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    }) as unknown as typeof fetch;
     saveAuthSession(1000, {
       accessToken: 'access-token',
       refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440000',
@@ -398,100 +407,105 @@ describe('SettingRecords platform account profile', () => {
     const onUpdateAccount = jest.fn();
     const onUpdateSettings = jest.fn();
 
-    let renderer!: ReactTestRenderer.ReactTestRenderer;
-    await ReactTestRenderer.act(async () => {
-      renderer = ReactTestRenderer.create(
-        <SettingRecords
-          now={1000}
-          settings={cloneSettings()}
-          account={baseAccount}
-          password={basePassword}
-          platformProfileApi={platformProfileApi}
-          platformFileApi={platformFileApi}
-          onUpdateSettings={onUpdateSettings}
-          onUpdateAccount={onUpdateAccount}
-          onUpdatePassword={jest.fn()}
-          onLogout={jest.fn()}
-        />,
+    try {
+      let renderer!: ReactTestRenderer.ReactTestRenderer;
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <SettingRecords
+            now={1000}
+            settings={cloneSettings()}
+            account={baseAccount}
+            password={basePassword}
+            platformProfileApi={platformProfileApi}
+            platformFileApi={platformFileApi}
+            onUpdateSettings={onUpdateSettings}
+            onUpdateAccount={onUpdateAccount}
+            onUpdatePassword={jest.fn()}
+            onLogout={jest.fn()}
+          />,
+        );
+      });
+
+      await ReactTestRenderer.act(async () => {
+        await renderer.root
+          .findByProps({ testID: 'setting-avatar-upload' })
+          .props.onPress();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(onUpdateAccount).not.toHaveBeenCalled();
+      expect(getRenderedText(renderer)).toContain('头像凭证 1 张');
+      expect(getRenderedText(renderer)).toContain(
+        '头像凭证：已上传待保存到平台',
       );
-    });
+      expect(getRenderedText(renderer)).toContain(
+        '来源：平台文件对象（已上传）',
+      );
+      expect(getRenderedText(renderer)).toContain('文件 ID：file-avatar-1');
+      expect(getRenderedText(renderer)).toContain('已生成平台公开地址。');
+      expect(
+        renderer.root.findByProps({ testID: 'setting-avatar-preview-image' })
+          .props.source,
+      ).toEqual({
+        uri: 'https://cdn.example.com/avatar/file-avatar-1.png',
+      });
 
-    await ReactTestRenderer.act(async () => {
-      await renderer.root
-        .findByProps({ testID: 'setting-avatar-upload' })
-        .props.onPress();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+      ReactTestRenderer.act(() => {
+        renderer.root
+          .findByProps({ testID: 'setting-display-name' })
+          .props.onChangeText(' 平台昵称 ');
+      });
 
-    expect(onUpdateAccount).not.toHaveBeenCalled();
-    expect(getRenderedText(renderer)).toContain('头像凭证 1 张');
-    expect(getRenderedText(renderer)).toContain(
-      '头像凭证：已上传待保存到平台',
-    );
-    expect(getRenderedText(renderer)).toContain('来源：平台文件对象（已上传）');
-    expect(getRenderedText(renderer)).toContain('文件 ID：file-avatar-1');
-    expect(getRenderedText(renderer)).toContain('已生成平台公开地址。');
-    expect(
-      renderer.root.findByProps({ testID: 'setting-avatar-preview-image' }).props
-        .source,
-    ).toEqual({
-      uri: 'https://cdn.example.com/avatar/file-avatar-1.png',
-    });
+      await ReactTestRenderer.act(async () => {
+        await renderer.root
+          .findByProps({ testID: 'setting-account-submit' })
+          .props.onPress();
+      });
 
-    ReactTestRenderer.act(() => {
-      renderer.root
-        .findByProps({ testID: 'setting-display-name' })
-        .props.onChangeText(' 平台昵称 ');
-    });
-
-    await ReactTestRenderer.act(async () => {
-      await renderer.root
-        .findByProps({ testID: 'setting-account-submit' })
-        .props.onPress();
-    });
-
-    expect(platformFileApi.createUploadIntent).toHaveBeenCalledWith({
-      purpose: 'avatar',
-      fileName: '头像凭证.png',
-      contentType: 'image/png',
-      byteSize: 4096,
-    });
-    expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: false,
-    });
-    expect(platformProfileApi.saveAccountProfile).toHaveBeenCalledWith({
-      displayName: '平台昵称',
-      avatarFileId: 'file-avatar-1',
-      phone: '13800138000',
-      phoneProtectionEnabled: true,
-      loginProtectionEnabled: true,
-      orderNotificationEnabled: true,
-      promotionNotificationEnabled: false,
-    });
-    expect(onUpdateAccount).toHaveBeenLastCalledWith(
-      {
+      expect(platformFileApi.createUploadIntent).toHaveBeenCalledWith({
+        purpose: 'avatar',
+        fileName: '头像凭证.png',
+        contentType: 'image/png',
+        byteSize: 4096,
+      });
+      expect(ImagePicker.launchImageLibraryAsync).toHaveBeenCalledWith({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        allowsEditing: false,
+      });
+      expect(platformProfileApi.saveAccountProfile).toHaveBeenCalledWith({
         displayName: '平台昵称',
-        boundPhone: '13800138000',
-        avatarPhotoCount: 1,
         avatarFileId: 'file-avatar-1',
-        avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
-      },
-      {
-        markSynced: true,
-        syncMessage: '账号资料快照已同步到平台。',
-        syncOperation: 'accountProfile',
-      },
-    );
-    expect(onUpdateSettings).toHaveBeenCalledWith(
-      expect.any(Array),
-      { markPendingSync: false },
-    );
-    expect(getRenderedText(renderer)).toContain(
-      '昵称、手机号和头像已同步到平台。',
-    );
+        phone: '13800138000',
+        phoneProtectionEnabled: true,
+        loginProtectionEnabled: true,
+        orderNotificationEnabled: true,
+        promotionNotificationEnabled: false,
+      });
+      expect(onUpdateAccount).toHaveBeenLastCalledWith(
+        {
+          displayName: '平台昵称',
+          boundPhone: '13800138000',
+          avatarPhotoCount: 1,
+          avatarFileId: 'file-avatar-1',
+          avatarPublicUrl: 'https://cdn.example.com/avatar/file-avatar-1.png',
+        },
+        {
+          markSynced: true,
+          syncMessage: '账号资料快照已同步到平台。',
+          syncOperation: 'accountProfile',
+        },
+      );
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.any(Array), {
+        markPendingSync: false,
+      });
+      expect(getRenderedText(renderer)).toContain(
+        '昵称、手机号和头像已同步到平台。',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('clears a synced avatar after removing it and saving account settings', async () => {
@@ -655,14 +669,16 @@ describe('SettingRecords platform account profile', () => {
       expiresIn: 900,
     });
     const platformProfileApi = {
-      saveAccountProfile: jest.fn().mockRejectedValue(
-        new PlatformApiError(
-          'Network request failed',
-          'NETWORK_ERROR',
-          0,
-          undefined,
+      saveAccountProfile: jest
+        .fn()
+        .mockRejectedValue(
+          new PlatformApiError(
+            'Network request failed',
+            'NETWORK_ERROR',
+            0,
+            undefined,
+          ),
         ),
-      ),
     };
     const onUpdateSettings = jest.fn();
 
@@ -747,7 +763,9 @@ describe('SettingRecords platform account profile', () => {
     });
 
     ReactTestRenderer.act(() => {
-      renderer.root.findByProps({ testID: 'setting-open-privacy' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'setting-open-privacy' })
+        .props.onPress();
     });
 
     await ReactTestRenderer.act(async () => {
@@ -820,11 +838,15 @@ describe('SettingRecords platform account profile', () => {
 
     const renderedText = getRenderedText(renderer);
 
-    expect(renderedText).toContain('账号安全本地检查完成：已基于当前会话和安全开关生成本地结果。');
+    expect(renderedText).toContain(
+      '账号安全本地检查完成：已基于当前会话和安全开关生成本地结果。',
+    );
     expect(renderedText).toContain('账号安全检查');
     expect(renderedText).toContain('需处理');
     expect(renderedText).toContain('当前设备：本机演示设备（本地会话）');
-    expect(renderedText).toContain('仅检测到当前设备会话，本地未发现其他设备快照。');
+    expect(renderedText).toContain(
+      '仅检测到当前设备会话，本地未发现其他设备快照。',
+    );
     expect(renderedText).toContain('当前会话：本地演示会话 · 有效');
     expect(renderedText).toContain('登录保护：已关闭');
     expect(renderedText).toContain('手机号保护：已开启');
@@ -878,7 +900,9 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain('通知权限：系统已授权');
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'permission-local-check' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'permission-local-check' })
+        .props.onPress();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -973,9 +997,7 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain(
       '风险提示：检测到 2 台其它设备保持登录，如非本人请立即退出其它设备。',
     );
-    expect(renderedText).toContain(
-      '当前设备：当前安装设备（已匹配平台会话）',
-    );
+    expect(renderedText).toContain('当前设备：当前安装设备（已匹配平台会话）');
 
     await ReactTestRenderer.act(async () => {
       await renderer.root
@@ -993,5 +1015,105 @@ describe('SettingRecords platform account profile', () => {
       '平台共检测到 1 个活跃会话，当前设备 1 个，其它设备 0 个。',
     );
     expect(renderedText).toContain('当前平台设备会话未发现待处理风险。');
+  });
+
+  it('loads active push devices and deactivates another device from the security panel', async () => {
+    saveAuthSession(
+      1000,
+      {
+        accessToken: 'access-token',
+        refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440000',
+        expiresIn: 900,
+      },
+      'mobile-device-current',
+    );
+    const platformNotificationsApi = {
+      listDeviceTokens: jest.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'push-current',
+            userId: 'user-1',
+            token: 'ExponentPushToken[current-device-token]',
+            platform: 'ios',
+            deviceId: 'mobile-device-current',
+            isActive: true,
+            lastUsedAtIso: '2026-07-22T08:05:00.000Z',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            updatedAtIso: '2026-07-22T08:05:00.000Z',
+          },
+          {
+            id: 'push-tablet',
+            userId: 'user-1',
+            token: 'ExponentPushToken[tablet-device-token]',
+            platform: 'android',
+            deviceId: 'mobile-device-tablet',
+            isActive: true,
+            lastUsedAtIso: '2026-07-21T09:00:00.000Z',
+            createdAtIso: '2026-07-21T08:00:00.000Z',
+            updatedAtIso: '2026-07-21T09:00:00.000Z',
+          },
+        ],
+      }),
+      deactivateDeviceToken: jest.fn().mockResolvedValue({
+        deactivated: true,
+      }),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <SettingRecords
+          now={Date.parse('2026-07-22T08:30:00.000Z')}
+          settings={cloneSettings()}
+          account={baseAccount}
+          password={basePassword}
+          platformNotificationsApi={platformNotificationsApi}
+          onUpdateSettings={jest.fn()}
+          onUpdateAccount={jest.fn()}
+          onUpdatePassword={jest.fn()}
+          onLogout={jest.fn()}
+        />,
+      );
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'account-security-local-check' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await renderer.root
+        .findByProps({ testID: 'account-security-load-push-devices' })
+        .props.onPress();
+    });
+
+    let renderedText = getRenderedText(renderer);
+
+    expect(platformNotificationsApi.listDeviceTokens).toHaveBeenCalledTimes(1);
+    expect(renderedText).toContain('已同步 2 个活跃推送设备。');
+    expect(renderedText).toContain(
+      '已同步 2 个活跃推送设备，当前设备 1 个，其它设备 1 个。',
+    );
+    expect(renderedText).toContain('当前设备推送');
+    expect(renderedText).toContain('其它设备推送');
+    expect(renderedText).toContain('Android · 设备 mobile-device-tablet');
+
+    await ReactTestRenderer.act(async () => {
+      await renderer.root
+        .findByProps({ testID: 'push-device-deactivate-push-tablet' })
+        .props.onPress();
+    });
+
+    renderedText = getRenderedText(renderer);
+
+    expect(platformNotificationsApi.deactivateDeviceToken).toHaveBeenCalledWith(
+      'ExponentPushToken[tablet-device-token]',
+    );
+    expect(renderedText).toContain('已停用设备 mobile-device-tablet 的推送。');
+    expect(renderedText).toContain(
+      '已同步 1 个活跃推送设备，当前设备 1 个，其它设备 0 个。',
+    );
+    expect(renderedText).not.toContain('Android · 设备 mobile-device-tablet');
   });
 });

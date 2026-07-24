@@ -4,6 +4,7 @@ import { styles } from '../../styles';
 import type { RecentOrder } from '../../types';
 import type { createPlatformAuthApi } from '../../services/platformAuthApi';
 import type { createPlatformFileApi } from '../../services/platformFileApi';
+import type { createPlatformNotificationsApi } from '../../services/platformNotificationsApi';
 import type { PushNotificationPermissionStatus } from '../../hooks/usePushNotifications';
 import type {
   createPlatformProfileApi,
@@ -59,6 +60,10 @@ export type ProfilePlatformProfileApi = Pick<
   | 'getInvoices'
   | 'createInvoiceApplication'
 >;
+export type ProfilePlatformNotificationsApi = Pick<
+  ReturnType<typeof createPlatformNotificationsApi>,
+  'listDeviceTokens' | 'deactivateDeviceToken'
+>;
 export type ProfilePlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
   'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
@@ -92,6 +97,7 @@ export function ProfileDetailScreen({
   spendingNotice,
   platformAuthApi,
   platformProfileApi,
+  platformNotificationsApi,
   platformFileApi,
   onAddAddress,
   onDeleteAddress,
@@ -141,6 +147,7 @@ export function ProfileDetailScreen({
   spendingNotice?: string;
   platformAuthApi?: ProfilePlatformAuthApi;
   platformProfileApi?: ProfilePlatformProfileApi;
+  platformNotificationsApi?: ProfilePlatformNotificationsApi;
   platformFileApi?: ProfilePlatformFileApi;
   onAddAddress: (address: AddressInput) => void;
   onDeleteAddress: (addressId: string) => void;
@@ -169,16 +176,11 @@ export function ProfileDetailScreen({
   onUpdateInvoiceDetails: (
     invoiceDetails: Record<string, InvoiceApplicationDetails>,
   ) => void;
-  onUpdateInvoiceRejectionReasons: (
-    reasons: InvoiceRejectionReasons,
-  ) => void;
+  onUpdateInvoiceRejectionReasons: (reasons: InvoiceRejectionReasons) => void;
   onUpdateInvoiceSelections: (selectedInvoiceOrderIds: string[]) => void;
   onUpdateInvoiceMeta: (
     changes: Partial<
-      Pick<
-        ProfileLocalState,
-        'invoiceType' | 'invoiceTitle' | 'receiverEmail'
-      >
+      Pick<ProfileLocalState, 'invoiceType' | 'invoiceTitle' | 'receiverEmail'>
     >,
   ) => void;
   onRefreshPlatformInvoices: (options?: {
@@ -317,6 +319,7 @@ export function ProfileDetailScreen({
           notificationPermissionStatus={notificationPermissionStatus}
           platformAuthApi={platformAuthApi}
           platformProfileApi={platformProfileApi}
+          platformNotificationsApi={platformNotificationsApi}
           platformFileApi={platformFileApi}
           onUpdateSettings={onUpdateSettings}
           onUpdateAccount={onUpdateAccount}

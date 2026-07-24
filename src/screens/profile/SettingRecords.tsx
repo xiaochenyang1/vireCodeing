@@ -23,6 +23,7 @@ import {
   getPlatformAccountProfileErrorMessage,
   getPermissionDeniedGuideNotice,
   getPlatformPasswordChangeErrorMessage,
+  getPlatformPushDeviceErrorMessage,
   getPlatformSessionSecurityErrorMessage,
   getSettingDocumentState,
   isReadOnlySetting,
@@ -46,6 +47,10 @@ import type {
   createPlatformAuthApi,
 } from '../../services/platformAuthApi';
 import { type createPlatformFileApi } from '../../services/platformFileApi';
+import type {
+  PlatformDevicePushTokenRecord,
+  createPlatformNotificationsApi,
+} from '../../services/platformNotificationsApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 
 type SettingPlatformAuthApi = Pick<
@@ -65,6 +70,10 @@ type SettingPlatformProfileApi = Pick<
 type SettingPlatformFileApi = Pick<
   ReturnType<typeof createPlatformFileApi>,
   'createUploadIntent' | 'confirmUploaded' | 'confirmLocalUploadTarget'
+>;
+type SettingPlatformNotificationsApi = Pick<
+  ReturnType<typeof createPlatformNotificationsApi>,
+  'listDeviceTokens' | 'deactivateDeviceToken'
 >;
 
 type ImagePickerPermissionStatus = 'granted' | 'denied' | 'undetermined';
@@ -105,6 +114,38 @@ async function readSystemMediaPermissionStatuses() {
   };
 }
 
+function formatPushDeviceTimestamp(isoText?: string) {
+  if (!isoText) {
+    return '未记录';
+  }
+
+  const date = new Date(isoText);
+
+  if (Number.isNaN(date.valueOf())) {
+    return isoText;
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function formatPushTokenPreview(token: string) {
+  if (token.length <= 20) {
+    return token;
+  }
+
+  return `${token.slice(0, 12)}...${token.slice(-6)}`;
+}
+
+function getPushDevicePlatformText(platform: 'ios' | 'android') {
+  return platform === 'ios' ? 'iOS' : 'Android';
+}
+
 export function SettingRecords({
   now,
   settings,
@@ -114,6 +155,7 @@ export function SettingRecords({
   platformAuthApi,
   platformProfileApi,
   platformFileApi,
+  platformNotificationsApi,
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
@@ -127,6 +169,7 @@ export function SettingRecords({
   platformAuthApi?: SettingPlatformAuthApi;
   platformProfileApi?: SettingPlatformProfileApi;
   platformFileApi?: SettingPlatformFileApi;
+  platformNotificationsApi?: SettingPlatformNotificationsApi;
   onUpdateSettings: (
     settings: SettingItem[],
     options?: ProfileSyncMutationOptions,
@@ -163,6 +206,13 @@ export function SettingRecords({
   const [isLoadingSecuritySessions, setIsLoadingSecuritySessions] =
     useState(false);
   const [isRevokingOtherSessions, setIsRevokingOtherSessions] = useState(false);
+  const [platformPushDevices, setPlatformPushDevices] = useState<
+    PlatformDevicePushTokenRecord[] | undefined
+  >(undefined);
+  const [isLoadingPushDevices, setIsLoadingPushDevices] = useState(false);
+  const [deactivatingPushDeviceId, setDeactivatingPushDeviceId] = useState<
+    string | null
+  >(null);
   const [isCheckingPermissionStatuses, setIsCheckingPermissionStatuses] =
     useState(false);
   const {
@@ -191,6 +241,12 @@ export function SettingRecords({
     loginProtectionSetting?.statusText ?? '未配置';
   const authSession = getAuthSessionSnapshot();
   const currentDeviceId = authSession?.deviceId ?? getDeviceId();
+  const currentDevicePushTokens = (platformPushDevices ?? []).filter(
+    device => device.deviceId === currentDeviceId,
+  );
+  const otherDevicePushTokens = (platformPushDevices ?? []).filter(
+    device => device.deviceId !== currentDeviceId,
+  );
   const accountSecurityCheck = createAccountSecurityCheckModel({
     settings,
     password,
@@ -215,10 +271,10 @@ export function SettingRecords({
   const avatarPreviewHint = avatarRemoved
     ? '保存后会回退到昵称首字占位。'
     : avatarPreviewPublicUrl
-      ? '已接入平台公开地址，首页和个人中心会显示真实头像。'
-      : avatarPhotoCount > 0
-        ? '当前只保留头像凭证，预览先回退到昵称首字占位。'
-        : '当前使用昵称首字占位。';
+    ? '已接入平台公开地址，首页和个人中心会显示真实头像。'
+    : avatarPhotoCount > 0
+    ? '当前只保留头像凭证，预览先回退到昵称首字占位。'
+    : '当前使用昵称首字占位。';
   const hasAvatarToRemove =
     !avatarRemoved &&
     (avatarPhotoCount > 0 ||
@@ -238,11 +294,7 @@ export function SettingRecords({
     avatarFileIdRef.current = account.avatarFileId;
     avatarPublicUrlRef.current = account.avatarPublicUrl;
     setAvatarRemoved(false);
-  }, [
-    account.avatarFileId,
-    account.avatarPhotoCount,
-    account.avatarPublicUrl,
-  ]);
+  }, [account.avatarFileId, account.avatarPhotoCount, account.avatarPublicUrl]);
 
   useEffect(() => {
     clearAvatarUpload();
@@ -323,9 +375,11 @@ export function SettingRecords({
     };
   };
 
-  const buildPlatformAccountSnapshotRequest = (nextSettings: SettingItem[]) => ({
+  const buildPlatformAccountSnapshotRequest = (
+    nextSettings: SettingItem[],
+  ) => ({
     displayName: account.displayName,
-    ...(account.avatarFileId ? {avatarFileId: account.avatarFileId} : {}),
+    ...(account.avatarFileId ? { avatarFileId: account.avatarFileId } : {}),
     ...createPlatformProfileSettingsSnapshot(nextSettings),
   });
 
@@ -701,7 +755,8 @@ export function SettingRecords({
     setIsCheckingPermissionStatuses(true);
 
     try {
-      const systemPermissionStatuses = await readSystemMediaPermissionStatuses();
+      const systemPermissionStatuses =
+        await readSystemMediaPermissionStatuses();
 
       setPermissionStatuses({
         ...createLocalPermissionDeniedStatuses(),
@@ -738,9 +793,7 @@ export function SettingRecords({
   const syncPlatformSecuritySessions = async () => {
     if (!platformAuthApi?.listSessions) {
       setPlatformSecuritySessions(undefined);
-      setNotice(
-        '账号安全本地检查完成：已基于当前会话和安全开关生成本地结果。',
-      );
+      setNotice('账号安全本地检查完成：已基于当前会话和安全开关生成本地结果。');
       return;
     }
 
@@ -803,6 +856,75 @@ export function SettingRecords({
     }
   };
 
+  const syncPlatformPushDevices = async () => {
+    if (!platformNotificationsApi) {
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      setPlatformPushDevices(undefined);
+      setNotice('平台登录已过期，请重新登录后再检查推送设备。');
+      return;
+    }
+
+    setIsLoadingPushDevices(true);
+    setNotice('正在同步平台推送设备...');
+
+    try {
+      const result = await platformNotificationsApi.listDeviceTokens();
+      setPlatformPushDevices(result.items);
+      setNotice(
+        result.items.length > 0
+          ? `已同步 ${result.items.length} 个活跃推送设备。`
+          : '当前没有活跃推送设备。',
+      );
+    } catch (error) {
+      setPlatformPushDevices(undefined);
+      setNotice(getPlatformPushDeviceErrorMessage(error, 'list'));
+    } finally {
+      setIsLoadingPushDevices(false);
+    }
+  };
+
+  const deactivatePlatformPushDevice = async (
+    device: PlatformDevicePushTokenRecord,
+  ) => {
+    if (!platformNotificationsApi) {
+      return;
+    }
+
+    if (device.deviceId === currentDeviceId) {
+      setNotice('当前设备推送默认保留，如需关闭可直接停用系统通知权限。');
+      return;
+    }
+
+    if (!getAuthSessionSnapshot()?.accessToken) {
+      setNotice('平台登录已过期，请重新登录后再管理推送设备。');
+      return;
+    }
+
+    setDeactivatingPushDeviceId(device.id);
+
+    try {
+      const result = await platformNotificationsApi.deactivateDeviceToken(
+        device.token,
+      );
+
+      setPlatformPushDevices(currentDevices =>
+        (currentDevices ?? []).filter(item => item.id !== device.id),
+      );
+      setNotice(
+        result.deactivated
+          ? `已停用设备 ${device.deviceId} 的推送。`
+          : `设备 ${device.deviceId} 的推送已不在活跃列表中。`,
+      );
+    } catch (error) {
+      setNotice(getPlatformPushDeviceErrorMessage(error, 'deactivate'));
+    } finally {
+      setDeactivatingPushDeviceId(null);
+    }
+  };
+
   const showDeniedGuide = (permissionId: LocalPermissionId) => {
     const deniedGuideNotice = getPermissionDeniedGuideNotice(permissionId);
 
@@ -820,9 +942,7 @@ export function SettingRecords({
       <Text style={styles.routeMeta}>
         {`绑定手机号：${account.boundPhone}`}
       </Text>
-      <Text style={styles.routeMeta}>
-        {`头像凭证 ${avatarPhotoCount} 张`}
-      </Text>
+      <Text style={styles.routeMeta}>{`头像凭证 ${avatarPhotoCount} 张`}</Text>
       <AuthField
         testID="setting-display-name"
         label="修改昵称"
@@ -857,12 +977,12 @@ export function SettingRecords({
           {isUploadingAvatar
             ? '正在上传头像...'
             : avatarPhotoCount > 0
-              ? platformFileApi
-                ? '重新上传头像凭证'
-                : '已添加头像凭证'
-              : platformFileApi
-                ? '上传头像凭证'
-                : '添加头像凭证'}
+            ? platformFileApi
+              ? '重新上传头像凭证'
+              : '已添加头像凭证'
+            : platformFileApi
+            ? '上传头像凭证'
+            : '添加头像凭证'}
         </Text>
       </Pressable>
       {hasAvatarToRemove ? (
@@ -917,8 +1037,8 @@ export function SettingRecords({
         {`异地登录保护：${loginProtectionStatusText}`}
       </Text>
       <Text style={styles.detailMeta}>
-        {platformAuthApi?.listSessions
-          ? '当前已接入平台活跃刷新会话与退出其它设备；异常登录拦截、推送提醒和更强设备指纹仍未接入。'
+        {platformAuthApi?.listSessions || platformNotificationsApi
+          ? '当前已接入平台活跃刷新会话与推送设备管理；异常登录拦截、强设备指纹和更细粒度通知偏好仍未接入。'
           : '当前可基于本地登录会话和安全开关生成检查结果；真实异地登录风控和多设备管理尚未接入。'}
       </Text>
       <Pressable
@@ -933,8 +1053,8 @@ export function SettingRecords({
           {isLoadingSecuritySessions
             ? '正在同步设备会话...'
             : platformAuthApi?.listSessions
-              ? '检查设备会话'
-              : '本地检查设备'}
+            ? '检查设备会话'
+            : '本地检查设备'}
         </Text>
       </Pressable>
       <AuthField
@@ -996,7 +1116,11 @@ export function SettingRecords({
           {accountSecurityCheck.deviceSessions.length > 0
             ? accountSecurityCheck.deviceSessions.map(session => (
                 <Text key={session.id} style={styles.routeMeta}>
-                  {`${session.isCurrentDevice ? '当前设备' : '其它设备'}：${session.deviceIdText} · 登录 ${session.createdAtText} · 有效至 ${session.expiresAtText}`}
+                  {`${session.isCurrentDevice ? '当前设备' : '其它设备'}：${
+                    session.deviceIdText
+                  } · 登录 ${session.createdAtText} · 有效至 ${
+                    session.expiresAtText
+                  }`}
                 </Text>
               ))
             : null}
@@ -1054,14 +1178,94 @@ export function SettingRecords({
                 {isRevokingOtherSessions
                   ? '正在退出其它设备...'
                   : accountSecurityCheck.otherDeviceSessionCount > 0
-                    ? `退出其它 ${accountSecurityCheck.otherDeviceSessionCount} 台设备`
-                    : '当前仅本机在线'}
+                  ? `退出其它 ${accountSecurityCheck.otherDeviceSessionCount} 台设备`
+                  : '当前仅本机在线'}
               </Text>
             </Pressable>
           ) : null}
+          {platformNotificationsApi ? (
+            <View style={styles.driverInfoCard}>
+              <View style={styles.routeHeader}>
+                <Text style={styles.routeName}>活跃推送设备</Text>
+                <Pressable
+                  testID="account-security-load-push-devices"
+                  style={styles.detailSecondaryButton}
+                  disabled={isLoadingPushDevices}
+                  onPress={() => {
+                    syncPlatformPushDevices().catch(() => undefined);
+                  }}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    {isLoadingPushDevices
+                      ? '正在同步推送设备...'
+                      : platformPushDevices === undefined
+                      ? '同步推送设备'
+                      : '刷新推送设备'}
+                  </Text>
+                </Pressable>
+              </View>
+              <Text style={styles.detailMeta}>
+                {platformPushDevices === undefined
+                  ? '活跃推送设备和登录会话独立管理，退出其它设备登录不会自动停用其消息提醒。'
+                  : `已同步 ${platformPushDevices.length} 个活跃推送设备，当前设备 ${currentDevicePushTokens.length} 个，其它设备 ${otherDevicePushTokens.length} 个。`}
+              </Text>
+              {platformPushDevices ===
+              undefined ? null : platformPushDevices.length === 0 ? (
+                <Text style={styles.routeMeta}>当前没有活跃推送设备。</Text>
+              ) : (
+                platformPushDevices.map(device => (
+                  <View key={device.id} style={styles.driverInfoCard}>
+                    <Text style={styles.routeName}>
+                      {device.deviceId === currentDeviceId
+                        ? '当前设备推送'
+                        : '其它设备推送'}
+                    </Text>
+                    <Text style={styles.detailMeta}>
+                      {`${getPushDevicePlatformText(device.platform)} · 设备 ${
+                        device.deviceId
+                      }`}
+                    </Text>
+                    <Text style={styles.detailMeta}>
+                      {`令牌：${formatPushTokenPreview(device.token)}`}
+                    </Text>
+                    <Text style={styles.detailMeta}>
+                      {`最近活跃：${formatPushDeviceTimestamp(
+                        device.lastUsedAtIso ??
+                          device.updatedAtIso ??
+                          device.createdAtIso,
+                      )}`}
+                    </Text>
+                    {device.deviceId === currentDeviceId ? (
+                      <Text style={styles.routeMeta}>
+                        当前设备保留推送接收。
+                      </Text>
+                    ) : (
+                      <Pressable
+                        testID={`push-device-deactivate-${device.id}`}
+                        style={styles.detailSecondaryButton}
+                        disabled={deactivatingPushDeviceId === device.id}
+                        onPress={() => {
+                          deactivatePlatformPushDevice(device).catch(
+                            () => undefined,
+                          );
+                        }}
+                      >
+                        <Text style={styles.detailSecondaryButtonText}>
+                          {deactivatingPushDeviceId === device.id
+                            ? '正在停用推送...'
+                            : '停用该设备推送'}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          ) : null}
           <Text style={styles.detailMeta}>
-            {platformSecuritySessions !== undefined
-              ? '当前已接入平台活跃刷新会话与退出其它设备；异常登录拦截、推送提醒和更强设备指纹仍未接入。'
+            {platformSecuritySessions !== undefined ||
+            platformPushDevices !== undefined
+              ? '登录会话和推送设备需要分别治理；退出其它设备登录后，如不再需要提醒，还需单独停用对应设备推送。'
               : '真实多端设备列表、异常登录拦截和强制下线仍未接入。'}
           </Text>
         </View>
@@ -1090,7 +1294,10 @@ export function SettingRecords({
           ) : null}
           {isPrivacyConfirmed ? (
             <Text style={styles.routeMeta}>
-              {`已确认版本：${privacySetting?.confirmedVersionTitle ?? '历史记录未回填版本，仅保留确认时间'}`}
+              {`已确认版本：${
+                privacySetting?.confirmedVersionTitle ??
+                '历史记录未回填版本，仅保留确认时间'
+              }`}
             </Text>
           ) : null}
           <Pressable
