@@ -1200,7 +1200,9 @@ export function DriverHomeScreen({
       setNotice(
         item.operation === 'accept'
           ? '司机接单失败，已加入本地重试队列。'
-          : '司机状态更新失败，已加入本地重试队列。',
+          : item.operation === 'cancel'
+            ? '司机取消订单失败，已加入本地重试队列。'
+            : '司机状态更新失败，已加入本地重试队列。',
       );
       return;
     }
@@ -1236,6 +1238,28 @@ export function DriverHomeScreen({
           setSelectedOrder(updatedOrder);
           refreshIncome();
           setNotice('接单成功，订单已进入待装货。');
+        })
+        .catch(error => {
+          handleDriverOrderMutationFailure(error, item);
+        });
+      return;
+    }
+
+    if (item.operation === 'cancel') {
+      platformDriverOrderApi
+        .cancelOrder(
+          item.orderId,
+          item.request,
+          item.mutationContext.idempotencyKey,
+        )
+        .then(updatedOrder => {
+          removeOrderMutationQueueItem(item);
+          setSelectedOrder(updatedOrder);
+          setMyOrders(currentOrders =>
+            currentOrders.filter(currentOrder => currentOrder.id !== item.orderId),
+          );
+          refreshIncome();
+          setNotice('订单已取消，货主将收到取消通知。');
         })
         .catch(error => {
           handleDriverOrderMutationFailure(error, item);
@@ -4027,6 +4051,25 @@ export function DriverHomeScreen({
               }
               Linking.openURL(`tel:${phone}`).catch(() => {
                 setNotice(`无法打开拨号，请手动联系${contactType}。`);
+              });
+            }}
+            onCancelOrder={request => {
+              const baseUpdatedAtIso =
+                selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';
+              const mutationContext = createOrderMutationContext(baseUpdatedAtIso);
+              executeDriverOrderMutation({
+                operation: 'cancel',
+                driverAccountId: resolvedDriverAccountId,
+                orderId: selectedOrder.id,
+                orderNo: selectedOrder.orderNo,
+                request: {
+                  baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+                  reasonText: request.reasonText,
+                  ...(request.description
+                    ? { description: request.description }
+                    : {}),
+                },
+                mutationContext,
               });
             }}
             onAdvanceStatus={request => {

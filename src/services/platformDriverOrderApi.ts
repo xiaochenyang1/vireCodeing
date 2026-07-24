@@ -57,6 +57,12 @@ export type PlatformDriverAcceptOrderRequest =
   noteText?: string;
 };
 
+export type PlatformDriverCancelOrderRequest =
+  PlatformDriverOrderMutationRequest & {
+    reasonText: string;
+    description?: string;
+  };
+
 export type PlatformDriverAdvanceOrderStatusRequest =
   PlatformDriverOrderMutationRequest & {
   nextStatus: Extract<
@@ -393,6 +399,29 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
+    async cancelOrder(
+      orderId: string,
+      request: PlatformDriverCancelOrderRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedOrderId = normalizeDriverOrderId(orderId);
+      const normalizedRequest = normalizeDriverCancelOrderRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_ORDER_CANCEL_INVALID',
+        );
+
+      return platformPost<
+        PlatformDriverCancelOrderRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/driver/orders/${normalizedOrderId}/cancel`,
+        normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
+    },
     async replyToEvaluation(
       orderId: string,
       request: PlatformDriverReplyEvaluationRequest,
@@ -596,6 +625,47 @@ function normalizeDriverQuoteOrderRequest(
     quoteCents: request.quoteCents,
     arrivalText,
     ...(noteText === undefined ? {} : { noteText }),
+  };
+}
+
+function normalizeDriverCancelOrderRequest(
+  request: PlatformDriverCancelOrderRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform driver cancel request must be an object',
+      'PLATFORM_DRIVER_ORDER_CANCEL_INVALID',
+      0,
+    );
+  }
+
+  const baseUpdatedAtIso = normalizeDriverOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_DRIVER_ORDER_CANCEL_INVALID',
+  );
+  const reasonText = normalizeRequiredDriverString(
+    request.reasonText,
+    'reasonText',
+    'PLATFORM_DRIVER_ORDER_CANCEL_INVALID',
+    50,
+  );
+  const description = normalizeOptionalDriverString(
+    request.description,
+    'description',
+    'PLATFORM_DRIVER_ORDER_CANCEL_INVALID',
+    200,
+  );
+
+  return {
+    baseUpdatedAtIso,
+    reasonText,
+    ...(description === undefined ? {} : { description }),
   };
 }
 
@@ -1200,6 +1270,7 @@ function normalizeDriverOrderMutationIdempotencyKey(
   errorCode:
     | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
     | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
+    | 'PLATFORM_DRIVER_ORDER_CANCEL_INVALID'
     | 'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
@@ -1300,6 +1371,7 @@ function normalizeDriverOrderMutationBaseUpdatedAtIso(
   errorCode:
     | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
     | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
+    | 'PLATFORM_DRIVER_ORDER_CANCEL_INVALID'
     | 'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {

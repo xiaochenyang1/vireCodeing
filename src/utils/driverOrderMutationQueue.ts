@@ -1,6 +1,7 @@
 import type {
   PlatformDriverAcceptOrderRequest,
   PlatformDriverAdvanceOrderStatusRequest,
+  PlatformDriverCancelOrderRequest,
 } from '../services/platformDriverOrderApi';
 import type { OrderMutationContext } from '../types';
 import {
@@ -34,9 +35,19 @@ type DriverAdvanceOrderMutationQueueItem = {
   mutationContext: OrderMutationContext;
 };
 
+type DriverCancelOrderMutationQueueItem = {
+  operation: 'cancel';
+  driverAccountId: string;
+  orderId: string;
+  orderNo: string;
+  request: PlatformDriverCancelOrderRequest;
+  mutationContext: OrderMutationContext;
+};
+
 export type DriverOrderMutationQueueItem =
   | DriverAcceptOrderMutationQueueItem
-  | DriverAdvanceOrderMutationQueueItem;
+  | DriverAdvanceOrderMutationQueueItem
+  | DriverCancelOrderMutationQueueItem;
 
 export type DriverOrderMutationQueue = Record<
   string,
@@ -130,7 +141,9 @@ function isValidQueueItem(
   const request = item.request as Record<string, unknown> | undefined;
 
   if (
-    (item.operation !== 'accept' && item.operation !== 'status') ||
+    (item.operation !== 'accept' &&
+      item.operation !== 'status' &&
+      item.operation !== 'cancel') ||
     item.driverAccountId !== driverAccountId ||
     !item.orderId?.trim() ||
     !item.orderNo?.trim() ||
@@ -144,6 +157,15 @@ function isValidQueueItem(
 
   if (item.operation === 'accept') {
     return request.noteText === undefined || typeof request.noteText === 'string';
+  }
+
+  if (item.operation === 'cancel') {
+    return (
+      typeof request.reasonText === 'string' &&
+      request.reasonText.trim().length > 0 &&
+      (request.description === undefined ||
+        typeof request.description === 'string')
+    );
   }
 
   return (

@@ -41,6 +41,7 @@ export type DriverOrderExecutionProps = {
   onReportLocation: () => void;
   onCallContact?: (contactType: '装货联系人' | '卸货联系人', contactName?: string, phone?: string) => void;
   onAdvanceStatus: (request: { nextStatus: string; receiptPhotoFileIds?: string[] }) => void;
+  onCancelOrder?: (request: { reasonText: string; description?: string }) => void;
   onChangeReceipt: (
     file: PlatformFileUploadRecord | undefined,
     fieldName: DriverReceiptFieldName,
@@ -50,6 +51,7 @@ export type DriverOrderExecutionProps = {
     confirming: PlatformFileUploadRecord[];
   };
   isAdvancing: boolean;
+  isCancelling?: boolean;
 };
 
 const STATUS_STEPS = [
@@ -96,9 +98,11 @@ export function DriverOrderExecution({
   onReportLocation,
   onCallContact,
   onAdvanceStatus,
+  onCancelOrder,
   onChangeReceipt,
   receiptFiles,
   isAdvancing,
+  isCancelling = false,
 }: DriverOrderExecutionProps) {
   const currentStepIndex = STATUS_STEPS.findIndex(
     step => step.status === order.status,
@@ -108,6 +112,9 @@ export function DriverOrderExecution({
   const isTransportingStage = order.status === 'transporting';
   const isConfirmingStage = order.status === 'confirming';
   const isCompleted = order.status === 'completed';
+  const canCancel =
+    Boolean(onCancelOrder) &&
+    (order.status === 'loading' || order.status === 'transporting');
 
   const advanceButtonText = useMemo(() => {
     if (isLoadingStage) return '确认装货完成';
@@ -330,7 +337,7 @@ export function DriverOrderExecution({
               nextStatus: nextStatus!,
             })
           }
-          disabled={isAdvancing}
+          disabled={isAdvancing || isCancelling}
         >
           <Text style={styles.detailPrimaryButtonText}>
             {isAdvancing ? '处理中...' : advanceButtonText}
@@ -344,6 +351,27 @@ export function DriverOrderExecution({
           <Text style={styles.detailMeta}>等待平台结算款项</Text>
         </View>
       )}
+
+      {canCancel ? (
+        <Pressable
+          testID={`driver-cancel-${order.id}`}
+          style={[
+            styles.detailSecondaryButton,
+            isCancelling && { opacity: 0.55 },
+          ]}
+          onPress={() =>
+            onCancelOrder?.({
+              reasonText: '执行异常无法继续',
+              description: '司机端提交取消，订单停止继续执行。',
+            })
+          }
+          disabled={isAdvancing || isCancelling}
+        >
+          <Text style={styles.detailSecondaryButtonText}>
+            {isCancelling ? '取消中...' : '取消当前订单'}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

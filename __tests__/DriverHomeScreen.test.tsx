@@ -127,6 +127,7 @@ function createMockDriverOrderApi() {
     quoteOrder: jest.fn(),
     acceptOrder: jest.fn(),
     advanceOrderStatus: jest.fn(),
+    cancelOrder: jest.fn(),
     replyToEvaluation: jest.fn(),
     evaluateShipper: jest.fn(),
     reportException: jest.fn(),
@@ -1527,6 +1528,86 @@ describe('DriverHomeScreen certification uploads', () => {
       },
       expect.stringMatching(uuidV4Pattern),
     );
+  });
+
+  it('cancels a loading driver order from the execution detail view', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607070011',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-07T08:00:00.000Z',
+      updatedAtIso: '2026-07-07T08:10:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-07T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const cancelledOrder = {
+      ...order,
+      status: 'cancelled' as const,
+      updatedAtIso: '2026-07-07T08:15:00.000Z',
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.cancelOrder.mockResolvedValue(cancelledOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607070011' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-cancel-order-1' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.cancelOrder).toHaveBeenCalledWith(
+      'order-1',
+      {
+        baseUpdatedAtIso: '2026-07-07T08:10:00.000Z',
+        reasonText: '执行异常无法继续',
+        description: '司机端提交取消，订单停止继续执行。',
+      },
+      expect.stringMatching(uuidV4Pattern),
+    );
+    expect(getRenderedText(renderer)).toContain('订单已取消，货主将收到取消通知。');
+    expect(
+      renderer.root.findAllByProps({ testID: 'driver-cancel-order-1' }),
+    ).toHaveLength(0);
   });
 
   it('hydrates platform receipt history when opening an existing driver order', async () => {
