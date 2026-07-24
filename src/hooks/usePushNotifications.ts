@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -41,7 +41,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
     useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const requestPermission = async (): Promise<string | null> => {
+  const requestPermission = useCallback(async (): Promise<string | null> => {
     setIsRequestingPermission(true);
     setError(null);
 
@@ -83,7 +83,7 @@ export function usePushNotifications(): UsePushNotificationsResult {
     } finally {
       setIsRequestingPermission(false);
     }
-  };
+  }, []);
 
   return {
     pushToken,

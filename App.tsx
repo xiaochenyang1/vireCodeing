@@ -83,6 +83,7 @@ import {
   saveHomeLocalState,
 } from './src/utils/homeLocalState';
 import { useAppNavigation } from './src/navigation/appNavigation';
+import { useDevicePushTokenRegistration } from './src/hooks/useDevicePushTokenRegistration';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import {
   createFailedProfileSyncState,
@@ -427,6 +428,7 @@ function App({
     () => getAuthSessionSnapshot()?.deviceId ?? getDeviceId(),
     [],
   );
+  const currentDeviceId = resolveCurrentDeviceId();
   const platformOrderDraftApi = useMemo(
     () =>
       resolvedPlatformApiBaseUrl
@@ -500,6 +502,8 @@ function App({
   const [isHydrated, setIsHydrated] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] =
     useState<PlatformAuthenticatedUser>();
+  const [shouldRegisterRestoredPushToken, setShouldRegisterRestoredPushToken] =
+    useState(false);
   const {
     screen,
     orderListFilter: initialOrderFilter,
@@ -519,6 +523,12 @@ function App({
     permissionStatus,
     requestPermission,
   } = usePushNotifications();
+  useDevicePushTokenRegistration(
+    shouldRegisterRestoredPushToken ? platformNotificationsApi : undefined,
+    pushToken,
+    permissionStatus,
+    shouldRegisterRestoredPushToken ? currentDeviceId : undefined,
+  );
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
@@ -642,6 +652,8 @@ function App({
       await hydrateDeviceId(hydratedAuthSession?.deviceId);
       const currentDeviceId =
         hydratedAuthSession?.deviceId ?? getDeviceId();
+      const restoredPlatformSession =
+        Boolean(platformAuthApi) && Boolean(hydratedAuthSession?.refreshToken);
 
       if (platformAuthApi && hydratedAuthSession?.refreshToken) {
         try {
@@ -672,6 +684,7 @@ function App({
           startupUserType = currentUser.userType;
           setAuthenticatedUser(currentUser);
           syncPlatformAuthenticatedProfile(currentUser);
+          setShouldRegisterRestoredPushToken(restoredPlatformSession);
         } catch (error) {
           if (shouldClearAuthSessionAfterStartupPlatformAuthError(error)) {
             clearAuthSession();
@@ -783,6 +796,17 @@ function App({
     resetScreen,
     syncPlatformAuthenticatedProfile,
   ]);
+
+  useEffect(() => {
+    if (
+      !shouldRegisterRestoredPushToken ||
+      permissionStatus !== 'undetermined'
+    ) {
+      return;
+    }
+
+    requestPermission().catch(() => undefined);
+  }, [permissionStatus, requestPermission, shouldRegisterRestoredPushToken]);
 
   // Notification response listener: navigate when user taps a notification
   const notificationResponseRef = useRef<Notifications.NotificationResponse | null>(null);
@@ -1023,6 +1047,7 @@ function App({
     user?: PlatformAuthenticatedUser,
   ) => {
     saveAuthSession(now, tokens, getDeviceId());
+    setShouldRegisterRestoredPushToken(false);
     setAuthenticatedUser(user);
     syncPlatformAuthenticatedProfile(user);
     const nextUserType = user?.userType ?? 'shipper';
@@ -1070,6 +1095,7 @@ function App({
 
     clearAuthSession();
     setAuthenticatedUser(undefined);
+    setShouldRegisterRestoredPushToken(false);
     setNetworkNotice('');
     setMessageCenterNotice('');
     goAuth();

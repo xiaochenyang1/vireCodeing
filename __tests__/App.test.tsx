@@ -5,7 +5,7 @@
 import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { Linking, Text } from 'react-native';
+import { Linking, Platform, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import App from '../App';
 import {
@@ -430,6 +430,110 @@ test('resumes a pending platform payment from the server on cold start', async (
       status: 'synced',
     },
   });
+});
+
+test('registers the push token with the platform after restoring a platform session', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = Date.parse('2026-07-24T08:00:00.000Z');
+
+  saveAuthSession(
+    now,
+    {
+      accessToken: 'access.push-registration.old',
+      refreshToken: 'refresh.push-registration.old',
+      expiresIn: 900,
+    },
+    'mobile-device-restored',
+  );
+  await flushMicrotasks();
+
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+    const requestMethod = init?.method ?? 'GET';
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/refresh' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          accessToken: 'access.push-registration.new',
+          refreshToken: 'refresh.push-registration.new',
+          expiresIn: 900,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'shipper-push-registration',
+          phone: '13800138000',
+          userType: 'shipper',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-token' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          registered: true,
+          token: 'ExponentPushToken[mock-token]',
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    const registerCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/me/device-token',
+      method: 'POST',
+    });
+
+    expect(registerCall).toBeDefined();
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(1);
+    expect(registerCall?.[1]).toEqual(
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(
+            /^Bearer access\.push-registration\./,
+          ),
+        }),
+      }),
+    );
+    expect(JSON.parse(String(registerCall?.[1]?.body))).toEqual({
+      pushToken: 'ExponentPushToken[mock-token]',
+      platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      deviceId: 'mobile-device-restored',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('uses the default sandbox payment sdk in platform mode when no native sdk is injected', async () => {

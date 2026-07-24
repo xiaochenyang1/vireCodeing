@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Platform } from 'react-native';
 
@@ -15,37 +15,35 @@ export function useDevicePushTokenRegistration(
   platformNotificationsApi: PlatformNotificationsApi | undefined,
   pushToken: string | null,
   permissionStatus: PushNotificationPermissionStatus,
-  driverAccountId?: string,
+  deviceId?: string,
 ): UseDevicePushTokenRegistrationResult {
-  const isRegisteringRef = useRef(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: We only want to run this once when pushToken changes from null to a value
   useEffect(() => {
-    if (!pushToken || !platformNotificationsApi || permissionStatus !== 'granted') {
+    if (
+      !pushToken ||
+      !platformNotificationsApi ||
+      permissionStatus !== 'granted' ||
+      !deviceId
+    ) {
       return;
     }
 
     let cancelled = false;
-    isRegisteringRef.current = true;
 
     const doRegister = async () => {
       try {
         await platformNotificationsApi.registerDeviceToken({
           pushToken,
           platform: Platform.OS === 'ios' ? 'ios' : 'android',
-          deviceId: driverAccountId ?? 'shipper-default',
+          deviceId,
         });
       } catch (err) {
         if (!cancelled) {
           const message =
             err instanceof Error ? err.message : '注册推送令牌失败';
           setLastError(message);
-        }
-      } finally {
-        if (!cancelled) {
-          isRegisteringRef.current = false;
         }
       }
     };
@@ -54,13 +52,12 @@ export function useDevicePushTokenRegistration(
 
     return () => {
       cancelled = true;
-      isRegisteringRef.current = false;
     };
-  }, [pushToken, platformNotificationsApi, permissionStatus, driverAccountId]);
+  }, [pushToken, platformNotificationsApi, permissionStatus, deviceId]);
 
   const registerToken = useCallback(
     async (token: string) => {
-      if (!platformNotificationsApi) {
+      if (!platformNotificationsApi || !deviceId) {
         return;
       }
 
@@ -71,7 +68,7 @@ export function useDevicePushTokenRegistration(
         await platformNotificationsApi.registerDeviceToken({
           pushToken: token,
           platform: Platform.OS === 'ios' ? 'ios' : 'android',
-          deviceId: driverAccountId ?? 'shipper-default',
+          deviceId,
         });
       } catch (err) {
         const message =
@@ -81,7 +78,7 @@ export function useDevicePushTokenRegistration(
         setIsRegistering(false);
       }
     },
-    [platformNotificationsApi, driverAccountId],
+    [platformNotificationsApi, deviceId],
   );
 
   return { registerToken, isRegistering, lastError };
