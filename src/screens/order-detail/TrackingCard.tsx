@@ -1,5 +1,5 @@
 import { Text, View, Pressable } from 'react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { styles } from '../../styles';
 import type { DriverInfo, RecentOrder } from '../../types';
@@ -15,6 +15,7 @@ import {
 } from '../../utils/mapsNavigation';
 
 const TRACKING_REFRESH_INTERVAL_MS = 30 * 1000;
+type TrackingRefreshMode = 'initial' | 'timer' | 'manual';
 
 type TrackingState = {
   locationText: string;
@@ -52,7 +53,7 @@ function createPlatformTrackingFallbackState(
 
 function createPlatformTrackingLoadingState(
   trackingState: TrackingState,
-  mode: 'initial' | 'timer',
+  mode: TrackingRefreshMode,
 ): TrackingState {
   if (mode === 'initial') {
     return {
@@ -62,6 +63,18 @@ function createPlatformTrackingLoadingState(
       notice: '正在读取司机最新上报位置。',
       hasPlatformSnapshot: false,
     };
+  }
+
+  if (mode === 'manual') {
+    return trackingState.hasPlatformSnapshot
+      ? {
+          ...trackingState,
+          notice: '正在手动刷新司机最新位置，当前保留上一条平台位置。',
+        }
+      : {
+          ...trackingState,
+          notice: '正在手动读取司机最新上报位置，当前展示路线兜底位置。',
+        };
   }
 
   return trackingState.hasPlatformSnapshot
@@ -135,6 +148,24 @@ function unrefTimer(timer: ReturnType<typeof setInterval> | undefined) {
   }
 }
 
+function getTrackingSuccessNotice(mode: TrackingRefreshMode) {
+  if (mode === 'initial') {
+    return '已读取司机最新上报位置，30 秒自动刷新中。';
+  }
+
+  if (mode === 'manual') {
+    return '已手动刷新司机最新位置，30 秒自动刷新中。';
+  }
+
+  return '已同步司机最新位置，30 秒自动刷新中。';
+}
+
+function getTrackingAddressResolveFallbackNotice(mode: TrackingRefreshMode) {
+  return mode === 'manual'
+    ? '已手动刷新司机位置，但地址解析失败，仍展示坐标。'
+    : '司机位置地址解析失败，仍展示坐标。';
+}
+
 export function TrackingCard({
   order,
   driver,
@@ -155,6 +186,10 @@ export function TrackingCard({
   const [trackingState, setTrackingState] = useState<TrackingState>(() =>
     createLocalTrackingState(order.from, order.to, order.updatedAtText),
   );
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const manualRefreshRef = useRef<(() => Promise<void>) | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     const localTrackingState = createLocalTrackingState(
@@ -165,20 +200,23 @@ export function TrackingCard({
     const platformOrderId = order.platformOrderId;
 
     if (!platformMapsApi || !platformOrderId) {
+      manualRefreshRef.current = undefined;
+      setIsRefreshing(false);
       setTrackingState(localTrackingState);
       return;
     }
 
     let active = true;
-    let isRefreshing = false;
+    let isRefreshInFlight = false;
     let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
-    const syncTracking = async (mode: 'initial' | 'timer') => {
-      if (!active || isRefreshing) {
+    const syncTracking = async (mode: TrackingRefreshMode) => {
+      if (!active || isRefreshInFlight) {
         return;
       }
 
-      isRefreshing = true;
+      isRefreshInFlight = true;
+      setIsRefreshing(true);
 
       if (mode === 'initial') {
         setTrackingState(
@@ -203,10 +241,7 @@ export function TrackingCard({
           snapshot.latitude,
           snapshot.longitude,
         );
-        const successNotice =
-          mode === 'initial'
-            ? '已读取司机最新上报位置，30 秒自动刷新中。'
-            : '已同步司机最新位置，30 秒自动刷新中。';
+        const successNotice = getTrackingSuccessNotice(mode);
 
         if (!platformMapsApi.reverseGeocode) {
           setTrackingState(
@@ -246,7 +281,7 @@ export function TrackingCard({
             createPlatformTrackingState(
               snapshot,
               coordinateText,
-              '司机位置地址解析失败，仍展示坐标。',
+              getTrackingAddressResolveFallbackNotice(mode),
             ),
           );
         }
@@ -259,10 +294,14 @@ export function TrackingCard({
           createTrackingErrorState(error, currentState, localTrackingState),
         );
       } finally {
-        isRefreshing = false;
+        isRefreshInFlight = false;
+        if (active) {
+          setIsRefreshing(false);
+        }
       }
     };
 
+    manualRefreshRef.current = () => syncTracking('manual');
     syncTracking('initial').catch(() => undefined);
     refreshTimer = setInterval(() => {
       syncTracking('timer').catch(() => undefined);
@@ -271,6 +310,7 @@ export function TrackingCard({
 
     return () => {
       active = false;
+      manualRefreshRef.current = undefined;
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
@@ -291,6 +331,9 @@ export function TrackingCard({
     });
     onOpenNavigation?.(urls.geo);
   };
+  const canRefreshPlatformTracking = Boolean(
+    platformMapsApi && order.platformOrderId,
+  );
 
   return (
     <View style={styles.detailCard}>
@@ -315,6 +358,24 @@ export function TrackingCard({
           </Text>
         ) : null}
         <Text style={styles.routeMeta}>{trackingState.notice}</Text>
+        {canRefreshPlatformTracking ? (
+          <Pressable
+            testID="order-tracking-manual-refresh"
+            disabled={isRefreshing}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              isRefreshing && styles.buttonDisabled,
+              pressed && !isRefreshing && styles.pressedButton,
+            ]}
+            onPress={() => {
+              manualRefreshRef.current?.().catch(() => undefined);
+            }}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '立即刷新位置'}
+            </Text>
+          </Pressable>
+        ) : null}
         <Pressable
           testID="order-tracking-open-navigation"
           style={styles.detailSecondaryButton}
