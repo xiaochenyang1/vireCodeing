@@ -243,11 +243,23 @@ export class DriverOrdersService {
       driverSnapshot,
     };
 
-    return this.ordersRepository.submitDriverQuote(
+    const quotedOrder = await this.ordersRepository.submitDriverQuote(
       order.id,
       currentUser.id,
       eventPayload,
     );
+
+    await this.safeNotifyOrderEvent({
+      event: 'driver_quote_submitted',
+      orderId: quotedOrder.id,
+      orderNo: quotedOrder.orderNo,
+      shipperId: quotedOrder.shipperId,
+      driverId: currentUser.id,
+      quoteCents: input.quoteCents,
+      arrivalText: input.arrivalText,
+    });
+
+    return quotedOrder;
   }
 
   async acceptOrder(
@@ -655,6 +667,7 @@ export class DriverOrdersService {
   private async safeNotifyOrderEvent(input: {
     event:
       | 'order_created'
+      | 'driver_quote_submitted'
       | 'driver_accepted'
       | 'status_advanced'
       | 'completed'
@@ -664,6 +677,8 @@ export class DriverOrdersService {
     shipperId: string;
     driverId?: string | null;
     nextStatus?: string;
+    quoteCents?: number;
+    arrivalText?: string;
   }) {
     if (!this.notificationsService) {
       return;

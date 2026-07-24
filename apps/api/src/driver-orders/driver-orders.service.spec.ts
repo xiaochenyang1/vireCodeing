@@ -79,6 +79,11 @@ describe('DriverOrdersService', () => {
       { now: () => now },
     );
 
+    const notificationsService = {
+      notifyOrderEvent: jest.fn().mockResolvedValue(undefined),
+      notifyExceptionEvent: jest.fn().mockResolvedValue(undefined),
+    };
+
     return {
       acceptanceSettingsRepository,
       driverBankCardsRepository,
@@ -86,6 +91,7 @@ describe('DriverOrdersService', () => {
       driverFinanceRepository,
       driverWithdrawalsRepository,
       filesRepository,
+      notificationsService,
       repository,
       service: new DriverOrdersService(
         repository,
@@ -95,11 +101,11 @@ describe('DriverOrdersService', () => {
         driverWithdrawalsRepository,
         filesRepository,
         () => now,
-          86400,
-          driverFinanceRepository,
-          undefined,
-          options.mapsService,
-        ),
+        86400,
+        driverFinanceRepository,
+        notificationsService as never,
+        options.mapsService,
+      ),
     };
   }
 
@@ -228,7 +234,7 @@ describe('DriverOrdersService', () => {
   });
 
   it('submits a driver quote without changing the order status', async () => {
-    const { repository, service } = createService();
+    const { notificationsService, repository, service } = createService();
     const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
@@ -270,6 +276,15 @@ describe('DriverOrdersService', () => {
         plateNumber: '粤B12345',
         completedOrderCount: 0,
       },
+    });
+    expect(notificationsService.notifyOrderEvent).toHaveBeenCalledWith({
+      event: 'driver_quote_submitted',
+      orderId: quotedOrder.id,
+      orderNo: quotedOrder.orderNo,
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      quoteCents: 88000,
+      arrivalText: '45 分钟到达',
     });
   });
 

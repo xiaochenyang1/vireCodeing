@@ -116,6 +116,44 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('notifies the shipper when a driver submits a quote', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-21T10:00:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const service = new NotificationsService(repository, new FakePushProvider());
+
+    await service.notifyOrderEvent({
+      event: 'driver_quote_submitted',
+      orderId: 'order-1',
+      orderNo: 'HY20260721001',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      quoteCents: 88000,
+      arrivalText: '45 分钟到达',
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const driverMessages = await service.listMessages('driver-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(shipperMessages.items[0]).toMatchObject({
+      title: '收到司机报价',
+      category: 'order',
+      content:
+        '订单 HY20260721001 收到司机报价 880 元，45 分钟到达，可在订单详情选择报价。',
+    });
+    expect(driverMessages.items).toHaveLength(0);
+  });
+
   it('returns not found when marking a foreign message', async () => {
     const repository = new InMemoryNotificationsRepository();
     const service = new NotificationsService(repository, new FakePushProvider());

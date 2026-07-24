@@ -14,6 +14,7 @@ import type { PushProvider } from './push-provider';
 export type NotifyOrderEventInput = {
   event:
     | 'order_created'
+    | 'driver_quote_submitted'
     | 'driver_accepted'
     | 'status_advanced'
     | 'completed'
@@ -23,6 +24,8 @@ export type NotifyOrderEventInput = {
   shipperId: string;
   driverId?: string | null;
   nextStatus?: string;
+  quoteCents?: number;
+  arrivalText?: string;
 };
 
 export type NotifyExceptionEventInput = {
@@ -202,6 +205,24 @@ function buildOrderEventRecipients(
           content: `订单 ${orderLabel} 已发布，等待司机接单。`,
         },
       ];
+    case 'driver_quote_submitted': {
+      const quoteLabel =
+        typeof input.quoteCents === 'number' && input.quoteCents > 0
+          ? `报价 ${(input.quoteCents / 100).toFixed(input.quoteCents % 100 === 0 ? 0 : 2)} 元`
+          : '新报价';
+      const arrivalLabel = input.arrivalText?.trim()
+        ? `，${input.arrivalText.trim()}`
+        : '';
+
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          title: '收到司机报价',
+          content: `订单 ${orderLabel} 收到司机${quoteLabel}${arrivalLabel}，可在订单详情选择报价。`,
+        },
+      ];
+    }
     case 'driver_accepted':
       return [
         {
