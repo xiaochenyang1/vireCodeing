@@ -427,6 +427,18 @@ export function createDriverWithdrawalRequest(
   };
 }
 
+export function isDriverWithdrawalFormPristine(
+  form: DriverWithdrawalFormState,
+) {
+  return (
+    form.amountText.trim().length === 0 &&
+    form.bankAccountName.trim().length === 0 &&
+    form.bankName.trim().length === 0 &&
+    form.bankAccountNo.replace(/\s+/g, '').length === 0 &&
+    (form.selectedBankCardId?.trim().length ?? 0) === 0
+  );
+}
+
 export function createShipperEvaluationRequest(
   form: DriverShipperEvaluationFormState,
 ): PlatformDriverEvaluateShipperRequest | undefined {

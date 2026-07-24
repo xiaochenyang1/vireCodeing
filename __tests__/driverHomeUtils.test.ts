@@ -26,6 +26,7 @@ import {
   hasDriverEvaluationSubmitted,
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
+  isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
@@ -249,6 +250,34 @@ test('validates a driver withdrawal request', () => {
       bankAccountNo: '123',
     }),
   ).toBeUndefined();
+});
+
+test('detects whether the driver withdrawal form is still pristine', () => {
+  expect(
+    isDriverWithdrawalFormPristine({
+      amountText: '',
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNo: '  ',
+    }),
+  ).toBe(true);
+  expect(
+    isDriverWithdrawalFormPristine({
+      amountText: '',
+      bankAccountName: '李师傅',
+      bankName: '',
+      bankAccountNo: '',
+    }),
+  ).toBe(false);
+  expect(
+    isDriverWithdrawalFormPristine({
+      amountText: '',
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNo: '',
+      selectedBankCardId: 'bank-card-1',
+    }),
+  ).toBe(false);
 });
 
 test('parses shipper evaluation tags and enforces content bounds', () => {

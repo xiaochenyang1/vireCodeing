@@ -107,6 +107,7 @@ import {
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
   isDriverEvaluationReplyMissingAccessToken,
+  isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
@@ -944,20 +945,39 @@ export function DriverHomeScreen({
       .listBankCards()
       .then(result => {
         const items = Array.isArray(result.items) ? result.items : [];
+        const defaultCard = items.find(item => item.isDefault);
         setBankCards(items);
         setWithdrawalForm(current => {
           if (
-            !current.selectedBankCardId ||
+            current.selectedBankCardId &&
             items.some(item => item.id === current.selectedBankCardId)
           ) {
             return current;
           }
 
-          withdrawalIdempotencyKeyRef.current = undefined;
-          return {
-            ...current,
-            selectedBankCardId: undefined,
-          };
+          const nextForm = current.selectedBankCardId
+            ? {
+                ...current,
+                selectedBankCardId: undefined,
+              }
+            : current;
+
+          if (defaultCard && isDriverWithdrawalFormPristine(nextForm)) {
+            withdrawalIdempotencyKeyRef.current = undefined;
+            return {
+              ...nextForm,
+              bankAccountName: defaultCard.bankAccountName,
+              bankName: defaultCard.bankName,
+              bankAccountNo: '',
+              selectedBankCardId: defaultCard.id,
+            };
+          }
+
+          if (nextForm !== current) {
+            withdrawalIdempotencyKeyRef.current = undefined;
+          }
+
+          return nextForm;
         });
         return true;
       })

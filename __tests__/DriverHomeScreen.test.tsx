@@ -1152,6 +1152,89 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('auto-selects the default bank card for a pristine withdrawal form', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards.mockResolvedValue(
+      createDriverBankCardsPage(),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('招商银行');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('李师傅');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('');
+    expect(getRenderedText(renderer)).toContain(
+      '当前提现银行卡：招商银行 · **** **** **** 1234',
+    );
+  });
+
+  it('keeps the local withdrawal draft when refreshing bank cards with a default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce(createDriverBankCardsPage());
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-name' })
+        .props.onChangeText('平安银行');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.onChangeText('本地收款人');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('平安银行');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('本地收款人');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-withdrawal-selected-bank-card',
+      }),
+    ).toHaveLength(0);
+  });
+
   it('reuses the same withdrawal idempotency key after a transient failure', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.createWithdrawal
