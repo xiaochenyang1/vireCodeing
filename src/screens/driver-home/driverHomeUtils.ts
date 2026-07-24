@@ -101,6 +101,12 @@ export type DriverExecutionProofState = Record<
   }
 >;
 
+export type DriverOrderHallLocalFilter =
+  | 'all'
+  | 'nearby'
+  | 'bonus'
+  | 'negotiable';
+
 export type DailyIncomePoint = {
   dateText: string;
   incomeCents: number;
@@ -618,6 +624,58 @@ export function getDriverOrderPickupDistanceText(order: PlatformShipperOrder) {
   }
 
   return `约 ${((order.pickupDistanceMeters ?? 0) / 1000).toFixed(1)} 公里`;
+}
+
+export function filterDriverOrderHallOrdersByLocalFilter(
+  orders: PlatformShipperOrder[],
+  filter: DriverOrderHallLocalFilter,
+) {
+  switch (filter) {
+    case 'nearby':
+      return orders.filter(
+        order =>
+          hasKnownPickupDistance(order) &&
+          (order.pickupDistanceMeters ?? 0) <= 10_000,
+      );
+    case 'bonus':
+      return orders.filter(
+        order =>
+          typeof order.exposureBonusCents === 'number' &&
+          order.exposureBonusCents > 0,
+      );
+    case 'negotiable':
+      return orders.filter(order => order.pricingMode === 'negotiable');
+    default:
+      return orders;
+  }
+}
+
+export function getDriverOrderHallPricingText(order: PlatformShipperOrder) {
+  if (order.pricingMode === 'negotiable') {
+    return '司机报价';
+  }
+
+  if (
+    typeof order.priceCents === 'number' &&
+    Number.isFinite(order.priceCents) &&
+    order.priceCents >= 0
+  ) {
+    return `固定价 ${formatDriverCurrency(order.priceCents)}`;
+  }
+
+  return '固定价待确认';
+}
+
+export function getDriverOrderHallBonusText(order: PlatformShipperOrder) {
+  if (
+    typeof order.exposureBonusCents !== 'number' ||
+    !Number.isFinite(order.exposureBonusCents) ||
+    order.exposureBonusCents <= 0
+  ) {
+    return '';
+  }
+
+  return `赏金 ${formatDriverCurrency(order.exposureBonusCents)}`;
 }
 
 function hasKnownPickupDistance(order: PlatformShipperOrder) {

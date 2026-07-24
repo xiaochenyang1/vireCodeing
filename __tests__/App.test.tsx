@@ -27285,6 +27285,173 @@ test('logs in as a driver and loads the platform order hall', async () => {
   ).toBe(true);
 });
 
+test('shows pricing tags and filters driver hall orders locally', async () => {
+  const nearbyOrder = {
+    ...createPlatformDriverHallOrder(),
+    pickupDistanceMeters: 6000,
+  };
+  const bonusOrder = {
+    ...createPlatformDriverHallOrder(),
+    id: 'order-3',
+    orderNo: 'HY202607060003',
+    pickupAddress: '南山区白石洲仓',
+    deliveryAddress: '龙华区油松门店',
+    pickupDistanceMeters: 18000,
+    exposureBonusCents: 3000,
+    priceCents: 88000,
+    updatedAtIso: '2026-07-06T08:10:00.000Z',
+  };
+  const negotiableOrder = {
+    ...createPlatformDriverHallOrder(),
+    id: 'order-4',
+    orderNo: 'HY202607060004',
+    pickupAddress: '坪山区坑梓仓',
+    deliveryAddress: '福田区会展中心',
+    pickupDistanceMeters: 15000,
+    pricingMode: 'negotiable' as const,
+    priceCents: undefined,
+    updatedAtIso: '2026-07-06T08:20:00.000Z',
+  };
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        tokens: {
+          accessToken: 'driver-access-token',
+          refreshToken: 'refresh.driver',
+          expiresIn: 3600,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [nearbyOrder, bonusOrder, negotiableOrder],
+        page: 1,
+        pageSize: 20,
+        total: 3,
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(
+        createPlatformDriverCertificationSnapshot({
+          identityStatus: 'approved',
+          vehicleStatus: 'approved',
+        }),
+      ),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(createPlatformDriverAcceptanceSettingsSnapshot()),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(createPlatformDriverIncomeSnapshot()),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse(createPlatformDriverWithdrawalsSnapshot()),
+    );
+  installPlatformFetchMock(fetchMock);
+  const app = await renderApp(1000, {
+    platformApiBaseUrl: 'http://localhost:3000/api',
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'auth-user-type-driver' }).props.onPress();
+    app.root
+      .findByProps({ testID: 'auth-login-method-password' })
+      .props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'auth-login-phone' })
+      .props.onChangeText('13900139009');
+    app.root
+      .findByProps({ testID: 'auth-login-password' })
+      .props.onChangeText('abc123');
+  });
+
+  await ReactTestRenderer.act(async () => {
+    app.root.findByProps({ testID: 'auth-login-submit' }).props.onPress();
+    await flushMicrotasks();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'driver-order-pricing-HY202607060001' }).props
+      .children,
+  ).toBe('固定价 ￥760.00');
+  expect(
+    app.root.findByProps({ testID: 'driver-order-distance-HY202607060001' }).props
+      .children,
+  ).toBe('约 6.0 公里');
+  expect(
+    app.root.findByProps({ testID: 'driver-order-bonus-HY202607060003' }).props
+      .children,
+  ).toBe('赏金 ￥30.00');
+  expect(
+    app.root.findByProps({ testID: 'driver-order-pricing-HY202607060004' }).props
+      .children,
+  ).toBe('司机报价');
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'driver-order-hall-filter-nearby' })
+      .props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'driver-order-hall-filter-summary' }).props
+      .children,
+  ).toBe('当前筛选显示 1 单');
+  expect(app.root.findByProps({ testID: 'driver-order-card-HY202607060001' }))
+    .toBeTruthy();
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060003' }))
+    .toHaveLength(0);
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060004' }))
+    .toHaveLength(0);
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'driver-order-hall-filter-bonus' })
+      .props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'driver-order-hall-filter-summary' }).props
+      .children,
+  ).toBe('当前筛选显示 1 单');
+  expect(app.root.findByProps({ testID: 'driver-order-card-HY202607060003' }))
+    .toBeTruthy();
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060001' }))
+    .toHaveLength(0);
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060004' }))
+    .toHaveLength(0);
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'driver-order-hall-filter-negotiable' })
+      .props.onPress();
+  });
+
+  expect(
+    app.root.findByProps({ testID: 'driver-order-hall-filter-summary' }).props
+      .children,
+  ).toBe('当前筛选显示 1 单');
+  expect(app.root.findByProps({ testID: 'driver-order-card-HY202607060004' }))
+    .toBeTruthy();
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060001' }))
+    .toHaveLength(0);
+  expect(app.root.findAllByProps({ testID: 'driver-order-card-HY202607060003' }))
+    .toHaveLength(0);
+});
+
 test('loads driver certification snapshot after driver login', async () => {
   const fetchMock = jest
     .fn()

@@ -85,13 +85,16 @@ import {
   emptyShipperEvaluationForm,
   emptyWithdrawalForm,
   filterDriverOrderHallOrders,
+  filterDriverOrderHallOrdersByLocalFilter,
   formatDriverCurrency,
   formatDriverIncomeTime,
   getCertificationStatusText,
   getDriverAcceptanceVehicleTypesText,
   getDriverAdvanceButtonText,
   getDriverExecutionReceiptFileIds,
+  getDriverOrderHallBonusText,
   getDriverOrderActionFailureNotice,
+  getDriverOrderHallPricingText,
   getDriverReceiptUploadButtonText,
   getDriverOrderPickupDistanceText,
   getDriverStatusText,
@@ -111,6 +114,7 @@ import {
   type DriverCertificationFormState,
   type DriverExceptionFormState,
   type DriverExecutionProofState,
+  type DriverOrderHallLocalFilter,
   type DriverOrderFormState,
   type DriverShipperEvaluationFormState,
   type DriverWithdrawalFormState,
@@ -168,6 +172,21 @@ const sandboxDriverLocation = {
   longitude: 113.9,
   accuracyMeters: 25,
 };
+
+const driverOrderHallFilterOptions: Array<{
+  id: DriverOrderHallLocalFilter;
+  label: string;
+  testID: string;
+}> = [
+  { id: 'all', label: '全部', testID: 'driver-order-hall-filter-all' },
+  { id: 'nearby', label: '10 公里内', testID: 'driver-order-hall-filter-nearby' },
+  { id: 'bonus', label: '有赏金', testID: 'driver-order-hall-filter-bonus' },
+  {
+    id: 'negotiable',
+    label: '议价单',
+    testID: 'driver-order-hall-filter-negotiable',
+  },
+];
 
 function useDriverPngUpload(
   platformFileApi: DriverPlatformFileApi | undefined,
@@ -621,6 +640,8 @@ export function DriverHomeScreen({
     [],
   );
   const [orderHallSearchKeyword, setOrderHallSearchKeyword] = useState('');
+  const [activeOrderHallFilter, setActiveOrderHallFilter] =
+    useState<DriverOrderHallLocalFilter>('all');
   const [myOrders, setMyOrders] = useState<PlatformShipperOrder[]>([]);
   const [myOrdersSearchKeyword, setMyOrdersSearchKeyword] = useState('');
   const [activeMyOrdersFilter, setActiveMyOrdersFilter] = useState<string>('all');
@@ -2252,6 +2273,25 @@ export function DriverHomeScreen({
     orderHallOrders,
     acceptanceSettings,
   );
+  const orderHallLocallyFilteredOrders =
+    filterDriverOrderHallOrdersByLocalFilter(
+      visibleOrders,
+      activeOrderHallFilter,
+    );
+  const orderHallKeyword = orderHallSearchKeyword.trim().toLowerCase();
+  const displayedOrderHallOrders = orderHallKeyword
+    ? orderHallLocallyFilteredOrders.filter(
+        order =>
+          order.orderNo.toLowerCase().includes(orderHallKeyword) ||
+          order.pickupAddress.toLowerCase().includes(orderHallKeyword) ||
+          order.deliveryAddress.toLowerCase().includes(orderHallKeyword) ||
+          order.cargoType.toLowerCase().includes(orderHallKeyword),
+      )
+    : orderHallLocallyFilteredOrders;
+  const orderHallFilterSummaryText =
+    activeOrderHallFilter !== 'all' && displayedOrderHallOrders.length > 0
+      ? `当前筛选显示 ${displayedOrderHallOrders.length} 单`
+      : undefined;
   const latestEvaluationReply = selectedOrder
     ? getLatestDriverEvaluationReply(selectedOrder)
     : undefined;
@@ -3346,128 +3386,173 @@ export function DriverHomeScreen({
           value={orderHallSearchKeyword}
           onChangeText={setOrderHallSearchKeyword}
         />
+        <View style={styles.ordersTabs}>
+          {driverOrderHallFilterOptions.map(filter => {
+            const active = activeOrderHallFilter === filter.id;
+            return (
+              <Pressable
+                key={filter.id}
+                testID={filter.testID}
+                style={[styles.ordersTab, active && styles.ordersTabActive]}
+                onPress={() => setActiveOrderHallFilter(filter.id)}
+              >
+                <Text
+                  style={[
+                    styles.ordersTabText,
+                    active && styles.ordersTabTextActive,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        {orderHallFilterSummaryText ? (
+          <Text
+            testID="driver-order-hall-filter-summary"
+            style={styles.detailMeta}
+          >
+            {orderHallFilterSummaryText}
+          </Text>
+        ) : null}
       </View>
 
-      {(() => {
-        const keyword = orderHallSearchKeyword.trim().toLowerCase();
-        const filtered = keyword
-          ? visibleOrders.filter(
-              order =>
-                order.orderNo.toLowerCase().includes(keyword) ||
-                order.pickupAddress.toLowerCase().includes(keyword) ||
-                order.deliveryAddress.toLowerCase().includes(keyword) ||
-                order.cargoType.toLowerCase().includes(keyword),
-            )
-          : visibleOrders;
+      {displayedOrderHallOrders.length === 0 ? (
+        <View style={styles.detailCard}>
+          <Text style={styles.detailMeta}>
+            {orderHallKeyword
+              ? '没有匹配的待接单订单。'
+              : activeOrderHallFilter === 'all'
+                ? '暂无可接订单，请调整接单设置。'
+                : '当前筛选下暂无待接单订单。'}
+          </Text>
+        </View>
+      ) : (
+        displayedOrderHallOrders.map(order => {
+          const form = getForm(order.orderNo);
+          const latestExceptionCaseHeadline =
+            order.latestExceptionCase
+              ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
+              : undefined;
+          const latestExceptionCaseDetail =
+            order.latestExceptionCase
+              ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
+              : undefined;
+          const orderDistanceText = getDriverOrderPickupDistanceText(order);
+          const orderBonusText = getDriverOrderHallBonusText(order);
 
-        if (filtered.length === 0) {
           return (
-            <View style={styles.detailCard}>
-              <Text style={styles.detailMeta}>
-                {keyword ? '没有匹配的待接单订单。' : '暂无可接订单，请调整接单设置。'}
+            <View
+              key={order.id}
+              testID={`driver-order-card-${order.orderNo}`}
+              style={styles.detailCard}
+            >
+              <Text style={styles.detailRoute}>
+                {order.pickupAddress} → {order.deliveryAddress}
               </Text>
-            </View>
-          );
-        }
-
-        return filtered.map(order => {
-        const form = getForm(order.orderNo);
-        const latestExceptionCaseHeadline =
-          order.latestExceptionCase
-            ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
-            : undefined;
-        const latestExceptionCaseDetail =
-          order.latestExceptionCase
-            ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
-            : undefined;
-
-        return (
-          <View
-            key={order.id}
-            testID={`driver-order-card-${order.orderNo}`}
-            style={styles.detailCard}
-          >
-            <Text style={styles.detailRoute}>
-              {order.pickupAddress} → {order.deliveryAddress}
-            </Text>
-            <Text style={styles.detailMeta}>
-              {order.orderNo} · {order.cargoType} · {order.weightText}
-            </Text>
-            {getDriverOrderPickupDistanceText(order) ? (
               <Text style={styles.detailMeta}>
-                {`装货点距离：${getDriverOrderPickupDistanceText(order)}`}
+                {order.orderNo} · {order.cargoType} · {order.weightText}
               </Text>
-            ) : null}
-            {latestExceptionCaseHeadline ? (
-              <View style={styles.orderExceptionSummary}>
+              <View style={styles.orderMetaRow}>
                 <Text
-                  style={styles.orderExceptionSummaryTitle}
-                  numberOfLines={1}
+                  testID={`driver-order-pricing-${order.orderNo}`}
+                  style={styles.orderMetaText}
                 >
-                  {latestExceptionCaseHeadline}
+                  {getDriverOrderHallPricingText(order)}
                 </Text>
-                {latestExceptionCaseDetail ? (
+                {orderBonusText ? (
                   <Text
-                    style={styles.orderExceptionSummaryText}
-                    numberOfLines={2}
+                    testID={`driver-order-bonus-${order.orderNo}`}
+                    style={styles.orderMetaText}
                   >
-                    {latestExceptionCaseDetail}
+                    {orderBonusText}
+                  </Text>
+                ) : null}
+                {orderDistanceText ? (
+                  <Text
+                    testID={`driver-order-distance-${order.orderNo}`}
+                    style={styles.orderMetaText}
+                  >
+                    {orderDistanceText}
                   </Text>
                 ) : null}
               </View>
-            ) : null}
-            <Text style={styles.detailMeta}>
-              装货：{order.pickupContact} {order.pickupPhone}
-            </Text>
-            <Text style={styles.detailMeta}>
-              卸货：{order.deliveryContact} {order.deliveryPhone}
-            </Text>
+              {latestExceptionCaseHeadline ? (
+                <View style={styles.orderExceptionSummary}>
+                  <Text
+                    style={styles.orderExceptionSummaryTitle}
+                    numberOfLines={1}
+                  >
+                    {latestExceptionCaseHeadline}
+                  </Text>
+                  {latestExceptionCaseDetail ? (
+                    <Text
+                      style={styles.orderExceptionSummaryText}
+                      numberOfLines={2}
+                    >
+                      {latestExceptionCaseDetail}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              <Text style={styles.detailMeta}>
+                装货：{order.pickupContact} {order.pickupPhone}
+              </Text>
+              <Text style={styles.detailMeta}>
+                卸货：{order.deliveryContact} {order.deliveryPhone}
+              </Text>
 
-            <TextInput
-              testID={`driver-quote-cents-${order.orderNo}`}
-              style={styles.ordersSearchInput}
-              placeholder="报价金额，例如 880"
-              placeholderTextColor={colors.textMuted}
-              keyboardType="numeric"
-              value={form.quoteText}
-              onChangeText={quoteText => updateForm(order.orderNo, { quoteText })}
-            />
-            <TextInput
-              testID={`driver-arrival-${order.orderNo}`}
-              style={styles.ordersSearchInput}
-              placeholder="预计到达，例如 45 分钟到达"
-              placeholderTextColor={colors.textMuted}
-              value={form.arrivalText}
-              onChangeText={arrivalText =>
-                updateForm(order.orderNo, { arrivalText })
-              }
-            />
-            <TextInput
-              testID={`driver-quote-note-${order.orderNo}`}
-              style={styles.ordersSearchInput}
-              placeholder="报价备注，可选"
-              placeholderTextColor={colors.textMuted}
-              value={form.noteText}
-              onChangeText={noteText => updateForm(order.orderNo, { noteText })}
-            />
+              <TextInput
+                testID={`driver-quote-cents-${order.orderNo}`}
+                style={styles.ordersSearchInput}
+                placeholder="报价金额，例如 880"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={form.quoteText}
+                onChangeText={quoteText =>
+                  updateForm(order.orderNo, { quoteText })
+                }
+              />
+              <TextInput
+                testID={`driver-arrival-${order.orderNo}`}
+                style={styles.ordersSearchInput}
+                placeholder="预计到达，例如 45 分钟到达"
+                placeholderTextColor={colors.textMuted}
+                value={form.arrivalText}
+                onChangeText={arrivalText =>
+                  updateForm(order.orderNo, { arrivalText })
+                }
+              />
+              <TextInput
+                testID={`driver-quote-note-${order.orderNo}`}
+                style={styles.ordersSearchInput}
+                placeholder="报价备注，可选"
+                placeholderTextColor={colors.textMuted}
+                value={form.noteText}
+                onChangeText={noteText =>
+                  updateForm(order.orderNo, { noteText })
+                }
+              />
 
-            <Pressable
-              testID={`driver-quote-submit-${order.orderNo}`}
-              style={styles.detailSecondaryButton}
-              onPress={() => submitQuote(order)}
-            >
-              <Text style={styles.detailSecondaryButtonText}>提交报价</Text>
-            </Pressable>
-            <Pressable
-              testID={`driver-accept-${order.orderNo}`}
-              style={styles.detailPrimaryButton}
-              onPress={() => acceptOrder(order)}
-            >
-              <Text style={styles.detailPrimaryButtonText}>直接接单</Text>
-            </Pressable>
-          </View>
-        );
-      })})()}
+              <Pressable
+                testID={`driver-quote-submit-${order.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() => submitQuote(order)}
+              >
+                <Text style={styles.detailSecondaryButtonText}>提交报价</Text>
+              </Pressable>
+              <Pressable
+                testID={`driver-accept-${order.orderNo}`}
+                style={styles.detailPrimaryButton}
+                onPress={() => acceptOrder(order)}
+              >
+                <Text style={styles.detailPrimaryButtonText}>直接接单</Text>
+              </Pressable>
+            </View>
+          );
+        })
+      )}
 
       <View style={styles.detailCard}>
         <Text testID="driver-my-orders-title" style={styles.detailRoute}>
