@@ -396,7 +396,7 @@ export const completeShipperOrderSchema = z.object({
 
 export const advanceShipperOrderStatusSchema = z.object({
   baseUpdatedAtIso: baseUpdatedAtIsoSchema,
-  nextStatus: z.enum(['loading', 'transporting', 'confirming']),
+  nextStatus: z.enum(['transporting', 'confirming']),
 });
 
 export const acceptShipperOrderQuoteSchema = z.object({

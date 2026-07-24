@@ -46,14 +46,9 @@ test('returns local progress action metadata for active order statuses', () => {
 });
 
 test('returns platform progress action metadata for synced platform orders', () => {
-  expect(getOrderProgressAction('waiting', true)).toEqual({
-    label: '推进平台订单进入待装货',
-    nextStatus: 'loading',
-    updatedAtText: '司机已接单 · 刚刚',
-    description:
-      '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；司机接单与报价请以平台司机端状态为准。',
-    noticeText: '已提交平台状态推进请求，订单进入待装货。',
-  });
+  // Platform waiting orders must use accept-quote / driver-accept instead of
+  // the generic waiting → loading status advance action.
+  expect(getOrderProgressAction('waiting', true)).toBeUndefined();
 
   expect(getOrderProgressAction('confirming', true)).toEqual({
     label: '确认送达并完成平台订单',

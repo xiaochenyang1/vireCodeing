@@ -244,7 +244,7 @@ describe('OrdersController', () => {
     const service = {
       advanceOrderStatus: jest.fn().mockResolvedValue({
         id: 'order-1',
-        status: 'loading',
+        status: 'transporting',
       }),
     } as unknown as OrdersService;
     const controller = new OrdersController(service);
@@ -255,13 +255,13 @@ describe('OrdersController', () => {
         'order-1',
         IDEMPOTENCY_KEY,
         {
-          nextStatus: 'loading',
+          nextStatus: 'transporting',
           baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         },
       ),
     ).resolves.toMatchObject({
       code: 'OK',
-      data: { id: 'order-1', status: 'loading' },
+      data: { id: 'order-1', status: 'transporting' },
       requestId: 'req_order_test',
     });
     expect(service.advanceOrderStatus).toHaveBeenCalledWith(
@@ -269,7 +269,7 @@ describe('OrdersController', () => {
       'order-1',
       IDEMPOTENCY_KEY,
       {
-        nextStatus: 'loading',
+        nextStatus: 'transporting',
         baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       },
     );

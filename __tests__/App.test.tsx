@@ -23310,7 +23310,7 @@ test('persists local order progress to device storage', async () => {
   });
 });
 
-test('advances a platform order status through the status api', async () => {
+test('hides waiting-to-loading platform status advance and keeps waiting state', async () => {
   const originalFetch = globalThis.fetch;
   const createdPlatformOrder = createPlatformOrderFixture({
     id: 'order-platform-status-1',
@@ -23346,14 +23346,7 @@ test('advances a platform order status through the status api', async () => {
       }),
     )
     .mockResolvedValueOnce(createPlatformApiResponse(null))
-    .mockResolvedValueOnce(createPlatformApiResponse(createdPlatformOrder))
-    .mockResolvedValueOnce(
-      createPlatformApiResponse({
-        ...createdPlatformOrder,
-        status: 'loading',
-        updatedAtIso: '2026-07-03T09:00:00.000Z',
-      }),
-    );
+    .mockResolvedValueOnce(createPlatformApiResponse(createdPlatformOrder));
 
   installPlatformFetchMock(fetchMock);
 
@@ -23377,32 +23370,19 @@ test('advances a platform order status through the status api', async () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      app.root
-        .findByProps({ testID: 'order-detail-progress-action' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
-
-    const statusAdvanceCall = findFetchCall(fetchMock, {
-      url: 'http://localhost:3000/api/shipper/orders/order-platform-status-1/status',
-      method: 'POST',
-    });
-    expect(statusAdvanceCall).toBeDefined();
-    expect(getFetchCallHeaders(statusAdvanceCall)).toEqual(
-      expect.objectContaining({
-        Authorization: 'Bearer access.platform-order-status.900',
-        'Idempotency-Key': expect.stringMatching(uuidV4Pattern),
+    expect(
+      app.root.findAllByProps({ testID: 'order-detail-progress-action' }),
+    ).toHaveLength(0);
+    expect(
+      findFetchCall(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-status-1/status',
+        method: 'POST',
       }),
-    );
-    expect(getFetchCallBody(statusAdvanceCall)).toMatchObject({
-      baseUpdatedAtIso: '2026-07-01T09:00:00.000Z',
-      nextStatus: 'loading',
-    });
+    ).toBeUndefined();
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030001',
       platformOrderId: 'order-platform-status-1',
-      status: 'loading',
+      status: 'waiting',
       syncState: { status: 'synced' },
     });
   } finally {
@@ -23416,7 +23396,7 @@ test('retries a failed platform order status advance through the status api', as
     id: 'order-platform-status-retry',
     orderNo: 'HY202607030002',
     shipperId: 'user-platform-order-status-retry',
-    status: 'waiting',
+    status: 'loading',
     cargoType: 'digital',
     weightText: '1.8 吨',
     quantityText: '18 箱',
@@ -23451,7 +23431,7 @@ test('retries a failed platform order status advance through the status api', as
     .mockResolvedValueOnce(
       createPlatformApiResponse({
         ...createdPlatformOrder,
-        status: 'loading',
+        status: 'transporting',
         updatedAtIso: '2026-07-03T09:00:00.000Z',
       }),
     );
@@ -23486,7 +23466,9 @@ test('retries a failed platform order status advance through the status api', as
     });
 
     expect(getAppRuntimeState().orders[0]).toMatchObject({
-      status: 'loading',
+      id: 'HY202607030002',
+      platformOrderId: 'order-platform-status-retry',
+      status: 'transporting',
       syncState: {
         status: 'failed',
         operation: 'status',
@@ -23529,12 +23511,12 @@ test('retries a failed platform order status advance through the status api', as
       ),
     ).toMatchObject({
       baseUpdatedAtIso: statusRetryContext?.baseUpdatedAtIso,
-      nextStatus: 'loading',
+      nextStatus: 'transporting',
     });
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030002',
       platformOrderId: 'order-platform-status-retry',
-      status: 'loading',
+      status: 'transporting',
       syncState: { status: 'synced' },
     });
   } finally {

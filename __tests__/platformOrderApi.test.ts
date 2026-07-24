@@ -1333,7 +1333,7 @@ describe('platform order api', () => {
         api.advanceOrderStatus(
           blankOrderId,
           {
-            nextStatus: 'loading',
+            nextStatus: 'transporting',
             baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
           },
           mutationContext.idempotencyKey,
@@ -1468,7 +1468,7 @@ describe('platform order api', () => {
         data: {
           id: 'order-1',
           orderNo: 'HY202607010001',
-          status: 'loading',
+          status: 'transporting',
         },
         requestId: 'req_order_status',
         timestamp: '2026-07-01T08:00:00.000Z',
@@ -1486,14 +1486,14 @@ describe('platform order api', () => {
       api.advanceOrderStatus(
         'order-1',
         {
-          nextStatus: 'loading',
+          nextStatus: 'transporting',
           baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
         },
         mutationContext.idempotencyKey,
       ),
     ).resolves.toMatchObject({
       id: 'order-1',
-      status: 'loading',
+      status: 'transporting',
     });
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/orders/order-1/status',
@@ -1505,7 +1505,7 @@ describe('platform order api', () => {
         }),
         body: JSON.stringify({
           baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
-          nextStatus: 'loading',
+          nextStatus: 'transporting',
         }),
       }),
     );
@@ -1605,7 +1605,7 @@ describe('platform order api', () => {
         'order-1',
         {
           baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
-          nextStatus: 'loading',
+          nextStatus: 'transporting',
         },
         'not-a-uuid',
       ),

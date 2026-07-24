@@ -132,8 +132,14 @@ describe('DriverOrdersService', () => {
       'shipper-1',
       createOrderInput('南山区科技园'),
     );
-    await repository.advanceOrderStatus(loadingOrder.id, 'shipper-1', {
-      nextStatus: 'loading',
+    await repository.acceptDriverOrder(loadingOrder.id, 'driver-2', {
+      noteText: '先把订单接成 loading',
+      driverSnapshot: {
+        driverId: 'driver-2',
+        driverName: '刘师傅',
+        driverPhone: '13700137000',
+        completedOrderCount: 1,
+      },
     });
 
     await expect(
@@ -452,8 +458,14 @@ describe('DriverOrdersService', () => {
       'shipper-1',
       createOrderInput('宝安区福永物流园'),
     );
-    await repository.advanceOrderStatus(order.id, 'shipper-1', {
-      nextStatus: 'loading',
+    await repository.acceptDriverOrder(order.id, 'driver-2', {
+      noteText: '订单已被其他司机接走',
+      driverSnapshot: {
+        driverId: 'driver-2',
+        driverName: '刘师傅',
+        driverPhone: '13700137000',
+        completedOrderCount: 1,
+      },
     });
 
     await expect(

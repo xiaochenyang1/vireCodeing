@@ -2552,7 +2552,7 @@ paths:
   /shipper/orders/{orderId}/status:
     post:
       summary: Advance current shipper order status
-      description: 'Advances status in order: waiting to loading, loading to transporting, transporting to confirming. Completion still uses /complete. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.'
+      description: 'Advances status for assigned shipper orders only: loading to transporting, transporting to confirming. Waiting-to-loading assignment must use accept-quote or driver-accept. Completion still uses /complete. Requires Idempotency-Key and baseUpdatedAtIso. Reusing the same Idempotency-Key with the same normalized request replays the first successful order snapshot.'
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - $ref: '#/components/parameters/IdempotencyKeyHeader'
@@ -6797,8 +6797,8 @@ components:
           example: '2026-07-02T09:00:00.000Z'
         nextStatus:
           type: string
-          enum: [loading, transporting, confirming]
-          example: loading
+          enum: [transporting, confirming]
+          example: transporting
     AcceptShipperOrderQuoteRequest:
       type: object
       required: [baseUpdatedAtIso, driverId]

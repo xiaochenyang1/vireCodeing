@@ -314,11 +314,11 @@ describe('orders validation', () => {
   it('parses an order status advance request', () => {
     expect(
       parseAdvanceShipperOrderStatusRequest({
-        nextStatus: 'loading',
+        nextStatus: 'transporting',
         baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       }),
     ).toEqual({
-      nextStatus: 'loading',
+      nextStatus: 'transporting',
       baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
     });
   });

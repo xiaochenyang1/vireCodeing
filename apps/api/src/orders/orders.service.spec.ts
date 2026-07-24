@@ -88,11 +88,11 @@ describe('OrdersService', () => {
       service.completeOrder('shipper-1', 'order-1', 'key', {});
       // @ts-expect-error Legacy status calls without an idempotency key are forbidden.
       service.advanceOrderStatus('shipper-1', 'order-1', {
-        nextStatus: 'loading',
+        nextStatus: 'transporting',
       });
       // @ts-expect-error Protected status calls require baseUpdatedAtIso.
       service.advanceOrderStatus('shipper-1', 'order-1', 'key', {
-        nextStatus: 'loading',
+        nextStatus: 'transporting',
       });
     }
 
@@ -1450,31 +1450,26 @@ describe('OrdersService', () => {
     );
   });
 
-  it('advances a waiting shipper order to loading and records a status event', async () => {
+  it('rejects advancing a waiting shipper order via status endpoint', async () => {
     const { service } = createService();
     const order = await createOrderForTest(service,
       'shipper-1',
       createInput('宝安区福永物流园'),
     );
 
-    const advancedOrder = await service.advanceOrderStatus(
-      'shipper-1',
-      order.id,
-      'status-key',
-      { nextStatus: 'loading', baseUpdatedAtIso: order.updatedAtIso },
+    await expect(
+      service.advanceOrderStatus(
+        'shipper-1',
+        order.id,
+        'status-key',
+        { nextStatus: 'transporting', baseUpdatedAtIso: order.updatedAtIso },
+      ),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前订单状态不允许推进到目标状态',
+      ),
     );
-
-    expect(advancedOrder).toMatchObject({
-      id: order.id,
-      status: 'loading',
-      events: [
-        expect.objectContaining({ eventType: 'created' }),
-        expect.objectContaining({
-          eventType: 'status_changed',
-          noteText: '订单进入待装货',
-        }),
-      ],
-    });
   });
 
   it('rejects an invalid shipper order status transition', async () => {
@@ -1486,7 +1481,7 @@ describe('OrdersService', () => {
 
     await expect(
       service.advanceOrderStatus('shipper-1', order.id, 'invalid-status-key', {
-        nextStatus: 'transporting',
+        nextStatus: 'confirming',
         baseUpdatedAtIso: order.updatedAtIso,
       }),
     ).rejects.toEqual(
@@ -1927,16 +1922,6 @@ describe('OrdersService', () => {
       createInput('宝安区福永物流园'),
     );
 
-    await service.advanceOrderStatus(
-      'shipper-1',
-      order.id,
-      '550e8400-e29b-41d4-a716-446655440001',
-      {
-        nextStatus: 'loading',
-        baseUpdatedAtIso: order.updatedAtIso,
-      },
-    );
-
     await expect(
       service.cancelOrder(
         'shipper-1',
@@ -1944,7 +1929,7 @@ describe('OrdersService', () => {
         '550e8400-e29b-41d4-a716-446655440002',
         {
           reasonText: '计划变更',
-          baseUpdatedAtIso: order.updatedAtIso,
+          baseUpdatedAtIso: '2020-01-01T00:00:00.000Z',
         },
       ),
     ).rejects.toMatchObject({

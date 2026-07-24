@@ -87,12 +87,8 @@ export function findLocalOrderForPlatformOrder(
 
 export function isPlatformOrderAdvanceStatus(
   status: RecentOrder['status'],
-): status is 'loading' | 'transporting' | 'confirming' {
-  return (
-    status === 'loading' ||
-    status === 'transporting' ||
-    status === 'confirming'
-  );
+): status is 'transporting' | 'confirming' {
+  return status === 'transporting' || status === 'confirming';
 }
 
 export type PlatformOrderMutationOperation = Extract<

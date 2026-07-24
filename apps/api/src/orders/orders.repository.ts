@@ -5956,7 +5956,9 @@ function canAdvanceOrderStatus(
     ShipperOrderRecord['status'],
     AdvanceShipperOrderStatusRequest['nextStatus'] | undefined
   > = {
-    waiting: 'loading',
+    // Shipper waiting → loading must go through accept-quote / driver-accept,
+    // not the generic status advance endpoint.
+    waiting: undefined,
     loading: 'transporting',
     transporting: 'confirming',
     confirming: undefined,
@@ -5971,7 +5973,6 @@ function createOrderStatusAdvanceNote(
   nextStatus: AdvanceShipperOrderStatusRequest['nextStatus'],
 ) {
   const noteTextByStatus = {
-    loading: '订单进入待装货',
     transporting: '订单进入运输中',
     confirming: '订单进入待确认',
   };

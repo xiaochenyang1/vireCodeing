@@ -75,7 +75,7 @@ export type BatchCancelAdminOrdersRequest = {
 
 export type AdvanceShipperOrderStatusRequest =
   OrderMutationConcurrencyRequest & {
-  nextStatus: Extract<ShipperOrderStatus, 'loading' | 'transporting' | 'confirming'>;
+  nextStatus: Extract<ShipperOrderStatus, 'transporting' | 'confirming'>;
 };
 
 export type AcceptShipperOrderQuoteRequest = OrderMutationConcurrencyRequest & {

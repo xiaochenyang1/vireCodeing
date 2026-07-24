@@ -25,7 +25,6 @@ const PLATFORM_SHIPPER_ORDER_STATUSES: PlatformShipperOrderStatus[] = [
 ];
 
 const PLATFORM_SHIPPER_ORDER_ADVANCE_STATUSES: PlatformAdvanceShipperOrderStatusRequest['nextStatus'][] = [
-  'loading',
   'transporting',
   'confirming',
 ];
@@ -84,7 +83,7 @@ export type PlatformAdvanceShipperOrderStatusRequest =
   PlatformOrderMutationRequest & {
   nextStatus: Extract<
     PlatformShipperOrderStatus,
-    'loading' | 'transporting' | 'confirming'
+    'transporting' | 'confirming'
   >;
 };
 

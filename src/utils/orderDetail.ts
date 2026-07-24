@@ -32,18 +32,18 @@ export function getOrderProgressAction(
   usesPlatformOrderActions = false,
 ): OrderProgressAction | undefined {
   if (status === 'waiting') {
+    // Platform waiting orders must be assigned via quote selection / driver accept,
+    // so hide the demo "advance to loading" status action in platform mode.
+    if (usesPlatformOrderActions) {
+      return undefined;
+    }
+
     return {
-      label: usesPlatformOrderActions
-        ? '推进平台订单进入待装货'
-        : '选择司机并进入待装货',
+      label: '选择司机并进入待装货',
       nextStatus: 'loading',
       updatedAtText: '司机已接单 · 刚刚',
-      description: usesPlatformOrderActions
-        ? '当前订单已接平台状态推进接口，点击后会把订单推进到待装货；司机接单与报价请以平台司机端状态为准。'
-        : '本地演示：模拟货主选择司机报价，订单进入待装货。',
-      noticeText: usesPlatformOrderActions
-        ? '已提交平台状态推进请求，订单进入待装货。'
-        : '已模拟选择司机，订单进入待装货。',
+      description: '本地演示：模拟货主选择司机报价，订单进入待装货。',
+      noticeText: '已模拟选择司机，订单进入待装货。',
     };
   }
 

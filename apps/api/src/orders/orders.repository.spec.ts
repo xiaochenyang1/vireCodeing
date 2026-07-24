@@ -655,9 +655,13 @@ describe('PrismaOrdersRepository order coupon mutations', () => {
 
   it('does not read or write coupons for a plain shipper status mutation', async () => {
     const orderInput = createOrderInput({ couponId: 'coupon-1' });
-    const current = createPrismaOrderRecord(orderInput, currentNow);
-    const updated = createPrismaOrderRecord(orderInput, mutationNow, {
+    const current = createPrismaOrderRecord(orderInput, currentNow, {
       status: 'loading',
+      assignedDriverId: 'driver-1',
+    });
+    const updated = createPrismaOrderRecord(orderInput, mutationNow, {
+      status: 'transporting',
+      assignedDriverId: 'driver-1',
     });
     const { repository, transaction } = createPrismaMutationHarness(
       current,
@@ -888,10 +892,15 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
     const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
 
     await repository.executeIdempotentOrderMutation(
-      createShipperStatusMutationInput(
+      createDriverAcceptMutationInput(
         order.id,
         order.updatedAtIso,
-        'transport-key-1',
+        'accept-key-1',
+        'driver-1',
+        {
+          noteText: '先接单推进基线',
+          driverSnapshot: createDriverSnapshot('driver-1'),
+        },
       ),
     );
 
@@ -1029,10 +1038,15 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
       createOrderInput({ pickupAddress: '南山区科技园' }),
     );
     await repository.executeIdempotentOrderMutation(
-      createShipperStatusMutationInput(
+      createDriverAcceptMutationInput(
         loadingOrder.id,
         loadingOrder.updatedAtIso,
         'loading-key',
+        'driver-1',
+        {
+          noteText: '先把订单接成 loading',
+          driverSnapshot: createDriverSnapshot('driver-1'),
+        },
       ),
     );
 
@@ -2188,9 +2202,10 @@ function createShipperStatusMutationInput(
   orderId: string,
   baseUpdatedAtIso: string,
   idempotencyKey = 'shipper-status-key',
+  nextStatus: 'transporting' | 'confirming' = 'transporting',
 ): ExecuteOrderMutationInput {
   const request = {
-    nextStatus: 'loading' as const,
+    nextStatus,
     baseUpdatedAtIso,
   };
 
@@ -2205,7 +2220,7 @@ function createShipperStatusMutationInput(
     mutation: {
       type: 'shipper_status',
       input: {
-        nextStatus: 'loading',
+        nextStatus,
       },
     },
   };
