@@ -113,6 +113,8 @@ export function InvoiceRecords({
   const [notice, setNotice] = useState('');
   const [isSubmittingPlatformInvoice, setIsSubmittingPlatformInvoice] =
     useState(false);
+  const [isRefreshingPlatformInvoices, setIsRefreshingPlatformInvoices] =
+    useState(false);
   const currentTimeText = formatLocalDateTime(now);
   const currentTimeIso = new Date(now).toISOString();
   const isPlatformMode = Boolean(platformProfileApi);
@@ -378,8 +380,61 @@ export function InvoiceRecords({
     setNotice(`发票下载凭证：INV-LOCAL-${invoiceId}`);
   };
 
+  const refreshPlatformInvoiceRecords = async () => {
+    if (!isPlatformMode || isRefreshingPlatformInvoices) {
+      return;
+    }
+
+    setIsRefreshingPlatformInvoices(true);
+
+    try {
+      await onRefreshPlatformInvoices({
+        resolveSyncFailureMode: 'always',
+        successMessage: '平台发票申请记录已手动刷新。',
+      });
+      setNotice('平台发票申请记录已手动刷新。');
+    } catch (error) {
+      const noticeText =
+        error instanceof PlatformApiError &&
+        error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+          ? '平台发票申请记录刷新需要重新登录后再同步。'
+          : error instanceof PlatformApiError && error.code === 'NETWORK_ERROR'
+            ? '平台发票申请记录刷新失败，请检查网络后重试。'
+            : error instanceof PlatformApiError &&
+              /[\u4e00-\u9fa5]/.test(error.message)
+              ? error.message
+              : '平台发票申请记录刷新失败，请稍后重试。';
+      setNotice(noticeText);
+    } finally {
+      setIsRefreshingPlatformInvoices(false);
+    }
+  };
+
   return (
     <View style={styles.detailCard}>
+      {isPlatformMode ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台发票申请</Text>
+          <Pressable
+            testID="invoice-manual-refresh"
+            disabled={isRefreshingPlatformInvoices}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              isRefreshingPlatformInvoices && styles.buttonDisabled,
+              pressed &&
+                !isRefreshingPlatformInvoices &&
+                styles.pressedButton,
+            ]}
+            onPress={() => {
+              refreshPlatformInvoiceRecords().catch(() => undefined);
+            }}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshingPlatformInvoices ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
       <Text style={styles.draftSectionTitle}>发票申请信息</Text>
       {isPlatformMode ? (
         <Text style={styles.routeMeta}>

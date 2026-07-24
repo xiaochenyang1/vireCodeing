@@ -13156,6 +13156,190 @@ test('keeps personal invoice title selected before enterprise verification', asy
   expect(renderedText).not.toContain('发票抬头：深圳晨星贸易有限公司');
 });
 
+test('hides the manual refresh button in local invoice mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'invoice-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
+test('manual refreshes platform invoice records from profile', async () => {
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice-manual-refresh',
+    summary: {
+      completedTotalCents: 0,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [],
+  };
+  const initialPlatformInvoice = {
+    id: 'invoice-platform-refresh-1',
+    shipperId: 'user-platform-invoice-manual-refresh',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台货主 A',
+    receiverEmail: 'invoice-a@platform.test',
+    orderIds: ['platform-order-invoice-refresh-1'],
+    orderNos: ['HY202607140001'],
+    amountCents: 43000,
+    status: 'reviewing' as const,
+    createdAtIso: '2026-07-14T08:00:00.000Z',
+    updatedAtIso: '2026-07-14T08:00:00.000Z',
+  };
+  const refreshedPlatformInvoice = {
+    id: 'invoice-platform-refresh-2',
+    shipperId: 'user-platform-invoice-manual-refresh',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台货主 B',
+    receiverEmail: 'invoice-b@platform.test',
+    orderIds: ['platform-order-invoice-refresh-2'],
+    orderNos: ['HY202607150001'],
+    amountCents: 65000,
+    status: 'approved' as const,
+    createdAtIso: '2026-07-15T08:00:00.000Z',
+    updatedAtIso: '2026-07-15T10:00:00.000Z',
+  };
+  let invoiceListLoadCount = 0;
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-invoice-manual-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-invoice-manual-refresh',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440135',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'GET'
+    ) {
+      invoiceListLoadCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          invoiceListLoadCount === 1
+            ? [initialPlatformInvoice]
+            : [refreshedPlatformInvoice],
+        ),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台货主 A');
+    expect(renderedText).toContain('待开票 ￥430');
+    expect(renderedText).toContain('申请中');
+    expect(renderedText).toContain('HY202607140001');
+    expect(renderedText).not.toContain('平台货主 B');
+    expect(
+      app.root.findByProps({ testID: 'invoice-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'invoice-manual-refresh' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台发票申请记录已手动刷新');
+    expect(renderedText).toContain('平台货主 B');
+    expect(renderedText).toContain('已开票 ￥650');
+    expect(renderedText).toContain('已开票');
+    expect(renderedText).toContain('HY202607150001');
+    expect(renderedText).toContain('开票时间：2026-07-15 18:00');
+    expect(renderedText).not.toContain('平台货主 A');
+    expect(invoiceListLoadCount).toBe(2);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/invoices',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-invoice-manual-refresh',
+        }),
+      }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('submits a platform invoice request and refreshes platform invoice records', async () => {
   const defaultProfileState = getProfileLocalState();
   const platformCompletedOrder = {
