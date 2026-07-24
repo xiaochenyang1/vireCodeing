@@ -1404,6 +1404,82 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 1234');
   });
 
+  it('allows marking a newly added bank card as the default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          isDefault: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          id: 'bank-card-2',
+          bankAccountName: '王师傅',
+          bankName: '平安银行',
+          bankAccountMasked: '**** **** **** 5678',
+          isDefault: true,
+          updatedAtIso: '2026-07-09T03:20:00.000Z',
+        }),
+      );
+    platformDriverOrderApi.createBankCard.mockResolvedValue({
+      id: 'bank-card-2',
+      bankAccountName: '王师傅',
+      bankName: '平安银行',
+      bankAccountMasked: '**** **** **** 5678',
+      isDefault: true,
+      createdAtIso: '2026-07-09T03:20:00.000Z',
+      updatedAtIso: '2026-07-09T03:20:00.000Z',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-bank-card-add' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-toggle-default' })
+        .props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-bank-name' })
+        .props.onChangeText('平安银行');
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-account-name' })
+        .props.onChangeText('王师傅');
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-account-no' })
+        .props.onChangeText('6225 9999 0000 5678');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-bank-card-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.createBankCard).toHaveBeenCalledWith({
+      bankAccountName: '王师傅',
+      bankName: '平安银行',
+      bankAccountNo: '6225999900005678',
+      isDefault: true,
+    });
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain('银行卡已添加。');
+    expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 5678');
+  });
+
   it('clears stale withdrawal payee info when the selected bank card disappears', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards
