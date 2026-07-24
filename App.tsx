@@ -171,6 +171,7 @@ import {
   mergePlatformOrderWithLocalRuntimeState,
 } from './src/utils/platformOrderAttachments';
 import { resumePendingPlatformPayment } from './src/utils/payment';
+import { isOrderNotificationEnabled } from './src/utils/profileSettings';
 
 type AppProps = {
   now?: number;
@@ -497,8 +498,13 @@ function App({
   const [isHydrated, setIsHydrated] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] =
     useState<PlatformAuthenticatedUser>();
+  const [orderNotificationsEnabled, setOrderNotificationsEnabled] =
+    useState<boolean>();
   const [shouldRegisterRestoredPushToken, setShouldRegisterRestoredPushToken] =
     useState(false);
+  const previousOrderNotificationsEnabledRef = useRef<boolean | undefined>(
+    undefined,
+  );
   const {
     screen,
     orderListFilter: initialOrderFilter,
@@ -515,11 +521,67 @@ function App({
   } = useAppNavigation();
   const { pushToken, permissionStatus, requestPermission } =
     usePushNotifications();
+  const registerCurrentDevicePushToken = useCallback(
+    async (token: string) => {
+      if (!platformNotificationsApi) {
+        return;
+      }
+
+      await platformNotificationsApi.registerDeviceToken({
+        pushToken: token,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+        deviceId: resolveCurrentDeviceId(),
+      });
+    },
+    [platformNotificationsApi, resolveCurrentDeviceId],
+  );
+  const ensureCurrentDevicePushTokenRegistered = useCallback(async () => {
+    if (permissionStatus === 'denied') {
+      return;
+    }
+
+    const token = pushToken ?? (await requestPermission());
+
+    if (!token) {
+      return;
+    }
+
+    await registerCurrentDevicePushToken(token);
+  }, [
+    permissionStatus,
+    pushToken,
+    registerCurrentDevicePushToken,
+    requestPermission,
+  ]);
+  const deactivateCurrentDevicePushTokens = useCallback(async () => {
+    if (
+      !platformNotificationsApi ||
+      !getAuthSessionSnapshot()?.accessToken
+    ) {
+      return;
+    }
+
+    const deviceId = resolveCurrentDeviceId();
+    const result = await platformNotificationsApi.listDeviceTokens();
+    const currentDeviceTokens = result.items.filter(
+      item => item.deviceId === deviceId,
+    );
+
+    await Promise.all(
+      currentDeviceTokens.map(item =>
+        platformNotificationsApi
+          .deactivateDeviceToken(item.token)
+          .catch(() => undefined),
+      ),
+    );
+  }, [platformNotificationsApi, resolveCurrentDeviceId]);
+  const shouldSyncRestoredPushToken =
+    shouldRegisterRestoredPushToken && orderNotificationsEnabled === true;
   useDevicePushTokenRegistration(
-    shouldRegisterRestoredPushToken ? platformNotificationsApi : undefined,
+    shouldSyncRestoredPushToken ? platformNotificationsApi : undefined,
     pushToken,
     permissionStatus,
-    shouldRegisterRestoredPushToken ? currentDeviceId : undefined,
+    shouldSyncRestoredPushToken ? currentDeviceId : undefined,
   );
   const [orders, setOrders] = useState<RecentOrder[]>([]);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
@@ -662,6 +724,9 @@ function App({
         hydrateHomeLocalState(),
         hydrateProfileLocalState(),
       ]);
+      setOrderNotificationsEnabled(
+        isOrderNotificationEnabled(getProfileLocalState().settings),
+      );
 
       let startupUserType: PlatformMobileUserType = 'shipper';
 
@@ -766,6 +831,9 @@ function App({
         setDraftSyncState(
           hydratedDraft ? getDraftStorageSnapshot()?.syncState : undefined,
         );
+        setOrderNotificationsEnabled(
+          isOrderNotificationEnabled(getProfileLocalState().settings),
+        );
         resetScreen(hasSavedAuthSession(now) ? 'home' : 'onboarding');
         setIsHydrated(true);
       }
@@ -786,14 +854,72 @@ function App({
 
   useEffect(() => {
     if (
-      !shouldRegisterRestoredPushToken ||
-      permissionStatus !== 'undetermined'
+      !shouldSyncRestoredPushToken ||
+      permissionStatus === 'denied' ||
+      pushToken
     ) {
       return;
     }
 
     requestPermission().catch(() => undefined);
-  }, [permissionStatus, requestPermission, shouldRegisterRestoredPushToken]);
+  }, [
+    permissionStatus,
+    pushToken,
+    requestPermission,
+    shouldSyncRestoredPushToken,
+  ]);
+
+  useEffect(() => {
+    if (!isHydrated || orderNotificationsEnabled === undefined) {
+      return;
+    }
+
+    const previousOrderNotificationsEnabled =
+      previousOrderNotificationsEnabledRef.current;
+    previousOrderNotificationsEnabledRef.current =
+      orderNotificationsEnabled;
+
+    if (
+      !platformNotificationsApi ||
+      !getAuthSessionSnapshot()?.accessToken ||
+      previousOrderNotificationsEnabled === orderNotificationsEnabled
+    ) {
+      return;
+    }
+
+    if (previousOrderNotificationsEnabled === undefined) {
+      if (!orderNotificationsEnabled) {
+        deactivateCurrentDevicePushTokens().catch(() => undefined);
+      }
+
+      return;
+    }
+
+    if (orderNotificationsEnabled) {
+      if (shouldRegisterRestoredPushToken) {
+        if (permissionStatus !== 'denied' && !pushToken) {
+          requestPermission().catch(() => undefined);
+        }
+
+        return;
+      }
+
+      ensureCurrentDevicePushTokenRegistered().catch(() => undefined);
+      return;
+    }
+
+    deactivateCurrentDevicePushTokens().catch(() => undefined);
+  }, [
+    deactivateCurrentDevicePushTokens,
+    ensureCurrentDevicePushTokenRegistered,
+    isHydrated,
+    orderNotificationsEnabled,
+    permissionStatus,
+    platformNotificationsApi,
+    pushToken,
+    requestPermission,
+    shouldRegisterRestoredPushToken,
+  ]);
 
   // Notification response listener: navigate when user taps a notification
   const notificationResponseRef =
@@ -1040,21 +1166,17 @@ function App({
 
     openHome();
 
-    // Register push token with the platform if available
+    if (orderNotificationsEnabled === false) {
+      deactivateCurrentDevicePushTokens().catch(() => undefined);
+      return;
+    }
+
     if (
       pushToken &&
       platformNotificationsApi &&
       permissionStatus === 'granted'
     ) {
-      platformNotificationsApi
-        .registerDeviceToken({
-          pushToken,
-          platform: Platform.OS === 'ios' ? 'ios' : 'android',
-          deviceId: getAuthSessionSnapshot()?.deviceId ?? getDeviceId(),
-        })
-        .catch(() => {
-          // Silently ignore registration failure; user can still use the app
-        });
+      registerCurrentDevicePushToken(pushToken).catch(() => undefined);
     }
 
     if (permissionStatus === 'undetermined') {
@@ -3179,6 +3301,9 @@ function App({
             platformFileApi={platformFileApi}
             platformSupportTicketsApi={platformSupportTicketsApi}
             onLogout={handleLogout}
+            onOrderNotificationsEnabledChange={enabled =>
+              setOrderNotificationsEnabled(enabled)
+            }
             onOpenNetworkError={openNetworkError}
             onOpenOrderDraft={openOrderDraft}
             onOpenOrderDetail={openOrderDetail}

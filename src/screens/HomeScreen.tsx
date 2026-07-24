@@ -307,6 +307,7 @@ export function HomeScreen({
   platformFileApi,
   platformSupportTicketsApi,
   onLogout,
+  onOrderNotificationsEnabledChange,
   onOpenOrderDraft,
   onOpenOrderDetail,
   onOpenOrders,
@@ -342,6 +343,7 @@ export function HomeScreen({
   platformFileApi?: HomePlatformFileApi;
   platformSupportTicketsApi?: HomePlatformSupportTicketsApi;
   onLogout: () => void;
+  onOrderNotificationsEnabledChange?: (enabled: boolean) => void;
   onOpenOrderDraft: () => void;
   onOpenOrderDetail: (
     orderId: string,
@@ -1018,6 +1020,7 @@ export function HomeScreen({
         platformNotificationsApi={platformNotificationsApi}
         platformFileApi={platformFileApi}
         onBackHome={backHome}
+        onOrderNotificationsEnabledChange={onOrderNotificationsEnabledChange}
         onLogout={onLogout}
       />
     );

@@ -48,7 +48,10 @@ import {
   getProfileEntryConfigs,
   type ProfileSectionId,
 } from '../utils/profileOverview';
-import { createPlatformProfileSettingsSnapshot } from '../utils/profileSettings';
+import {
+  createPlatformProfileSettingsSnapshot,
+  isOrderNotificationEnabled,
+} from '../utils/profileSettings';
 import {
   createFailedProfileSyncState,
   createPendingProfileSyncState,
@@ -309,6 +312,7 @@ export function ProfileCenterScreen({
   platformNotificationsApi,
   platformFileApi,
   onBackHome,
+  onOrderNotificationsEnabledChange,
   onLogout,
 }: {
   now: number;
@@ -336,6 +340,7 @@ export function ProfileCenterScreen({
   >;
   platformFileApi?: ProfilePlatformFileApi;
   onBackHome: () => void;
+  onOrderNotificationsEnabledChange?: (enabled: boolean) => void;
   onLogout: () => void;
 }) {
   const initialProfileState = getProfileLocalState();
@@ -379,6 +384,12 @@ export function ProfileCenterScreen({
   const profileEntryConfigsForMode = getProfileEntryConfigs(
     Boolean(platformProfileApi),
   );
+
+  useEffect(() => {
+    onOrderNotificationsEnabledChange?.(
+      isOrderNotificationEnabled(settings),
+    );
+  }, [onOrderNotificationsEnabledChange, settings]);
 
   useEffect(() => {
     if (!platformProfileApi || hasLoadedPlatformAddressBook.current) {

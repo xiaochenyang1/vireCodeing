@@ -536,6 +536,142 @@ test('registers the push token with the platform after restoring a platform sess
   }
 });
 
+test('does not register the push token after restoring a platform session when order notifications are disabled locally', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = Date.parse('2026-07-24T08:00:00.000Z');
+
+  await setLocalOrderNotificationsEnabled(false);
+  saveAuthSession(
+    now,
+    {
+      accessToken: 'access.push-disabled.old',
+      refreshToken: 'refresh.push-disabled.old',
+      expiresIn: 900,
+    },
+    'mobile-device-restored',
+  );
+  await flushMicrotasks();
+
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+    const requestMethod = init?.method ?? 'GET';
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/refresh' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          accessToken: 'access.push-disabled.new',
+          refreshToken: 'refresh.push-disabled.new',
+          expiresIn: 900,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'shipper-push-disabled',
+          phone: '13800138000',
+          userType: 'shipper',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'push-current-device',
+              userId: 'shipper-push-disabled',
+              token: 'ExponentPushToken[current-disabled-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: 'mobile-device-restored',
+              isActive: true,
+              createdAtIso: '2026-07-24T07:00:00.000Z',
+              updatedAtIso: '2026-07-24T07:30:00.000Z',
+            },
+            {
+              id: 'push-other-device',
+              userId: 'shipper-push-disabled',
+              token: 'ExponentPushToken[other-device-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: 'mobile-device-other',
+              isActive: true,
+              createdAtIso: '2026-07-24T06:00:00.000Z',
+              updatedAtIso: '2026-07-24T06:30:00.000Z',
+            },
+          ],
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens/deactivate' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          deactivated:
+            requestBody?.token ===
+            'ExponentPushToken[current-disabled-token]',
+        }),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-tokens',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
+    expect(
+      getFetchCallBody<{
+        token: string;
+      }>(
+        findFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/me/device-tokens/deactivate',
+          method: 'POST',
+        }),
+      ),
+    ).toEqual({
+      token: 'ExponentPushToken[current-disabled-token]',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('uses the default sandbox payment sdk in platform mode when no native sdk is injected', async () => {
   const originalFetch = globalThis.fetch;
   const now = Date.parse('2026-07-15T09:00:00.000Z');
@@ -1095,6 +1231,30 @@ async function renderApp(
   mountedRenderers.push(renderer);
 
   return renderer;
+}
+
+async function setLocalOrderNotificationsEnabled(enabled: boolean) {
+  const currentProfileState = getProfileLocalState();
+  const nextState = {
+    ...currentProfileState,
+    settings: currentProfileState.settings.map(setting =>
+      setting.id === 'setting-notification'
+        ? {
+            ...setting,
+            statusText: enabled ? '已开启' : '已关闭',
+          }
+        : setting,
+    ),
+  };
+
+  await AsyncStorage.setItem(
+    '@vireCodeing/profile-local-state',
+    JSON.stringify({
+      version: 1,
+      state: nextState,
+    }),
+  );
+  saveProfileLocalState(nextState);
 }
 
 async function flushMicrotasks() {
@@ -16670,6 +16830,123 @@ test('syncs platform account snapshots without leaving profile sync pending', as
   }
 });
 
+test('does not register the push token after platform login when order notifications are disabled locally', async () => {
+  const originalFetch = globalThis.fetch;
+
+  await setLocalOrderNotificationsEnabled(false);
+
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestMethod = init?.method ?? 'GET';
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-login-push-disabled',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-login-push-disabled.900',
+            refreshToken: 'refresh.platform-login-push-disabled.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'push-login-current-device',
+              userId: 'user-platform-login-push-disabled',
+              token: 'ExponentPushToken[current-login-disabled-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: getDeviceId(),
+              isActive: true,
+              createdAtIso: '2026-07-24T07:00:00.000Z',
+              updatedAtIso: '2026-07-24T07:30:00.000Z',
+            },
+          ],
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens/deactivate' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          deactivated:
+            requestBody?.token ===
+            'ExponentPushToken[current-login-disabled-token]',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-tokens',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
+    expect(
+      getFetchCallBody<{
+        token: string;
+      }>(
+        findFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/me/device-tokens/deactivate',
+          method: 'POST',
+        }),
+      ),
+    ).toEqual({
+      token: 'ExponentPushToken[current-login-disabled-token]',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('keeps a failed platform account snapshot queued locally and retries it successfully', async () => {
   const originalFetch = globalThis.fetch;
   let accountSaveAttempts = 0;
@@ -17094,6 +17371,259 @@ test('syncs platform settings toggles and privacy confirmation through the accou
     expect(getProfileLocalState().syncState?.status).toBe('synced');
     expect(getRenderedText(app)).toContain('资料同步：已同步');
     expect(getRenderedText(app)).toContain('同步说明：隐私确认快照已同步到平台。');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('deactivates current-device push tokens when platform order notifications are turned off and re-registers them when turned back on', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(url);
+    const requestMethod = init?.method ?? 'GET';
+    const requestBody = init?.body ? JSON.parse(String(init.body)) : undefined;
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-order-notification-toggle',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-order-notification-toggle.900',
+            refreshToken: 'refresh.platform-order-notification-toggle.900',
+            expiresIn: 900,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-order-notification-toggle',
+          displayName: '平台昵称',
+          phone: '13800138000',
+          phoneProtectionEnabled: true,
+          loginProtectionEnabled: true,
+          orderNotificationEnabled: true,
+          promotionNotificationEnabled: false,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/account' &&
+      requestMethod === 'PUT'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          shipperId: 'user-platform-order-notification-toggle',
+          displayName: requestBody.displayName,
+          phone: '13800138000',
+          phoneProtectionEnabled: requestBody.phoneProtectionEnabled,
+          loginProtectionEnabled: requestBody.loginProtectionEnabled,
+          orderNotificationEnabled: requestBody.orderNotificationEnabled,
+          promotionNotificationEnabled: requestBody.promotionNotificationEnabled,
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-token' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'push-current-device',
+          userId: 'user-platform-order-notification-toggle',
+          token: requestBody.pushToken,
+          platform: requestBody.platform,
+          deviceId: requestBody.deviceId,
+          isActive: true,
+          createdAtIso: '2026-07-24T08:00:00.000Z',
+          updatedAtIso: '2026-07-24T08:00:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens' &&
+      requestMethod === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          items: [
+            {
+              id: 'push-current-device',
+              userId: 'user-platform-order-notification-toggle',
+              token: 'ExponentPushToken[current-toggle-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: getDeviceId(),
+              isActive: true,
+              createdAtIso: '2026-07-24T08:00:00.000Z',
+              updatedAtIso: '2026-07-24T08:10:00.000Z',
+            },
+            {
+              id: 'push-other-device',
+              userId: 'user-platform-order-notification-toggle',
+              token: 'ExponentPushToken[other-toggle-token]',
+              platform: Platform.OS === 'ios' ? 'ios' : 'android',
+              deviceId: 'mobile-device-other',
+              isActive: true,
+              createdAtIso: '2026-07-24T07:00:00.000Z',
+              updatedAtIso: '2026-07-24T07:10:00.000Z',
+            },
+          ],
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/me/device-tokens/deactivate' &&
+      requestMethod === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          deactivated:
+            requestBody?.token === 'ExponentPushToken[current-toggle-token]',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-settings' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      await app.root
+        .findByProps({ testID: 'setting-toggle-setting-notification' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    const saveCallsAfterDisable = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/account',
+      method: 'PUT',
+    });
+    expect(saveCallsAfterDisable).toHaveLength(1);
+    expect(getFetchCallBody(saveCallsAfterDisable[0])).toMatchObject({
+      orderNotificationEnabled: false,
+    });
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-tokens',
+        method: 'GET',
+      }),
+    ).toHaveLength(1);
+    expect(
+      getFetchCallBody<{
+        token: string;
+      }>(
+        findFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/me/device-tokens/deactivate',
+          method: 'POST',
+        }),
+      ),
+    ).toEqual({
+      token: 'ExponentPushToken[current-toggle-token]',
+    });
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      await app.root
+        .findByProps({ testID: 'setting-toggle-setting-notification' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    const saveCallsAfterEnable = findFetchCalls(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/profile/account',
+      method: 'PUT',
+    });
+    expect(saveCallsAfterEnable).toHaveLength(2);
+    expect(getFetchCallBody(saveCallsAfterEnable[1])).toMatchObject({
+      orderNotificationEnabled: true,
+    });
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/me/device-token',
+        method: 'POST',
+      }),
+    ).toHaveLength(1);
+    expect(
+      getFetchCallBody<{
+        pushToken: string;
+        deviceId: string;
+      }>(
+        findLastFetchCall(fetchMock, {
+          url: 'http://localhost:3000/api/me/device-token',
+          method: 'POST',
+        }),
+      ),
+    ).toMatchObject({
+      pushToken: 'ExponentPushToken[mock-token]',
+      deviceId: getDeviceId(),
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -163,11 +163,7 @@ export function createPlatformProfileSettingsSnapshot(
       'setting-login-protection',
       true,
     ),
-    orderNotificationEnabled: readSettingToggleValue(
-      settings,
-      'setting-notification',
-      true,
-    ),
+    orderNotificationEnabled: isOrderNotificationEnabled(settings),
     promotionNotificationEnabled: readSettingToggleValue(
       settings,
       'setting-promotion',
@@ -272,6 +268,10 @@ export function applyPlatformProfileSettingsSnapshot(
 
     return item;
   });
+}
+
+export function isOrderNotificationEnabled(settings: SettingItem[]) {
+  return readSettingToggleValue(settings, 'setting-notification', true);
 }
 
 export function validateAccountSettings({
