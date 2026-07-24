@@ -573,6 +573,18 @@ export class OrdersService {
       nextStatus: completedOrder.status,
     });
 
+    if (completedOrder.assignedDriverId) {
+      await this.safeNotifyOrderEvent({
+        event: 'settlement_closed',
+        orderId: completedOrder.id,
+        orderNo: completedOrder.orderNo,
+        shipperId: completedOrder.shipperId,
+        driverId: completedOrder.assignedDriverId,
+        amountCents:
+          completedOrder.payablePriceCents ?? completedOrder.priceCents,
+      });
+    }
+
     return completedOrder;
   }
 
@@ -1089,12 +1101,14 @@ export class OrdersService {
       | 'driver_accepted'
       | 'status_advanced'
       | 'completed'
-      | 'cancelled';
+      | 'cancelled'
+      | 'settlement_closed';
     orderId: string;
     orderNo: string;
     shipperId: string;
     driverId?: string | null;
     nextStatus?: string;
+    amountCents?: number;
   }) {
     if (!this.notificationsService) {
       return;

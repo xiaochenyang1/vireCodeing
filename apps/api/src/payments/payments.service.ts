@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { CreatePaymentRequest } from './dto';
 import {
   hashCallbackPayload,
@@ -26,6 +27,7 @@ export class PaymentsService {
   private readonly now: () => Date;
   private readonly createId: () => string;
   private readonly paymentExpiresSeconds: number;
+  private readonly notificationsService?: NotificationsService;
 
   constructor(
     private readonly repository: PaymentsRepository,
@@ -34,11 +36,13 @@ export class PaymentsService {
       now?: () => Date;
       createId?: () => string;
       paymentExpiresSeconds?: number;
+      notificationsService?: NotificationsService;
     } = {},
   ) {
     this.now = options.now ?? (() => new Date());
     this.createId = options.createId ?? randomUUID;
     this.paymentExpiresSeconds = options.paymentExpiresSeconds ?? 900;
+    this.notificationsService = options.notificationsService;
   }
 
   async createPayment(
@@ -158,12 +162,28 @@ export class PaymentsService {
     channel: PaymentProviderChannel,
     callback: VerifiedPaymentCallback,
   ) {
-    return this.unwrapPaymentCallbackResult(
+    const result = this.unwrapPaymentCallbackResult(
       await this.repository.applyVerifiedPaymentCallback({
         channel,
         callback,
       }),
     );
+
+    if (
+      result.kind === 'applied' &&
+      !result.replayed &&
+      result.orderPaymentStatus === 'escrowed'
+    ) {
+      await this.safeNotifyOrderEvent({
+        event: 'payment_escrowed',
+        orderId: result.payment.orderId,
+        orderNo: result.payment.orderNo,
+        shipperId: result.payment.shipperId,
+        amountCents: result.payment.amountCents,
+      });
+    }
+
+    return result;
   }
 
   async handleRefundCallback(
@@ -187,12 +207,24 @@ export class PaymentsService {
     channel: PaymentProviderChannel,
     callback: VerifiedRefundCallback,
   ) {
-    return this.unwrapRefundCallbackResult(
+    const result = this.unwrapRefundCallbackResult(
       await this.repository.applyVerifiedRefundCallback({
         channel,
         callback,
       }),
     );
+
+    if (result.kind === 'applied' && !result.replayed) {
+      await this.safeNotifyOrderEvent({
+        event: 'refund_succeeded',
+        orderId: result.payment.orderId,
+        orderNo: result.payment.orderNo,
+        shipperId: result.payment.shipperId,
+        amountCents: result.refund.amountCents,
+      });
+    }
+
+    return result;
   }
 
   async processRefundOutboxEvent(
@@ -334,5 +366,23 @@ export class PaymentsService {
         ? '退款回调对应的退款单不存在'
         : '退款回调与已有资金事实冲突',
     );
+  }
+
+  private async safeNotifyOrderEvent(input: {
+    event: 'payment_escrowed' | 'refund_succeeded';
+    orderId: string;
+    orderNo: string;
+    shipperId: string;
+    amountCents?: number;
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifyOrderEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break payment/refund callbacks.
+    }
   }
 }

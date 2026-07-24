@@ -154,6 +154,57 @@ describe('NotificationsService', () => {
     expect(driverMessages.items).toHaveLength(0);
   });
 
+  it('notifies shipper and driver for payment escrow, refund and settlement events', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-24T10:00:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const service = new NotificationsService(repository, new FakePushProvider());
+
+    await service.notifyOrderEvent({
+      event: 'payment_escrowed',
+      orderId: 'order-1',
+      orderNo: 'HY20260724001',
+      shipperId: 'shipper-1',
+      amountCents: 31000,
+    });
+    await service.notifyOrderEvent({
+      event: 'refund_succeeded',
+      orderId: 'order-1',
+      orderNo: 'HY20260724001',
+      shipperId: 'shipper-1',
+      amountCents: 31000,
+    });
+    await service.notifyOrderEvent({
+      event: 'settlement_closed',
+      orderId: 'order-1',
+      orderNo: 'HY20260724001',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      amountCents: 28000,
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const driverMessages = await service.listMessages('driver-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(shipperMessages.items.map(item => item.title)).toEqual(
+      expect.arrayContaining(['支付资金已托管', '退款已到账']),
+    );
+    expect(driverMessages.items[0]).toMatchObject({
+      title: '订单收入已结算',
+      content: expect.stringContaining('金额 280 元'),
+    });
+  });
+
   it('returns not found when marking a foreign message', async () => {
     const repository = new InMemoryNotificationsRepository();
     const service = new NotificationsService(repository, new FakePushProvider());

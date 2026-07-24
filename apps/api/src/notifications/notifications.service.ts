@@ -18,7 +18,10 @@ export type NotifyOrderEventInput = {
     | 'driver_accepted'
     | 'status_advanced'
     | 'completed'
-    | 'cancelled';
+    | 'cancelled'
+    | 'payment_escrowed'
+    | 'refund_succeeded'
+    | 'settlement_closed';
   orderId: string;
   orderNo: string;
   shipperId: string;
@@ -26,6 +29,7 @@ export type NotifyOrderEventInput = {
   nextStatus?: string;
   quoteCents?: number;
   arrivalText?: string;
+  amountCents?: number;
 };
 
 export type NotifyExceptionEventInput = {
@@ -299,6 +303,43 @@ function buildOrderEventRecipients(
             ]
           : []),
       ];
+    case 'payment_escrowed':
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          title: '支付资金已托管',
+          content: `订单 ${orderLabel} 支付成功，资金已托管${formatAmountSuffix(
+            input.amountCents,
+          )}。`,
+        },
+      ];
+    case 'refund_succeeded':
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          title: '退款已到账',
+          content: `订单 ${orderLabel} 退款成功${formatAmountSuffix(
+            input.amountCents,
+          )}。`,
+        },
+      ];
+    case 'settlement_closed':
+      return [
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                title: '订单收入已结算',
+                content: `订单 ${orderLabel} 已完成结算${formatAmountSuffix(
+                  input.amountCents,
+                )}，可在收入明细中查看。`,
+              },
+            ]
+          : []),
+      ];
   }
 }
 
@@ -422,6 +463,21 @@ function uniqueRecipients<T extends { userId: string; audience: string }>(
     seen.add(key);
     return true;
   });
+}
+
+function formatAmountSuffix(amountCents?: number) {
+  if (
+    typeof amountCents !== 'number' ||
+    !Number.isFinite(amountCents) ||
+    amountCents <= 0
+  ) {
+    return '';
+  }
+
+  const yuan = amountCents / 100;
+  const amountText =
+    amountCents % 100 === 0 ? String(yuan) : yuan.toFixed(2);
+  return `，金额 ${amountText} 元`;
 }
 
 function formatOrderStatus(status?: string) {

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminFinanceController } from './admin-finance.controller';
@@ -36,7 +38,7 @@ import { WechatPaymentProvider } from './wechat-payment.provider';
 export const paymentProviderResolverToken = 'PaymentProviderResolver';
 
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule],
   controllers: [
     PaymentsController,
     PaymentCallbacksController,
@@ -76,14 +78,20 @@ export const paymentProviderResolverToken = 'PaymentProviderResolver';
       useFactory: (
         repository: PrismaPaymentsRepository,
         resolver: PaymentProviderResolver,
+        notificationsService: NotificationsService,
       ) =>
         new PaymentsService(repository, resolver, {
           paymentExpiresSeconds: parsePositiveInteger(
             process.env.PAYMENT_ORDER_TTL_SECONDS,
             900,
           ),
+          notificationsService,
         }),
-      inject: [PrismaPaymentsRepository, paymentProviderResolverToken],
+      inject: [
+        PrismaPaymentsRepository,
+        paymentProviderResolverToken,
+        NotificationsService,
+      ],
     },
     {
       provide: AdminFinanceService,
