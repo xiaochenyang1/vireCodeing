@@ -33,6 +33,12 @@ const defaultModules = [
     summary: '按状态、时间和关键字查后台订单列表，打开单笔详情看路线、金额、事件和异常快照，也能原子批量取消 waiting 订单。',
   },
   {
+    key: 'order-change-request',
+    title: '订单修改申请审核台',
+    route: '/api/admin/order-change-request-console',
+    summary: '查看货主修改申请队列，并执行单条通过或驳回。',
+  },
+  {
     key: 'session-governance',
     title: '后台会话治理台',
     route: '/api/admin/session-governance-console',

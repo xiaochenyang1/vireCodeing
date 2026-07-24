@@ -120,6 +120,16 @@ function createModules(
       pendingGaps: ['发票文件下载', '税局回调', '审核事件审计'],
     },
     {
+      key: 'order-change-request',
+      title: '订单修改申请审核台',
+      route: '/api/admin/order-change-request-console',
+      stage: 'first_slice',
+      summary:
+        '货主修改申请后台列表与通过驳回第一片已接上，还没做费用重算、司机通知深链路和审核事件审计。',
+      metrics: [],
+      pendingGaps: ['费用重算', '司机通知深链路', '审核事件审计'],
+    },
+    {
       key: 'order-management',
       title: '订单管理台',
       route: '/api/admin/order-management-console',

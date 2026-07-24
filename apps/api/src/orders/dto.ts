@@ -99,6 +99,37 @@ export type SubmitShipperOrderChangeRequest = {
   description: string;
 };
 
+export type ReviewShipperOrderChangeRequest = {
+  decision: 'approved' | 'rejected';
+  reviewResultText?: string;
+};
+
+export type ListAdminOrderChangeRequestsQuery = {
+  status: 'pending' | 'approved' | 'rejected';
+  page: number;
+  pageSize: number;
+};
+
+export type AdminOrderChangeRequestRecord = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  description: string;
+  reviewResultText?: string;
+  requestedAtIso: string;
+  reviewedAtIso?: string;
+  assignedDriverId?: string;
+  orderStatus: ShipperOrderStatus;
+};
+
+export type ListAdminOrderChangeRequestsResult = {
+  items: AdminOrderChangeRequestRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type SubmitShipperOrderEvaluationRequest = {
   rating: number;
   tags: string[];

@@ -952,4 +952,49 @@ describe('platform order mapper', () => {
       driverName: '平台司机 d10',
     });
   });
+
+  it('maps pending and reviewed change request events into modificationRequest', () => {
+    const pending = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        events: [
+          event({
+            id: 'change-1',
+            eventType: 'change_requested',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            noteText: '请把卸货地址改到南山门店二期',
+          }),
+        ],
+      }),
+    );
+    expect(pending.modificationRequest).toMatchObject({
+      description: '请把卸货地址改到南山门店二期',
+      statusText: '待客服确认',
+    });
+
+    const approved = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        events: [
+          event({
+            id: 'change-1',
+            eventType: 'change_requested',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            noteText: '请把卸货地址改到南山门店二期',
+          }),
+          event({
+            id: 'change-2',
+            eventType: 'change_request_approved',
+            createdAtIso: '2026-07-24T09:00:00.000Z',
+            noteText: '已确认地址变更',
+          }),
+        ],
+      }),
+    );
+    expect(approved.modificationRequest).toMatchObject({
+      description: '请把卸货地址改到南山门店二期',
+      statusText: '客服已通过',
+      reviewResultText: '已确认地址变更',
+    });
+  });
 });

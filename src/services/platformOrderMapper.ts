@@ -32,6 +32,8 @@ export function mapPlatformOrderToRecentOrder(
     '平台货物图片',
   );
   const exceptionReport = createExceptionReportFromPlatformEvents(order);
+  const modificationRequest =
+    createModificationRequestFromPlatformEvents(order);
   const evaluation = createEvaluationFromPlatformEvents(order);
   const shipperEvaluation = createShipperEvaluationFromPlatformEvents(order);
   const latestExceptionCase = createLatestExceptionCaseFromPlatformOrder(order);
@@ -93,6 +95,7 @@ export function mapPlatformOrderToRecentOrder(
     ...(acceptedDriverInfo ? { driverInfo: acceptedDriverInfo } : {}),
     driverQuotes: createDriverQuotesFromPlatformEvents(order),
     ...(exceptionReport ? { exceptionReport } : {}),
+    ...(modificationRequest ? { modificationRequest } : {}),
     ...(evaluation ? { evaluation } : {}),
     ...(shipperEvaluation ? { shipperEvaluation } : {}),
     ...(latestExceptionCase ? { latestExceptionCase } : {}),
@@ -224,6 +227,57 @@ function findLatestDriverQuoteEventForDriver(
         ? event
         : latestEvent;
     }, undefined);
+}
+
+function createModificationRequestFromPlatformEvents(
+  order: PlatformShipperOrder,
+) {
+  const requestEvent = findLatestPlatformEvent(order, 'change_requested');
+  if (!requestEvent?.noteText?.trim()) {
+    return undefined;
+  }
+
+  const reviewEvent = (order.events ?? [])
+    .filter(
+      event =>
+        (event.eventType === 'change_request_approved' ||
+          event.eventType === 'change_request_rejected') &&
+        event.createdAtIso >= requestEvent.createdAtIso,
+    )
+    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+
+  if (!reviewEvent) {
+    return {
+      description: requestEvent.noteText.trim(),
+      statusText: '待客服确认',
+      impactText:
+        '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。',
+      costImpactText: '待平台重新核算费用，当前订单金额暂不变更。',
+      refundText: '支付资金暂不变更，平台审核通过后再同步差额。',
+      driverNoticeText: '已生成平台修改确认通知，等待客服确认后同步。',
+    };
+  }
+
+  const approved = reviewEvent.eventType === 'change_request_approved';
+  return {
+    description: requestEvent.noteText.trim(),
+    statusText: approved ? '客服已通过' : '客服已驳回',
+    impactText: approved
+      ? '平台客服已确认修改申请，后续费用与司机通知以平台结果为准。'
+      : '平台客服已驳回修改申请，订单继续按原内容执行。',
+    costImpactText: approved
+      ? '平台已确认费用影响，当前订单金额如需调整将另行同步。'
+      : '修改申请已驳回，订单金额保持不变。',
+    refundText: approved
+      ? '如涉及差额，将按平台结算结果处理。'
+      : '修改申请已驳回，支付资金不做变更。',
+    driverNoticeText: approved
+      ? '已通知司机按修改后要求执行。'
+      : '已通知司机继续按原订单执行。',
+    reviewResultText:
+      reviewEvent.noteText?.trim() ||
+      (approved ? '平台客服已通过修改申请' : '平台客服已驳回修改申请'),
+  };
 }
 
 function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {

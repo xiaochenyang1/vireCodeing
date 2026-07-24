@@ -20,6 +20,10 @@ const adminConsoleNavItems = [
     route: '/api/admin/order-management-console',
   },
   {
+    label: '改单审核',
+    route: '/api/admin/order-change-request-console',
+  },
+  {
     label: '会话治理',
     route: '/api/admin/session-governance-console',
   },

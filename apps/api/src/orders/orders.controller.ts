@@ -35,6 +35,7 @@ import type {
   CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
   ReportShipperOrderExceptionRequest,
+  ReviewShipperOrderChangeRequest,
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
   UpdateShipperOrderRequest,
@@ -54,6 +55,7 @@ import {
   createShipperOrderSchema,
   listShipperOrdersQuerySchema,
   reportShipperOrderExceptionSchema,
+  reviewShipperOrderChangeRequestSchema,
   parseAdminOrderFilters,
   parseAdminOrderReportQuery,
   submitShipperOrderChangeRequestSchema,
@@ -66,8 +68,10 @@ import {
   parseCancelShipperOrderRequest,
   parseCompleteShipperOrderRequest,
   parseCreateShipperOrderRequest,
+  parseListAdminOrderChangeRequestsQuery,
   parseListShipperOrdersQuery,
   parseReportShipperOrderExceptionRequest,
+  parseReviewShipperOrderChangeRequest,
   parseSubmitShipperOrderChangeRequest,
   parseSubmitShipperOrderEvaluationRequest,
   parseUpdateShipperOrderRequest,
@@ -355,6 +359,45 @@ export class AdminOrdersController {
 
     return this.ordersService.exportAdminOrdersCsv(
       parseAdminOrderFilters(query),
+    );
+  }
+
+  @Get('change-requests')
+  @ApiOperation({
+    summary: '管理员修改申请列表',
+    description: '按 pending/approved/rejected 查看货主修改申请队列',
+  })
+  async listAdminOrderChangeRequests(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return ok(
+      await this.ordersService.listAdminOrderChangeRequests(
+        getCurrentAdmin(request),
+        parseListAdminOrderChangeRequestsQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':orderId/change-request/review')
+  @ApiOperation({
+    summary: '审核货主修改申请',
+    description: '管理员通过或驳回订单修改申请，结果写入订单事件',
+  })
+  async reviewOrderChangeRequest(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Body(new ZodValidationPipe(reviewShipperOrderChangeRequestSchema))
+    body: ReviewShipperOrderChangeRequest,
+  ) {
+    return ok(
+      await this.ordersService.reviewOrderChangeRequest(
+        getCurrentAdmin(request),
+        orderId,
+        parseReviewShipperOrderChangeRequest(body),
+      ),
+      getRequestId(request),
     );
   }
 

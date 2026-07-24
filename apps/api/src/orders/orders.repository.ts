@@ -1,14 +1,18 @@
 import { randomUUID } from 'crypto';
 import type {
   AdminBatchCancelOrderItem,
+  AdminOrderChangeRequestRecord,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
   BatchCancelAdminOrdersResult,
   CancelShipperOrderRequest,
   CreateShipperOrderRequest,
   AdminOrderAttachmentAuditListQuery,
+  ListAdminOrderChangeRequestsQuery,
+  ListAdminOrderChangeRequestsResult,
   ListShipperOrdersQuery,
   ReportShipperOrderExceptionRequest,
+  ReviewShipperOrderChangeRequest,
   ShipperOrderEventRecord,
   ShipperOrderRecord,
   SubmitShipperOrderChangeRequest,
@@ -328,6 +332,14 @@ export interface OrdersRepository {
     orderId: string,
     actorUserId: string,
     input: SubmitShipperOrderChangeRequest,
+  ): Promise<ShipperOrderRecord>;
+  listAdminOrderChangeRequests(
+    query: ListAdminOrderChangeRequestsQuery,
+  ): Promise<ListAdminOrderChangeRequestsResult>;
+  reviewOrderChangeRequest(
+    orderId: string,
+    actorUserId: string,
+    input: ReviewShipperOrderChangeRequest,
   ): Promise<ShipperOrderRecord>;
   submitOrderEvaluation(
     orderId: string,
@@ -1281,6 +1293,62 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       id: `event-${this.orders.length}-${order.events.length + 1}`,
       eventType: 'change_requested',
       noteText: input.description,
+      createdAtIso: nowIso,
+    });
+
+    return order;
+  }
+
+  async listAdminOrderChangeRequests(
+    query: ListAdminOrderChangeRequestsQuery,
+  ): Promise<ListAdminOrderChangeRequestsResult> {
+    const items = this.orders
+      .map(order => createAdminOrderChangeRequestRecord(order))
+      .filter(
+        (record): record is AdminOrderChangeRequestRecord =>
+          Boolean(record) && record!.status === query.status,
+      )
+      .sort((left, right) =>
+        right.requestedAtIso.localeCompare(left.requestedAtIso),
+      );
+    const start = (query.page - 1) * query.pageSize;
+
+    return {
+      items: items.slice(start, start + query.pageSize),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: items.length,
+    };
+  }
+
+  async reviewOrderChangeRequest(
+    orderId: string,
+    actorUserId: string,
+    input: ReviewShipperOrderChangeRequest,
+  ): Promise<ShipperOrderRecord> {
+    const order = this.orders.find(currentOrder => currentOrder.id === orderId);
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    const latestRequest = findLatestOrderChangeRequest(order);
+    if (!latestRequest || latestRequest.status !== 'pending') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前订单没有待审核的修改申请',
+      );
+    }
+
+    const nowIso = this.now().toISOString();
+    order.updatedAtIso = nowIso;
+    order.events.push({
+      id: `event-${this.orders.length}-${order.events.length + 1}`,
+      actorUserId,
+      eventType:
+        input.decision === 'approved'
+          ? 'change_request_approved'
+          : 'change_request_rejected',
+      noteText: createOrderChangeReviewNote(input),
       createdAtIso: nowIso,
     });
 
@@ -5133,6 +5201,74 @@ export class PrismaOrdersRepository implements OrdersRepository {
     return mapPrismaOrder(order);
   }
 
+  async listAdminOrderChangeRequests(
+    query: ListAdminOrderChangeRequestsQuery,
+  ): Promise<ListAdminOrderChangeRequestsResult> {
+    const orders = await this.prisma.order.findMany({
+      where: {},
+      include: orderInclude,
+      orderBy: { updatedAt: 'desc' },
+    });
+    const items = orders
+      .map(order => createAdminOrderChangeRequestRecord(mapPrismaOrder(order)))
+      .filter(
+        (record): record is AdminOrderChangeRequestRecord =>
+          Boolean(record) && record!.status === query.status,
+      )
+      .sort((left, right) =>
+        right.requestedAtIso.localeCompare(left.requestedAtIso),
+      );
+    const start = (query.page - 1) * query.pageSize;
+
+    return {
+      items: items.slice(start, start + query.pageSize),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: items.length,
+    };
+  }
+
+  async reviewOrderChangeRequest(
+    orderId: string,
+    actorUserId: string,
+    input: ReviewShipperOrderChangeRequest,
+  ): Promise<ShipperOrderRecord> {
+    const current = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: orderInclude,
+    });
+    if (!current) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    const latestRequest = findLatestOrderChangeRequest(mapPrismaOrder(current));
+    if (!latestRequest || latestRequest.status !== 'pending') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '当前订单没有待审核的修改申请',
+      );
+    }
+
+    const order = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        events: {
+          create: {
+            actorUserId,
+            eventType:
+              input.decision === 'approved'
+                ? 'change_request_approved'
+                : 'change_request_rejected',
+            noteText: createOrderChangeReviewNote(input),
+          },
+        },
+      },
+      include: orderInclude,
+    });
+
+    return mapPrismaOrder(order);
+  }
+
   async submitOrderEvaluation(
     orderId: string,
     actorUserId: string,
@@ -6040,6 +6176,85 @@ function createShipperBonusAddedNote(
   totalBonusCents: number,
 ) {
   return `货主追加曝光赏金 ${addedBonusCents} 分，当前总赏金 ${totalBonusCents} 分`;
+}
+
+function createOrderChangeReviewNote(input: ReviewShipperOrderChangeRequest) {
+  const defaultText =
+    input.decision === 'approved'
+      ? '平台客服已通过修改申请'
+      : '平台客服已驳回修改申请';
+  return input.reviewResultText?.trim() || defaultText;
+}
+
+function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
+  status: 'pending' | 'approved' | 'rejected';
+  description: string;
+  reviewResultText?: string;
+  requestedAtIso: string;
+  reviewedAtIso?: string;
+} | null {
+  const requestEvent = [...order.events]
+    .reverse()
+    .find(event => event.eventType === 'change_requested');
+  if (!requestEvent) {
+    return null;
+  }
+
+  const reviewEvent = order.events
+    .filter(
+      event =>
+        (event.eventType === 'change_request_approved' ||
+          event.eventType === 'change_request_rejected') &&
+        event.createdAtIso >= requestEvent.createdAtIso,
+    )
+    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+
+  if (!reviewEvent) {
+    return {
+      status: 'pending',
+      description: requestEvent.noteText ?? '',
+      requestedAtIso: requestEvent.createdAtIso,
+    };
+  }
+
+  return {
+    status:
+      reviewEvent.eventType === 'change_request_approved'
+        ? 'approved'
+        : 'rejected',
+    description: requestEvent.noteText ?? '',
+    reviewResultText: reviewEvent.noteText,
+    requestedAtIso: requestEvent.createdAtIso,
+    reviewedAtIso: reviewEvent.createdAtIso,
+  };
+}
+
+function createAdminOrderChangeRequestRecord(
+  order: ShipperOrderRecord,
+): AdminOrderChangeRequestRecord | null {
+  const changeRequest = findLatestOrderChangeRequest(order);
+  if (!changeRequest) {
+    return null;
+  }
+
+  return {
+    orderId: order.id,
+    orderNo: order.orderNo,
+    shipperId: order.shipperId,
+    status: changeRequest.status,
+    description: changeRequest.description,
+    ...(changeRequest.reviewResultText
+      ? { reviewResultText: changeRequest.reviewResultText }
+      : {}),
+    requestedAtIso: changeRequest.requestedAtIso,
+    ...(changeRequest.reviewedAtIso
+      ? { reviewedAtIso: changeRequest.reviewedAtIso }
+      : {}),
+    ...(order.assignedDriverId
+      ? { assignedDriverId: order.assignedDriverId }
+      : {}),
+    orderStatus: order.status,
+  };
 }
 
 function isOrderAcceptedByDriver(order: ShipperOrderRecord, driverId: string) {

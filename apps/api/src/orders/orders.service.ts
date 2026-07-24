@@ -25,9 +25,11 @@ import type {
   CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
   ListAdminOrderAttachmentAuditsResult,
+  ListAdminOrderChangeRequestsQuery,
   ListShipperOrdersQuery,
   ListShipperOrdersResult,
   ReportShipperOrderExceptionRequest,
+  ReviewShipperOrderChangeRequest,
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
   ShipperOrderRecord,
@@ -958,6 +960,26 @@ export class OrdersService {
     }
 
     return this.repository.submitOrderChangeRequest(orderId, shipperId, input);
+  }
+
+  async listAdminOrderChangeRequests(
+    adminUserId: string,
+    query: ListAdminOrderChangeRequestsQuery,
+  ) {
+    void adminUserId;
+    return this.repository.listAdminOrderChangeRequests(query);
+  }
+
+  async reviewOrderChangeRequest(
+    adminUserId: string,
+    orderId: string,
+    input: ReviewShipperOrderChangeRequest,
+  ) {
+    return this.repository.reviewOrderChangeRequest(
+      orderId,
+      adminUserId,
+      input,
+    );
   }
 
   async submitOrderEvaluation(

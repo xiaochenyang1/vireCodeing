@@ -1848,6 +1848,60 @@ describe('OrdersService', () => {
     );
   });
 
+  it('lists and reviews pending order change requests for admin', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+    await service.submitOrderChangeRequest('shipper-1', order.id, {
+      description: '请把卸货地址改到南山门店二期',
+    });
+
+    await expect(
+      service.listAdminOrderChangeRequests('admin-1', {
+        status: 'pending',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          orderId: order.id,
+          status: 'pending',
+          description: '请把卸货地址改到南山门店二期',
+        }),
+      ],
+    });
+
+    const reviewed = await service.reviewOrderChangeRequest(
+      'admin-1',
+      order.id,
+      {
+        decision: 'approved',
+        reviewResultText: '已确认地址变更',
+      },
+    );
+    expect(
+      reviewed.events.some(
+        event =>
+          event.eventType === 'change_request_approved' &&
+          event.noteText === '已确认地址变更',
+      ),
+    ).toBe(true);
+  });
+
   it('replays an idempotent shipper cancellation without duplicating events', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,

@@ -110,6 +110,13 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
       '按状态、时间和关键字检索后台订单列表/详情、读取筛选报表和导出 CSV，并可原子批量取消当前筛选结果里的 waiting 订单。',
   },
   {
+    key: 'order-change-request',
+    title: '订单修改申请审核台',
+    route: '/api/admin/order-change-request-console',
+    summary:
+      '读取货主修改申请队列，并可单条通过 / 驳回，打通改单审核第一片。',
+  },
+  {
     key: 'session-governance',
     title: '后台会话治理台',
     route: '/api/admin/session-governance-console',

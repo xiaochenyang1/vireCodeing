@@ -23,6 +23,7 @@ import { renderFileMaintenanceAdminConsole } from './file-maintenance-admin-cons
 import { renderFinanceAdminConsole } from './finance-admin-console';
 import { renderOrderManagementAdminConsole } from './order-management-admin-console';
 import { renderOrderAttachmentAdminConsole } from './order-attachment-admin-console';
+import { renderOrderChangeRequestAdminConsole } from './order-change-request-admin-console';
 import { renderOrderExceptionCaseAdminConsole } from './order-exception-case-admin-console';
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
@@ -106,6 +107,12 @@ export class AdminConsoleController {
   @Header('content-type', 'text/html; charset=utf-8')
   getOrderManagementConsole() {
     return renderOrderManagementAdminConsole();
+  }
+
+  @Get('order-change-request-console')
+  @Header('content-type', 'text/html; charset=utf-8')
+  getOrderChangeRequestConsole() {
+    return renderOrderChangeRequestAdminConsole();
   }
 
   @Get('session-governance-console')

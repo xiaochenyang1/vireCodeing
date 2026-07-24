@@ -11,8 +11,10 @@ import type {
   CancelShipperOrderRequest,
   CompleteShipperOrderRequest,
   CreateShipperOrderRequest,
+  ListAdminOrderChangeRequestsQuery,
   ListShipperOrdersQuery,
   ReportShipperOrderExceptionRequest,
+  ReviewShipperOrderChangeRequest,
   SubmitShipperOrderChangeRequest,
   SubmitShipperOrderEvaluationRequest,
   UpdateShipperOrderRequest,
@@ -428,6 +430,33 @@ export const submitShipperOrderChangeRequestSchema = z.object({
   description: z.string().trim().min(1, '修改说明不能为空').max(200),
 });
 
+export const reviewShipperOrderChangeRequestSchema = z.object({
+  decision: z.enum(['approved', 'rejected'], {
+    error: '审核结论只能是 approved 或 rejected',
+  }),
+  reviewResultText: z
+    .string()
+    .trim()
+    .max(200, '审核说明最多 200 字')
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+});
+
+const listAdminOrderChangeRequestsQuerySchema = z.object({
+  status: z
+    .string()
+    .trim()
+    .optional()
+    .default('pending')
+    .pipe(
+      z.enum(['pending', 'approved', 'rejected'], {
+        error: '修改申请状态筛选只能是 pending、approved 或 rejected',
+      }),
+    ),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+
 export const submitShipperOrderEvaluationSchema = z.object({
   rating: z.number().int().min(1).max(5),
   tags: z
@@ -564,6 +593,18 @@ export function parseAddShipperOrderBonusRequest(
   input: unknown,
 ): AddShipperOrderBonusRequest {
   return addShipperOrderBonusSchema.parse(input);
+}
+
+export function parseReviewShipperOrderChangeRequest(
+  input: unknown,
+): ReviewShipperOrderChangeRequest {
+  return reviewShipperOrderChangeRequestSchema.parse(input);
+}
+
+export function parseListAdminOrderChangeRequestsQuery(
+  input: unknown,
+): ListAdminOrderChangeRequestsQuery {
+  return listAdminOrderChangeRequestsQuerySchema.parse(input);
 }
 
 export function parseReportShipperOrderExceptionRequest(
