@@ -943,7 +943,22 @@ export function DriverHomeScreen({
     return platformDriverOrderApi
       .listBankCards()
       .then(result => {
-        setBankCards(Array.isArray(result.items) ? result.items : []);
+        const items = Array.isArray(result.items) ? result.items : [];
+        setBankCards(items);
+        setWithdrawalForm(current => {
+          if (
+            !current.selectedBankCardId ||
+            items.some(item => item.id === current.selectedBankCardId)
+          ) {
+            return current;
+          }
+
+          withdrawalIdempotencyKeyRef.current = undefined;
+          return {
+            ...current,
+            selectedBankCardId: undefined,
+          };
+        });
         return true;
       })
       .catch(() => {
@@ -2138,6 +2153,28 @@ export function DriverHomeScreen({
       });
   };
 
+  const updateWithdrawalForm = (
+    updater: (
+      current: DriverWithdrawalFormState,
+    ) => DriverWithdrawalFormState,
+  ) => {
+    withdrawalIdempotencyKeyRef.current = undefined;
+    setWithdrawalForm(current => updater(current));
+  };
+
+  const clearSelectedWithdrawalBankCard = () => {
+    updateWithdrawalForm(current => {
+      if (!current.selectedBankCardId) {
+        return current;
+      }
+
+      return {
+        ...current,
+        selectedBankCardId: undefined,
+      };
+    });
+  };
+
   const submitWithdrawal = () => {
     if (!platformDriverOrderApi) {
       setNotice('司机提现需要平台 API 配置。');
@@ -2296,12 +2333,12 @@ export function DriverHomeScreen({
   };
 
   const selectBankCard = (card: PlatformDriverBankCardRecord) => {
-    setWithdrawalForm(current => ({
+    updateWithdrawalForm(current => ({
       ...current,
       bankName: card.bankName,
       bankAccountName: card.bankAccountName,
       bankAccountNo: '',
-      bankCardId: card.id,
+      selectedBankCardId: card.id,
     }));
     setNotice(`已选择银行卡：${card.bankName}（${card.bankAccountMasked}）`);
   };
@@ -2380,6 +2417,9 @@ export function DriverHomeScreen({
     : [];
   const incomeChartData = aggregateIncomeRecordsByDay(incomeRecords, 7);
   const withdrawalRecords = Array.isArray(withdrawals) ? withdrawals : [];
+  const selectedWithdrawalBankCard = withdrawalForm.selectedBankCardId
+    ? bankCards.find(card => card.id === withdrawalForm.selectedBankCardId)
+    : undefined;
 
   const uploadCertificationFile = async (
     fieldName: DriverCertificationFileFieldName,
@@ -2811,10 +2851,9 @@ export function DriverHomeScreen({
           placeholderTextColor={colors.textMuted}
           keyboardType="numeric"
           value={withdrawalForm.amountText}
-          onChangeText={amountText => {
-            withdrawalIdempotencyKeyRef.current = undefined;
-            setWithdrawalForm(current => ({ ...current, amountText }))
-          }}
+          onChangeText={amountText =>
+            updateWithdrawalForm(current => ({ ...current, amountText }))
+          }
         />
         <TextInput
           testID="driver-withdrawal-bank-name"
@@ -2822,10 +2861,13 @@ export function DriverHomeScreen({
           placeholder="开户银行"
           placeholderTextColor={colors.textMuted}
           value={withdrawalForm.bankName}
-          onChangeText={bankName => {
-            withdrawalIdempotencyKeyRef.current = undefined;
-            setWithdrawalForm(current => ({ ...current, bankName }))
-          }}
+          onChangeText={bankName =>
+            updateWithdrawalForm(current => ({
+              ...current,
+              bankName,
+              selectedBankCardId: undefined,
+            }))
+          }
         />
         <TextInput
           testID="driver-withdrawal-bank-account-name"
@@ -2833,10 +2875,13 @@ export function DriverHomeScreen({
           placeholder="收款人姓名"
           placeholderTextColor={colors.textMuted}
           value={withdrawalForm.bankAccountName}
-          onChangeText={bankAccountName => {
-            withdrawalIdempotencyKeyRef.current = undefined;
-            setWithdrawalForm(current => ({ ...current, bankAccountName }))
-          }}
+          onChangeText={bankAccountName =>
+            updateWithdrawalForm(current => ({
+              ...current,
+              bankAccountName,
+              selectedBankCardId: undefined,
+            }))
+          }
         />
         <TextInput
           testID="driver-withdrawal-bank-account-no"
@@ -2845,11 +2890,27 @@ export function DriverHomeScreen({
           placeholderTextColor={colors.textMuted}
           keyboardType="numeric"
           value={withdrawalForm.bankAccountNo}
-          onChangeText={bankAccountNo => {
-            withdrawalIdempotencyKeyRef.current = undefined;
-            setWithdrawalForm(current => ({ ...current, bankAccountNo }))
-          }}
+          onChangeText={bankAccountNo =>
+            updateWithdrawalForm(current => ({ ...current, bankAccountNo }))
+          }
         />
+        {selectedWithdrawalBankCard ? (
+          <View style={styles.detailInlineGroup}>
+            <Text
+              testID="driver-withdrawal-selected-bank-card"
+              style={styles.detailMeta}
+            >
+              {`当前提现银行卡：${selectedWithdrawalBankCard.bankName} · ${selectedWithdrawalBankCard.bankAccountMasked}`}
+            </Text>
+            <Pressable
+              testID="driver-withdrawal-clear-bank-card"
+              style={styles.detailSecondaryButton}
+              onPress={clearSelectedWithdrawalBankCard}
+            >
+              <Text style={styles.detailSecondaryButtonText}>取消选卡</Text>
+            </Pressable>
+          </View>
+        ) : null}
         <Pressable
           testID="driver-withdrawal-submit"
           style={styles.detailPrimaryButton}

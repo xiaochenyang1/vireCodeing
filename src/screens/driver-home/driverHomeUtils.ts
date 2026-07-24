@@ -406,6 +406,7 @@ export function createDriverWithdrawalRequest(
   const bankAccountName = form.bankAccountName.trim();
   const bankName = form.bankName.trim();
   const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+  const selectedBankCardId = form.selectedBankCardId?.trim();
 
   if (
     !Number.isFinite(amountYuan) ||
@@ -422,6 +423,7 @@ export function createDriverWithdrawalRequest(
     bankAccountName,
     bankName,
     bankAccountNo,
+    ...(selectedBankCardId ? { bankCardId: selectedBankCardId } : {}),
   };
 }
 

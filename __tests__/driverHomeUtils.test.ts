@@ -217,6 +217,21 @@ test('validates a driver withdrawal request', () => {
     bankName: '招商银行',
     bankAccountNo: '6222000011112222',
   });
+  expect(
+    createDriverWithdrawalRequest({
+      amountText: '100',
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6222 0000 1111 2222',
+      selectedBankCardId: ' bank-card-1 ',
+    }),
+  ).toEqual({
+    amountCents: 10000,
+    bankAccountName: '李师傅',
+    bankName: '招商银行',
+    bankAccountNo: '6222000011112222',
+    bankCardId: 'bank-card-1',
+  });
 
   expect(
     createDriverWithdrawalRequest({
