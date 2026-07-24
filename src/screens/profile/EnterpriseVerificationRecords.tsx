@@ -74,12 +74,20 @@ function getEnterpriseVerificationStatus(
 
 export function EnterpriseVerificationRecords({
   verification,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
   platformProfileApi,
   platformFileApi,
   onSubmit,
   onReject,
 }: {
   verification?: EnterpriseVerificationRequest;
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
   platformProfileApi?: EnterprisePlatformProfileApi;
   platformFileApi?: EnterprisePlatformFileApi;
   onSubmit: (
@@ -106,10 +114,12 @@ export function EnterpriseVerificationRecords({
   const [licenseFiles, setLicenseFiles] = useState<VerificationFileRef[]>(
     verification?.licenseFiles ?? [],
   );
-  const [notice, setNotice] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const verificationStatus = getEnterpriseVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const platformNotice = canRefresh ? notice : '';
+  const noticeText = actionNotice || platformNotice;
   const {
     pickAndUpload: pickLicensePhotoAndUpload,
     clear: clearLicensePhotoUpload,
@@ -146,7 +156,7 @@ export function EnterpriseVerificationRecords({
     });
 
     if (!result.request) {
-      setNotice(result.noticeText);
+      setActionNotice(result.noticeText);
       return;
     }
 
@@ -154,7 +164,7 @@ export function EnterpriseVerificationRecords({
       const licenseFileId = licenseFiles[0]?.fileId;
 
       if (!licenseFileId) {
-        setNotice('平台企业认证提交需要先上传营业执照凭证。');
+        setActionNotice('平台企业认证提交需要先上传营业执照凭证。');
         return;
       }
 
@@ -176,30 +186,33 @@ export function EnterpriseVerificationRecords({
           rejectionReason: savedVerification.rejectionReason,
           updatedAtIso: savedVerification.updatedAtIso,
         });
-        setNotice('企业认证资料已提交到平台审核。');
+        setActionNotice('企业认证资料已提交到平台审核。');
       } catch (error) {
-        const noticeText =
+        const syncFailureNotice =
           error instanceof PlatformApiError &&
             error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '企业认证提交需要重新登录后再同步。'
             : '企业认证资料提交失败，已保留本地资料，请稍后重试。';
         onSubmit(result.request, {
           syncStatus: 'failed',
-          syncMessage: noticeText,
+          syncMessage: syncFailureNotice,
         });
-        setNotice(noticeText);
+        setActionNotice(syncFailureNotice);
       }
       return;
     }
 
     onSubmit(result.request);
-    setNotice('企业认证资料已提交，当前为本地演示状态。');
+    setActionNotice('企业认证资料已提交，当前为本地演示状态。');
   };
 
   const rejectVerification = () => {
-    const { reason, noticeText } = getEnterpriseVerificationRejectionNotice();
+    const {
+      reason,
+      noticeText: rejectionNoticeText,
+    } = getEnterpriseVerificationRejectionNotice();
     onReject(reason);
-    setNotice(noticeText);
+    setActionNotice(rejectionNoticeText);
   };
 
   const attachLicensePhoto = async () => {
@@ -207,7 +220,7 @@ export function EnterpriseVerificationRecords({
 
     if (!platformFileApi) {
       setLicensePhotoCount(1);
-      setNotice('营业执照凭证已添加，本地版不会上传真实文件。');
+      setActionNotice('营业执照凭证已添加，本地版不会上传真实文件。');
       return;
     }
 
@@ -216,17 +229,42 @@ export function EnterpriseVerificationRecords({
     if (result.status === 'uploaded') {
       setLicenseFiles([mapPlatformFileToVerificationRef(result.file, fileName)]);
       setLicensePhotoCount(1);
-      setNotice('营业执照凭证已关联平台文件对象。');
+      setActionNotice('营业执照凭证已关联平台文件对象。');
       return;
     }
 
     if (result.status === 'error') {
-      setNotice(result.message);
+      setActionNotice(result.message);
     }
+  };
+
+  const handleRefresh = () => {
+    setActionNotice('');
+    onRefresh?.();
   };
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台企业认证</Text>
+          <Pressable
+            testID="enterprise-verification-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       {verification ? (
         <View style={styles.driverInfoCard}>
           <View style={styles.routeHeader}>
@@ -362,7 +400,6 @@ export function EnterpriseVerificationRecords({
           </View>
         </>
       ) : null}
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
         testID="enterprise-verification-submit"
         style={({ pressed }) => [

@@ -199,6 +199,11 @@ describe('ProfileCenterScreen verification sync guards', () => {
     expect(
       renderer.root.findByProps({ testID: 'identity-verification-name' }).props.value,
     ).toBe('本地张先生');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'identity-verification-manual-refresh',
+      }),
+    ).toHaveLength(0);
     expect(getProfileLocalState().syncState).toMatchObject({
       status: 'failed',
       operation: 'identityVerification',
@@ -232,6 +237,11 @@ describe('ProfileCenterScreen verification sync guards', () => {
     await openProfileSection(renderer, 'identity-verification');
 
     expect(platformProfileApi.getIdentityVerification).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({
+        testID: 'identity-verification-manual-refresh',
+      }),
+    ).toBeTruthy();
     expect(
       renderer.root.findByProps({ testID: 'identity-verification-name' }).props.value,
     ).toBe('本地张先生');
@@ -322,6 +332,75 @@ describe('ProfileCenterScreen verification sync guards', () => {
     });
   });
 
+  it('manually refreshes platform identity verification snapshots from profile', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+
+    let identityRequestCount = 0;
+    const platformProfileApi = createPlatformProfileApiMock({
+      getIdentityVerification: jest.fn().mockImplementation(() => {
+        identityRequestCount += 1;
+
+        return Promise.resolve(
+          identityRequestCount === 1
+            ? {
+                shipperId: 'shipper-1',
+                realName: '平台旧实名',
+                idNumber: '440300199001011233',
+                identityFrontFileId: 'file-platform-front-old',
+                identityBackFileId: 'file-platform-back-old',
+                faceVerified: true,
+                status: 'reviewing',
+                updatedAtIso: '2026-07-22T08:05:00.000Z',
+              }
+            : {
+                shipperId: 'shipper-1',
+                realName: '平台新实名',
+                idNumber: '440300199001011235',
+                identityFrontFileId: 'file-platform-front-new',
+                identityBackFileId: 'file-platform-back-new',
+                faceVerified: true,
+                status: 'approved',
+                updatedAtIso: '2026-07-22T08:20:00.000Z',
+              },
+        );
+      }),
+    });
+
+    const renderer = await renderProfileCenter(platformProfileApi);
+
+    await openProfileSection(renderer, 'identity-verification');
+
+    expect(
+      renderer.root.findByProps({ testID: 'identity-verification-name' }).props.value,
+    ).toBe('平台旧实名');
+    expect(
+      renderer.root.findByProps({
+        testID: 'identity-verification-manual-refresh',
+      }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'identity-verification-manual-refresh' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformProfileApi.getIdentityVerification).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'identity-verification-name' }).props.value,
+    ).toBe('平台新实名');
+    expect(getProfileLocalState().identityVerification).toMatchObject({
+      realName: '平台新实名',
+      status: 'approved',
+      updatedAtIso: '2026-07-22T08:20:00.000Z',
+    });
+  });
+
   it('keeps the local enterprise draft until sync succeeds and ignores older platform snapshots after reopening', async () => {
     saveAuthSession(1000, {
       accessToken: 'access-token',
@@ -363,6 +442,11 @@ describe('ProfileCenterScreen verification sync guards', () => {
       renderer.root.findByProps({ testID: 'enterprise-verification-name' }).props
         .value,
     ).toBe('本地晨星贸易有限公司');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'enterprise-verification-manual-refresh',
+      }),
+    ).toHaveLength(0);
     expect(getProfileLocalState().syncState).toMatchObject({
       status: 'failed',
       operation: 'enterpriseVerification',
@@ -397,6 +481,11 @@ describe('ProfileCenterScreen verification sync guards', () => {
     await openProfileSection(renderer, 'enterprise-verification');
 
     expect(platformProfileApi.getEnterpriseVerification).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({
+        testID: 'enterprise-verification-manual-refresh',
+      }),
+    ).toBeTruthy();
     expect(
       renderer.root.findByProps({ testID: 'enterprise-verification-name' }).props
         .value,
@@ -465,6 +554,81 @@ describe('ProfileCenterScreen verification sync guards', () => {
           objectKey: 'shipper-1/identity/file-platform-license.png',
         },
       ],
+    });
+  });
+
+  it('manually refreshes platform enterprise verification snapshots from profile', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+
+    let enterpriseRequestCount = 0;
+    const platformProfileApi = createPlatformProfileApiMock({
+      getEnterpriseVerification: jest.fn().mockImplementation(() => {
+        enterpriseRequestCount += 1;
+
+        return Promise.resolve(
+          enterpriseRequestCount === 1
+            ? {
+                shipperId: 'shipper-1',
+                enterpriseName: '平台旧企业',
+                creditCode: '91440300MA5TEST999',
+                legalName: '旧法人',
+                legalId: '440300199001011233',
+                enterprisePhone: '13800138000',
+                licenseFileId: 'file-platform-license-old',
+                status: 'reviewing',
+                updatedAtIso: '2026-07-22T08:05:00.000Z',
+              }
+            : {
+                shipperId: 'shipper-1',
+                enterpriseName: '平台新企业',
+                creditCode: '91440300MA5TEST002',
+                legalName: '新法人',
+                legalId: '440300199001011236',
+                enterprisePhone: '13900139099',
+                licenseFileId: 'file-platform-license-new',
+                status: 'approved',
+                updatedAtIso: '2026-07-22T08:20:00.000Z',
+              },
+        );
+      }),
+    });
+
+    const renderer = await renderProfileCenter(platformProfileApi);
+
+    await openProfileSection(renderer, 'enterprise-verification');
+
+    expect(
+      renderer.root.findByProps({ testID: 'enterprise-verification-name' }).props
+        .value,
+    ).toBe('平台旧企业');
+    expect(
+      renderer.root.findByProps({
+        testID: 'enterprise-verification-manual-refresh',
+      }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'enterprise-verification-manual-refresh' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformProfileApi.getEnterpriseVerification).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(
+      renderer.root.findByProps({ testID: 'enterprise-verification-name' }).props
+        .value,
+    ).toBe('平台新企业');
+    expect(getProfileLocalState().enterpriseVerification).toMatchObject({
+      enterpriseName: '平台新企业',
+      status: 'approved',
+      updatedAtIso: '2026-07-22T08:20:00.000Z',
     });
   });
 

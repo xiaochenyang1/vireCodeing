@@ -96,6 +96,12 @@ export function ProfileDetailScreen({
   canRefreshPlatformAddressBook,
   isRefreshingPlatformAddressBook,
   addressBookNotice,
+  canRefreshPlatformIdentityVerification,
+  isRefreshingPlatformIdentityVerification,
+  identityVerificationNotice,
+  canRefreshPlatformEnterpriseVerification,
+  isRefreshingPlatformEnterpriseVerification,
+  enterpriseVerificationNotice,
   canRefreshPlatformEvaluations,
   isRefreshingPlatformEvaluations,
   evaluationNotice,
@@ -132,6 +138,8 @@ export function ProfileDetailScreen({
   onUpdateAccount,
   onUpdatePassword,
   onRefreshPlatformAddressBook,
+  onRefreshPlatformIdentityVerification,
+  onRefreshPlatformEnterpriseVerification,
   onRefreshPlatformEvaluations,
   onRefreshPlatformCoupons,
   onRefreshPlatformSpending,
@@ -161,6 +169,12 @@ export function ProfileDetailScreen({
   canRefreshPlatformAddressBook?: boolean;
   isRefreshingPlatformAddressBook?: boolean;
   addressBookNotice?: string;
+  canRefreshPlatformIdentityVerification?: boolean;
+  isRefreshingPlatformIdentityVerification?: boolean;
+  identityVerificationNotice?: string;
+  canRefreshPlatformEnterpriseVerification?: boolean;
+  isRefreshingPlatformEnterpriseVerification?: boolean;
+  enterpriseVerificationNotice?: string;
   canRefreshPlatformEvaluations?: boolean;
   isRefreshingPlatformEvaluations?: boolean;
   evaluationNotice?: string;
@@ -233,6 +247,8 @@ export function ProfileDetailScreen({
     options?: ProfileSyncMutationOptions,
   ) => void;
   onRefreshPlatformAddressBook: () => void;
+  onRefreshPlatformIdentityVerification: () => void;
+  onRefreshPlatformEnterpriseVerification: () => void;
   onRefreshPlatformEvaluations: () => void;
   onRefreshPlatformCoupons: () => void;
   onRefreshPlatformSpending: () => void;
@@ -313,6 +329,10 @@ export function ProfileDetailScreen({
       {sectionId === 'identity-verification' ? (
         <IdentityVerificationRecords
           verification={identityVerification}
+          canRefresh={canRefreshPlatformIdentityVerification}
+          isRefreshing={isRefreshingPlatformIdentityVerification}
+          notice={identityVerificationNotice}
+          onRefresh={onRefreshPlatformIdentityVerification}
           platformProfileApi={platformProfileApi}
           platformFileApi={platformFileApi}
           onSubmit={onSubmitIdentityVerification}
@@ -322,6 +342,10 @@ export function ProfileDetailScreen({
       {sectionId === 'enterprise-verification' ? (
         <EnterpriseVerificationRecords
           verification={enterpriseVerification}
+          canRefresh={canRefreshPlatformEnterpriseVerification}
+          isRefreshing={isRefreshingPlatformEnterpriseVerification}
+          notice={enterpriseVerificationNotice}
+          onRefresh={onRefreshPlatformEnterpriseVerification}
           platformProfileApi={platformProfileApi}
           platformFileApi={platformFileApi}
           onSubmit={onSubmitEnterpriseVerification}

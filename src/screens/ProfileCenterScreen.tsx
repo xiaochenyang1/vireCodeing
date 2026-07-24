@@ -99,6 +99,14 @@ const couponLoadMissingAuthMessage =
   '平台优惠券拉取需要重新登录后再同步。';
 const evaluationLoadMissingAuthMessage =
   '平台评价记录拉取需要重新登录后再同步。';
+const identityVerificationLoadMissingAuthMessage =
+  '平台实名认证拉取需要重新登录后再同步。';
+const identityVerificationLoadFailureMessage =
+  '平台实名认证拉取失败，已保留当前认证资料。';
+const enterpriseVerificationLoadMissingAuthMessage =
+  '平台企业认证拉取需要重新登录后再同步。';
+const enterpriseVerificationLoadFailureMessage =
+  '平台企业认证拉取失败，已保留当前认证资料。';
 const localIdentityVerificationSyncMessage =
   '实名认证资料已在本地保存，等待真实认证审核接口接入后同步。';
 const localEnterpriseVerificationSyncMessage =
@@ -365,16 +373,30 @@ export function ProfileCenterScreen({
     useState(false);
   const [isRefreshingPlatformEvaluations, setIsRefreshingPlatformEvaluations] =
     useState(false);
+  const [
+    isRefreshingPlatformIdentityVerification,
+    setIsRefreshingPlatformIdentityVerification,
+  ] = useState(false);
+  const [
+    isRefreshingPlatformEnterpriseVerification,
+    setIsRefreshingPlatformEnterpriseVerification,
+  ] = useState(false);
   const [addressBookNotice, setAddressBookNotice] = useState('');
   const [spendingNotice, setSpendingNotice] = useState('');
   const [couponNotice, setCouponNotice] = useState('');
   const [evaluationNotice, setEvaluationNotice] = useState('');
+  const [identityVerificationNotice, setIdentityVerificationNotice] =
+    useState('');
+  const [enterpriseVerificationNotice, setEnterpriseVerificationNotice] =
+    useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
   const hasLoadedPlatformAccount = useRef(false);
   const addressBookLoadRequestVersionRef = useRef(0);
   const spendingLoadRequestVersionRef = useRef(0);
   const couponLoadRequestVersionRef = useRef(0);
   const evaluationLoadRequestVersionRef = useRef(0);
+  const identityVerificationLoadRequestVersionRef = useRef(0);
+  const enterpriseVerificationLoadRequestVersionRef = useRef(0);
   const {
     addresses,
     contacts,
@@ -407,8 +429,18 @@ export function ProfileCenterScreen({
   );
   const hasLockedAddressBookSync =
     syncState?.operation === 'addressBook' && syncState.status !== 'synced';
+  const hasLockedIdentityVerificationSync =
+    syncState?.operation === 'identityVerification' &&
+    syncState.status !== 'synced';
+  const hasLockedEnterpriseVerificationSync =
+    syncState?.operation === 'enterpriseVerification' &&
+    syncState.status !== 'synced';
   const canRefreshPlatformAddressBook =
     Boolean(platformProfileApi) && !hasLockedAddressBookSync;
+  const canRefreshPlatformIdentityVerification =
+    Boolean(platformProfileApi) && !hasLockedIdentityVerificationSync;
+  const canRefreshPlatformEnterpriseVerification =
+    Boolean(platformProfileApi) && !hasLockedEnterpriseVerificationSync;
 
   useEffect(() => {
     onOrderNotificationsEnabledChange?.(
@@ -603,6 +635,100 @@ export function ProfileCenterScreen({
     syncState?.operation,
     syncState?.status,
   ]);
+  const refreshPlatformIdentityVerification = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi || hasLockedIdentityVerificationSync) {
+        return;
+      }
+
+      const requestVersion =
+        ++identityVerificationLoadRequestVersionRef.current;
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setIdentityVerificationNotice(identityVerificationLoadMissingAuthMessage);
+        setIsRefreshingPlatformIdentityVerification(false);
+        return;
+      }
+
+      if (source === 'manual') {
+        setIsRefreshingPlatformIdentityVerification(true);
+      }
+
+      platformProfileApi
+        .getIdentityVerification()
+        .then(async identityVerificationSnapshot => {
+          if (
+            requestVersion !== identityVerificationLoadRequestVersionRef.current
+          ) {
+            return;
+          }
+
+          if (!isValidPlatformIdentityVerification(identityVerificationSnapshot)) {
+            setIdentityVerificationNotice(
+              source === 'manual'
+                ? '平台当前还没有实名认证审核快照。'
+                : '',
+            );
+            return;
+          }
+
+          const nextIdentityVerification =
+            await hydrateIdentityVerificationSnapshot(
+              identityVerificationSnapshot,
+              platformFileApi,
+            );
+
+          if (
+            requestVersion !== identityVerificationLoadRequestVersionRef.current
+          ) {
+            return;
+          }
+
+          setProfileState(current => {
+            if (
+              shouldKeepLocalVerificationSnapshot({
+                syncState: current.syncState,
+                operation: 'identityVerification',
+                localUpdatedAtIso: current.identityVerification?.updatedAtIso,
+                platformUpdatedAtIso: identityVerificationSnapshot.updatedAtIso,
+              })
+            ) {
+              return current;
+            }
+
+            const nextState = {
+              ...current,
+              identityVerification: nextIdentityVerification,
+            };
+            saveProfileLocalState(nextState);
+            return nextState;
+          });
+          setIdentityVerificationNotice(
+            source === 'manual'
+              ? '平台实名认证已手动刷新到最新审核快照。'
+              : '实名认证资料已按平台审核快照同步。',
+          );
+        })
+        .catch(() => {
+          if (
+            requestVersion !== identityVerificationLoadRequestVersionRef.current
+          ) {
+            return;
+          }
+
+          setIdentityVerificationNotice(identityVerificationLoadFailureMessage);
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === identityVerificationLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformIdentityVerification(false);
+          }
+        });
+    },
+    [hasLockedIdentityVerificationSync, platformFileApi, platformProfileApi],
+  );
   useEffect(() => {
     if (
       activeSection !== 'identity-verification' ||
@@ -612,54 +738,120 @@ export function ProfileCenterScreen({
       return;
     }
 
-    let cancelled = false;
+    refreshPlatformIdentityVerification('open');
+  }, [
+    activeSection,
+    platformProfileApi,
+    refreshPlatformIdentityVerification,
+  ]);
+  const refreshPlatformEnterpriseVerification = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi || hasLockedEnterpriseVerificationSync) {
+        return;
+      }
 
-    platformProfileApi
-      .getIdentityVerification()
-      .then(async identityVerificationSnapshot => {
-        if (
-          cancelled ||
-          !isValidPlatformIdentityVerification(identityVerificationSnapshot)
-        ) {
-          return;
-        }
+      const requestVersion =
+        ++enterpriseVerificationLoadRequestVersionRef.current;
 
-        const nextIdentityVerification =
-          await hydrateIdentityVerificationSnapshot(
-            identityVerificationSnapshot,
-            platformFileApi,
-          );
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setEnterpriseVerificationNotice(
+          enterpriseVerificationLoadMissingAuthMessage,
+        );
+        setIsRefreshingPlatformEnterpriseVerification(false);
+        return;
+      }
 
-        if (cancelled) {
-          return;
-        }
+      if (source === 'manual') {
+        setIsRefreshingPlatformEnterpriseVerification(true);
+      }
 
-        setProfileState(current => {
+      platformProfileApi
+        .getEnterpriseVerification()
+        .then(async enterpriseVerificationSnapshot => {
           if (
-            shouldKeepLocalVerificationSnapshot({
-              syncState: current.syncState,
-              operation: 'identityVerification',
-              localUpdatedAtIso: current.identityVerification?.updatedAtIso,
-              platformUpdatedAtIso: identityVerificationSnapshot.updatedAtIso,
-            })
+            requestVersion !==
+            enterpriseVerificationLoadRequestVersionRef.current
           ) {
-            return current;
+            return;
           }
 
-          const nextState = {
-            ...current,
-            identityVerification: nextIdentityVerification,
-          };
-          saveProfileLocalState(nextState);
-          return nextState;
-        });
-      })
-      .catch(() => undefined);
+          if (
+            !isValidPlatformEnterpriseVerification(
+              enterpriseVerificationSnapshot,
+            )
+          ) {
+            setEnterpriseVerificationNotice(
+              source === 'manual'
+                ? '平台当前还没有企业认证审核快照。'
+                : '',
+            );
+            return;
+          }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, now, platformFileApi, platformProfileApi]);
+          const nextEnterpriseVerification =
+            await hydrateEnterpriseVerificationSnapshot(
+              enterpriseVerificationSnapshot,
+              platformFileApi,
+            );
+
+          if (
+            requestVersion !==
+            enterpriseVerificationLoadRequestVersionRef.current
+          ) {
+            return;
+          }
+
+          setProfileState(current => {
+            if (
+              shouldKeepLocalVerificationSnapshot({
+                syncState: current.syncState,
+                operation: 'enterpriseVerification',
+                localUpdatedAtIso:
+                  current.enterpriseVerification?.updatedAtIso,
+                platformUpdatedAtIso:
+                  enterpriseVerificationSnapshot.updatedAtIso,
+              })
+            ) {
+              return current;
+            }
+
+            const nextState = {
+              ...current,
+              enterpriseVerification: nextEnterpriseVerification,
+            };
+            saveProfileLocalState(nextState);
+            return nextState;
+          });
+          setEnterpriseVerificationNotice(
+            source === 'manual'
+              ? '平台企业认证已手动刷新到最新审核快照。'
+              : '企业认证资料已按平台审核快照同步。',
+          );
+        })
+        .catch(() => {
+          if (
+            requestVersion !==
+            enterpriseVerificationLoadRequestVersionRef.current
+          ) {
+            return;
+          }
+
+          setEnterpriseVerificationNotice(
+            enterpriseVerificationLoadFailureMessage,
+          );
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion ===
+              enterpriseVerificationLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformEnterpriseVerification(false);
+          }
+        });
+    },
+    [hasLockedEnterpriseVerificationSync, platformFileApi, platformProfileApi],
+  );
   useEffect(() => {
     if (
       activeSection !== 'enterprise-verification' ||
@@ -669,54 +861,12 @@ export function ProfileCenterScreen({
       return;
     }
 
-    let cancelled = false;
-
-    platformProfileApi
-      .getEnterpriseVerification()
-      .then(async enterpriseVerificationSnapshot => {
-        if (
-          cancelled ||
-          !isValidPlatformEnterpriseVerification(enterpriseVerificationSnapshot)
-        ) {
-          return;
-        }
-
-        const nextEnterpriseVerification =
-          await hydrateEnterpriseVerificationSnapshot(
-            enterpriseVerificationSnapshot,
-            platformFileApi,
-          );
-
-        if (cancelled) {
-          return;
-        }
-
-        setProfileState(current => {
-          if (
-            shouldKeepLocalVerificationSnapshot({
-              syncState: current.syncState,
-              operation: 'enterpriseVerification',
-              localUpdatedAtIso: current.enterpriseVerification?.updatedAtIso,
-              platformUpdatedAtIso: enterpriseVerificationSnapshot.updatedAtIso,
-            })
-          ) {
-            return current;
-          }
-
-          const nextState = {
-            ...current,
-            enterpriseVerification: nextEnterpriseVerification,
-          };
-          saveProfileLocalState(nextState);
-          return nextState;
-        });
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, platformFileApi, platformProfileApi]);
+    refreshPlatformEnterpriseVerification('open');
+  }, [
+    activeSection,
+    platformProfileApi,
+    refreshPlatformEnterpriseVerification,
+  ]);
   const refreshPlatformSpendingRecords = useCallback(
     (source: 'open' | 'manual') => {
       if (!platformProfileApi) {
@@ -1895,6 +2045,20 @@ export function ProfileCenterScreen({
         canRefreshPlatformAddressBook={canRefreshPlatformAddressBook}
         isRefreshingPlatformAddressBook={isRefreshingPlatformAddressBook}
         addressBookNotice={addressBookNotice}
+        canRefreshPlatformIdentityVerification={
+          canRefreshPlatformIdentityVerification
+        }
+        isRefreshingPlatformIdentityVerification={
+          isRefreshingPlatformIdentityVerification
+        }
+        identityVerificationNotice={identityVerificationNotice}
+        canRefreshPlatformEnterpriseVerification={
+          canRefreshPlatformEnterpriseVerification
+        }
+        isRefreshingPlatformEnterpriseVerification={
+          isRefreshingPlatformEnterpriseVerification
+        }
+        enterpriseVerificationNotice={enterpriseVerificationNotice}
         canRefreshPlatformEvaluations={Boolean(platformProfileApi)}
         isRefreshingPlatformEvaluations={isRefreshingPlatformEvaluations}
         evaluationNotice={evaluationNotice}
@@ -2137,6 +2301,12 @@ export function ProfileCenterScreen({
         }
         onRefreshPlatformAddressBook={() =>
           refreshPlatformAddressBook('manual')
+        }
+        onRefreshPlatformIdentityVerification={() =>
+          refreshPlatformIdentityVerification('manual')
+        }
+        onRefreshPlatformEnterpriseVerification={() =>
+          refreshPlatformEnterpriseVerification('manual')
         }
         onBackOverview={() => setActiveSection(undefined)}
         onLogout={onLogout}

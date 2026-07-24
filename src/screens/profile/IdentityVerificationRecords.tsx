@@ -82,12 +82,20 @@ function getFaceCheckNoticeText(
 
 export function IdentityVerificationRecords({
   verification,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
   platformProfileApi,
   platformFileApi,
   onSubmit,
   onReject,
 }: {
   verification?: IdentityVerificationRequest;
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
   platformProfileApi?: IdentityPlatformProfileApi;
   platformFileApi?: IdentityPlatformFileApi;
   onSubmit: (
@@ -116,10 +124,12 @@ export function IdentityVerificationRecords({
   const [faceVerified, setFaceVerified] = useState(
     verification?.faceVerified ?? false,
   );
-  const [notice, setNotice] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const verificationStatus = getIdentityVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const platformNotice = canRefresh ? notice : '';
+  const noticeText = actionNotice || platformNotice;
   const {
     pickAndUpload: pickFrontIdentityPhotoAndUpload,
     clear: clearFrontIdentityPhotoUpload,
@@ -184,7 +194,7 @@ export function IdentityVerificationRecords({
     });
 
     if (!result.request) {
-      setNotice(result.noticeText);
+      setActionNotice(result.noticeText);
       return;
     }
 
@@ -193,7 +203,7 @@ export function IdentityVerificationRecords({
       const identityBackFileId = backPhotoFile?.fileId;
 
       if (!identityFrontFileId || !identityBackFileId) {
-        setNotice('平台实名认证提交需要先上传身份证正反面凭证。');
+        setActionNotice('平台实名认证提交需要先上传身份证正反面凭证。');
         return;
       }
 
@@ -217,30 +227,33 @@ export function IdentityVerificationRecords({
           rejectionReason: savedVerification.rejectionReason,
           updatedAtIso: savedVerification.updatedAtIso,
         });
-        setNotice('实名认证资料已提交到平台审核。');
+        setActionNotice('实名认证资料已提交到平台审核。');
       } catch (error) {
-        const noticeText =
+        const syncFailureNotice =
           error instanceof PlatformApiError &&
             error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '实名认证提交需要重新登录后再同步。'
             : '实名认证资料提交失败，已保留本地资料，请稍后重试。';
         onSubmit(result.request, {
           syncStatus: 'failed',
-          syncMessage: noticeText,
+          syncMessage: syncFailureNotice,
         });
-        setNotice(noticeText);
+        setActionNotice(syncFailureNotice);
       }
       return;
     }
 
     onSubmit(result.request);
-    setNotice('实名认证资料已提交，当前为本地演示状态。');
+    setActionNotice('实名认证资料已提交，当前为本地演示状态。');
   };
 
   const rejectVerification = () => {
-    const { reason, noticeText } = getIdentityVerificationRejectionNotice();
+    const {
+      reason,
+      noticeText: rejectionNoticeText,
+    } = getIdentityVerificationRejectionNotice();
     onReject(reason);
-    setNotice(noticeText);
+    setActionNotice(rejectionNoticeText);
   };
 
   const attachIdentityPhoto = async (
@@ -259,7 +272,7 @@ export function IdentityVerificationRecords({
 
     if (!platformFileApi) {
       setPhotoAdded(true);
-      setNotice(`${label}凭证已添加，本地版不会上传真实文件。`);
+      setActionNotice(`${label}凭证已添加，本地版不会上传真实文件。`);
       return;
     }
 
@@ -268,17 +281,42 @@ export function IdentityVerificationRecords({
     if (result.status === 'uploaded') {
       setPhotoFile(mapPlatformFileToVerificationRef(result.file, fileName));
       setPhotoAdded(true);
-      setNotice(`${label}凭证已关联平台文件对象。`);
+      setActionNotice(`${label}凭证已关联平台文件对象。`);
       return;
     }
 
     if (result.status === 'error') {
-      setNotice(result.message);
+      setActionNotice(result.message);
     }
+  };
+
+  const handleRefresh = () => {
+    setActionNotice('');
+    onRefresh?.();
   };
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台实名认证</Text>
+          <Pressable
+            testID="identity-verification-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={handleRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       {verification ? (
         <View style={styles.driverInfoCard}>
           <View style={styles.routeHeader}>
@@ -363,7 +401,7 @@ export function IdentityVerificationRecords({
         style={styles.detailSecondaryButton}
         onPress={() => {
           setFaceVerified(true);
-          setNotice(getFaceCheckNoticeText(Boolean(platformProfileApi)));
+          setActionNotice(getFaceCheckNoticeText(Boolean(platformProfileApi)));
         }}
       >
         <Text style={styles.detailSecondaryButtonText}>
@@ -408,7 +446,6 @@ export function IdentityVerificationRecords({
         </View>
       ) : null}
       {faceVerified ? <Text style={styles.routeMeta}>人脸核验已完成</Text> : null}
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Pressable
         testID="identity-verification-submit"
         style={({ pressed }) => [
