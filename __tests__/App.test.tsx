@@ -14379,6 +14379,24 @@ test('filters and uses local profile coupons', async () => {
   expect(renderedText).toContain('已使用');
 });
 
+test('hides the manual refresh button in local coupon mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-coupons' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'coupon-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
 test('shows platform coupon wallet when opening coupons in platform mode', async () => {
   const originalFetch = globalThis.fetch;
   const platformCouponWallet = {
@@ -14500,6 +14518,186 @@ test('shows platform coupon wallet when opening coupons in platform mode', async
         method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-coupon',
+        }),
+      }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('manual refreshes platform coupon wallet from profile', async () => {
+  const originalFetch = globalThis.fetch;
+  let couponRequestCount = 0;
+  const initialPlatformCouponWallet = {
+    shipperId: 'user-platform-coupon-refresh',
+    summary: {
+      usableCount: 1,
+      lockedCount: 0,
+      usedCount: 0,
+      expiredCount: 0,
+    },
+    items: [
+      {
+        id: 'coupon-platform-refresh-1',
+        shipperId: 'user-platform-coupon-refresh',
+        title: '平台满 200 减 20',
+        status: 'usable' as const,
+        conditionText: '平台订单满 200 元可用',
+        discountCents: 2000,
+        minOrderAmountCents: 20000,
+        validFromIso: '2026-07-01T00:00:00.000Z',
+        validUntilIso: '2026-07-31T15:59:59.000Z',
+        sourceText: '平台活动发放',
+        issuedAtIso: '2026-07-10T08:00:00.000Z',
+      },
+    ],
+  };
+  const refreshedPlatformCouponWallet = {
+    shipperId: 'user-platform-coupon-refresh',
+    summary: {
+      usableCount: 1,
+      lockedCount: 1,
+      usedCount: 0,
+      expiredCount: 0,
+    },
+    items: [
+      {
+        id: 'coupon-platform-refresh-2',
+        shipperId: 'user-platform-coupon-refresh',
+        title: '平台夜间运输券',
+        status: 'usable' as const,
+        conditionText: '19:00 后平台订单可用',
+        discountCents: 3500,
+        minOrderAmountCents: 30000,
+        validFromIso: '2026-07-01T00:00:00.000Z',
+        validUntilIso: '2026-08-05T15:59:59.000Z',
+        sourceText: '夜间活动发放',
+        issuedAtIso: '2026-07-11T08:00:00.000Z',
+      },
+      {
+        id: 'coupon-platform-refresh-3',
+        shipperId: 'user-platform-coupon-refresh',
+        title: '平台锁定券',
+        status: 'locked' as const,
+        conditionText: '已锁定给当前平台订单',
+        discountCents: 1800,
+        minOrderAmountCents: 18000,
+        validFromIso: '2026-07-01T00:00:00.000Z',
+        validUntilIso: '2026-08-01T15:59:59.000Z',
+        sourceText: '平台任务奖励',
+        issuedAtIso: '2026-07-11T08:30:00.000Z',
+        lockedOrderNo: 'HY202607110015',
+        lockedAtIso: '2026-07-11T09:00:00.000Z',
+      },
+    ],
+  };
+  const fetchMock = jest.fn((url, init) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-coupon-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-coupon-refresh',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440133',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/coupons' &&
+      init?.method === 'GET'
+    ) {
+      couponRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          couponRequestCount === 1
+            ? initialPlatformCouponWallet
+            : refreshedPlatformCouponWallet,
+        ),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-coupons' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('优惠券已按平台券包同步');
+    expect(renderedText).toContain('平台满 200 减 20');
+    expect(renderedText).toContain('平台订单满 200 元可用');
+    expect(renderedText).not.toContain('平台夜间运输券');
+    expect(
+      app.root.findByProps({ testID: 'coupon-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'coupon-manual-refresh' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台优惠券已手动刷新到最新券包');
+    expect(renderedText).toContain('平台夜间运输券');
+    expect(renderedText).toContain('19:00 后平台订单可用');
+    expect(renderedText).toContain('平台锁定券');
+    expect(renderedText).toContain('已锁定订单 HY202607110015');
+    expect(renderedText).not.toContain('平台满 200 减 20');
+    expect(couponRequestCount).toBe(2);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/coupons',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-coupon-refresh',
         }),
       }),
     );

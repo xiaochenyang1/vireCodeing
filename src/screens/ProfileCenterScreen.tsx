@@ -95,6 +95,8 @@ const addressBookLoadFailureMessage =
   '平台地址簿拉取失败，已保留本地常用地址/联系人。';
 const spendingLoadMissingAuthMessage =
   '平台消费记录拉取需要重新登录后再同步。';
+const couponLoadMissingAuthMessage =
+  '平台优惠券拉取需要重新登录后再同步。';
 const localIdentityVerificationSyncMessage =
   '实名认证资料已在本地保存，等待真实认证审核接口接入后同步。';
 const localEnterpriseVerificationSyncMessage =
@@ -355,10 +357,14 @@ export function ProfileCenterScreen({
     useState<ProfileEvaluationRecordItem[]>();
   const [isRefreshingPlatformSpending, setIsRefreshingPlatformSpending] =
     useState(false);
+  const [isRefreshingPlatformCoupons, setIsRefreshingPlatformCoupons] =
+    useState(false);
   const [spendingNotice, setSpendingNotice] = useState('');
+  const [couponNotice, setCouponNotice] = useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
   const hasLoadedPlatformAccount = useRef(false);
   const spendingLoadRequestVersionRef = useRef(0);
+  const couponLoadRequestVersionRef = useRef(0);
   const {
     addresses,
     contacts,
@@ -774,6 +780,67 @@ export function ProfileCenterScreen({
       cancelled = true;
     };
   }, [activeSection, now, platformProfileApi]);
+  const refreshPlatformCoupons = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi) {
+        return;
+      }
+
+      const requestVersion = ++couponLoadRequestVersionRef.current;
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setCouponNotice(couponLoadMissingAuthMessage);
+        setIsRefreshingPlatformCoupons(false);
+        return;
+      }
+
+      if (source === 'manual') {
+        setIsRefreshingPlatformCoupons(true);
+      }
+
+      platformProfileApi
+        .getCoupons()
+        .then(couponWallet => {
+          if (
+            requestVersion !== couponLoadRequestVersionRef.current ||
+            !isValidPlatformCouponWallet(couponWallet)
+          ) {
+            return;
+          }
+
+          setProfileState(current => {
+            const nextState = {
+              ...current,
+              coupons: createLocalCouponsFromPlatformWallet(couponWallet),
+            };
+
+            saveProfileLocalState(nextState);
+            return nextState;
+          });
+          setCouponNotice(
+            source === 'manual'
+              ? '平台优惠券已手动刷新到最新券包。'
+              : '优惠券已按平台券包同步。',
+          );
+        })
+        .catch(() => {
+          if (requestVersion !== couponLoadRequestVersionRef.current) {
+            return;
+          }
+
+          setCouponNotice('平台优惠券拉取失败，已保留当前优惠券列表。');
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === couponLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformCoupons(false);
+          }
+        });
+    },
+    [platformProfileApi],
+  );
   useEffect(() => {
     if (
       activeSection !== 'coupons' ||
@@ -783,31 +850,8 @@ export function ProfileCenterScreen({
       return;
     }
 
-    let cancelled = false;
-
-    platformProfileApi
-      .getCoupons()
-      .then(couponWallet => {
-        if (cancelled || !isValidPlatformCouponWallet(couponWallet)) {
-          return;
-        }
-
-        setProfileState(current => {
-          const nextState = {
-            ...current,
-            coupons: createLocalCouponsFromPlatformWallet(couponWallet),
-          };
-
-          saveProfileLocalState(nextState);
-          return nextState;
-        });
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, platformProfileApi]);
+    refreshPlatformCoupons('open');
+  }, [activeSection, platformProfileApi, refreshPlatformCoupons]);
   useEffect(() => {
     if (
       activeSection !== 'evaluations' ||
@@ -1764,6 +1808,9 @@ export function ProfileCenterScreen({
         account={account}
         password={password}
         notificationPermissionStatus={notificationPermissionStatus}
+        canRefreshPlatformCoupons={Boolean(platformProfileApi)}
+        isRefreshingPlatformCoupons={isRefreshingPlatformCoupons}
+        couponNotice={couponNotice}
         platformSpendingSnapshot={platformSpendingSnapshot}
         canRefreshPlatformSpending={Boolean(platformProfileApi)}
         isRefreshingPlatformSpending={isRefreshingPlatformSpending}
@@ -1985,6 +2032,7 @@ export function ProfileCenterScreen({
             options,
           )
         }
+        onRefreshPlatformCoupons={() => refreshPlatformCoupons('manual')}
         onRefreshPlatformSpending={() =>
           refreshPlatformSpendingRecords('manual')
         }

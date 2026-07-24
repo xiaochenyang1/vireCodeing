@@ -11,13 +11,21 @@ import type { CouponItem } from '../../utils/profileLocalState';
 
 export function CouponRecords({
   coupons,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
   onUpdateCoupons,
 }: {
   coupons: CouponItem[];
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
   onUpdateCoupons: (coupons: CouponItem[]) => void;
 }) {
   const [filter, setFilter] = useState<CouponFilter>('all');
-  const [notice, setNotice] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const filterOptions: Array<{
     id: CouponFilter;
     label: string;
@@ -29,6 +37,7 @@ export function CouponRecords({
     { id: 'expired', label: '已过期', testID: 'coupon-filter-expired' },
   ];
   const filteredCoupons = filterCoupons(coupons, filter);
+  const noticeText = notice || actionNotice;
 
   const markCouponUsed = (couponId: string) => {
     const changes = createUsedCouponChanges(coupons, couponId);
@@ -38,11 +47,31 @@ export function CouponRecords({
     }
 
     onUpdateCoupons(changes.coupons);
-    setNotice(changes.noticeText);
+    setActionNotice(changes.noticeText);
   };
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台券包</Text>
+          <Pressable
+            testID="coupon-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={onRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {noticeText ? <Text style={styles.draftNotice}>{noticeText}</Text> : null}
       <Text style={styles.draftSectionTitle}>优惠券筛选</Text>
       <View style={styles.draftChoiceGrid}>
         {filterOptions.map(option => {
@@ -70,8 +99,6 @@ export function CouponRecords({
           );
         })}
       </View>
-
-      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Text style={styles.draftSectionTitle}>优惠券明细</Text>
       {filteredCoupons.map(item => (
         <View key={item.id} style={styles.driverInfoCard}>

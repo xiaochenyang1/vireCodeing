@@ -93,6 +93,9 @@ export function ProfileDetailScreen({
   account,
   password,
   notificationPermissionStatus,
+  canRefreshPlatformCoupons,
+  isRefreshingPlatformCoupons,
+  couponNotice,
   platformSpendingSnapshot,
   canRefreshPlatformSpending,
   isRefreshingPlatformSpending,
@@ -122,6 +125,7 @@ export function ProfileDetailScreen({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformCoupons,
   onRefreshPlatformSpending,
   onBackOverview,
   onLogout,
@@ -146,6 +150,9 @@ export function ProfileDetailScreen({
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
+  canRefreshPlatformCoupons?: boolean;
+  isRefreshingPlatformCoupons?: boolean;
+  couponNotice?: string;
   platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
   canRefreshPlatformSpending?: boolean;
   isRefreshingPlatformSpending?: boolean;
@@ -211,6 +218,7 @@ export function ProfileDetailScreen({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformCoupons: () => void;
   onRefreshPlatformSpending: () => void;
   onBackOverview: () => void;
   onLogout: () => void;
@@ -317,7 +325,14 @@ export function ProfileDetailScreen({
         />
       ) : null}
       {sectionId === 'coupons' ? (
-        <CouponRecords coupons={coupons} onUpdateCoupons={onUpdateCoupons} />
+        <CouponRecords
+          coupons={coupons}
+          canRefresh={canRefreshPlatformCoupons}
+          isRefreshing={isRefreshingPlatformCoupons}
+          notice={couponNotice}
+          onRefresh={onRefreshPlatformCoupons}
+          onUpdateCoupons={onUpdateCoupons}
+        />
       ) : null}
       {sectionId === 'settings' ? (
         <SettingRecords
