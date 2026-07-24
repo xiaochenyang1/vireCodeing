@@ -1,10 +1,32 @@
+jest.mock('@nestjs/throttler', () => ({
+  ThrottlerModule: {
+    forRoot: jest.fn(() => ({
+      module: class MockThrottlerModule {},
+    })),
+  },
+}));
+
+jest.mock('./swagger-setup', () => ({
+  createSwaggerDocument: jest.fn(() => ({ openapi: '3.0.0' })),
+}));
+
+jest.mock('@nestjs/swagger', () => ({
+  ...jest.requireActual('@nestjs/swagger'),
+  SwaggerModule: {
+    ...jest.requireActual('@nestjs/swagger').SwaggerModule,
+    setup: jest.fn(),
+  },
+}));
+
 import { bootstrapApi } from './main';
 
 describe('bootstrapApi', () => {
   function createNestFactory() {
     const app = {
+      enableCors: jest.fn(),
       setGlobalPrefix: jest.fn(),
       useGlobalFilters: jest.fn(),
+      useGlobalPipes: jest.fn(),
       listen: jest.fn().mockResolvedValue(undefined),
     };
     const nestFactory = {
@@ -40,12 +62,14 @@ describe('bootstrapApi', () => {
         NODE_ENV: 'development',
         PORT: '3100',
         DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
-        JWT_ACCESS_SECRET: 'access-secret',
+        JWT_ACCESS_SECRET: 'production-access-secret-at-least-32',
       },
       nestFactory,
     });
 
     expect(app.setGlobalPrefix).toHaveBeenCalledWith('api');
+    expect(app.enableCors).toHaveBeenCalled();
+    expect(app.useGlobalPipes).toHaveBeenCalled();
     expect(nestFactory.create).toHaveBeenCalledWith(
       expect.anything(),
       { rawBody: true },

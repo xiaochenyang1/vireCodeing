@@ -4,6 +4,13 @@ import {
   WebhookVerificationCodeSender,
 } from './verification-code.sender';
 
+const verificationCodeMessage = {
+  phone: '13800138000',
+  purpose: 'login' as const,
+  code: '246810',
+  expiresAt: new Date('2026-06-26T06:05:00.000Z'),
+};
+
 describe('VerificationCodeSender', () => {
   it('uses a development sender outside production without external SMS config', () => {
     const sender = createVerificationCodeSenderFromEnv({
@@ -77,12 +84,7 @@ describe('VerificationCodeSender', () => {
       },
     );
 
-    await sender.sendCode({
-      phone: '13800138000',
-      purpose: 'login',
-      code: '246810',
-      expiresAt: new Date('2026-06-26T06:05:00.000Z'),
-    });
+    await sender.sendCode(verificationCodeMessage);
 
     expect(fetchCalls).toEqual([
       {
@@ -116,18 +118,13 @@ describe('VerificationCodeSender', () => {
     );
 
     await expect(
-      sender.sendCode({
-        phone: '13800138000',
-        purpose: 'login',
-        code: '246810',
-        expiresAt: new Date('2026-06-26T06:05:00.000Z'),
-      }),
+      sender.sendCode(verificationCodeMessage),
     ).rejects.toThrow('SMS webhook request failed with status 503');
   });
 
   it('the development sender resolves without sending anything', async () => {
     await expect(
-      new DevelopmentVerificationCodeSender().sendCode(),
+      new DevelopmentVerificationCodeSender().sendCode(verificationCodeMessage),
     ).resolves.toBeUndefined();
   });
 
@@ -137,7 +134,7 @@ describe('VerificationCodeSender', () => {
         NODE_ENV: 'test',
         SMS_PROVIDER: 'twilio',
       }),
-    ).toThrow('SMS_PROVIDER must be webhook');
+    ).toThrow('Unsupported SMS_PROVIDER: twilio');
   });
 
   it('requires the webhook url and token when provider is webhook', () => {

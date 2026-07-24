@@ -22,12 +22,9 @@ import { ProfileSpendingModule } from './profile-spending/profile-spending.modul
 import { ProfileVerificationModule } from './profile-verification/profile-verification.module';
 import { PaymentsModule } from './payments/payments.module';
 import { SupportTicketsModule } from './support-tickets/support-tickets.module';
-import { parseEnv } from './config/env';
 
 const createThrottlerOptions = (): ThrottlerModuleOptions => {
-  const env = parseEnv(process.env);
-
-  if (env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === 'production') {
     return [
       {
         name: 'short',
@@ -68,7 +65,7 @@ const createThrottlerOptions = (): ThrottlerModuleOptions => {
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot(createThrottlerOptions),
+    ThrottlerModule.forRoot(createThrottlerOptions()),
     AdminConsoleModule,
     AuthModule,
     DriverCertificationModule,

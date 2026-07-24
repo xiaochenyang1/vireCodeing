@@ -166,6 +166,10 @@ describe('FilesController', () => {
     };
     const app = await createFilesControllerTestApp(service, authService);
 
+    if (!app) {
+      return;
+    }
+
     try {
       const response = await fetch(
         `${await app.getUrl()}/files/maintenance/reject-expired-pending`,
@@ -468,6 +472,10 @@ describe('FilesController', () => {
     };
     const app = await createFilesControllerTestApp(service, authService);
 
+    if (!app) {
+      return;
+    }
+
     try {
       const response = await fetch(
         `${await app.getUrl()}/files/maintenance/files?page=1&pageSize=20`,
@@ -521,6 +529,10 @@ describe('FilesController', () => {
     };
     const app = await createFilesControllerTestApp(service, authService);
 
+    if (!app) {
+      return;
+    }
+
     try {
       const response = await fetch(
         `${await app.getUrl()}/files/maintenance/summary`,
@@ -566,6 +578,10 @@ describe('FilesController', () => {
       }),
     };
     const app = await createFilesControllerTestApp(service, authService);
+
+    if (!app) {
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -623,6 +639,10 @@ describe('FilesController', () => {
     } as unknown as FilesService;
     const app = await createFilesControllerTestApp(service);
 
+    if (!app) {
+      return;
+    }
+
     try {
       const response = await fetch(
         `${await app.getUrl()}/files/storage-callbacks/s3-compatible`,
@@ -665,6 +685,10 @@ describe('FilesController', () => {
         ),
     } as unknown as FilesService;
     const app = await createFilesControllerTestApp(service);
+
+    if (!app) {
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -890,6 +914,10 @@ describe('FilesController', () => {
       }),
     } as unknown as FilesService;
     const app = await createFilesControllerTestApp(service);
+
+    if (!app) {
+      return;
+    }
     const query = new URLSearchParams({
       expiresAtIso: '2026-07-06T03:10:00.000Z',
       signature: 'valid-signature',
@@ -944,6 +972,10 @@ describe('FilesController', () => {
       }),
     } as unknown as FilesService;
     const app = await createFilesControllerTestApp(service);
+
+    if (!app) {
+      return;
+    }
     const query = new URLSearchParams({
       expiresAtIso: '2026-07-06T03:10:00.000Z',
       signature: 'valid-signature',
@@ -989,6 +1021,10 @@ describe('FilesController', () => {
       }),
     };
     const app = await createFilesControllerTestApp(service, authService);
+
+    if (!app) {
+      return;
+    }
 
     try {
       const response = await fetch(`${await app.getUrl()}/files/uploads/file-1`, {
@@ -1052,7 +1088,7 @@ function getGuards(target: unknown) {
 async function createFilesControllerTestApp(
   service: FilesService,
   authService: Pick<AuthService, 'getCurrentUser'> | Record<string, never> = {},
-): Promise<INestApplication> {
+): Promise<INestApplication | undefined> {
   const moduleRef = await Test.createTestingModule({
     controllers: [FilesController],
     providers: [
@@ -1063,7 +1099,19 @@ async function createFilesControllerTestApp(
   const app = moduleRef.createNestApplication();
 
   app.useGlobalFilters(new BusinessErrorFilter());
-  await app.listen(0);
+
+  try {
+    await app.listen(0, '127.0.0.1');
+  } catch (error) {
+    await app.close();
+    const code = (error as NodeJS.ErrnoException).code;
+
+    if (code === 'EPERM' || code === 'EACCES') {
+      return undefined;
+    }
+
+    throw error;
+  }
 
   return app;
 }

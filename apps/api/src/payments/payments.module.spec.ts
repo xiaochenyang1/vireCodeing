@@ -1,3 +1,11 @@
+jest.mock('@nestjs/throttler', () => ({
+  ThrottlerModule: {
+    forRoot: jest.fn(() => ({
+      module: class MockThrottlerModule {},
+    })),
+  },
+}));
+
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../app.module';

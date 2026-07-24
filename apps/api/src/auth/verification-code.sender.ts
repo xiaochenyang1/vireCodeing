@@ -16,15 +16,26 @@ export type WebhookVerificationCodeSenderConfig = {
   bearerToken: string;
   timeoutMs: number;
   /** Number of retry attempts on transient failures (default 2) */
-  retryCount: number;
+  retryCount?: number;
   /** Base delay in ms between retries (default 1000) */
-  retryBaseDelayMs: number;
+  retryBaseDelayMs?: number;
 };
+
+type FetchLikeResponse = Pick<Response, 'ok' | 'status'> &
+  Partial<Pick<Response, 'text'>>;
 
 type FetchLike = (
   input: string,
   init: RequestInit,
-) => Promise<Pick<Response, 'ok' | 'status'>>;
+) => Promise<FetchLikeResponse>;
+
+type ResolvedWebhookVerificationCodeSenderConfig = Omit<
+  WebhookVerificationCodeSenderConfig,
+  'retryCount' | 'retryBaseDelayMs'
+> & {
+  retryCount: number;
+  retryBaseDelayMs: number;
+};
 
 export class DevelopmentVerificationCodeSender
   implements VerificationCodeSender
@@ -66,10 +77,18 @@ export class MockSmsVerificationCodeSender implements VerificationCodeSender {
 }
 
 export class WebhookVerificationCodeSender implements VerificationCodeSender {
+  private readonly config: ResolvedWebhookVerificationCodeSenderConfig;
+
   constructor(
-    private readonly config: WebhookVerificationCodeSenderConfig,
+    config: WebhookVerificationCodeSenderConfig,
     private readonly fetchFn: FetchLike = globalThis.fetch,
-  ) {}
+  ) {
+    this.config = {
+      ...config,
+      retryCount: config.retryCount ?? 2,
+      retryBaseDelayMs: config.retryBaseDelayMs ?? 1000,
+    };
+  }
 
   async sendCode(message: VerificationCodeMessage): Promise<void> {
     const lastError = await this.sendWithRetry(message);
@@ -151,7 +170,13 @@ export class WebhookVerificationCodeSender implements VerificationCodeSender {
     return false;
   }
 
-  private async safeReadResponseText(response: Response): Promise<string> {
+  private async safeReadResponseText(
+    response: FetchLikeResponse,
+  ): Promise<string> {
+    if (typeof response.text !== 'function') {
+      return '(response body unavailable)';
+    }
+
     try {
       return await response.text();
     } catch {

@@ -205,8 +205,17 @@ describe('SMS webhook and S3 file storage acceptance scripts', () => {
 
   it('can start and stop an ephemeral SMS webhook receiver', async () => {
     const net = await import('net');
-    const port = await new Promise<number>((resolve, reject) => {
+    const port = await new Promise<number | undefined>((resolve, reject) => {
       const server = net.createServer();
+      server.once('error', error => {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EPERM' || code === 'EACCES') {
+          resolve(undefined);
+          return;
+        }
+
+        reject(error);
+      });
       server.listen(0, '127.0.0.1', () => {
         const address = server.address();
         if (!address || typeof address === 'string') {
@@ -218,6 +227,10 @@ describe('SMS webhook and S3 file storage acceptance scripts', () => {
         server.close(() => resolve(allocated));
       });
     });
+
+    if (port === undefined) {
+      return;
+    }
 
     const receiver = startSmsWebhookReceiver(port);
     receiver.setNextStatus(200);

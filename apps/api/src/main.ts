@@ -16,11 +16,18 @@ type ApiApplication = {
   listen(port: number): Promise<unknown> | unknown;
 };
 
+type NestFactoryLike = {
+  create(
+    module: typeof AppModule,
+    options: { rawBody: true },
+  ): Promise<ApiApplication>;
+};
+
 const globalBodySchema = z.object({}).passthrough();
 
 type BootstrapApiOptions = {
   env?: NodeJS.ProcessEnv;
-  nestFactory?: typeof NestFactory;
+  nestFactory?: NestFactoryLike;
 };
 
 export async function bootstrapApi({
@@ -41,11 +48,12 @@ export async function bootstrapApi({
   app.useGlobalPipes(new ZodValidationPipe(globalBodySchema));
 
   if (apiEnv.NODE_ENV !== 'production') {
-    const document = createSwaggerDocument(app, {
+    const swaggerApp = app as Parameters<typeof createSwaggerDocument>[0];
+    const document = createSwaggerDocument(swaggerApp, {
       NODE_ENV: apiEnv.NODE_ENV,
       PORT: apiEnv.PORT,
     });
-    SwaggerModule.setup('docs', app, document, {
+    SwaggerModule.setup('docs', swaggerApp, document, {
       swaggerOptions: {
         persistAuthorization: true,
         displayRequestDuration: true,
