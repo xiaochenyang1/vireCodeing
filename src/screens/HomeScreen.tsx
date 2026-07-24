@@ -314,6 +314,7 @@ export function HomeScreen({
   onOpenOrdersWithFilter,
   onOpenNetworkError,
   onOpenMessagesView,
+  isRefreshingMessages,
   onMarkMessageRead,
   onMarkAllMessagesRead,
   onReuseRoute,
@@ -353,6 +354,7 @@ export function HomeScreen({
   onOpenOrdersWithFilter: (filter: OrderListFilter) => void;
   onOpenNetworkError: () => void;
   onOpenMessagesView: () => void;
+  isRefreshingMessages?: boolean;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
   onReuseRoute: (route: FrequentRoute) => void;
@@ -984,6 +986,9 @@ export function HomeScreen({
         onBackHome={backHome}
         onMarkMessageRead={onMarkMessageRead}
         onMarkAllMessagesRead={onMarkAllMessagesRead}
+        canRefresh={usesPlatformMessagesApi}
+        isRefreshing={isRefreshingMessages}
+        onRefresh={onOpenMessagesView}
         onOpenOrderDetail={onOpenOrderDetail}
       />
     );

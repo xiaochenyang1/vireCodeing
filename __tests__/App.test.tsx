@@ -8858,6 +8858,85 @@ test('opens the local message center from the home screen', async () => {
   expect(renderedText).toContain('最近订单');
 });
 
+test('filters unread messages in the local message center', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'message-filter-view-unread' }).props.onPress();
+  });
+
+  const renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('司机报价提醒');
+  expect(renderedText).toContain('系统通知');
+  expect(renderedText).not.toContain('客服处理进度');
+  expect(renderedText).not.toContain('财务到账提醒');
+  expect(
+    app.root.findByProps({ testID: 'message-filter-summary' }).props.children,
+  ).toBe('当前筛选显示 2 条消息');
+  expect(
+    app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+  ).toBe('2 条未读');
+  expect(
+    app.root.findAllByProps({ testID: 'message-mark-read-message-finance-1' }),
+  ).toHaveLength(0);
+});
+
+test('filters messages by category in the local message center', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'message-filter-category-finance' })
+      .props.onPress();
+  });
+
+  const renderedText = getRenderedText(app);
+
+  expect(renderedText).toContain('财务到账提醒');
+  expect(renderedText).not.toContain('司机报价提醒');
+  expect(renderedText).not.toContain('系统通知');
+  expect(renderedText).not.toContain('客服处理进度');
+  expect(
+    app.root.findByProps({ testID: 'message-filter-summary' }).props.children,
+  ).toBe('当前筛选显示 1 条消息');
+  expect(
+    app.root.findByProps({ testID: 'message-status-message-finance-1' }).props
+      .children,
+  ).toBe('已读');
+  expect(
+    app.root.findAllByProps({
+      testID: 'message-conversation-order-HY20260622001',
+    }),
+  ).toHaveLength(0);
+});
+
+test('hides the manual refresh button in local message mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'message-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
 test('opens an order detail from an order message', async () => {
   const app = await renderApp();
 
@@ -9688,6 +9767,162 @@ test('refreshes platform messages when opening the message center from home', as
         .children,
     ).toBe('未读');
     expect(messageListRequestCount).toBe(2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('refreshes platform messages manually from the message center', async () => {
+  const originalFetch = globalThis.fetch;
+  let messageListRequestCount = 0;
+  const fetchMock = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/send-code' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/auth/login' &&
+      init?.method === 'POST'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'platform-user-3',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-messages-manual-refresh.900',
+            refreshToken: 'refresh.platform-messages-manual-refresh.900',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl.includes('/me/messages?') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      messageListRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          messageListRequestCount === 1
+            ? {
+                items: [
+                  {
+                    id: 'msg-platform-manual-old',
+                    userId: 'platform-user-3',
+                    audience: 'shipper',
+                    category: 'system',
+                    title: '启动消息',
+                    content: '应用启动时同步的消息',
+                    unread: false,
+                    createdAtIso: '2026-07-23T08:00:00.000Z',
+                    updatedAtIso: '2026-07-23T08:00:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 1,
+              }
+            : messageListRequestCount === 2
+            ? {
+                items: [
+                  {
+                    id: 'msg-platform-manual-open',
+                    userId: 'platform-user-3',
+                    audience: 'shipper',
+                    category: 'service',
+                    title: '打开消息中心后的同步',
+                    content: '消息中心打开时已刷新',
+                    unread: true,
+                    createdAtIso: '2026-07-23T09:00:00.000Z',
+                    updatedAtIso: '2026-07-23T09:00:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 2,
+              }
+            : {
+                items: [
+                  {
+                    id: 'msg-platform-manual-latest',
+                    userId: 'platform-user-3',
+                    audience: 'shipper',
+                    category: 'finance',
+                    title: '手动刷新后的最新消息',
+                    content: '手动刷新拉取到最新消息',
+                    unread: true,
+                    createdAtIso: '2026-07-23T09:30:00.000Z',
+                    updatedAtIso: '2026-07-23T09:30:00.000Z',
+                  },
+                ],
+                page: 1,
+                pageSize: 50,
+                total: 1,
+                unreadCount: 5,
+              },
+        ),
+      );
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-messages' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('消息中心打开时已刷新');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('2 条未读');
+    expect(
+      app.root.findByProps({ testID: 'message-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'message-manual-refresh' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('手动刷新后的最新消息');
+    expect(renderedText).toContain('手动刷新拉取到最新消息');
+    expect(renderedText).not.toContain('打开消息中心后的同步');
+    expect(
+      app.root.findByProps({ testID: 'message-unread-summary' }).props.children,
+    ).toBe('5 条未读');
+    expect(messageListRequestCount).toBe(3);
   } finally {
     globalThis.fetch = originalFetch;
   }

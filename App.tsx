@@ -615,6 +615,8 @@ function App({
   const [networkNotice, setNetworkNotice] = useState('');
   const [, setNetworkQueueRefreshKey] = useState(0);
   const [messageCenterNotice, setMessageCenterNotice] = useState('');
+  const [isRefreshingPlatformMessages, setIsRefreshingPlatformMessages] =
+    useState(false);
   const [platformOrderListNotice, setPlatformOrderListNotice] = useState('');
   const [platformOrderListQuery, setPlatformOrderListQuery] =
     useState<PlatformListShipperOrdersQuery>({ page: 1, pageSize: 20 });
@@ -1004,6 +1006,7 @@ function App({
 
   const refreshPlatformMessages = useCallback(() => {
     if (!platformMessagesApi || !getAuthSessionSnapshot()?.accessToken) {
+      setIsRefreshingPlatformMessages(false);
       setMessageCenterNotice('');
       return;
     }
@@ -1011,6 +1014,7 @@ function App({
     const refreshRequestId = messageRefreshRequestIdRef.current + 1;
     messageRefreshRequestIdRef.current = refreshRequestId;
     const mutationVersionAtStart = messageMutationVersionRef.current;
+    setIsRefreshingPlatformMessages(true);
 
     platformMessagesApi
       .listMessages({ page: 1, pageSize: 50 })
@@ -1018,7 +1022,14 @@ function App({
         applyPlatformMessages(result, refreshRequestId, mutationVersionAtStart);
       })
       .catch(() => {
-        setMessageCenterNotice(platformMessageRefreshFailureNotice);
+        if (refreshRequestId === messageRefreshRequestIdRef.current) {
+          setMessageCenterNotice(platformMessageRefreshFailureNotice);
+        }
+      })
+      .finally(() => {
+        if (refreshRequestId === messageRefreshRequestIdRef.current) {
+          setIsRefreshingPlatformMessages(false);
+        }
       });
   }, [applyPlatformMessages, platformMessagesApi]);
   const rollbackMessageMutationIfCurrent = useCallback(
@@ -3340,6 +3351,7 @@ function App({
               networkRetryQueueSummary.totalCount > 0 ? '同步详情' : '异常演练'
             }
             messageCenterNotice={messageCenterNotice}
+            isRefreshingMessages={isRefreshingPlatformMessages}
             platformAuthApi={platformAuthApi}
             platformProfileApi={platformProfileApi}
             platformFrequentRoutesApi={platformFrequentRoutesApi}

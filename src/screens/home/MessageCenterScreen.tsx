@@ -6,7 +6,7 @@ import {
   View,
 } from 'react-native';
 
-import { colors, styles } from '../../styles';
+import { styles } from '../../styles';
 import type {
   MessageCenterItem,
   OrderDetailReturnTarget,
@@ -15,6 +15,8 @@ import { getMessageOrderId } from '../../utils/homeSupport';
 import { SupportTopBar } from './SupportTopBar';
 
 type ConversationView = 'list' | 'chat';
+type MessageListFilter = 'all' | 'unread';
+type MessageCategoryFilter = 'all' | MessageCenterItem['category'];
 
 type Conversation = {
   id: string;
@@ -28,6 +30,27 @@ type Conversation = {
   messages: MessageCenterItem[];
   avatarLabel: string;
 };
+
+const messageListFilters: Array<{
+  id: MessageListFilter;
+  label: string;
+  testID: string;
+}> = [
+  { id: 'all', label: '全部', testID: 'message-filter-view-all' },
+  { id: 'unread', label: '未读', testID: 'message-filter-view-unread' },
+];
+
+const messageCategoryFilters: Array<{
+  id: MessageCategoryFilter;
+  label: string;
+  testID: string;
+}> = [
+  { id: 'all', label: '全部分类', testID: 'message-filter-category-all' },
+  { id: 'order', label: '订单', testID: 'message-filter-category-order' },
+  { id: 'service', label: '客服', testID: 'message-filter-category-service' },
+  { id: 'system', label: '系统', testID: 'message-filter-category-system' },
+  { id: 'finance', label: '财务', testID: 'message-filter-category-finance' },
+];
 
 function getConversationAvatarLabel(category: MessageCenterItem['category']): string {
   switch (category) {
@@ -96,9 +119,6 @@ function groupMessagesIntoConversations(
 
   conversations.sort((a, b) => b.timeText.localeCompare(a.timeText));
 
-  const notificationIds = new Set(
-    conversations.map(c => `order-${c.orderId}`),
-  );
   const notifications = messages.filter(
     m => {
       const orderId = getMessageOrderId(m.content, {
@@ -120,6 +140,9 @@ export function MessageCenterScreen({
   onBackHome,
   onMarkMessageRead,
   onMarkAllMessagesRead,
+  canRefresh = false,
+  isRefreshing = false,
+  onRefresh,
   onOpenOrderDetail,
 }: {
   messages: MessageCenterItem[];
@@ -129,6 +152,9 @@ export function MessageCenterScreen({
   onBackHome: () => void;
   onMarkMessageRead: (messageId: string) => void;
   onMarkAllMessagesRead: () => void;
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  onRefresh?: () => void;
   onOpenOrderDetail: (
     orderId: string,
     returnTarget?: OrderDetailReturnTarget,
@@ -136,15 +162,49 @@ export function MessageCenterScreen({
 }) {
   const [activeView, setActiveView] = useState<ConversationView>('list');
   const [activeConversationId, setActiveConversationId] = useState<string>();
+  const [messageListFilter, setMessageListFilter] =
+    useState<MessageListFilter>('all');
+  const [messageCategoryFilter, setMessageCategoryFilter] =
+    useState<MessageCategoryFilter>('all');
 
-  const { conversations, notifications } = useMemo(
+  const filteredMessages = useMemo(
+    () =>
+      messages.filter(message => {
+        if (messageListFilter === 'unread' && !message.unread) {
+          return false;
+        }
+
+        if (
+          messageCategoryFilter !== 'all' &&
+          message.category !== messageCategoryFilter
+        ) {
+          return false;
+        }
+
+        return true;
+      }),
+    [messageCategoryFilter, messageListFilter, messages],
+  );
+
+  const { conversations: allConversations } = useMemo(
     () => groupMessagesIntoConversations(messages),
     [messages],
   );
+  const { conversations, notifications } = useMemo(
+    () => groupMessagesIntoConversations(filteredMessages),
+    [filteredMessages],
+  );
 
-  const activeConversation = conversations.find(
+  const activeConversation = allConversations.find(
     c => c.id === activeConversationId,
   );
+  const isFiltered =
+    messageListFilter !== 'all' || messageCategoryFilter !== 'all';
+  const filteredSummaryText = isFiltered
+    ? filteredMessages.length > 0
+      ? `当前筛选显示 ${filteredMessages.length} 条消息`
+      : '当前筛选下暂无消息'
+    : undefined;
 
   const openConversation = (conversation: Conversation) => {
     setActiveConversationId(conversation.id);
@@ -267,13 +327,46 @@ export function MessageCenterScreen({
             </Text>
           </View>
           {unreadCount > 0 ? (
+            <View style={styles.messageActionGroup}>
+              {canRefresh ? (
+                <Pressable
+                  testID="message-manual-refresh"
+                  disabled={isRefreshing || !onRefresh}
+                  style={({ pressed }) => [
+                    styles.detailSecondaryButton,
+                    (isRefreshing || !onRefresh) && styles.buttonDisabled,
+                    pressed && !isRefreshing && onRefresh && styles.pressedButton,
+                  ]}
+                  onPress={onRefresh}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    {isRefreshing ? '刷新中...' : '手动刷新'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                testID="message-mark-all-read"
+                style={styles.detailSecondaryButton}
+                onPress={onMarkAllMessagesRead}
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  全部已读
+                </Text>
+              </Pressable>
+            </View>
+          ) : canRefresh ? (
             <Pressable
-              testID="message-mark-all-read"
-              style={styles.detailSecondaryButton}
-              onPress={onMarkAllMessagesRead}
+              testID="message-manual-refresh"
+              disabled={isRefreshing || !onRefresh}
+              style={({ pressed }) => [
+                styles.detailSecondaryButton,
+                (isRefreshing || !onRefresh) && styles.buttonDisabled,
+                pressed && !isRefreshing && onRefresh && styles.pressedButton,
+              ]}
+              onPress={onRefresh}
             >
               <Text style={styles.detailSecondaryButtonText}>
-                全部已读
+                {isRefreshing ? '刷新中...' : '手动刷新'}
               </Text>
             </Pressable>
           ) : null}
@@ -283,6 +376,76 @@ export function MessageCenterScreen({
             {noticeText}
           </Text>
         ) : null}
+        <View style={styles.messageFilterSection}>
+          <View style={styles.draftInlineSection}>
+            <Text style={styles.messageFilterLabel}>查看范围</Text>
+            <View style={styles.draftChoiceGrid}>
+              {messageListFilters.map(filter => {
+                const isActive = messageListFilter === filter.id;
+
+                return (
+                  <Pressable
+                    key={filter.id}
+                    testID={filter.testID}
+                    style={({ pressed }) => [
+                      styles.draftChoiceButton,
+                      isActive && styles.draftChoiceButtonActive,
+                      pressed && styles.pressedButton,
+                    ]}
+                    onPress={() => setMessageListFilter(filter.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.draftChoiceText,
+                        isActive && styles.draftChoiceTextActive,
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <View style={styles.draftInlineSection}>
+            <Text style={styles.messageFilterLabel}>消息分类</Text>
+            <View style={styles.draftChoiceGrid}>
+              {messageCategoryFilters.map(filter => {
+                const isActive = messageCategoryFilter === filter.id;
+
+                return (
+                  <Pressable
+                    key={filter.id}
+                    testID={filter.testID}
+                    style={({ pressed }) => [
+                      styles.draftChoiceButton,
+                      isActive && styles.draftChoiceButtonActive,
+                      pressed && styles.pressedButton,
+                    ]}
+                    onPress={() => setMessageCategoryFilter(filter.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.draftChoiceText,
+                        isActive && styles.draftChoiceTextActive,
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          {filteredSummaryText ? (
+            <Text
+              testID="message-filter-summary"
+              style={styles.messageFilterSummary}
+            >
+              {filteredSummaryText}
+            </Text>
+          ) : null}
+        </View>
       </View>
 
       {conversations.length > 0 ? (
@@ -405,7 +568,9 @@ export function MessageCenterScreen({
 
       {conversations.length === 0 && notifications.length === 0 ? (
         <View style={styles.detailCard}>
-          <Text style={styles.detailMeta}>暂无消息</Text>
+          <Text style={styles.detailMeta}>
+            {messages.length === 0 ? '暂无消息' : '当前筛选下暂无消息'}
+          </Text>
         </View>
       ) : null}
     </ScrollView>

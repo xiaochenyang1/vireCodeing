@@ -871,6 +871,26 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  messageActionGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  messageFilterSection: {
+    marginTop: 12,
+    gap: 12,
+  },
+  messageFilterLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  messageFilterSummary: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   messageHeaderMeta: {
     alignItems: 'flex-end',
     gap: 4,
@@ -879,6 +899,9 @@ export const styles = StyleSheet.create({
     color: colors.tealDark,
     fontSize: 12,
     fontWeight: '800',
+  },
+  buttonDisabled: {
+    opacity: 0.55,
   },
   routeAddress: {
     marginTop: 8,
