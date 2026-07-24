@@ -4,6 +4,7 @@ import type {
   CreateDriverWithdrawalRequest,
   DriverAcceptOrderRequest,
   DriverAdvanceOrderStatusRequest,
+  DriverCancelOrderRequest,
   DriverEvaluateShipperRequest,
   DriverMyOrdersQuery,
   DriverOrderHallQuery,
@@ -150,6 +151,16 @@ export const driverQuoteOrderSchema = z.object({
 export const driverAcceptOrderSchema = z.object({
   baseUpdatedAtIso: baseUpdatedAtIsoSchema,
   noteText: optionalTrimmedString(200, '接单备注最多 200 字'),
+});
+
+export const driverCancelOrderSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+  reasonText: z
+    .string()
+    .trim()
+    .min(1, '取消原因不能为空')
+    .max(50, '取消原因最多 50 字'),
+  description: optionalTrimmedString(200, '取消说明最多 200 字'),
 });
 
 export const driverAdvanceOrderStatusSchema = z.object({
@@ -313,6 +324,12 @@ export function parseDriverAcceptOrderRequest(
   input: unknown,
 ): DriverAcceptOrderRequest {
   return driverAcceptOrderSchema.parse(input);
+}
+
+export function parseDriverCancelOrderRequest(
+  input: unknown,
+): DriverCancelOrderRequest {
+  return driverCancelOrderSchema.parse(input);
 }
 
 export function parseDriverAdvanceOrderStatusRequest(

@@ -416,6 +416,53 @@ describe('DriverOrdersService', () => {
     });
   });
 
+  it('cancels a loading order for the assigned driver and notifies the shipper', async () => {
+    const { notificationsService, repository, service } = createService();
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const acceptedOrder = await service.acceptOrder(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      order.id,
+      'accept-for-cancel-key',
+      { baseUpdatedAtIso: order.updatedAtIso },
+    );
+
+    const cancelledOrder = await service.cancelOrder(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      acceptedOrder.id,
+      'driver-cancel-key',
+      {
+        baseUpdatedAtIso: acceptedOrder.updatedAtIso,
+        reasonText: '车辆故障',
+        description: '无法继续前往装货点',
+      },
+    );
+
+    expect(cancelledOrder).toMatchObject({
+      id: acceptedOrder.id,
+      status: 'cancelled',
+    });
+    expect(
+      cancelledOrder.events.some(
+        event =>
+          event.eventType === 'cancelled' &&
+          event.actorUserId === 'driver-1' &&
+          event.noteText?.includes('司机取消：车辆故障'),
+      ),
+    ).toBe(true);
+    expect(notificationsService.notifyOrderEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'cancelled',
+        orderId: cancelledOrder.id,
+        shipperId: 'shipper-1',
+        driverId: 'driver-1',
+        nextStatus: 'cancelled',
+      }),
+    );
+  });
+
   it('rejects accepting orders when vehicle certification is not approved', async () => {
     const { repository } = createService();
     const acceptanceSettingsRepository =

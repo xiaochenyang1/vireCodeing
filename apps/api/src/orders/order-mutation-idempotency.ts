@@ -11,6 +11,7 @@ export const ORDER_MUTATION_OPERATIONS = [
   'shipper_add_bonus',
   'driver_accept',
   'driver_status',
+  'driver_cancel',
 ] as const;
 
 export const ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION =

@@ -31,6 +31,7 @@ import type {
   CreateDriverWithdrawalRequest,
   DriverAcceptOrderRequest,
   DriverAdvanceOrderStatusRequest,
+  DriverCancelOrderRequest,
   DriverEvaluateShipperRequest,
   DriverQuoteOrderRequest,
   DriverReplyEvaluationRequest,
@@ -45,6 +46,7 @@ import {
   createDriverWithdrawalSchema,
   driverAcceptOrderSchema,
   driverAdvanceOrderStatusSchema,
+  driverCancelOrderSchema,
   driverEvaluateShipperSchema,
   driverMyOrdersQuerySchema,
   driverOrderHallQuerySchema,
@@ -60,6 +62,7 @@ import {
   parseUpdateDriverBankCardRequest,
   parseDriverAdvanceOrderStatusRequest,
   parseDriverAcceptOrderRequest,
+  parseDriverCancelOrderRequest,
   parseDriverEvaluateShipperRequest,
   parseDriverQuoteOrderRequest,
   parseDriverReplyEvaluationRequest,
@@ -304,6 +307,29 @@ export class DriverOrdersController {
         getCurrentDriver(request),
         orderId,
         parseDriverReplyEvaluationRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('driver/orders/:orderId/cancel')
+  @ApiOperation({
+    summary: '司机取消订单',
+    description: '司机取消待装货或运输中订单，写入取消事件并通知货主',
+  })
+  async cancelOrder(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(driverCancelOrderSchema))
+    body: DriverCancelOrderRequest,
+  ) {
+    return ok(
+      await this.driverOrdersService.cancelOrder(
+        getCurrentDriver(request),
+        orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseDriverCancelOrderRequest(body),
       ),
       getRequestId(request),
     );

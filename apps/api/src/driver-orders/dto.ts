@@ -28,6 +28,12 @@ export type DriverAcceptOrderRequest = {
   noteText?: string;
 };
 
+export type DriverCancelOrderRequest = {
+  baseUpdatedAtIso: string;
+  reasonText: string;
+  description?: string;
+};
+
 export type DriverOrderEventSnapshot = {
   driverId: string;
   driverName: string;

@@ -27,6 +27,7 @@ import type {
   DriverAdvanceOrderStatusRequest,
   DriverBankCardListResult,
   DriverBankCardRecord,
+  DriverCancelOrderRequest,
   DriverEvaluateShipperRequest,
   DriverIncomeOverview,
   DriverMyOrdersQuery,
@@ -335,6 +336,80 @@ export class DriverOrdersService {
     });
 
     return acceptedOrder;
+  }
+
+  async cancelOrder(
+    currentUser: AuthenticatedUser,
+    orderId: string,
+    idempotencyKey: string,
+    input: DriverCancelOrderRequest,
+  ): Promise<ShipperOrderRecord> {
+    this.assertDriver(currentUser);
+    const { baseUpdatedAtIso, reasonText, description } = input;
+    const requestFingerprint = createOrderMutationFingerprint(orderId, {
+      reasonText,
+      description,
+      baseUpdatedAtIso,
+    });
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_cancel',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许司机取消',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
+    const order = await this.ordersRepository.findOrderById(orderId);
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+    if (order.assignedDriverId !== currentUser.id) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+    if (order.status !== 'loading' && order.status !== 'transporting') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '仅待装货或运输中订单允许司机取消',
+      );
+    }
+
+    const cancelledOrder = this.unwrapOrderMutationResult(
+      await this.ordersRepository.executeIdempotentOrderMutation({
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_cancel',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'driver_cancel',
+          input: {
+            reasonText,
+            ...(description ? { description } : {}),
+          },
+        },
+      }),
+      '当前订单状态不允许司机取消',
+    ).order;
+
+    await this.safeNotifyOrderEvent({
+      event: 'cancelled',
+      orderId: cancelledOrder.id,
+      orderNo: cancelledOrder.orderNo,
+      shipperId: cancelledOrder.shipperId,
+      driverId: cancelledOrder.assignedDriverId ?? currentUser.id,
+      nextStatus: cancelledOrder.status,
+    });
+
+    return cancelledOrder;
   }
 
   async listMyOrders(

@@ -144,6 +144,13 @@ export type OrderMutationCommand =
   | {
       type: 'driver_status';
       input: Omit<DriverAdvanceOrderStatusRequest, 'baseUpdatedAtIso'>;
+    }
+  | {
+      type: 'driver_cancel';
+      input: {
+        reasonText: string;
+        description?: string;
+      };
     };
 
 export type ExecuteOrderMutationInput = {
@@ -1789,6 +1796,11 @@ function isOrderMutationAllowed(
         order.status,
         input.mutation.input.nextStatus,
       );
+    case 'driver_cancel':
+      return (
+        (order.status === 'loading' || order.status === 'transporting') &&
+        order.assignedDriverId === input.actorUserId
+      );
     default:
       return false;
   }
@@ -1874,6 +1886,7 @@ function applyInMemoryOrderCouponMutation(
     }
 
     case 'shipper_cancel':
+    case 'driver_cancel':
       if (currentOrder.couponId) {
         releaseInMemoryOrderCoupon(
           findRequiredInMemoryOrderCoupon(
@@ -1929,7 +1942,10 @@ function applyInMemoryOrderFinancialMutation(
     return;
   }
 
-  if (input.mutation.type !== 'shipper_cancel') {
+  if (
+    input.mutation.type !== 'shipper_cancel' &&
+    input.mutation.type !== 'driver_cancel'
+  ) {
     return;
   }
 
@@ -2337,6 +2353,19 @@ function applyInMemoryOrderMutation(
         createdAtIso: updatedAtIso,
       });
       return;
+    case 'driver_cancel':
+      order.status = 'cancelled';
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'cancelled',
+        noteText: createOrderCancellationNote({
+          reasonText: `司机取消：${input.mutation.input.reasonText}`,
+          description: input.mutation.input.description,
+        }),
+        createdAtIso: updatedAtIso,
+      });
+      return;
   }
 }
 
@@ -2726,6 +2755,7 @@ async function applyPrismaOrderCouponMutation(
     }
 
     case 'shipper_cancel':
+    case 'driver_cancel':
       if (currentOrder.couponId) {
         await releasePrismaOrderCoupon(
           transaction,
@@ -2944,7 +2974,10 @@ async function applyPrismaOrderFinancialMutation(
     );
   }
 
-  if (input.mutation.type !== 'shipper_cancel') {
+  if (
+    input.mutation.type !== 'shipper_cancel' &&
+    input.mutation.type !== 'driver_cancel'
+  ) {
     return {} as const;
   }
 
@@ -3272,6 +3305,12 @@ function createPrismaOrderMutationOrderData(
         status: input.mutation.input.nextStatus,
         updatedAt,
       };
+    case 'driver_cancel':
+      return {
+        status: 'cancelled',
+        paymentStatus: financialMutation.paymentStatus,
+        updatedAt,
+      };
   }
 }
 
@@ -3461,6 +3500,20 @@ async function applyPrismaOrderMutation(
             input.mutation.input.nextStatus,
           ),
           attachmentFileIds: input.mutation.input.receiptPhotoFileIds ?? [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'driver_cancel':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'cancelled',
+          noteText: createOrderCancellationNote({
+            reasonText: `司机取消：${input.mutation.input.reasonText}`,
+            description: input.mutation.input.description,
+          }),
           createdAt: updatedAt,
         },
       });
