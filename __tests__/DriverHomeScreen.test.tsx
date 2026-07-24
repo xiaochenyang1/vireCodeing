@@ -1480,6 +1480,83 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 5678');
   });
 
+  it('allows marking an edited bank card as the default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          isDefault: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          bankAccountName: '李队长',
+          bankName: '平安银行',
+          isDefault: true,
+          updatedAtIso: '2026-07-09T03:25:00.000Z',
+        }),
+      );
+    platformDriverOrderApi.updateBankCard.mockResolvedValue({
+      id: 'bank-card-1',
+      bankAccountName: '李队长',
+      bankName: '平安银行',
+      bankAccountMasked: '**** **** **** 1234',
+      isDefault: true,
+      createdAtIso: '2026-07-09T02:20:00.000Z',
+      updatedAtIso: '2026-07-09T03:25:00.000Z',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-bank-card-1' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-toggle-default-bank-card-1' })
+        .props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-name-bank-card-1' })
+        .props.onChangeText('平安银行');
+      renderer.root
+        .findByProps({
+          testID: 'driver-bank-card-edit-account-name-bank-card-1',
+        })
+        .props.onChangeText('李队长');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-submit-bank-card-1' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.updateBankCard).toHaveBeenCalledWith(
+      'bank-card-1',
+      {
+        bankAccountName: '李队长',
+        bankName: '平安银行',
+        isDefault: true,
+      },
+    );
+    expect(getRenderedText(renderer)).toContain('默认');
+  });
+
   it('clears stale withdrawal payee info when the selected bank card disappears', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards

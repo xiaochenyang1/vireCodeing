@@ -3034,6 +3034,20 @@ export function DriverHomeScreen({
                     }
                   />
                   <Pressable
+                    testID={`driver-bank-card-edit-toggle-default-${card.id}`}
+                    style={styles.detailSecondaryButton}
+                    onPress={() =>
+                      setBankCardForm(current => ({
+                        ...current,
+                        isDefault: !current.isDefault,
+                      }))
+                    }
+                  >
+                    <Text style={styles.detailSecondaryButtonText}>
+                      {`默认银行卡：${bankCardForm.isDefault ? '是' : '否'}`}
+                    </Text>
+                  </Pressable>
+                  <Pressable
                     testID={`driver-bank-card-edit-submit-${card.id}`}
                     style={styles.detailSecondaryButton}
                     onPress={submitBankCard}
