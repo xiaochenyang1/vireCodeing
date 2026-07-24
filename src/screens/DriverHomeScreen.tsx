@@ -973,6 +973,9 @@ export function DriverHomeScreen({
           const nextForm = current.selectedBankCardId
             ? {
                 ...current,
+                bankAccountName: '',
+                bankName: '',
+                bankAccountNo: '',
                 selectedBankCardId: undefined,
               }
             : current;
