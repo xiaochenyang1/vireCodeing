@@ -102,7 +102,17 @@ function createDriverWithdrawalsPage() {
   };
 }
 
-function createDriverBankCardsPage() {
+function createDriverBankCardsPage(
+  overrides: Partial<{
+    id: string;
+    bankAccountName: string;
+    bankName: string;
+    bankAccountMasked: string;
+    isDefault: boolean;
+    createdAtIso: string;
+    updatedAtIso: string;
+  }> = {},
+) {
   return {
     items: [
       {
@@ -113,6 +123,7 @@ function createDriverBankCardsPage() {
         isDefault: true,
         createdAtIso: '2026-07-09T02:20:00.000Z',
         updatedAtIso: '2026-07-09T02:20:00.000Z',
+        ...overrides,
       },
     ],
     total: 1,
@@ -1233,6 +1244,74 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: 'driver-withdrawal-selected-bank-card',
       }),
     ).toHaveLength(0);
+  });
+
+  it('syncs the selected withdrawal card details after refreshing bank cards', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          isDefault: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          bankAccountName: '李队长',
+          bankName: '平安银行',
+          isDefault: false,
+          updatedAtIso: '2026-07-09T03:00:00.000Z',
+        }),
+      );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-select-bank-card-1' })
+        .props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 8888 0000 1234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('平安银行');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('李队长');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
+        .value,
+    ).toBe('120');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('6225 8888 0000 1234');
+    expect(getRenderedText(renderer)).toContain(
+      '当前提现银行卡：平安银行 · **** **** **** 1234',
+    );
   });
 
   it('reuses the same withdrawal idempotency key after a transient failure', async () => {

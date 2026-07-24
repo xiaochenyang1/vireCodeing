@@ -948,11 +948,23 @@ export function DriverHomeScreen({
         const defaultCard = items.find(item => item.isDefault);
         setBankCards(items);
         setWithdrawalForm(current => {
-          if (
-            current.selectedBankCardId &&
-            items.some(item => item.id === current.selectedBankCardId)
-          ) {
-            return current;
+          const selectedCard = current.selectedBankCardId
+            ? items.find(item => item.id === current.selectedBankCardId)
+            : undefined;
+          if (selectedCard) {
+            if (
+              current.bankAccountName === selectedCard.bankAccountName &&
+              current.bankName === selectedCard.bankName
+            ) {
+              return current;
+            }
+
+            withdrawalIdempotencyKeyRef.current = undefined;
+            return {
+              ...current,
+              bankAccountName: selectedCard.bankAccountName,
+              bankName: selectedCard.bankName,
+            };
           }
 
           const nextForm = current.selectedBankCardId
