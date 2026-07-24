@@ -1,5 +1,5 @@
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ProfileDetailScreen,
@@ -93,6 +93,8 @@ const addressBookLoadMissingAuthMessage =
   '平台地址簿拉取需要重新登录后再同步。';
 const addressBookLoadFailureMessage =
   '平台地址簿拉取失败，已保留本地常用地址/联系人。';
+const spendingLoadMissingAuthMessage =
+  '平台消费记录拉取需要重新登录后再同步。';
 const localIdentityVerificationSyncMessage =
   '实名认证资料已在本地保存，等待真实认证审核接口接入后同步。';
 const localEnterpriseVerificationSyncMessage =
@@ -351,9 +353,12 @@ export function ProfileCenterScreen({
     useState<PlatformProfileSpendingSnapshot>();
   const [platformEvaluationRecords, setPlatformEvaluationRecords] =
     useState<ProfileEvaluationRecordItem[]>();
+  const [isRefreshingPlatformSpending, setIsRefreshingPlatformSpending] =
+    useState(false);
   const [spendingNotice, setSpendingNotice] = useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
   const hasLoadedPlatformAccount = useRef(false);
+  const spendingLoadRequestVersionRef = useRef(0);
   const {
     addresses,
     contacts,
@@ -660,6 +665,61 @@ export function ProfileCenterScreen({
       cancelled = true;
     };
   }, [activeSection, platformFileApi, platformProfileApi]);
+  const refreshPlatformSpendingRecords = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi) {
+        return;
+      }
+
+      const requestVersion = ++spendingLoadRequestVersionRef.current;
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setPlatformSpendingSnapshot(undefined);
+        setSpendingNotice(spendingLoadMissingAuthMessage);
+        setIsRefreshingPlatformSpending(false);
+        return;
+      }
+
+      if (source === 'manual') {
+        setIsRefreshingPlatformSpending(true);
+      }
+
+      platformProfileApi
+        .getSpendingRecords()
+        .then(spendingSnapshot => {
+          if (
+            requestVersion !== spendingLoadRequestVersionRef.current ||
+            !isValidPlatformSpendingSnapshot(spendingSnapshot)
+          ) {
+            return;
+          }
+
+          setPlatformSpendingSnapshot(spendingSnapshot);
+          setSpendingNotice(
+            source === 'manual'
+              ? '平台消费记录已手动刷新到最新资金流水。'
+              : '消费记录已按平台资金流水同步。',
+          );
+        })
+        .catch(() => {
+          if (requestVersion !== spendingLoadRequestVersionRef.current) {
+            return;
+          }
+
+          setPlatformSpendingSnapshot(undefined);
+          setSpendingNotice('平台消费记录拉取失败，已回退本地演示记录。');
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === spendingLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformSpending(false);
+          }
+        });
+    },
+    [platformProfileApi],
+  );
   useEffect(() => {
     if (
       (activeSection !== 'spending' && activeSection !== 'invoices') ||
@@ -669,31 +729,8 @@ export function ProfileCenterScreen({
       return;
     }
 
-    let cancelled = false;
-
-    platformProfileApi
-      .getSpendingRecords()
-      .then(spendingSnapshot => {
-        if (cancelled || !isValidPlatformSpendingSnapshot(spendingSnapshot)) {
-          return;
-        }
-
-        setPlatformSpendingSnapshot(spendingSnapshot);
-        setSpendingNotice('消费记录已按平台资金流水同步。');
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-
-        setPlatformSpendingSnapshot(undefined);
-        setSpendingNotice('平台消费记录拉取失败，已回退本地演示记录。');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, platformProfileApi]);
+    refreshPlatformSpendingRecords('open');
+  }, [activeSection, platformProfileApi, refreshPlatformSpendingRecords]);
   useEffect(() => {
     if (
       activeSection !== 'invoices' ||
@@ -1728,6 +1765,8 @@ export function ProfileCenterScreen({
         password={password}
         notificationPermissionStatus={notificationPermissionStatus}
         platformSpendingSnapshot={platformSpendingSnapshot}
+        canRefreshPlatformSpending={Boolean(platformProfileApi)}
+        isRefreshingPlatformSpending={isRefreshingPlatformSpending}
         spendingNotice={spendingNotice}
         platformAuthApi={platformAuthApi}
         platformNotificationsApi={platformNotificationsApi}
@@ -1945,6 +1984,9 @@ export function ProfileCenterScreen({
             current => ({ ...current, password: nextPassword }),
             options,
           )
+        }
+        onRefreshPlatformSpending={() =>
+          refreshPlatformSpendingRecords('manual')
         }
         onBackOverview={() => setActiveSection(undefined)}
         onLogout={onLogout}

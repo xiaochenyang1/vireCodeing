@@ -18,12 +18,18 @@ import {
 export function SpendingRecords({
   orders,
   platformSpendingSnapshot,
+  canRefresh = false,
+  isRefreshing = false,
   notice,
+  onRefresh,
   onOpenOrderDetail,
 }: {
   orders: RecentOrder[];
   platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
   notice?: string;
+  onRefresh?: () => void;
   onOpenOrderDetail?: (orderId: string) => void;
 }) {
   const isPlatformMode = Boolean(platformSpendingSnapshot);
@@ -78,6 +84,25 @@ export function SpendingRecords({
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台资金流水</Text>
+          <Pressable
+            testID="spending-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={onRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
       {notice ? <Text style={styles.routeMeta}>{notice}</Text> : null}
       <Text style={styles.draftSectionTitle}>总消费统计</Text>
       <View style={styles.metricRow}>

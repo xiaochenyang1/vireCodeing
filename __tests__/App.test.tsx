@@ -12276,6 +12276,24 @@ test('shows local spending statistics and payment lifecycle details', async () =
   expect(renderedText).not.toContain('HY20260621008');
 });
 
+test('hides the manual refresh button in local spending mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'profile-entry-spending' }).props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'spending-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
 test('shows platform spending snapshot when opening spending in platform mode', async () => {
   const originalFetch = globalThis.fetch;
   const platformSpendingSnapshot = {
@@ -12421,6 +12439,188 @@ test('shows platform spending snapshot when opening spending in platform mode', 
         method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-spending',
+        }),
+      }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('manual refreshes platform spending records from profile', async () => {
+  const originalFetch = globalThis.fetch;
+  let spendingRequestCount = 0;
+  const initialPlatformSpendingSnapshot = {
+    shipperId: 'user-platform-spending-refresh',
+    summary: {
+      completedTotalCents: 45000,
+      activeTotalCents: 12000,
+      refundTotalCents: 0,
+    },
+    items: [
+      {
+        orderId: 'platform-order-spending-refresh-1',
+        orderNo: 'HY202607100001',
+        status: 'completed' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'settled' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'settled' as const,
+        amountCents: 45000,
+        occurredAtIso: '2026-07-10T08:30:00.000Z',
+        paidAtIso: '2026-07-10T08:10:00.000Z',
+        settledAtIso: '2026-07-10T09:00:00.000Z',
+        routeText: '福田仓库 → 罗湖门店',
+      },
+    ],
+  };
+  const refreshedPlatformSpendingSnapshot = {
+    shipperId: 'user-platform-spending-refresh',
+    summary: {
+      completedTotalCents: 88000,
+      activeTotalCents: 0,
+      refundTotalCents: 12000,
+    },
+    items: [
+      {
+        orderId: 'platform-order-spending-refresh-2',
+        orderNo: 'HY202607110009',
+        status: 'cancelled' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'refunded' as const,
+        paymentChannel: 'alipay' as const,
+        paymentOrderStatus: 'refunded' as const,
+        amountCents: 12000,
+        refundAmountCents: 12000,
+        refundStatus: 'succeeded' as const,
+        occurredAtIso: '2026-07-11T09:30:00.000Z',
+        paidAtIso: '2026-07-11T09:00:00.000Z',
+        refundedAtIso: '2026-07-11T09:30:00.000Z',
+        routeText: '南山转运仓 → 盐田码头',
+      },
+      {
+        orderId: 'platform-order-spending-refresh-3',
+        orderNo: 'HY202607110010',
+        status: 'completed' as const,
+        paymentMethod: 'cod' as const,
+        paymentStatus: 'settled' as const,
+        amountCents: 88000,
+        occurredAtIso: '2026-07-11T10:15:00.000Z',
+        settledAtIso: '2026-07-11T10:15:00.000Z',
+        routeText: '龙岗分拨中心 → 宝安主仓',
+      },
+    ],
+  };
+  const fetchMock = jest.fn((url, init) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-spending-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-spending-refresh',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440123',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      spendingRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          spendingRequestCount === 1
+            ? initialPlatformSpendingSnapshot
+            : refreshedPlatformSpendingSnapshot,
+        ),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-spending' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('消费记录已按平台资金流水同步');
+    expect(renderedText).toContain('HY202607100001');
+    expect(renderedText).toContain('福田仓库 → 罗湖门店');
+    expect(renderedText).not.toContain('HY202607110010');
+    expect(
+      app.root.findByProps({ testID: 'spending-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'spending-manual-refresh' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台消费记录已手动刷新到最新资金流水');
+    expect(renderedText).toContain('HY202607110009');
+    expect(renderedText).toContain('HY202607110010');
+    expect(renderedText).toContain('南山转运仓 → 盐田码头');
+    expect(renderedText).toContain('龙岗分拨中心 → 宝安主仓');
+    expect(renderedText).not.toContain('HY202607100001');
+    expect(renderedText).toContain('已完成消费：￥880');
+    expect(renderedText).toContain('托管中金额：￥0');
+    expect(renderedText).toContain('已退款金额：￥120');
+    expect(spendingRequestCount).toBe(2);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/spending-records',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-spending-refresh',
         }),
       }),
     );

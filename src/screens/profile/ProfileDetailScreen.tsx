@@ -94,6 +94,8 @@ export function ProfileDetailScreen({
   password,
   notificationPermissionStatus,
   platformSpendingSnapshot,
+  canRefreshPlatformSpending,
+  isRefreshingPlatformSpending,
   spendingNotice,
   platformAuthApi,
   platformProfileApi,
@@ -120,6 +122,7 @@ export function ProfileDetailScreen({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformSpending,
   onBackOverview,
   onLogout,
 }: {
@@ -144,6 +147,8 @@ export function ProfileDetailScreen({
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
   platformSpendingSnapshot?: PlatformProfileSpendingSnapshot;
+  canRefreshPlatformSpending?: boolean;
+  isRefreshingPlatformSpending?: boolean;
   spendingNotice?: string;
   platformAuthApi?: ProfilePlatformAuthApi;
   platformProfileApi?: ProfilePlatformProfileApi;
@@ -206,6 +211,7 @@ export function ProfileDetailScreen({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformSpending: () => void;
   onBackOverview: () => void;
   onLogout: () => void;
 }) {
@@ -260,7 +266,10 @@ export function ProfileDetailScreen({
         <SpendingRecords
           orders={orders}
           platformSpendingSnapshot={platformSpendingSnapshot}
+          canRefresh={canRefreshPlatformSpending}
+          isRefreshing={isRefreshingPlatformSpending}
           notice={spendingNotice}
+          onRefresh={onRefreshPlatformSpending}
         />
       ) : null}
       {sectionId === 'identity-verification' ? (
