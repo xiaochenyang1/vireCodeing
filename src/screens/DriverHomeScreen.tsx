@@ -2227,6 +2227,9 @@ export function DriverHomeScreen({
 
       return {
         ...current,
+        bankAccountName: '',
+        bankName: '',
+        bankAccountNo: '',
         selectedBankCardId: undefined,
         selectedBankCardSource: undefined,
       };
