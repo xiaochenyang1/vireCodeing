@@ -97,6 +97,8 @@ const spendingLoadMissingAuthMessage =
   '平台消费记录拉取需要重新登录后再同步。';
 const couponLoadMissingAuthMessage =
   '平台优惠券拉取需要重新登录后再同步。';
+const evaluationLoadMissingAuthMessage =
+  '平台评价记录拉取需要重新登录后再同步。';
 const localIdentityVerificationSyncMessage =
   '实名认证资料已在本地保存，等待真实认证审核接口接入后同步。';
 const localEnterpriseVerificationSyncMessage =
@@ -359,12 +361,16 @@ export function ProfileCenterScreen({
     useState(false);
   const [isRefreshingPlatformCoupons, setIsRefreshingPlatformCoupons] =
     useState(false);
+  const [isRefreshingPlatformEvaluations, setIsRefreshingPlatformEvaluations] =
+    useState(false);
   const [spendingNotice, setSpendingNotice] = useState('');
   const [couponNotice, setCouponNotice] = useState('');
+  const [evaluationNotice, setEvaluationNotice] = useState('');
   const hasLoadedPlatformAddressBook = useRef(false);
   const hasLoadedPlatformAccount = useRef(false);
   const spendingLoadRequestVersionRef = useRef(0);
   const couponLoadRequestVersionRef = useRef(0);
+  const evaluationLoadRequestVersionRef = useRef(0);
   const {
     addresses,
     contacts,
@@ -852,6 +858,80 @@ export function ProfileCenterScreen({
 
     refreshPlatformCoupons('open');
   }, [activeSection, platformProfileApi, refreshPlatformCoupons]);
+  const refreshPlatformEvaluations = useCallback(
+    (source: 'open' | 'manual') => {
+      if (!platformProfileApi) {
+        return;
+      }
+
+      const requestVersion = ++evaluationLoadRequestVersionRef.current;
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setPlatformEvaluationRecords(undefined);
+        setEvaluationNotice(evaluationLoadMissingAuthMessage);
+        setIsRefreshingPlatformEvaluations(false);
+        return;
+      }
+
+      if (source === 'manual') {
+        setIsRefreshingPlatformEvaluations(true);
+      }
+
+      Promise.all([
+        platformProfileApi.getEvaluations(),
+        platformProfileApi.getReceivedEvaluations(),
+      ])
+        .then(async ([evaluationSnapshot, receivedEvaluationSnapshot]) => {
+          if (
+            requestVersion !== evaluationLoadRequestVersionRef.current ||
+            !isValidPlatformEvaluationSnapshot(evaluationSnapshot) ||
+            !isValidPlatformReceivedEvaluationSnapshot(receivedEvaluationSnapshot)
+          ) {
+            return;
+          }
+
+          const nextEvaluationRecords = await hydrateProfileEvaluationRecords(
+            [
+              ...createLocalEvaluationRecordsFromPlatformSnapshot(
+                evaluationSnapshot,
+              ),
+              ...createLocalReceivedEvaluationRecordsFromPlatformSnapshot(
+                receivedEvaluationSnapshot,
+              ),
+            ],
+            platformFileApi,
+          );
+
+          if (requestVersion !== evaluationLoadRequestVersionRef.current) {
+            return;
+          }
+
+          setPlatformEvaluationRecords(nextEvaluationRecords);
+          setEvaluationNotice(
+            source === 'manual'
+              ? '平台评价记录已手动刷新到最新评价数据。'
+              : '评价记录已按平台评价数据同步。',
+          );
+        })
+        .catch(() => {
+          if (requestVersion !== evaluationLoadRequestVersionRef.current) {
+            return;
+          }
+
+          setPlatformEvaluationRecords(undefined);
+          setEvaluationNotice('平台评价记录拉取失败，已回退本地评价记录。');
+        })
+        .finally(() => {
+          if (
+            source === 'manual' &&
+            requestVersion === evaluationLoadRequestVersionRef.current
+          ) {
+            setIsRefreshingPlatformEvaluations(false);
+          }
+        });
+    },
+    [platformFileApi, platformProfileApi],
+  );
   useEffect(() => {
     if (
       activeSection !== 'evaluations' ||
@@ -861,49 +941,12 @@ export function ProfileCenterScreen({
       return;
     }
 
-    let cancelled = false;
-
-    Promise.all([
-      platformProfileApi.getEvaluations(),
-      platformProfileApi.getReceivedEvaluations(),
-    ])
-      .then(async ([evaluationSnapshot, receivedEvaluationSnapshot]) => {
-        if (
-          cancelled ||
-          !isValidPlatformEvaluationSnapshot(evaluationSnapshot) ||
-          !isValidPlatformReceivedEvaluationSnapshot(receivedEvaluationSnapshot)
-        ) {
-          return;
-        }
-
-        const nextEvaluationRecords = await hydrateProfileEvaluationRecords(
-          [
-            ...createLocalEvaluationRecordsFromPlatformSnapshot(
-              evaluationSnapshot,
-            ),
-            ...createLocalReceivedEvaluationRecordsFromPlatformSnapshot(
-              receivedEvaluationSnapshot,
-            ),
-          ],
-          platformFileApi,
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        setPlatformEvaluationRecords(nextEvaluationRecords);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPlatformEvaluationRecords(undefined);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, platformFileApi, platformProfileApi]);
+    refreshPlatformEvaluations('open');
+  }, [
+    activeSection,
+    platformProfileApi,
+    refreshPlatformEvaluations,
+  ]);
   const updateProfileState = (
     updater: (current: ProfileLocalState) => ProfileLocalState,
     options: ProfileSyncMutationOptions & { syncAddressBook?: boolean } = {},
@@ -1808,6 +1851,9 @@ export function ProfileCenterScreen({
         account={account}
         password={password}
         notificationPermissionStatus={notificationPermissionStatus}
+        canRefreshPlatformEvaluations={Boolean(platformProfileApi)}
+        isRefreshingPlatformEvaluations={isRefreshingPlatformEvaluations}
+        evaluationNotice={evaluationNotice}
         canRefreshPlatformCoupons={Boolean(platformProfileApi)}
         isRefreshingPlatformCoupons={isRefreshingPlatformCoupons}
         couponNotice={couponNotice}
@@ -2031,6 +2077,9 @@ export function ProfileCenterScreen({
             current => ({ ...current, password: nextPassword }),
             options,
           )
+        }
+        onRefreshPlatformEvaluations={() =>
+          refreshPlatformEvaluations('manual')
         }
         onRefreshPlatformCoupons={() => refreshPlatformCoupons('manual')}
         onRefreshPlatformSpending={() =>

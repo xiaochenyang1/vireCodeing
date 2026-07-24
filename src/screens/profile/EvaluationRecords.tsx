@@ -52,8 +52,16 @@ function createAttachmentMetaLines(file: FileAttachmentRef) {
 
 export function EvaluationRecords({
   evaluationRecords,
+  canRefresh = false,
+  isRefreshing = false,
+  notice,
+  onRefresh,
 }: {
   evaluationRecords: ProfileEvaluationRecordItem[];
+  canRefresh?: boolean;
+  isRefreshing?: boolean;
+  notice?: string;
+  onRefresh?: () => void;
 }) {
   const [filter, setFilter] = useState<EvaluationFilter>('all');
   const filterOptions: Array<{
@@ -73,6 +81,26 @@ export function EvaluationRecords({
 
   return (
     <View style={styles.detailCard}>
+      {canRefresh ? (
+        <View style={styles.routeHeader}>
+          <Text style={styles.routeName}>平台评价</Text>
+          <Pressable
+            testID="evaluation-manual-refresh"
+            disabled={isRefreshing || !onRefresh}
+            style={({ pressed }) => [
+              styles.detailSecondaryButton,
+              (isRefreshing || !onRefresh) && styles.buttonDisabled,
+              pressed && !isRefreshing && onRefresh && styles.pressedButton,
+            ]}
+            onPress={onRefresh}
+          >
+            <Text style={styles.detailSecondaryButtonText}>
+              {isRefreshing ? '刷新中...' : '手动刷新'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
       <Text style={styles.draftSectionTitle}>评价筛选</Text>
       <View style={styles.draftChoiceGrid}>
         {filterOptions.map(option => {

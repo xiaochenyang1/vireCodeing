@@ -93,6 +93,9 @@ export function ProfileDetailScreen({
   account,
   password,
   notificationPermissionStatus,
+  canRefreshPlatformEvaluations,
+  isRefreshingPlatformEvaluations,
+  evaluationNotice,
   canRefreshPlatformCoupons,
   isRefreshingPlatformCoupons,
   couponNotice,
@@ -125,6 +128,7 @@ export function ProfileDetailScreen({
   onUpdateSettings,
   onUpdateAccount,
   onUpdatePassword,
+  onRefreshPlatformEvaluations,
   onRefreshPlatformCoupons,
   onRefreshPlatformSpending,
   onBackOverview,
@@ -150,6 +154,9 @@ export function ProfileDetailScreen({
   account: SavedAccountSettings;
   password: SavedPasswordSettings;
   notificationPermissionStatus?: PushNotificationPermissionStatus;
+  canRefreshPlatformEvaluations?: boolean;
+  isRefreshingPlatformEvaluations?: boolean;
+  evaluationNotice?: string;
   canRefreshPlatformCoupons?: boolean;
   isRefreshingPlatformCoupons?: boolean;
   couponNotice?: string;
@@ -218,6 +225,7 @@ export function ProfileDetailScreen({
     password: SavedPasswordSettings,
     options?: ProfileSyncMutationOptions,
   ) => void;
+  onRefreshPlatformEvaluations: () => void;
   onRefreshPlatformCoupons: () => void;
   onRefreshPlatformSpending: () => void;
   onBackOverview: () => void;
@@ -268,7 +276,13 @@ export function ProfileDetailScreen({
         />
       ) : null}
       {sectionId === 'evaluations' ? (
-        <EvaluationRecords evaluationRecords={evaluationRecords} />
+        <EvaluationRecords
+          evaluationRecords={evaluationRecords}
+          canRefresh={canRefreshPlatformEvaluations}
+          isRefreshing={isRefreshingPlatformEvaluations}
+          notice={evaluationNotice}
+          onRefresh={onRefreshPlatformEvaluations}
+        />
       ) : null}
       {sectionId === 'spending' ? (
         <SpendingRecords

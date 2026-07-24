@@ -8567,6 +8567,26 @@ test('filters local profile evaluation records by rating level', async () => {
   expect(renderedText).not.toContain('服务态度不错，但到场稍慢');
 });
 
+test('hides the manual refresh button in local evaluation mode', async () => {
+  const app = await renderApp();
+
+  await loginToHome(app);
+
+  ReactTestRenderer.act(() => {
+    app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+  });
+
+  ReactTestRenderer.act(() => {
+    app.root
+      .findByProps({ testID: 'profile-entry-evaluations' })
+      .props.onPress();
+  });
+
+  expect(
+    app.root.findAllByProps({ testID: 'evaluation-manual-refresh' }),
+  ).toHaveLength(0);
+});
+
 test('keeps an unfinished draft when leaving and reopening the draft screen', async () => {
   const app = await renderApp();
 
@@ -14880,6 +14900,7 @@ test('shows platform evaluation records when opening evaluations in platform mod
 
     const renderedText = getRenderedText(app);
 
+    expect(renderedText).toContain('评价记录已按平台评价数据同步');
     expect(renderedText).toContain('平台评价同步内容');
     expect(renderedText).toContain('图片凭证 2 张');
     expect(renderedText).toContain('匿名评价');
@@ -14907,6 +14928,273 @@ test('shows platform evaluation records when opening evaluations in platform mod
         method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-evaluation',
+        }),
+      }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('manual refreshes platform evaluation records from profile', async () => {
+  const originalFetch = globalThis.fetch;
+  let evaluationRequestCount = 0;
+  let receivedEvaluationRequestCount = 0;
+  const initialPlatformEvaluationSnapshot = {
+    shipperId: 'user-platform-evaluation-refresh',
+    items: [
+      {
+        id: 'evaluation-platform-refresh-1',
+        orderId: 'order-platform-refresh-1',
+        orderNo: 'HY202607120001',
+        driverName: '平台司机 refresh-1',
+        rating: 5,
+        tags: ['准时送达'],
+        content: '首次平台评价同步内容',
+        anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-eval-refresh-1'],
+        submittedAtIso: '2026-07-12T09:00:00.000Z',
+      },
+    ],
+  };
+  const initialPlatformReceivedEvaluationSnapshot = {
+    shipperId: 'user-platform-evaluation-refresh',
+    items: [
+      {
+        id: 'received-platform-refresh-1',
+        orderId: 'order-platform-refresh-received-1',
+        orderNo: 'HY202607120002',
+        driverName: '平台司机 refresh-2',
+        rating: 4,
+        tags: ['沟通顺畅'],
+        content: '首次司机评价货主内容',
+        anonymous: false,
+        photoCount: 0,
+        submittedAtIso: '2026-07-12T09:30:00.000Z',
+      },
+    ],
+  };
+  const refreshedPlatformEvaluationSnapshot = {
+    shipperId: 'user-platform-evaluation-refresh',
+    items: [
+      {
+        id: 'evaluation-platform-refresh-2',
+        orderId: 'order-platform-refresh-2',
+        orderNo: 'HY202607130001',
+        driverName: '平台司机 refresh-3',
+        rating: 4,
+        tags: ['服务好'],
+        content: '手动刷新后的平台评价内容',
+        anonymous: true,
+        photoCount: 1,
+        photoFileIds: ['file-eval-refresh-2'],
+        submittedAtIso: '2026-07-13T08:00:00.000Z',
+      },
+    ],
+  };
+  const refreshedPlatformReceivedEvaluationSnapshot = {
+    shipperId: 'user-platform-evaluation-refresh',
+    items: [
+      {
+        id: 'received-platform-refresh-2',
+        orderId: 'order-platform-refresh-received-2',
+        orderNo: 'HY202607130002',
+        driverName: '平台司机 refresh-4',
+        rating: 5,
+        tags: ['服务好'],
+        content: '手动刷新后的司机评价货主内容',
+        anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-received-refresh-2'],
+        submittedAtIso: '2026-07-13T10:00:00.000Z',
+      },
+    ],
+  };
+  const fetchMock = jest.fn((url, init) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-evaluation-refresh',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-evaluation-refresh',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440134',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/evaluations' &&
+      init?.method === 'GET'
+    ) {
+      evaluationRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          evaluationRequestCount === 1
+            ? initialPlatformEvaluationSnapshot
+            : refreshedPlatformEvaluationSnapshot,
+        ),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/evaluations/received' &&
+      init?.method === 'GET'
+    ) {
+      receivedEvaluationRequestCount += 1;
+
+      return Promise.resolve(
+        createPlatformApiResponse(
+          receivedEvaluationRequestCount === 1
+            ? initialPlatformReceivedEvaluationSnapshot
+            : refreshedPlatformReceivedEvaluationSnapshot,
+        ),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/files/file-eval-refresh-1') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-eval-refresh-1',
+          ownerUserId: 'user-platform-evaluation-refresh',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-eval-refresh-1.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-eval-refresh-1.png',
+          createdAtIso: '2026-07-12T09:00:00.000Z',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/files/file-eval-refresh-2') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-eval-refresh-2',
+          ownerUserId: 'user-platform-evaluation-refresh',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-eval-refresh-2.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-eval-refresh-2.png',
+          createdAtIso: '2026-07-13T08:00:00.000Z',
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/files/file-received-refresh-2'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          id: 'file-received-refresh-2',
+          ownerUserId: 'user-platform-evaluation-refresh',
+          purpose: 'evaluation',
+          objectKey: 'shipper-1/evaluation/file-received-refresh-2.png',
+          status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/file-received-refresh-2.png',
+          createdAtIso: '2026-07-13T10:00:00.000Z',
+        }),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'profile-entry-evaluations' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    let renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('评价记录已按平台评价数据同步');
+    expect(renderedText).toContain('首次平台评价同步内容');
+    expect(renderedText).toContain('首次司机评价货主内容');
+    expect(renderedText).toContain('文件 ID：file-eval-refresh-1');
+    expect(renderedText).not.toContain('手动刷新后的平台评价内容');
+    expect(
+      app.root.findByProps({ testID: 'evaluation-manual-refresh' }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'evaluation-manual-refresh' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('平台评价记录已手动刷新到最新评价数据');
+    expect(renderedText).toContain('手动刷新后的平台评价内容');
+    expect(renderedText).toContain('手动刷新后的司机评价货主内容');
+    expect(renderedText).toContain('匿名评价');
+    expect(renderedText).toContain('文件 ID：file-eval-refresh-2');
+    expect(renderedText).toContain('文件 ID：file-received-refresh-2');
+    expect(renderedText).not.toContain('首次平台评价同步内容');
+    expect(renderedText).not.toContain('首次司机评价货主内容');
+    expect(evaluationRequestCount).toBe(2);
+    expect(receivedEvaluationRequestCount).toBe(2);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/evaluations',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-evaluation-refresh',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/evaluations/received',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-evaluation-refresh',
         }),
       }),
     );
