@@ -281,6 +281,15 @@ test('detects whether the driver withdrawal form is still pristine', () => {
       selectedBankCardId: 'bank-card-1',
     }),
   ).toBe(false);
+  expect(
+    isDriverWithdrawalFormPristine({
+      amountText: '',
+      bankAccountName: '',
+      bankName: '',
+      bankAccountNo: '',
+      selectedBankCardSource: 'default',
+    }),
+  ).toBe(false);
 });
 
 test('builds driver bank card create/update requests and edit forms', () => {

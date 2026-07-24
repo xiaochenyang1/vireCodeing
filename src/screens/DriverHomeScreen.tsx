@@ -956,6 +956,22 @@ export function DriverHomeScreen({
             : undefined;
           if (selectedCard) {
             if (
+              current.selectedBankCardSource === 'default' &&
+              defaultCard &&
+              defaultCard.id !== selectedCard.id
+            ) {
+              withdrawalIdempotencyKeyRef.current = undefined;
+              return {
+                ...current,
+                bankAccountName: defaultCard.bankAccountName,
+                bankName: defaultCard.bankName,
+                bankAccountNo: '',
+                selectedBankCardId: defaultCard.id,
+                selectedBankCardSource: 'default',
+              };
+            }
+
+            if (
               current.bankAccountName === selectedCard.bankAccountName &&
               current.bankName === selectedCard.bankName
             ) {
@@ -970,13 +986,15 @@ export function DriverHomeScreen({
             };
           }
 
-          const nextForm = current.selectedBankCardId
+          const nextForm =
+            current.selectedBankCardId || current.selectedBankCardSource
             ? {
                 ...current,
                 bankAccountName: '',
                 bankName: '',
                 bankAccountNo: '',
                 selectedBankCardId: undefined,
+                selectedBankCardSource: undefined,
               }
             : current;
 
@@ -988,6 +1006,7 @@ export function DriverHomeScreen({
               bankName: defaultCard.bankName,
               bankAccountNo: '',
               selectedBankCardId: defaultCard.id,
+              selectedBankCardSource: 'default',
             };
           }
 
@@ -2209,6 +2228,7 @@ export function DriverHomeScreen({
       return {
         ...current,
         selectedBankCardId: undefined,
+        selectedBankCardSource: undefined,
       };
     });
   };
@@ -2379,6 +2399,7 @@ export function DriverHomeScreen({
       bankAccountName: card.bankAccountName,
       bankAccountNo: '',
       selectedBankCardId: card.id,
+      selectedBankCardSource: 'manual',
     }));
     setNotice(`已选择银行卡：${card.bankName}（${card.bankAccountMasked}）`);
   };
@@ -2906,6 +2927,7 @@ export function DriverHomeScreen({
               ...current,
               bankName,
               selectedBankCardId: undefined,
+              selectedBankCardSource: undefined,
             }))
           }
         />
@@ -2920,6 +2942,7 @@ export function DriverHomeScreen({
               ...current,
               bankAccountName,
               selectedBankCardId: undefined,
+              selectedBankCardSource: undefined,
             }))
           }
         />

@@ -62,6 +62,7 @@ export type DriverWithdrawalFormState = {
   bankName: string;
   bankAccountNo: string;
   selectedBankCardId?: string;
+  selectedBankCardSource?: 'manual' | 'default';
 };
 
 export type DriverBankCardFormState = {
@@ -457,7 +458,8 @@ export function isDriverWithdrawalFormPristine(
     form.bankAccountName.trim().length === 0 &&
     form.bankName.trim().length === 0 &&
     form.bankAccountNo.replace(/\s+/g, '').length === 0 &&
-    (form.selectedBankCardId?.trim().length ?? 0) === 0
+    (form.selectedBankCardId?.trim().length ?? 0) === 0 &&
+    (form.selectedBankCardSource?.trim().length ?? 0) === 0
   );
 }
 
