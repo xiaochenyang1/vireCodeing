@@ -6,6 +6,7 @@ import {
 } from '../files/file-preview-url.signer';
 import type { FilesRepository } from '../files/files.repository';
 import type {
+  AcceptShipperOrderQuoteRequest,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
   BatchCancelAdminOrdersResult,
@@ -629,6 +630,200 @@ export class OrdersService {
     });
 
     return advancedOrder;
+  }
+
+  async acceptOrderQuote(
+    shipperId: string,
+    orderId: string,
+    idempotencyKey: string,
+    input: AcceptShipperOrderQuoteRequest,
+  ): Promise<ShipperOrderRecord> {
+    const requestFingerprint = createOrderMutationFingerprint(orderId, input);
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_accept_quote',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单已不可选择司机报价',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
+    const order = await this.repository.findOrderById(orderId);
+
+    if (!order || order.shipperId !== shipperId) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    if (order.status !== 'waiting') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '只有待接单订单可以选择司机报价',
+      );
+    }
+
+    if (order.pricingMode !== 'negotiable') {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '只有议价订单可以选择司机报价',
+      );
+    }
+
+    if (order.assignedDriverId) {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '订单已分配司机，不能再次选择报价',
+      );
+    }
+
+    const acceptedQuote = this.findLatestDriverQuoteEvent(
+      order,
+      input.driverId,
+    );
+
+    if (!acceptedQuote) {
+      throw new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '未找到该司机的有效报价',
+      );
+    }
+
+    const acceptedOrder = this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_accept_quote',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_accept_quote',
+          input: {
+            driverId: input.driverId,
+            quoteCents: acceptedQuote.quoteCents,
+            arrivalText: acceptedQuote.arrivalText,
+            ...(acceptedQuote.noteText
+              ? { noteText: acceptedQuote.noteText }
+              : {}),
+            ...(acceptedQuote.driverSnapshot
+              ? { driverSnapshot: acceptedQuote.driverSnapshot }
+              : {}),
+          },
+        },
+      }),
+      '当前订单已不可选择司机报价',
+    ).order;
+
+    await this.safeNotifyOrderEvent({
+      event: 'driver_accepted',
+      orderId: acceptedOrder.id,
+      orderNo: acceptedOrder.orderNo,
+      shipperId: acceptedOrder.shipperId,
+      driverId: acceptedOrder.assignedDriverId,
+      nextStatus: acceptedOrder.status,
+    });
+
+    return acceptedOrder;
+  }
+
+  private findLatestDriverQuoteEvent(
+    order: ShipperOrderRecord,
+    driverId: string,
+  ): {
+    quoteCents: number;
+    arrivalText: string;
+    noteText?: string;
+    driverSnapshot?: {
+      driverId: string;
+      driverName: string;
+      driverPhone: string;
+      vehicleType?: string;
+      vehicleLengthText?: string;
+      plateNumber?: string;
+      completedOrderCount: number;
+    };
+  } | null {
+    const quoteEvent = [...order.events]
+      .reverse()
+      .find(
+        event =>
+          event.eventType === 'driver_quote_submitted' &&
+          event.actorUserId === driverId,
+      );
+
+    if (!quoteEvent?.noteText) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(quoteEvent.noteText) as {
+        quoteCents?: unknown;
+        arrivalText?: unknown;
+        noteText?: unknown;
+        driverSnapshot?: {
+          driverId?: string;
+          driverName?: string;
+          driverPhone?: string;
+          vehicleType?: string;
+          vehicleLengthText?: string;
+          plateNumber?: string;
+          completedOrderCount?: number;
+        };
+      };
+
+      if (
+        typeof payload.quoteCents !== 'number' ||
+        !Number.isInteger(payload.quoteCents) ||
+        payload.quoteCents <= 0 ||
+        typeof payload.arrivalText !== 'string' ||
+        !payload.arrivalText.trim()
+      ) {
+        return null;
+      }
+
+      return {
+        quoteCents: payload.quoteCents,
+        arrivalText: payload.arrivalText.trim(),
+        ...(typeof payload.noteText === 'string' && payload.noteText.trim()
+          ? { noteText: payload.noteText.trim() }
+          : {}),
+        ...(payload.driverSnapshot &&
+        typeof payload.driverSnapshot.driverId === 'string' &&
+        typeof payload.driverSnapshot.driverName === 'string' &&
+        typeof payload.driverSnapshot.driverPhone === 'string' &&
+        typeof payload.driverSnapshot.completedOrderCount === 'number'
+          ? {
+              driverSnapshot: {
+                driverId: payload.driverSnapshot.driverId,
+                driverName: payload.driverSnapshot.driverName,
+                driverPhone: payload.driverSnapshot.driverPhone,
+                ...(payload.driverSnapshot.vehicleType
+                  ? { vehicleType: payload.driverSnapshot.vehicleType }
+                  : {}),
+                ...(payload.driverSnapshot.vehicleLengthText
+                  ? {
+                      vehicleLengthText:
+                        payload.driverSnapshot.vehicleLengthText,
+                    }
+                  : {}),
+                ...(payload.driverSnapshot.plateNumber
+                  ? { plateNumber: payload.driverSnapshot.plateNumber }
+                  : {}),
+                completedOrderCount:
+                  payload.driverSnapshot.completedOrderCount,
+              },
+            }
+          : {}),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async reportOrderException(

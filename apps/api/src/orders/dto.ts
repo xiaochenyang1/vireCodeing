@@ -78,6 +78,10 @@ export type AdvanceShipperOrderStatusRequest =
   nextStatus: Extract<ShipperOrderStatus, 'loading' | 'transporting' | 'confirming'>;
 };
 
+export type AcceptShipperOrderQuoteRequest = OrderMutationConcurrencyRequest & {
+  driverId: string;
+};
+
 export type CompleteShipperOrderRequest = OrderMutationConcurrencyRequest;
 
 export type ReportShipperOrderExceptionRequest = {

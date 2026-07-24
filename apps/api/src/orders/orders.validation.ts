@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type {
+  AcceptShipperOrderQuoteRequest,
   AdminBatchCancelOrderItem,
   AdminOrderFilters,
   AdminOrderReportQuery,
@@ -397,6 +398,11 @@ export const advanceShipperOrderStatusSchema = z.object({
   nextStatus: z.enum(['loading', 'transporting', 'confirming']),
 });
 
+export const acceptShipperOrderQuoteSchema = z.object({
+  baseUpdatedAtIso: baseUpdatedAtIsoSchema,
+  driverId: z.string().trim().min(1, '司机 ID 不能为空').max(120),
+});
+
 export const reportShipperOrderExceptionSchema = z.object({
   typeLabel: z.string().trim().min(1, '异常类型不能为空').max(30),
   description: z
@@ -536,6 +542,12 @@ export function parseAdvanceShipperOrderStatusRequest(
   input: unknown,
 ): AdvanceShipperOrderStatusRequest {
   return advanceShipperOrderStatusSchema.parse(input);
+}
+
+export function parseAcceptShipperOrderQuoteRequest(
+  input: unknown,
+): AcceptShipperOrderQuoteRequest {
+  return acceptShipperOrderQuoteSchema.parse(input);
 }
 
 export function parseReportShipperOrderExceptionRequest(

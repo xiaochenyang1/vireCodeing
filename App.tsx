@@ -35,7 +35,11 @@ import {
   getOrderMutationFailureAction,
   getOrderMutationRetryContext,
 } from './src/utils/orderMutationSync';
-import type { OrderProgressAction } from './src/utils/orderDetail';
+import {
+  createDriverQuoteOrderChange,
+  type OrderProgressAction,
+} from './src/utils/orderDetail';
+import type { DriverQuote } from './src/types';
 import {
   createFailedDraftSyncState,
   createSyncedDraftSyncState,
@@ -2286,6 +2290,39 @@ function App({
     }
 
     if (
+      order.syncState?.operation === 'acceptQuote' &&
+      order.platformOrderId &&
+      order.driverInfo?.driverId &&
+      retryMutationContext
+    ) {
+      platformOrderApi
+        .acceptQuote(
+          order.platformOrderId,
+          {
+            baseUpdatedAtIso: retryMutationContext.baseUpdatedAtIso,
+            driverId: order.driverInfo.driverId,
+          },
+          retryMutationContext.idempotencyKey,
+        )
+        .then(platformOrder => {
+          void applyPlatformOrderSnapshot(order.id, platformOrder, {
+            driverInfo: order.driverInfo,
+            priceText: order.priceText,
+          });
+        })
+        .catch(error => {
+          handlePlatformOrderMutationFailure({
+            error,
+            order,
+            operation: 'acceptQuote',
+            message: '平台选择司机报价重试失败，已继续保留本地接单结果。',
+            mutationContext: retryMutationContext,
+          }).catch(() => undefined);
+        });
+      return;
+    }
+
+    if (
       order.syncState?.operation === 'exception' &&
       order.platformOrderId &&
       order.exceptionReport
@@ -2642,6 +2679,66 @@ function App({
       });
   };
 
+  const acceptDriverQuoteFromDetail = (
+    order: RecentOrder,
+    quote: DriverQuote,
+  ) => {
+    const selection = createDriverQuoteOrderChange(quote);
+    const localQuoteChanges: Partial<RecentOrder> = {
+      ...selection.changes,
+      updatedAtIso: new Date(nowRef.current).toISOString(),
+    };
+    const mutationContext = createOrderMutationContext(
+      order.updatedAtIso ?? order.createdAtIso,
+    );
+
+    if (isPlatformOrderActionMissingAuth(order)) {
+      keepPlatformOrderActionQueuedUntilLogin(
+        order,
+        localQuoteChanges,
+        'acceptQuote',
+        '选择司机报价',
+        mutationContext,
+      );
+      return;
+    }
+
+    if (
+      !platformOrderApi ||
+      !getAuthSessionSnapshot()?.accessToken ||
+      !order.platformOrderId
+    ) {
+      updateOrder(order.id, localQuoteChanges);
+      return;
+    }
+
+    platformOrderApi
+      .acceptQuote(
+        order.platformOrderId,
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          driverId: quote.driverId,
+        },
+        mutationContext.idempotencyKey,
+      )
+      .then(platformOrder => {
+        void applyPlatformOrderSnapshot(order.id, platformOrder, {
+          driverInfo: selection.changes.driverInfo,
+          priceText: selection.changes.priceText,
+        });
+      })
+      .catch(error => {
+        handlePlatformOrderMutationFailure({
+          error,
+          order,
+          operation: 'acceptQuote',
+          message: '平台选择司机报价失败，已保留本地接单结果。',
+          mutationContext,
+          changes: localQuoteChanges,
+        }).catch(() => undefined);
+      });
+  };
+
   const cancelOrderFromDetail = (
     order: RecentOrder,
     cancellation: NonNullable<RecentOrder['cancellation']>,
@@ -2912,6 +3009,7 @@ function App({
             onCancelOrder={cancelOrderFromDetail}
             onCompleteOrder={completeOrderFromDetail}
             onAdvanceOrderStatus={advanceOrderStatusFromDetail}
+            onAcceptDriverQuote={acceptDriverQuoteFromDetail}
             onReportException={reportOrderExceptionFromDetail}
             onSubmitChangeRequest={submitOrderChangeRequestFromDetail}
             onSubmitEvaluation={submitOrderEvaluationFromDetail}

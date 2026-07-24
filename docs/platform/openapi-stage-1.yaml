@@ -2642,6 +2642,60 @@ paths:
                     message: 当前订单状态不允许推进到目标状态
                     requestId: req_local
                     timestamp: '2026-07-01T08:10:00.000Z'
+  /shipper/orders/{orderId}/accept-quote:
+    post:
+      summary: Accept a driver quote for a negotiable waiting order
+      description: Selects one existing driver_quote_submitted event by driverId, assigns that driver, writes the accepted quote cents into price/payable fields, advances the order to loading, and emits a driver_accepted event. Requires Idempotency-Key and baseUpdatedAtIso. Fixed-price orders and orders without a matching quote are rejected.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptShipperOrderQuoteRequest'
+      responses:
+        '200':
+          description: Driver quote accepted and order advanced to loading
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Order does not exist or does not belong to current shipper
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Idempotency key was reused or expired, order base version is stale, order is not a waiting negotiable order, or the selected driver quote is missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /shipper/orders/{orderId}/exception:
     post:
       summary: Report an exception for current shipper order
@@ -6691,6 +6745,19 @@ components:
           type: string
           enum: [loading, transporting, confirming]
           example: loading
+    AcceptShipperOrderQuoteRequest:
+      type: object
+      required: [baseUpdatedAtIso, driverId]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Required optimistic concurrency base. Must equal the current order updatedAtIso that the client read before starting the mutation.
+          example: '2026-07-02T09:00:00.000Z'
+        driverId:
+          type: string
+          description: Driver user id that already submitted a driver_quote_submitted event for this order.
+          example: driver_01J1Z7P7V2QM9B3V8M3G1N6K8S
     CompleteShipperOrderRequest:
       type: object
       required: [baseUpdatedAtIso]

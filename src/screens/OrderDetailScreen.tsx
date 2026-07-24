@@ -86,6 +86,7 @@ export function OrderDetailScreen({
   onCancelOrder,
   onCompleteOrder,
   onAdvanceOrderStatus,
+  onAcceptDriverQuote,
   onReportException,
   onSubmitChangeRequest,
   onSubmitEvaluation,
@@ -112,6 +113,7 @@ export function OrderDetailScreen({
     order: RecentOrder,
     progressAction: OrderProgressAction,
   ) => void;
+  onAcceptDriverQuote?: (order: RecentOrder, quote: DriverQuote) => void;
   onReportException?: (
     order: RecentOrder,
     exceptionReport: NonNullable<RecentOrder['exceptionReport']>,
@@ -490,6 +492,15 @@ export function OrderDetailScreen({
   };
 
   const selectDriverQuote = (quote: DriverQuote) => {
+    if (onAcceptDriverQuote && usesPlatformOrderActions) {
+      onAcceptDriverQuote(order, quote);
+      closeAllPanels();
+      setLocalNotice(
+        `正在选择 ${quote.driverName} 的报价并同步平台订单。`,
+      );
+      return;
+    }
+
     const selection = createDriverQuoteOrderChange(quote);
 
     updateOrderFromDetail(selection.changes);

@@ -341,6 +341,7 @@ async function renderOrderDetail({
   order,
   onUpdateOrder = jest.fn(),
   onCompleteOrder,
+  onAcceptDriverQuote,
   platformOrderApi,
   platformFileApi,
   platformPaymentApi,
@@ -350,6 +351,7 @@ async function renderOrderDetail({
   order: RecentOrder;
   onUpdateOrder?: jest.Mock;
   onCompleteOrder?: jest.Mock;
+  onAcceptDriverQuote?: jest.Mock;
   platformOrderApi?: {
     listExceptionCases: jest.Mock;
     appealExceptionCase: jest.Mock;
@@ -382,6 +384,7 @@ async function renderOrderDetail({
         onReorder={jest.fn()}
         onEditOrder={jest.fn()}
         onCompleteOrder={onCompleteOrder}
+        onAcceptDriverQuote={onAcceptDriverQuote}
         platformFileApi={platformFileApi}
         platformOrderApi={platformOrderApi}
         platformPaymentApi={platformPaymentApi}
@@ -452,6 +455,47 @@ describe('OrderDetailScreen status actions', () => {
     expect(onCompleteOrder).toHaveBeenCalledWith(order);
     expect(getRenderedText(renderer)).toContain(
       '已提交平台确认送达请求，订单进入已完成。',
+    );
+  });
+
+  it('routes platform quote selection through the accept-quote callback', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-accept-quote',
+      status: 'waiting' as const,
+    };
+    const quote = order.driverQuotes?.[0];
+    expect(quote).toBeDefined();
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({ items: [] }),
+      appealExceptionCase: jest.fn(),
+    };
+    const onAcceptDriverQuote = jest.fn();
+    const onUpdateOrder = jest.fn();
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+      onAcceptDriverQuote,
+      onUpdateOrder,
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `order-quote-select-${quote!.driverId}` })
+        .props.onPress();
+    });
+
+    expect(onAcceptDriverQuote).toHaveBeenCalledWith(order, quote);
+    expect(onUpdateOrder).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain(
+      `正在选择 ${quote!.driverName} 的报价并同步平台订单。`,
     );
   });
 });

@@ -1497,6 +1497,98 @@ describe('OrdersService', () => {
     );
   });
 
+  it('accepts a negotiable driver quote and assigns the driver', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园', {
+        pricingMode: 'negotiable',
+        priceCents: undefined,
+        payablePriceCents: undefined,
+        couponId: undefined,
+        couponTitle: undefined,
+        couponDiscountCents: undefined,
+      }),
+    );
+
+    await repository.submitDriverQuote(order.id, 'driver-1', {
+      quoteCents: 88000,
+      arrivalText: '45 分钟到达',
+      noteText: '可带尾板',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        vehicleType: 'box',
+        vehicleLengthText: '4.2 米',
+        plateNumber: '粤B12345',
+        completedOrderCount: 12,
+      },
+    });
+
+    const refreshedOrder = await repository.findOrderById(order.id);
+    expect(refreshedOrder).toBeDefined();
+
+    const acceptedOrder = await service.acceptOrderQuote(
+      'shipper-1',
+      order.id,
+      'accept-quote-key',
+      {
+        driverId: 'driver-1',
+        baseUpdatedAtIso: refreshedOrder!.updatedAtIso,
+      },
+    );
+
+    expect(acceptedOrder).toMatchObject({
+      id: order.id,
+      status: 'loading',
+      assignedDriverId: 'driver-1',
+      priceCents: 88000,
+      payablePriceCents: 88000,
+    });
+    expect(
+      acceptedOrder.events.some(
+        event =>
+          event.eventType === 'driver_accepted' &&
+          event.actorUserId === 'driver-1',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects accept-quote when the selected driver has no quote', async () => {
+    const { service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园', {
+        pricingMode: 'negotiable',
+        priceCents: undefined,
+        payablePriceCents: undefined,
+        couponId: undefined,
+        couponTitle: undefined,
+        couponDiscountCents: undefined,
+      }),
+    );
+
+    await expect(
+      service.acceptOrderQuote(
+        'shipper-1',
+        order.id,
+        'missing-quote-key',
+        {
+          driverId: 'driver-missing',
+          baseUpdatedAtIso: order.updatedAtIso,
+        },
+      ),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '未找到该司机的有效报价',
+      ),
+    );
+  });
+
   it('reports an exception for a transporting shipper order and records an event', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,

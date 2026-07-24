@@ -88,6 +88,11 @@ export type PlatformAdvanceShipperOrderStatusRequest =
   >;
 };
 
+export type PlatformAcceptShipperOrderQuoteRequest =
+  PlatformOrderMutationRequest & {
+    driverId: string;
+  };
+
 export type PlatformCompleteShipperOrderRequest = PlatformOrderMutationRequest;
 
 export type PlatformReportShipperOrderExceptionRequest = {
@@ -365,6 +370,28 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
       >(
         config,
         `/shipper/orders/${normalizedOrderId}/status`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
+    },
+    async acceptQuote(
+      orderId: string,
+      request: PlatformAcceptShipperOrderQuoteRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+      const normalizedRequest = normalizeAcceptQuoteRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+      );
+
+      return platformPost<
+        PlatformAcceptShipperOrderQuoteRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/accept-quote`,
         normalizedRequest,
         createOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
@@ -863,6 +890,52 @@ function normalizeCancelOrderRequest(
     : { baseUpdatedAtIso, reasonText };
 }
 
+function normalizeAcceptQuoteRequest(
+  request: PlatformAcceptShipperOrderQuoteRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform order accept-quote request must be an object',
+      'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const driverIdInput = request.driverId as unknown;
+  if (typeof driverIdInput !== 'string') {
+    throw new PlatformApiError(
+      'Platform order accept-quote driverId must be a string',
+      'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const driverId = driverIdInput.trim();
+  if (!driverId || driverId.length > 120) {
+    throw new PlatformApiError(
+      'Platform order accept-quote driverId is invalid',
+      'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+    request.baseUpdatedAtIso,
+    'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
+  );
+
+  return {
+    baseUpdatedAtIso,
+    driverId,
+  };
+}
+
 function normalizeAdvanceOrderStatusRequest(
   request: PlatformAdvanceShipperOrderStatusRequest,
 ) {
@@ -1299,7 +1372,8 @@ function normalizeOrderMutationIdempotencyKey(
     | 'PLATFORM_ORDER_REQUEST_INVALID'
     | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
-    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID',
+    | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(
@@ -1333,6 +1407,7 @@ function normalizeOrderMutationBaseUpdatedAtIso(
     | 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID'
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
     | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID'
     | 'PLATFORM_ORDER_EXCEPTION_APPEAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {

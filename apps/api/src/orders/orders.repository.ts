@@ -98,6 +98,14 @@ export type ExecuteOrderCreateResult =
       kind: 'key-expired';
     };
 
+export type ShipperAcceptQuoteMutationInput = {
+  driverId: string;
+  quoteCents: number;
+  arrivalText: string;
+  noteText?: string;
+  driverSnapshot?: DriverQuoteOrderEventPayload['driverSnapshot'];
+};
+
 export type OrderMutationCommand =
   | {
       type: 'shipper_update';
@@ -113,6 +121,10 @@ export type OrderMutationCommand =
     }
   | {
       type: 'shipper_complete';
+    }
+  | {
+      type: 'shipper_accept_quote';
+      input: ShipperAcceptQuoteMutationInput;
     }
   | {
       type: 'driver_accept';
@@ -1686,6 +1698,12 @@ function isOrderMutationAllowed(
       return canAdvanceOrderStatus(order.status, input.mutation.input.nextStatus);
     case 'shipper_complete':
       return order.status === 'confirming';
+    case 'shipper_accept_quote':
+      return (
+        order.status === 'waiting' &&
+        order.pricingMode === 'negotiable' &&
+        !order.assignedDriverId
+      );
     case 'driver_accept':
       return order.status === 'waiting';
     case 'driver_status':
@@ -1806,6 +1824,7 @@ function applyInMemoryOrderCouponMutation(
       return undefined;
 
     case 'shipper_status':
+    case 'shipper_accept_quote':
     case 'driver_accept':
     case 'driver_status':
       return undefined;
@@ -2180,6 +2199,22 @@ function applyInMemoryOrderMutation(
         actorUserId: input.actorUserId,
         eventType: 'completed',
         noteText: '货主确认送达',
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'shipper_accept_quote':
+      order.status = 'loading';
+      order.assignedDriverId = input.mutation.input.driverId;
+      order.priceCents = input.mutation.input.quoteCents;
+      order.payablePriceCents = input.mutation.input.quoteCents;
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.mutation.input.driverId,
+        eventType: 'driver_accepted',
+        noteText: serializeDriverAcceptOrderEventPayload({
+          noteText: createShipperAcceptedQuoteNote(input.mutation.input),
+          driverSnapshot: input.mutation.input.driverSnapshot,
+        }),
         createdAtIso: updatedAtIso,
       });
       return;
@@ -2615,6 +2650,7 @@ async function applyPrismaOrderCouponMutation(
       return undefined;
 
     case 'shipper_status':
+    case 'shipper_accept_quote':
     case 'driver_accept':
     case 'driver_status':
       return undefined;
@@ -3111,6 +3147,14 @@ function createPrismaOrderMutationOrderData(
         paymentSettledAt: financialMutation.paymentSettledAt,
         updatedAt,
       };
+    case 'shipper_accept_quote':
+      return {
+        status: 'loading',
+        assignedDriverId: input.mutation.input.driverId,
+        priceCents: input.mutation.input.quoteCents,
+        payablePriceCents: input.mutation.input.quoteCents,
+        updatedAt,
+      };
     case 'driver_accept':
       return {
         status: 'loading',
@@ -3252,6 +3296,20 @@ async function applyPrismaOrderMutation(
           actorUserId: input.actorUserId,
           eventType: 'completed',
           noteText: '货主确认送达',
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'shipper_accept_quote':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.mutation.input.driverId,
+          eventType: 'driver_accepted',
+          noteText: serializeDriverAcceptOrderEventPayload({
+            noteText: createShipperAcceptedQuoteNote(input.mutation.input),
+            driverSnapshot: input.mutation.input.driverSnapshot,
+          }),
           createdAt: updatedAt,
         },
       });
@@ -5894,6 +5952,18 @@ function serializeDriverAcceptOrderEventPayload(
     ...(input.noteText ? { noteText: input.noteText } : {}),
     driverSnapshot: input.driverSnapshot,
   });
+}
+
+function createShipperAcceptedQuoteNote(
+  input: ShipperAcceptQuoteMutationInput,
+) {
+  const noteParts = [
+    `货主已选择司机报价 ${input.quoteCents} 分`,
+    input.arrivalText,
+    input.noteText,
+  ].filter((part): part is string => Boolean(part && part.trim()));
+
+  return noteParts.join('；');
 }
 
 function isOrderAcceptedByDriver(order: ShipperOrderRecord, driverId: string) {

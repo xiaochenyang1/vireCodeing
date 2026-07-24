@@ -27,6 +27,7 @@ import { ok } from '../common/api-response';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
+  AcceptShipperOrderQuoteRequest,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
   CancelShipperOrderRequest,
@@ -44,6 +45,7 @@ import {
   adminOrderAttachmentAuditListQuerySchema,
   adminOrderFiltersSchema,
   adminOrderReportQuerySchema,
+  acceptShipperOrderQuoteSchema,
   advanceShipperOrderStatusSchema,
   batchCancelAdminOrdersSchema,
   completeShipperOrderSchema,
@@ -54,6 +56,7 @@ import {
   parseAdminOrderReportQuery,
   submitShipperOrderChangeRequestSchema,
   submitShipperOrderEvaluationSchema,
+  parseAcceptShipperOrderQuoteRequest,
   parseAdvanceShipperOrderStatusRequest,
   parseAdminOrderAttachmentAuditListQuery,
   parseBatchCancelAdminOrdersRequest,
@@ -193,6 +196,30 @@ export class OrdersController {
         orderId,
         parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseAdvanceShipperOrderStatusRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':orderId/accept-quote')
+  @ApiOperation({
+    summary: '选择司机报价',
+    description:
+      '货主从议价订单的司机报价中选择一位司机，订单进入待装货并写入接受报价后的价格',
+  })
+  async acceptOrderQuote(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
+    @Body(new ZodValidationPipe(acceptShipperOrderQuoteSchema))
+    body: AcceptShipperOrderQuoteRequest,
+  ) {
+    return ok(
+      await this.ordersService.acceptOrderQuote(
+        getCurrentShipperId(request),
+        orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
+        parseAcceptShipperOrderQuoteRequest(body),
       ),
       getRequestId(request),
     );

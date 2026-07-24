@@ -25,6 +25,7 @@ export type OrderSyncOperation =
   | 'cancel'
   | 'complete'
   | 'status'
+  | 'acceptQuote'
   | 'exception'
   | 'changeRequest'
   | 'evaluation'
