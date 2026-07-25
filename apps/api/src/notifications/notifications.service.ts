@@ -16,6 +16,8 @@ export type NotifyOrderEventInput = {
     | 'order_created'
     | 'driver_quote_submitted'
     | 'driver_accepted'
+    | 'change_request_approved'
+    | 'change_request_rejected'
     | 'status_advanced'
     | 'completed'
     | 'cancelled'
@@ -30,6 +32,7 @@ export type NotifyOrderEventInput = {
   quoteCents?: number;
   arrivalText?: string;
   amountCents?: number;
+  reviewResultText?: string;
 };
 
 export type NotifyExceptionEventInput = {
@@ -255,6 +258,62 @@ function buildOrderEventRecipients(
             ]
           : []),
       ];
+    case 'change_request_approved': {
+      const reviewResultSuffix = formatReviewResultSuffix(
+        input.reviewResultText,
+      );
+
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          title: '修改申请已通过',
+          content:
+            `订单 ${orderLabel} 的修改申请已通过，司机将按新要求执行。` +
+            reviewResultSuffix,
+        },
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                title: '订单要求已变更',
+                content:
+                  `订单 ${orderLabel} 的修改申请已通过，请按最新要求执行。` +
+                  reviewResultSuffix,
+              },
+            ]
+          : []),
+      ];
+    }
+    case 'change_request_rejected': {
+      const reviewResultSuffix = formatReviewResultSuffix(
+        input.reviewResultText,
+      );
+
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          title: '修改申请已驳回',
+          content:
+            `订单 ${orderLabel} 的修改申请已驳回，当前仍按原订单执行。` +
+            reviewResultSuffix,
+        },
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                title: '订单要求维持原样',
+                content:
+                  `订单 ${orderLabel} 的修改申请已驳回，请继续按原订单执行。` +
+                  reviewResultSuffix,
+              },
+            ]
+          : []),
+      ];
+    }
     case 'status_advanced':
       return [
         {
@@ -487,6 +546,12 @@ function formatAmountSuffix(amountCents?: number) {
   const amountText =
     amountCents % 100 === 0 ? String(yuan) : yuan.toFixed(2);
   return `，金额 ${amountText} 元`;
+}
+
+function formatReviewResultSuffix(reviewResultText?: string) {
+  const normalizedText = reviewResultText?.trim();
+
+  return normalizedText ? ` 审核说明：${normalizedText}` : '';
 }
 
 function formatOrderStatus(status?: string) {

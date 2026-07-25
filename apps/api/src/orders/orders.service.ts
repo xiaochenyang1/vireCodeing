@@ -994,11 +994,25 @@ export class OrdersService {
     orderId: string,
     input: ReviewShipperOrderChangeRequest,
   ) {
-    return this.repository.reviewOrderChangeRequest(
+    const updatedOrder = await this.repository.reviewOrderChangeRequest(
       orderId,
       adminUserId,
       input,
     );
+
+    await this.safeNotifyOrderEvent({
+      event:
+        input.decision === 'approved'
+          ? 'change_request_approved'
+          : 'change_request_rejected',
+      orderId: updatedOrder.id,
+      orderNo: updatedOrder.orderNo,
+      shipperId: updatedOrder.shipperId,
+      driverId: updatedOrder.assignedDriverId,
+      reviewResultText: input.reviewResultText,
+    });
+
+    return updatedOrder;
   }
 
   async submitOrderEvaluation(
@@ -1106,6 +1120,8 @@ export class OrdersService {
     event:
       | 'order_created'
       | 'driver_accepted'
+      | 'change_request_approved'
+      | 'change_request_rejected'
       | 'status_advanced'
       | 'completed'
       | 'cancelled'
@@ -1116,6 +1132,7 @@ export class OrdersService {
     driverId?: string | null;
     nextStatus?: string;
     amountCents?: number;
+    reviewResultText?: string;
   }) {
     if (!this.notificationsService) {
       return;

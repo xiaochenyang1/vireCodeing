@@ -237,8 +237,8 @@ describe('AdminConsoleOverviewService', () => {
       overview.modules.find(module => module.key === 'order-change-request'),
     ).toMatchObject({
       summary:
-        '货主修改申请后台列表、通过驳回和审核事件审计第一片已接上，还没做费用重算和司机通知深链路。',
-      pendingGaps: ['费用重算', '司机通知深链路'],
+        '货主修改申请后台列表、通过驳回、审核事件审计和按订单深链的司机通知第一片已接上，还没做费用重算。',
+      pendingGaps: ['费用重算'],
     });
     expect(overview.remainingPlatformGaps).not.toContain(
       '权限矩阵 / 多角色工作台 / 后台会话治理 / 报表 / 批量操作',

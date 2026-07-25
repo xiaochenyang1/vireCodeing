@@ -1945,6 +1945,54 @@ describe('OrdersService', () => {
     );
   });
 
+  it('pushes order-linked notifications when admin reviews a change request', async () => {
+    const repository = new InMemoryOrdersRepository(() => now);
+    const filesRepository = new InMemoryFilesRepository(() => now);
+    const notificationsService = {
+      notifyOrderEvent: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new OrdersService(
+      repository,
+      filesRepository,
+      undefined,
+      () => now,
+      86400,
+      notificationsService as never,
+    );
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+    await service.submitOrderChangeRequest('shipper-1', order.id, {
+      description: '请把卸货地址改到南山门店二期',
+    });
+    notificationsService.notifyOrderEvent.mockClear();
+
+    await service.reviewOrderChangeRequest('admin-1', order.id, {
+      decision: 'approved',
+      reviewResultText: '已确认地址变更',
+    });
+
+    expect(notificationsService.notifyOrderEvent).toHaveBeenCalledWith({
+      event: 'change_request_approved',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      reviewResultText: '已确认地址变更',
+    });
+  });
+
   it('replays an idempotent shipper cancellation without duplicating events', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,

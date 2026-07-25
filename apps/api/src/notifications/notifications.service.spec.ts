@@ -205,6 +205,55 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('notifies shipper and driver when a change request review is approved or rejected', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-25T10:00:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const service = new NotificationsService(repository, new FakePushProvider());
+
+    await service.notifyOrderEvent({
+      event: 'change_request_approved',
+      orderId: 'order-1',
+      orderNo: 'HY20260725001',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      reviewResultText: '已确认卸货地址变更',
+    });
+    await service.notifyOrderEvent({
+      event: 'change_request_rejected',
+      orderId: 'order-2',
+      orderNo: 'HY20260725002',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      reviewResultText: '当前执行路径不允许修改',
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const driverMessages = await service.listMessages('driver-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(shipperMessages.items.map(item => item.title)).toEqual(
+      expect.arrayContaining(['修改申请已通过', '修改申请已驳回']),
+    );
+    expect(shipperMessages.items[0]).toMatchObject({
+      category: 'order',
+      orderNo: expect.stringMatching(/^HY20260725/),
+    });
+    expect(driverMessages.items.map(item => item.title)).toEqual(
+      expect.arrayContaining(['订单要求已变更', '订单要求维持原样']),
+    );
+    expect(driverMessages.items[0]?.content).toContain('审核说明：');
+  });
+
   it('returns not found when marking a foreign message', async () => {
     const repository = new InMemoryNotificationsRepository();
     const service = new NotificationsService(repository, new FakePushProvider());
