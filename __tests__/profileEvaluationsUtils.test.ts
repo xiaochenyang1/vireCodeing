@@ -182,6 +182,43 @@ test('includes local driver-to-shipper evaluations in profile records', () => {
   });
 });
 
+test('sorts local evaluation records by submittedAtIso descending before mock items', () => {
+  const records = createEvaluationRecords([
+    createOrder({
+      id: 'HY-OLDER',
+      updatedAtIso: '2026-07-15T08:00:00.000Z',
+      evaluation: {
+        rating: 4,
+        tags: ['沟通顺畅'],
+        content: '较早提交的货主评价。',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+      },
+    }),
+    createOrder({
+      id: 'HY-NEWER',
+      updatedAtIso: '2026-07-16T02:30:00.000Z',
+      shipperEvaluation: {
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '更新提交的司机评价货主记录。',
+        submittedAtIso: '2026-07-16T02:30:00.000Z',
+        submittedAtText: '2026-07-16 10:30',
+      },
+    }),
+  ]);
+
+  expect(records[0]).toMatchObject({
+    id: 'received-evaluation-local-HY-NEWER',
+    timeText: '司机评价：2026-07-16 10:30',
+  });
+  expect(records[1]).toMatchObject({
+    id: 'evaluation-local-HY-OLDER',
+    timeText: '2026-07-15 16:00',
+  });
+  expect(records[2].id).toBe('evaluation-1');
+});
+
 test('creates local profile evaluation records from platform snapshot', () => {
   const records = createLocalEvaluationRecordsFromPlatformSnapshot({
     shipperId: 'shipper-1',
