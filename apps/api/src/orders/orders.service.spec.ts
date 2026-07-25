@@ -1902,6 +1902,49 @@ describe('OrdersService', () => {
     ).toBe(true);
   });
 
+  it('lists admin order change request review events', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+    await service.submitOrderChangeRequest('shipper-1', order.id, {
+      description: '请把卸货地址改到南山门店二期',
+    });
+    await service.reviewOrderChangeRequest('admin-1', order.id, {
+      decision: 'approved',
+      reviewResultText: '已确认地址变更',
+    });
+
+    await expect(
+      service.listAdminOrderChangeRequestReviewEvents('admin-1', order.id),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'change_request_approved',
+          stage: 'approved',
+          actorUserId: 'admin-1',
+          noteText: '已确认地址变更',
+        }),
+        expect.objectContaining({
+          eventType: 'change_requested',
+          stage: 'requested',
+          noteText: '请把卸货地址改到南山门店二期',
+        }),
+      ]),
+    );
+  });
+
   it('replays an idempotent shipper cancellation without duplicating events', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,

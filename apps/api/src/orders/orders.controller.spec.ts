@@ -774,6 +774,54 @@ describe('OrdersController', () => {
     });
   });
 
+  it('lists order change request review events for the authenticated admin', async () => {
+    const service = {
+      listAdminOrderChangeRequestReviewEvents: jest.fn().mockResolvedValue([
+        {
+          eventId: 'event-2',
+          actorUserId: 'admin-1',
+          eventType: 'change_request_approved',
+          stage: 'approved',
+          noteText: '已确认地址变更',
+          createdAtIso: '2026-07-12T08:10:00.000Z',
+        },
+        {
+          eventId: 'event-1',
+          actorUserId: 'shipper-1',
+          eventType: 'change_requested',
+          stage: 'requested',
+          noteText: '请把卸货地址改到南山门店二期',
+          createdAtIso: '2026-07-12T08:00:00.000Z',
+        },
+      ]),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.listAdminOrderChangeRequestReviewEvents(
+        createRequest('admin-1', 'admin'),
+        'order-1',
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: [
+        expect.objectContaining({
+          eventId: 'event-2',
+          stage: 'approved',
+        }),
+        expect.objectContaining({
+          eventId: 'event-1',
+          stage: 'requested',
+        }),
+      ],
+      requestId: 'req_order_test',
+    });
+    expect(service.listAdminOrderChangeRequestReviewEvents).toHaveBeenCalledWith(
+      'admin-1',
+      'order-1',
+    );
+  });
+
   it('returns driver execution receipt attachment summaries for the authenticated admin', async () => {
     const service = {
       listAdminOrderAttachmentAudits: jest.fn().mockResolvedValue({
@@ -948,6 +996,23 @@ describe('OrdersController', () => {
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
     );
     expect(service.getAdminOrderAttachmentAudit).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-admin users before reading order change request review events', async () => {
+    const service = {
+      listAdminOrderChangeRequestReviewEvents: jest.fn(),
+    } as unknown as OrdersService;
+    const controller = new AdminOrdersController(service);
+
+    await expect(
+      controller.listAdminOrderChangeRequestReviewEvents(
+        createRequest('shipper-1', 'shipper'),
+        'order-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.listAdminOrderChangeRequestReviewEvents).not.toHaveBeenCalled();
   });
 });
 

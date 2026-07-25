@@ -1765,6 +1765,53 @@ describe('platform order api', () => {
     );
   });
 
+  it('lists admin order change request review events with normalized order id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse([
+        createAdminOrderChangeRequestReviewEvent(),
+        createAdminOrderChangeRequestReviewEvent({
+          eventId: 'event-2',
+          eventType: 'change_requested',
+          stage: 'requested',
+          actorUserId: 'shipper-1',
+          noteText: '请把卸货地址改到南山门店二期',
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+        }),
+      ]),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminOrderChangeRequestReviewEvents(' order-1 '),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        eventId: 'event-1',
+        eventType: 'change_request_approved',
+        stage: 'approved',
+      }),
+      expect.objectContaining({
+        eventId: 'event-2',
+        eventType: 'change_requested',
+        stage: 'requested',
+      }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/order-1/change-request/review-events',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid admin order change request inputs before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -3226,6 +3273,20 @@ function createAdminOrderChangeRequestRecord(
     description: '请把卸货地址改到南山门店二期',
     requestedAtIso: '2026-07-01T08:00:00.000Z',
     orderStatus: 'waiting',
+    ...overrides,
+  };
+}
+
+function createAdminOrderChangeRequestReviewEvent(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    eventId: 'event-1',
+    actorUserId: 'admin-1',
+    eventType: 'change_request_approved',
+    stage: 'approved',
+    noteText: '已确认地址修改',
+    createdAtIso: '2026-07-01T08:20:00.000Z',
     ...overrides,
   };
 }

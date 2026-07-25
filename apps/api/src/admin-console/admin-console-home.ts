@@ -36,7 +36,7 @@ const defaultModules = [
     key: 'order-change-request',
     title: '订单修改申请审核台',
     route: '/api/admin/order-change-request-console',
-    summary: '查看货主修改申请队列，并执行单条通过或驳回。',
+    summary: '查看货主修改申请队列、审核事件，并执行单条通过或驳回。',
   },
   {
     key: 'session-governance',

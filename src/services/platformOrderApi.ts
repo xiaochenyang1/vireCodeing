@@ -438,6 +438,25 @@ export type PlatformListAdminOrderChangeRequestsResult = {
   total: number;
 };
 
+export type PlatformAdminOrderChangeRequestReviewEventType =
+  | 'change_requested'
+  | 'change_request_approved'
+  | 'change_request_rejected';
+
+export type PlatformAdminOrderChangeRequestReviewEventStage =
+  | 'requested'
+  | 'approved'
+  | 'rejected';
+
+export type PlatformAdminOrderChangeRequestReviewEvent = {
+  eventId: string;
+  actorUserId?: string;
+  eventType: PlatformAdminOrderChangeRequestReviewEventType;
+  stage: PlatformAdminOrderChangeRequestReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
+};
+
 export type PlatformReviewAdminOrderChangeRequest = {
   decision: 'approved' | 'rejected';
   reviewResultText?: string;
@@ -576,6 +595,14 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         createAdminOrderChangeRequestsPath(
           normalizeAdminOrderChangeRequestsQuery(query),
         ),
+      );
+    },
+    async listAdminOrderChangeRequestReviewEvents(orderId: string) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+
+      return platformGet<PlatformAdminOrderChangeRequestReviewEvent[]>(
+        config,
+        `/admin/orders/${normalizedOrderId}/change-request/review-events`,
       );
     },
     async reviewAdminOrderChangeRequest(

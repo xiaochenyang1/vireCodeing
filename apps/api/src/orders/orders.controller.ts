@@ -12,9 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOperation,
-  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import {
@@ -375,6 +373,24 @@ export class AdminOrdersController {
       await this.ordersService.listAdminOrderChangeRequests(
         getCurrentAdmin(request),
         parseListAdminOrderChangeRequestsQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get(':orderId/change-request/review-events')
+  @ApiOperation({
+    summary: '管理员改单审核事件流',
+    description: '读取指定订单的修改申请提交/审核事件，方便后台做人工审计追踪',
+  })
+  async listAdminOrderChangeRequestReviewEvents(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+  ) {
+    return ok(
+      await this.ordersService.listAdminOrderChangeRequestReviewEvents(
+        getCurrentAdmin(request),
+        orderId,
       ),
       getRequestId(request),
     );

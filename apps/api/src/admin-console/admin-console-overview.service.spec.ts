@@ -4,7 +4,7 @@ import type { AdminConsoleOverviewRepository } from './admin-console-overview.re
 const NOW = new Date('2026-07-18T03:00:00.000Z');
 
 describe('AdminConsoleOverviewService', () => {
-  it('maps repository stats into eleven admin console modules and a platform backlog', async () => {
+  it('maps repository stats into fifteen admin console modules and a platform backlog', async () => {
     const repository = {
       getStats: jest.fn().mockResolvedValue({
         driverCertification: {
@@ -71,7 +71,7 @@ describe('AdminConsoleOverviewService', () => {
     expect(overview).toEqual(
       expect.objectContaining({
         generatedAtIso: NOW.toISOString(),
-        implementedConsoleCount: 12,
+        implementedConsoleCount: 15,
         liveMetricModuleCount: 12,
         remainingCapabilityCount: 5,
         modules: expect.arrayContaining([
@@ -232,6 +232,13 @@ describe('AdminConsoleOverviewService', () => {
       summary:
         '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，但真实赔付执行 / 退款联动还没补齐。',
       pendingGaps: ['真实赔付执行 / 退款联动'],
+    });
+    expect(
+      overview.modules.find(module => module.key === 'order-change-request'),
+    ).toMatchObject({
+      summary:
+        '货主修改申请后台列表、通过驳回和审核事件审计第一片已接上，还没做费用重算和司机通知深链路。',
+      pendingGaps: ['费用重算', '司机通知深链路'],
     });
     expect(overview.remainingPlatformGaps).not.toContain(
       '权限矩阵 / 多角色工作台 / 后台会话治理 / 报表 / 批量操作',

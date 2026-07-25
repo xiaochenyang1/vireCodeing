@@ -89,6 +89,13 @@ export function renderOrderChangeRequestAdminConsole() {
       border-radius: 8px;
       padding: 10px;
     }
+    .event-list { display: grid; gap: 8px; }
+    .event-item {
+      background: #f8fafb;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
     textarea { width: 100%; min-height: 80px; resize: vertical; }
     ${renderAdminConsoleNavStyles()}
   </style>
@@ -138,6 +145,13 @@ export function renderOrderChangeRequestAdminConsole() {
         </div>
         <div id="reviewStatus" class="status-line"></div>
       </div>
+      <div class="card">
+        <h2>审核事件</h2>
+        <div id="reviewEventStatus" class="status-line">请选择左侧修改申请。</div>
+        <div id="reviewEventList" class="event-list">
+          <div class="muted">暂无审核事件。</div>
+        </div>
+      </div>
     </section>
   </div>
   ${renderAdminSessionScript({
@@ -148,6 +162,7 @@ export function renderOrderChangeRequestAdminConsole() {
     const orderApiBase = document.querySelector('meta[name="admin-order-api"]').content;
     let selectedOrderId = '';
     let currentItems = [];
+    let latestReviewEventsRequestId = 0;
 
     function getToken() {
       return window.__adminSession?.getAccessToken?.() || localStorage.getItem('adminAccessToken') || '';
@@ -197,7 +212,11 @@ export function renderOrderChangeRequestAdminConsole() {
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
         root.innerHTML = '<div class="muted">当前筛选下没有修改申请。</div>';
+        resetReviewEvents('请选择左侧修改申请。');
         return;
+      }
+      if (!currentItems.some(item => item.orderId === selectedOrderId)) {
+        selectedOrderId = currentItems[0].orderId;
       }
       root.innerHTML = currentItems.map(item => {
         const selected = item.orderId === selectedOrderId ? ' selected' : '';
@@ -212,6 +231,7 @@ export function renderOrderChangeRequestAdminConsole() {
           selectedOrderId = node.getAttribute('data-order-id') || '';
           renderQueue(currentItems);
           renderDetail();
+          loadReviewEvents();
         });
       });
     }
@@ -235,9 +255,68 @@ export function renderOrderChangeRequestAdminConsole() {
       ].join('');
     }
 
+    function resetReviewEvents(statusText) {
+      setText('reviewEventStatus', statusText);
+      document.getElementById('reviewEventList').innerHTML = '<div class="muted">暂无审核事件。</div>';
+    }
+
+    function formatReviewEventStage(stage) {
+      if (stage === 'requested') return '货主提交申请';
+      if (stage === 'approved') return '后台通过申请';
+      if (stage === 'rejected') return '后台驳回申请';
+      return '未知事件';
+    }
+
+    function renderReviewEvents(events) {
+      const root = document.getElementById('reviewEventList');
+      if (!events.length) {
+        root.innerHTML = '<div class="muted">暂无审核事件。</div>';
+        return;
+      }
+      root.innerHTML = events.map(event => {
+        return '<div class="event-item">' +
+          '<strong>' + escapeHtml(formatReviewEventStage(event.stage)) + '</strong>' +
+          '<div class="muted">操作者：' + escapeHtml(event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
+          '<div class="muted">' + escapeHtml(event.noteText || '无附加说明') + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function loadReviewEvents() {
+      const requestId = ++latestReviewEventsRequestId;
+      if (!selectedOrderId) {
+        resetReviewEvents('请选择左侧修改申请。');
+        return;
+      }
+      if (!getToken()) {
+        resetReviewEvents('请先填写 admin token。');
+        return;
+      }
+      setText('reviewEventStatus', '加载审核事件中...');
+      try {
+        const events = await apiGet(
+          orderApiBase + '/' + encodeURIComponent(selectedOrderId) + '/change-request/review-events',
+        );
+        if (requestId !== latestReviewEventsRequestId) {
+          return;
+        }
+        renderReviewEvents(Array.isArray(events) ? events : []);
+        setText(
+          'reviewEventStatus',
+          '共 ' + (Array.isArray(events) ? events.length : 0) + ' 条审核事件',
+        );
+      } catch (error) {
+        if (requestId !== latestReviewEventsRequestId) {
+          return;
+        }
+        resetReviewEvents(error.message || '审核事件加载失败');
+      }
+    }
+
     async function loadQueue() {
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
+        resetReviewEvents('请先填写 admin token。');
         return;
       }
       setText('queueStatus', '加载中...');
@@ -248,8 +327,10 @@ export function renderOrderChangeRequestAdminConsole() {
         renderQueue(data.items || []);
         setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
         renderDetail();
+        await loadReviewEvents();
       } catch (error) {
         setText('queueStatus', error.message || '加载失败');
+        resetReviewEvents('审核事件尚未加载');
       }
     }
 

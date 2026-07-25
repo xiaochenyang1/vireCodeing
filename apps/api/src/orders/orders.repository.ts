@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type {
   AdminBatchCancelOrderItem,
+  AdminOrderChangeRequestReviewEvent,
   AdminOrderChangeRequestRecord,
   AdvanceShipperOrderStatusRequest,
   BatchCancelAdminOrdersRequest,
@@ -344,6 +345,9 @@ export interface OrdersRepository {
   listAdminOrderChangeRequests(
     query: ListAdminOrderChangeRequestsQuery,
   ): Promise<ListAdminOrderChangeRequestsResult>;
+  listAdminOrderChangeRequestReviewEvents(
+    orderId: string,
+  ): Promise<AdminOrderChangeRequestReviewEvent[]>;
   reviewOrderChangeRequest(
     orderId: string,
     actorUserId: string,
@@ -1327,6 +1331,18 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       pageSize: query.pageSize,
       total: items.length,
     };
+  }
+
+  async listAdminOrderChangeRequestReviewEvents(
+    orderId: string,
+  ): Promise<AdminOrderChangeRequestReviewEvent[]> {
+    const order = this.orders.find(currentOrder => currentOrder.id === orderId);
+
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    return listAdminOrderChangeRequestReviewEventsFromOrder(order);
   }
 
   async reviewOrderChangeRequest(
@@ -5285,6 +5301,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
     };
   }
 
+  async listAdminOrderChangeRequestReviewEvents(
+    orderId: string,
+  ): Promise<AdminOrderChangeRequestReviewEvent[]> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: orderInclude,
+    });
+
+    if (!order) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    return listAdminOrderChangeRequestReviewEventsFromOrder(mapPrismaOrder(order));
+  }
+
   async reviewOrderChangeRequest(
     orderId: string,
     actorUserId: string,
@@ -6258,6 +6289,42 @@ function createOrderChangeReviewNote(input: ReviewShipperOrderChangeRequest) {
   return input.reviewResultText?.trim() || defaultText;
 }
 
+function isOrderChangeRequestReviewEvent(
+  event: ShipperOrderEventRecord,
+): event is ShipperOrderEventRecord & {
+  eventType:
+    | 'change_requested'
+    | 'change_request_approved'
+    | 'change_request_rejected';
+} {
+  return (
+    event.eventType === 'change_requested' ||
+    event.eventType === 'change_request_approved' ||
+    event.eventType === 'change_request_rejected'
+  );
+}
+
+function listAdminOrderChangeRequestReviewEventsFromOrder(
+  order: ShipperOrderRecord,
+): AdminOrderChangeRequestReviewEvent[] {
+  return order.events
+    .filter(isOrderChangeRequestReviewEvent)
+    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))
+    .map(event => ({
+      eventId: event.id,
+      ...(event.actorUserId ? { actorUserId: event.actorUserId } : {}),
+      eventType: event.eventType,
+      stage:
+        event.eventType === 'change_requested'
+          ? 'requested'
+          : event.eventType === 'change_request_approved'
+            ? 'approved'
+            : 'rejected',
+      ...(event.noteText ? { noteText: event.noteText } : {}),
+      createdAtIso: event.createdAtIso,
+    }));
+}
+
 function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   status: 'pending' | 'approved' | 'rejected';
   description: string;
@@ -6266,6 +6333,7 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   reviewedAtIso?: string;
 } | null {
   const requestEvent = [...order.events]
+    .filter(isOrderChangeRequestReviewEvent)
     .reverse()
     .find(event => event.eventType === 'change_requested');
   if (!requestEvent) {
@@ -6275,8 +6343,8 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   const reviewEvent = order.events
     .filter(
       event =>
-        (event.eventType === 'change_request_approved' ||
-          event.eventType === 'change_request_rejected') &&
+        isOrderChangeRequestReviewEvent(event) &&
+        event.eventType !== 'change_requested' &&
         event.createdAtIso >= requestEvent.createdAtIso,
     )
     .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];

@@ -130,6 +130,25 @@ export type ListAdminOrderChangeRequestsResult = {
   total: number;
 };
 
+export type AdminOrderChangeRequestReviewEventType =
+  | 'change_requested'
+  | 'change_request_approved'
+  | 'change_request_rejected';
+
+export type AdminOrderChangeRequestReviewEventStage =
+  | 'requested'
+  | 'approved'
+  | 'rejected';
+
+export type AdminOrderChangeRequestReviewEvent = {
+  eventId: string;
+  actorUserId?: string;
+  eventType: AdminOrderChangeRequestReviewEventType;
+  stage: AdminOrderChangeRequestReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
+};
+
 export type SubmitShipperOrderEvaluationRequest = {
   rating: number;
   tags: string[];

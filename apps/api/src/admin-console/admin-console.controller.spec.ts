@@ -12,6 +12,7 @@ import { renderEvaluationAuditAdminConsole } from './evaluation-audit-admin-cons
 import { renderFileMaintenanceAdminConsole } from './file-maintenance-admin-console';
 import { renderFinanceAdminConsole } from './finance-admin-console';
 import { renderOrderManagementAdminConsole } from './order-management-admin-console';
+import { renderOrderChangeRequestAdminConsole } from './order-change-request-admin-console';
 import { renderAccountManagementAdminConsole } from './account-management-admin-console';
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
@@ -188,6 +189,25 @@ describe('finance admin console page', () => {
     expect(html).toContain('resetFinanceReport');
     expect(html).toContain('clearFinanceSelection()');
     expect(html).toContain('clearLedgerDetail()');
+  });
+});
+
+describe('order change request admin console page', () => {
+  it('renders the change-request queue, review actions and audit-event panel', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+
+    expect(html).toContain('订单修改申请审核台');
+    expect(html).toContain('/api/admin/orders/change-requests');
+    expect(html).toContain('/change-request/review');
+    expect(html).toContain('/change-request/review-events');
+    expect(html).toContain('reviewResultText');
+    expect(html).toContain('reviewEventStatus');
+    expect(html).toContain('reviewEventList');
+    expect(html).toContain('loadReviewEvents');
+    expect(html).toContain('formatReviewEventStage');
+    expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('暂无审核事件');
+    expect(html).not.toContain('hero');
   });
 });
 
