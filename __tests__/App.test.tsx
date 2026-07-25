@@ -11421,6 +11421,7 @@ test('submits a local identity verification request from the profile center', as
   expect(renderedText).toContain('身份证号：440300199001011234');
   expect(renderedText).toContain('身份证正反面凭证 2 张');
   expect(renderedText).toContain('人脸核验已完成');
+  expect(renderedText).toContain('资料更新时间：');
   expect(renderedText).toContain('预计 1 个工作日内完成审核');
 });
 
@@ -11693,6 +11694,7 @@ test('submits a local enterprise verification request from the profile center', 
   expect(renderedText).toContain('统一社会信用代码：91440300MA5TEST001');
   expect(renderedText).toContain('企业联系电话：13900139088');
   expect(renderedText).toContain('营业执照凭证 1 张');
+  expect(renderedText).toContain('资料更新时间：');
   expect(renderedText).toContain('预计 1 个工作日内完成审核');
 });
 
@@ -27505,6 +27507,7 @@ test('attaches platform file objects to identity verification photos', async () 
       faceVerified: true,
       status: 'reviewing',
     });
+    expect(getRenderedText(app)).toContain('资料更新时间：2026-07-06 11:05');
     expect(
       fetchMock.mock.calls.some(([url]) =>
         String(url).endsWith('/files/upload-intents'),
@@ -27968,6 +27971,7 @@ test('submits enterprise verification to platform from the profile center', asyn
       ],
       status: 'reviewing',
     });
+    expect(getRenderedText(app)).toContain('资料更新时间：2026-07-06 11:05');
     expect(
       fetchMock.mock.calls.some(([url, init]) => {
         return (

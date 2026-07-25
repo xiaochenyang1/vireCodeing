@@ -11,6 +11,7 @@ import type {
 } from '../../services/platformFileApi';
 import type { createPlatformProfileApi } from '../../services/platformProfileApi';
 import { styles } from '../../styles';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import type {
   IdentityVerificationRequest,
   VerificationFileRef,
@@ -80,6 +81,14 @@ function getFaceCheckNoticeText(
     : '人脸核验已完成，本地版不会调用第三方 SDK。';
 }
 
+function getVerificationUpdatedAtText(updatedAtIso?: string) {
+  if (!updatedAtIso) {
+    return undefined;
+  }
+
+  return `资料更新时间：${formatPlatformIsoMinute(updatedAtIso)}`;
+}
+
 export function IdentityVerificationRecords({
   verification,
   canRefresh = false,
@@ -128,6 +137,9 @@ export function IdentityVerificationRecords({
   const verificationStatus = getIdentityVerificationStatus(verification);
   const isRejected = verificationStatus === 'rejected';
   const isApproved = verificationStatus === 'approved';
+  const verificationUpdatedAtText = getVerificationUpdatedAtText(
+    verification?.updatedAtIso,
+  );
   const platformNotice = canRefresh ? notice : '';
   const noticeText = actionNotice || platformNotice;
   const {
@@ -341,6 +353,9 @@ export function IdentityVerificationRecords({
           <Text style={styles.routeMeta}>
             {verification.faceVerified ? '人脸核验已完成' : '人脸核验未完成'}
           </Text>
+          {verificationUpdatedAtText ? (
+            <Text style={styles.routeMeta}>{verificationUpdatedAtText}</Text>
+          ) : null}
           {verification.rejectionReason ? (
             <Text style={styles.detailMeta}>
               {`失败原因：${verification.rejectionReason}`}

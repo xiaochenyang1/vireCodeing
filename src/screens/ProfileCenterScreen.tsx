@@ -2212,7 +2212,11 @@ export function ProfileCenterScreen({
           updateProfileState(
             current => ({
               ...current,
-              identityVerification: request,
+              identityVerification: {
+                ...request,
+                updatedAtIso:
+                  request.updatedAtIso ?? new Date(now).toISOString(),
+              },
             }),
             options?.syncStatus === 'failed'
               ? {
@@ -2243,6 +2247,7 @@ export function ProfileCenterScreen({
                   ...current.identityVerification,
                   status: 'rejected',
                   rejectionReason: reason,
+                  updatedAtIso: new Date(now).toISOString(),
                 }
               : current.identityVerification,
           }))
@@ -2251,7 +2256,11 @@ export function ProfileCenterScreen({
           updateProfileState(
             current => ({
               ...current,
-              enterpriseVerification: request,
+              enterpriseVerification: {
+                ...request,
+                updatedAtIso:
+                  request.updatedAtIso ?? new Date(now).toISOString(),
+              },
             }),
             options?.syncStatus === 'failed'
               ? {
@@ -2282,6 +2291,7 @@ export function ProfileCenterScreen({
                   ...current.enterpriseVerification,
                   status: 'rejected',
                   rejectionReason: reason,
+                  updatedAtIso: new Date(now).toISOString(),
                 }
               : current.enterpriseVerification,
           }))
