@@ -440,6 +440,42 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
   },
+  detailTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detailActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  detailStatusPill: {
+    ...pillBase,
+    backgroundColor: colors.tealSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  detailStatusPillActive: {
+    ...pillBase,
+    backgroundColor: colors.tealDark,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  detailStatusPillText: {
+    color: colors.tealDark,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  detailStatusPillTextActive: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   detailInlineGroup: {
     gap: 10,
     paddingTop: 12,
@@ -500,8 +536,28 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
+  detailSelectedButton: {
+    ...secondaryButton,
+    backgroundColor: colors.tealDark,
+    borderColor: colors.tealDark,
+  },
+  detailSelectedButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   detailSecondaryButton: secondaryButton,
   detailSecondaryButtonText: secondaryButtonText,
+  detailDangerButton: {
+    ...secondaryButton,
+    backgroundColor: '#FF3B30',
+    borderColor: '#FF3B30',
+  },
+  detailDangerButtonText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   detailNoticeCard: {
     borderRadius: 8,
     backgroundColor: colors.amberSoft,

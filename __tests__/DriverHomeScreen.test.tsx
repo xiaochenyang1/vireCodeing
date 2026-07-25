@@ -109,6 +109,7 @@ function createDriverBankCardsPage(
     bankName: string;
     bankAccountMasked: string;
     isDefault: boolean;
+    lastUsedAtIso: string;
     createdAtIso: string;
     updatedAtIso: string;
   }> = {},
@@ -1303,6 +1304,109 @@ describe('DriverHomeScreen certification uploads', () => {
       },
       expect.stringMatching(uuidV4Pattern),
     );
+  });
+
+  it('shows the selected withdrawal card and last-used context in the bank card list', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards.mockResolvedValue({
+      items: [
+        {
+          id: 'bank-card-1',
+          bankAccountName: '李师傅',
+          bankName: '招商银行',
+          bankAccountMasked: '**** **** **** 1234',
+          isDefault: true,
+          lastUsedAtIso: '2026-07-24T12:00:00.000Z',
+          createdAtIso: '2026-07-09T02:20:00.000Z',
+          updatedAtIso: '2026-07-24T12:00:00.000Z',
+        },
+        {
+          id: 'bank-card-2',
+          bankAccountName: '王师傅',
+          bankName: '平安银行',
+          bankAccountMasked: '**** **** **** 5678',
+          isDefault: false,
+          createdAtIso: '2026-07-09T02:30:00.000Z',
+          updatedAtIso: '2026-07-09T02:30:00.000Z',
+        },
+      ],
+      total: 2,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-selected-bank-card-1',
+      }),
+    ).toBeDefined();
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-last-used-bank-card-1',
+      }).props.children,
+    ).toBe('最近用于提现：2026-07-24 12:00');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-bank-card-select-bank-card-1' })
+        .props.disabled,
+    ).toBe(true);
+  });
+
+  it('refreshes bank cards after a successful withdrawal submit', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(createDriverBankCardsPage())
+      .mockResolvedValueOnce(
+        createDriverBankCardsPage({
+          lastUsedAtIso: '2026-07-25T12:00:00.000Z',
+          updatedAtIso: '2026-07-25T12:00:00.000Z',
+        }),
+      );
+    platformDriverOrderApi.createWithdrawal.mockResolvedValue({
+      id: 'withdrawal-refresh-bank-cards',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 0000 0002 1234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-last-used-bank-card-1',
+      }).props.children,
+    ).toBe('最近用于提现：2026-07-25 12:00');
   });
 
   it('keeps a manually selected withdrawal card after a successful withdrawal submit', async () => {

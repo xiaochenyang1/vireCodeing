@@ -95,6 +95,7 @@ import {
   getCertificationStatusText,
   getDriverAcceptanceVehicleTypesText,
   getDriverAdvanceButtonText,
+  getDriverBankCardLastUsedText,
   getDriverExecutionReceiptFileIds,
   getDriverOrderHallBonusText,
   getDriverOrderActionFailureNotice,
@@ -115,6 +116,7 @@ import {
   isDriverEvaluationReplyMissingAccessToken,
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
+  sortDriverBankCards,
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
   type DriverBankCardFormState,
@@ -941,7 +943,9 @@ export function DriverHomeScreen({
     );
   };
 
-  const refreshBankCards = () => {
+  const refreshBankCards = (
+    options: { silentError?: boolean } = {},
+  ) => {
     if (!platformDriverOrderApi) {
       setBankCards([]);
       return Promise.resolve(false);
@@ -950,7 +954,9 @@ export function DriverHomeScreen({
     return platformDriverOrderApi
       .listBankCards()
       .then(result => {
-        const items = Array.isArray(result.items) ? result.items : [];
+        const items = sortDriverBankCards(
+          Array.isArray(result.items) ? result.items : [],
+        );
         const defaultCard = items.find(item => item.isDefault);
         setBankCards(items);
         setWithdrawalForm(current => {
@@ -1077,7 +1083,9 @@ export function DriverHomeScreen({
         return true;
       })
       .catch(() => {
-        setNotice('银行卡列表加载失败，请稍后重试。');
+        if (!options.silentError) {
+          setNotice('银行卡列表加载失败，请稍后重试。');
+        }
         return false;
       });
   };
@@ -2374,6 +2382,7 @@ export function DriverHomeScreen({
         );
         setNotice('提现申请已提交审核。');
         refreshIncome();
+        refreshBankCards({ silentError: true });
       })
       .catch(error => {
         if (
@@ -3217,30 +3226,43 @@ export function DriverHomeScreen({
                   </Pressable>
                 </>
               ) : (
-                <>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                (() => {
+                  const isSelectedForWithdrawal =
+                    selectedWithdrawalBankCard?.id === card.id;
+                  const bankCardLastUsedText =
+                    getDriverBankCardLastUsedText(card);
+
+                  return (
+                    <>
+                  <View style={styles.detailTitleRow}>
                     <Text style={styles.detailRoute}>
                       {`${card.bankName} · ${card.bankAccountMasked}`}
                     </Text>
                     {card.isDefault ? (
-                      <Text
-                        style={[
-                          styles.detailMeta,
-                          { marginLeft: 8, color: colors.teal },
-                        ]}
+                      <View style={styles.detailStatusPill}>
+                        <Text style={styles.detailStatusPillText}>默认</Text>
+                      </View>
+                    ) : null}
+                    {isSelectedForWithdrawal ? (
+                      <View
+                        testID={`driver-bank-card-selected-${card.id}`}
+                        style={styles.detailStatusPillActive}
                       >
-                        默认
-                      </Text>
+                        <Text style={styles.detailStatusPillTextActive}>
+                          当前提现卡
+                        </Text>
+                      </View>
                     ) : null}
                   </View>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                      marginTop: 4,
-                    }}
-                  >
+                  {bankCardLastUsedText ? (
+                    <Text
+                      testID={`driver-bank-card-last-used-${card.id}`}
+                      style={styles.detailMeta}
+                    >
+                      {bankCardLastUsedText}
+                    </Text>
+                  ) : null}
+                  <View style={styles.detailActionRow}>
                     {!card.isDefault ? (
                       <Pressable
                         testID={`driver-bank-card-set-default-${card.id}`}
@@ -3254,11 +3276,24 @@ export function DriverHomeScreen({
                     ) : null}
                     <Pressable
                       testID={`driver-bank-card-select-${card.id}`}
-                      style={styles.detailSecondaryButton}
+                      style={
+                        isSelectedForWithdrawal
+                          ? styles.detailSelectedButton
+                          : styles.detailSecondaryButton
+                      }
+                      disabled={isSelectedForWithdrawal}
                       onPress={() => selectBankCard(card)}
                     >
-                      <Text style={styles.detailSecondaryButtonText}>
-                        用于提现
+                      <Text
+                        style={
+                          isSelectedForWithdrawal
+                            ? styles.detailSelectedButtonText
+                            : styles.detailSecondaryButtonText
+                        }
+                      >
+                        {isSelectedForWithdrawal
+                          ? '已选用于提现'
+                          : '用于提现'}
                       </Text>
                     </Pressable>
                     <Pressable
@@ -3272,23 +3307,15 @@ export function DriverHomeScreen({
                     </Pressable>
                     <Pressable
                       testID={`driver-bank-card-delete-${card.id}`}
-                      style={[
-                        styles.detailSecondaryButton,
-                        { backgroundColor: '#FF3B30' },
-                      ]}
+                      style={styles.detailDangerButton}
                       onPress={() => deleteBankCardHandler(card.id)}
                     >
-                      <Text
-                        style={[
-                          styles.detailSecondaryButtonText,
-                          { color: '#FFF' },
-                        ]}
-                      >
-                        删除
-                      </Text>
+                      <Text style={styles.detailDangerButtonText}>删除</Text>
                     </Pressable>
                   </View>
-                </>
+                    </>
+                  );
+                })()
               )}
             </View>
           ))

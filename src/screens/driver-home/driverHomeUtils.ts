@@ -889,6 +889,41 @@ export function formatDriverIncomeTime(value: string) {
   return value.replace('T', ' ').slice(0, 16);
 }
 
+function getDriverBankCardSortTimeValue(
+  card: PlatformDriverBankCardRecord,
+) {
+  return card.lastUsedAtIso ?? card.updatedAtIso ?? card.createdAtIso;
+}
+
+export function sortDriverBankCards(
+  cards: PlatformDriverBankCardRecord[],
+) {
+  return [...cards].sort((left, right) => {
+    if (left.isDefault !== right.isDefault) {
+      return left.isDefault ? -1 : 1;
+    }
+
+    const leftSortTime = getDriverBankCardSortTimeValue(left);
+    const rightSortTime = getDriverBankCardSortTimeValue(right);
+
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime.localeCompare(leftSortTime);
+    }
+
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  });
+}
+
+export function getDriverBankCardLastUsedText(
+  card: PlatformDriverBankCardRecord,
+) {
+  if (!card.lastUsedAtIso) {
+    return undefined;
+  }
+
+  return `最近用于提现：${formatDriverIncomeTime(card.lastUsedAtIso)}`;
+}
+
 export function getDriverWithdrawalStatusText(
   status: PlatformDriverWithdrawalRecord['status'],
 ) {

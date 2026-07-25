@@ -19,6 +19,7 @@ import {
   getDriverAcceptanceVehicleTypesText,
   getDriverAdvanceButtonText,
   getDriverExecutionReceiptFileIds,
+  getDriverBankCardLastUsedText,
   getDriverOrderActionFailureNotice,
   getDriverOrderPickupDistanceText,
   getDriverReceiptUploadButtonText,
@@ -34,6 +35,7 @@ import {
   isDriverCertificationFormDirty,
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
+  sortDriverBankCards,
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
 import { PlatformApiError } from '../src/services/platformApiClient';
@@ -280,6 +282,50 @@ test('formats driver bank card input by stripping non-digits, capping length and
   expect(
     formatDriverBankCardNumberInput('1234-5678-9012-3456-7890-1234-5678-9012'),
   ).toBe('1234 5678 9012 3456 7890 1234 5678 90');
+});
+
+test('sorts driver bank cards for display and formats last-used text', () => {
+  const sortedCards = sortDriverBankCards([
+    {
+      id: 'bank-card-1',
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountMasked: '**** **** **** 1234',
+      isDefault: false,
+      lastUsedAtIso: '2026-07-24T09:00:00.000Z',
+      createdAtIso: '2026-07-20T09:00:00.000Z',
+      updatedAtIso: '2026-07-24T09:00:00.000Z',
+    },
+    {
+      id: 'bank-card-2',
+      bankAccountName: '王师傅',
+      bankName: '平安银行',
+      bankAccountMasked: '**** **** **** 5678',
+      isDefault: true,
+      createdAtIso: '2026-07-21T09:00:00.000Z',
+      updatedAtIso: '2026-07-21T09:00:00.000Z',
+    },
+    {
+      id: 'bank-card-3',
+      bankAccountName: '赵师傅',
+      bankName: '建设银行',
+      bankAccountMasked: '**** **** **** 9012',
+      isDefault: false,
+      lastUsedAtIso: '2026-07-25T10:00:00.000Z',
+      createdAtIso: '2026-07-22T09:00:00.000Z',
+      updatedAtIso: '2026-07-25T10:00:00.000Z',
+    },
+  ]);
+
+  expect(sortedCards.map(card => card.id)).toEqual([
+    'bank-card-2',
+    'bank-card-3',
+    'bank-card-1',
+  ]);
+  expect(getDriverBankCardLastUsedText(sortedCards[1])).toBe(
+    '最近用于提现：2026-07-25 10:00',
+  );
+  expect(getDriverBankCardLastUsedText(sortedCards[0])).toBeUndefined();
 });
 
 test('detects whether the driver withdrawal form is still pristine', () => {
