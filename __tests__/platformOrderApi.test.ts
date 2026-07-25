@@ -1664,6 +1664,138 @@ describe('platform order api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('lists admin order change requests with default and normalized query', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          items: [createAdminOrderChangeRequestRecord()],
+          page: 1,
+          pageSize: 20,
+          total: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          items: [createAdminOrderChangeRequestRecord({ status: 'approved' })],
+          page: 2,
+          pageSize: 50,
+          total: 1,
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.listAdminOrderChangeRequests()).resolves.toMatchObject({
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    await expect(
+      api.listAdminOrderChangeRequests({
+        status: 'approved',
+        page: 2,
+        pageSize: 50,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 50,
+      total: 1,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/orders/change-requests?status=pending&page=1&pageSize=20',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/orders/change-requests?status=approved&page=2&pageSize=50',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('reviews admin order change requests with normalized payload', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(
+        createOrderRecord({
+          status: 'transporting',
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.reviewAdminOrderChangeRequest(' order-1 ', {
+        decision: 'approved',
+        reviewResultText: '  地址修改可执行  ',
+      }),
+    ).resolves.toMatchObject({
+      id: 'order-1',
+      status: 'transporting',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/order-1/change-request/review',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          decision: 'approved',
+          reviewResultText: '地址修改可执行',
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin order change request inputs before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const invalidStatusQuery = {
+      status: 'processing',
+    } as unknown as Parameters<typeof api.listAdminOrderChangeRequests>[0];
+    const invalidReviewRequest = {
+      decision: 'approve',
+    } as unknown as Parameters<typeof api.reviewAdminOrderChangeRequest>[1];
+
+    await expect(
+      api.listAdminOrderChangeRequests(invalidStatusQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.reviewAdminOrderChangeRequest('order-1', invalidReviewRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('normalizes blank-padded order id before sending a detail request', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1758,6 +1890,10 @@ describe('platform order api', () => {
         content: '司机服务细致，整体运输体验很好',
       }),
       () => api.getAdminOrder(blankOrderId),
+      () =>
+        api.reviewAdminOrderChangeRequest(blankOrderId, {
+          decision: 'approved',
+        }),
       () =>
         api.cancelAdminOrder(
           blankOrderId,
@@ -2797,6 +2933,21 @@ function createAdminOrderAttachmentAudit(
         missingFileIds: ['missing-file-1'],
       },
     ],
+    ...overrides,
+  };
+}
+
+function createAdminOrderChangeRequestRecord(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    orderId: 'order-1',
+    orderNo: 'HY202607010001',
+    shipperId: 'shipper-1',
+    status: 'pending',
+    description: '请把卸货地址改到南山门店二期',
+    requestedAtIso: '2026-07-01T08:00:00.000Z',
+    orderStatus: 'waiting',
     ...overrides,
   };
 }

@@ -405,6 +405,42 @@ export type PlatformAdminOrderAttachmentAudit = {
   events: PlatformAdminOrderAttachmentAuditEvent[];
 };
 
+export type PlatformAdminOrderChangeRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected';
+
+export type PlatformListAdminOrderChangeRequestsQuery = {
+  status?: PlatformAdminOrderChangeRequestStatus;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PlatformAdminOrderChangeRequestRecord = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  status: PlatformAdminOrderChangeRequestStatus;
+  description: string;
+  reviewResultText?: string;
+  requestedAtIso: string;
+  reviewedAtIso?: string;
+  assignedDriverId?: string;
+  orderStatus: PlatformShipperOrderStatus;
+};
+
+export type PlatformListAdminOrderChangeRequestsResult = {
+  items: PlatformAdminOrderChangeRequestRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type PlatformReviewAdminOrderChangeRequest = {
+  decision: 'approved' | 'rejected';
+  reviewResultText?: string;
+};
+
 export function createPlatformOrderApi(config: PlatformApiConfig) {
   return {
     createOrder(
@@ -490,6 +526,31 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
       return platformGet<PlatformAdminOrderAttachmentAudit>(
         config,
         `/admin/orders/${normalizedOrderId}/attachments`,
+      );
+    },
+    async listAdminOrderChangeRequests(
+      query: PlatformListAdminOrderChangeRequestsQuery = {},
+    ) {
+      return platformGet<PlatformListAdminOrderChangeRequestsResult>(
+        config,
+        createAdminOrderChangeRequestsPath(
+          normalizeAdminOrderChangeRequestsQuery(query),
+        ),
+      );
+    },
+    async reviewAdminOrderChangeRequest(
+      orderId: string,
+      request: PlatformReviewAdminOrderChangeRequest,
+    ) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+
+      return platformPost<
+        PlatformReviewAdminOrderChangeRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/admin/orders/${normalizedOrderId}/change-request/review`,
+        normalizeAdminOrderChangeRequestReviewRequest(request),
       );
     },
     async listExceptionCases(orderId: string) {
@@ -2056,6 +2117,99 @@ function assertValidAdminOrderAttachmentAuditListQuery(
   }
 }
 
+function normalizeAdminOrderChangeRequestsQuery(
+  query: PlatformListAdminOrderChangeRequestsQuery,
+) {
+  const queryInput = query as unknown;
+
+  if (
+    queryInput === null ||
+    typeof queryInput !== 'object' ||
+    Array.isArray(queryInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order change request query must be an object',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const status = query.status ?? 'pending';
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (
+    status !== 'pending' &&
+    status !== 'approved' &&
+    status !== 'rejected'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order change request status is invalid',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (!Number.isInteger(page) || page < 1) {
+    throw new PlatformApiError(
+      'Platform admin order change request page is invalid',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throw new PlatformApiError(
+      'Platform admin order change request pageSize is invalid',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  return {
+    status,
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeAdminOrderChangeRequestReviewRequest(
+  request: PlatformReviewAdminOrderChangeRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order change request review body must be an object',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (request.decision !== 'approved' && request.decision !== 'rejected') {
+    throw new PlatformApiError(
+      'Platform admin order change request decision is invalid',
+      'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const reviewResultText = normalizeOptionalTrimmedString(
+    request.reviewResultText,
+    200,
+    'Platform admin order change request reviewResultText is invalid',
+    'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+  );
+
+  return reviewResultText
+    ? { decision: request.decision, reviewResultText }
+    : { decision: request.decision };
+}
+
 function isPlatformShipperOrderStatus(
   value: unknown,
 ): value is PlatformShipperOrderStatus {
@@ -2184,6 +2338,14 @@ function createAdminOrderAttachmentAuditListPath(
   return queryString
     ? `/admin/orders/attachments?${queryString}`
     : '/admin/orders/attachments';
+}
+
+function createAdminOrderChangeRequestsPath(
+  query: ReturnType<typeof normalizeAdminOrderChangeRequestsQuery>,
+) {
+  const queryString = new URLSearchParams(query).toString();
+
+  return `/admin/orders/change-requests?${queryString}`;
 }
 
 function normalizeRequiredTrimmedString(
