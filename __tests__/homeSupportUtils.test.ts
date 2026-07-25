@@ -36,6 +36,8 @@ test('creates local support ticket with initial history record', () => {
     statusText: '待客服跟进',
     createdAtText: '刚刚提交',
     createdAtIso: expectedIso,
+    updatedAtText: '刚刚提交',
+    updatedAtIso: expectedIso,
     statusHistory: [
       {
         actionText: '工单已提交',
@@ -56,6 +58,7 @@ test('appends local support ticket status history without mutating other tickets
       description: '司机临时改价',
       statusText: '待客服跟进',
       createdAtText: '刚刚提交',
+      updatedAtText: '刚刚提交',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -84,6 +87,7 @@ test('appends local support ticket status history without mutating other tickets
       description: '司机临时改价',
       statusText: '客服已受理',
       createdAtText: '刚刚提交',
+      updatedAtText: '刚刚',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -110,6 +114,7 @@ test('creates an add-ticket change and avoids existing local ticket ids', () => 
       description: '司机临时改价',
       statusText: '待客服跟进',
       createdAtText: '刚刚提交',
+      updatedAtText: '刚刚提交',
     },
     {
       id: 'support-ticket-4',
@@ -134,6 +139,8 @@ test('creates an add-ticket change and avoids existing local ticket ids', () => 
         statusText: '待客服跟进',
         createdAtText: '刚刚提交',
         createdAtIso: expectedIso,
+        updatedAtText: '刚刚提交',
+        updatedAtIso: expectedIso,
         statusHistory: [
           {
             actionText: '工单已提交',
@@ -160,6 +167,7 @@ test('creates an update-ticket change with appended processing history', () => {
       description: '司机临时改价',
       statusText: '待客服跟进',
       createdAtText: '刚刚提交',
+      updatedAtText: '刚刚提交',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -184,6 +192,8 @@ test('creates an update-ticket change with appended processing history', () => {
       {
         ...tickets[0],
         statusText: '客服已受理',
+        updatedAtText: '刚刚',
+        updatedAtIso: expectedIso,
         statusHistory: [
           {
             actionText: '工单已提交',

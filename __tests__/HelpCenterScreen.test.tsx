@@ -23,6 +23,8 @@ describe('HelpCenterScreen', () => {
       statusText: '待客服跟进',
       createdAtText: '2 小时前',
       createdAtIso: '2026-07-22T06:00:00.000Z',
+      updatedAtText: '1 小时前',
+      updatedAtIso: '2026-07-22T07:00:00.000Z',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -38,6 +40,8 @@ describe('HelpCenterScreen', () => {
       statusText: '待客服跟进',
       createdAtText: '刚刚提交',
       createdAtIso: '2026-07-22T08:00:00.000Z',
+      updatedAtText: '刚刚提交',
+      updatedAtIso: '2026-07-22T08:00:00.000Z',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -68,6 +72,8 @@ describe('HelpCenterScreen', () => {
 
     expect(renderedText).toContain('来源：平台工单同步');
     expect(renderedText).toContain('来源：本地兜底工单');
+    expect(renderedText).toContain('提交时间：2 小时前');
+    expect(renderedText).toContain('最近更新：1 小时前');
   });
 
   it('keeps local fallback ticket actions available in platform mode', async () => {

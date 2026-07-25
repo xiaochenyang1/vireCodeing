@@ -20,6 +20,8 @@ export function mapPlatformSupportTicketToLocal(
     statusText: mapPlatformSupportTicketStatus(item.status),
     createdAtText: formatSupportTicketTimestamp(item.createdAtIso, now, true),
     createdAtIso: item.createdAtIso,
+    updatedAtText: formatSupportTicketTimestamp(item.updatedAtIso, now),
+    updatedAtIso: item.updatedAtIso,
     statusHistory: item.statusHistory.map(historyItem => ({
       actionText: historyItem.actionText,
       timestampText: formatSupportTicketTimestamp(

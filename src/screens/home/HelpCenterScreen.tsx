@@ -15,6 +15,18 @@ import {
 } from '../../utils/homeSupport';
 import { SupportTopBar } from './SupportTopBar';
 
+function shouldShowSupportTicketUpdatedAt(ticket: SupportTicket) {
+  if (!ticket.updatedAtText) {
+    return false;
+  }
+
+  if (ticket.updatedAtIso && ticket.createdAtIso) {
+    return ticket.updatedAtIso !== ticket.createdAtIso;
+  }
+
+  return ticket.updatedAtText !== ticket.createdAtText;
+}
+
 export function HelpCenterScreen({
   supportTickets,
   noticeText,
@@ -265,7 +277,14 @@ export function HelpCenterScreen({
                 <Text style={styles.detailMeta}>
                   {`处理状态：${ticket.statusText}`}
                 </Text>
-                <Text style={styles.routeMeta}>{ticket.createdAtText}</Text>
+                <Text style={styles.routeMeta}>
+                  {`提交时间：${ticket.createdAtText}`}
+                </Text>
+                {shouldShowSupportTicketUpdatedAt(ticket) ? (
+                  <Text style={styles.routeMeta}>
+                    {`最近更新：${ticket.updatedAtText}`}
+                  </Text>
+                ) : null}
                 {statusHistory.map(historyItem => (
                   <Text
                     key={`${ticket.id}-${historyItem.actionText}-${historyItem.timestampText}`}

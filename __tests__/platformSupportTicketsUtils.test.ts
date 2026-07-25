@@ -39,6 +39,8 @@ describe('platform support tickets utils', () => {
       statusText: '客服已受理',
       createdAtText: '2 小时前',
       createdAtIso: '2026-07-22T08:30:00.000Z',
+      updatedAtText: '1 小时前',
+      updatedAtIso: '2026-07-22T09:30:00.000Z',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -61,6 +63,7 @@ describe('platform support tickets utils', () => {
           ...platformTicket,
           status: 'pending',
           createdAtIso: '2026-07-22T10:30:00.000Z',
+          updatedAtIso: '2026-07-22T10:30:00.000Z',
           statusHistory: [
             {
               actionText: '工单已提交',
@@ -73,6 +76,7 @@ describe('platform support tickets utils', () => {
     ).toMatchObject({
       statusText: '待客服跟进',
       createdAtText: '刚刚提交',
+      updatedAtText: '刚刚',
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -96,6 +100,7 @@ describe('platform support tickets utils', () => {
           description: '本地兜底工单',
           statusText: '待客服跟进',
           createdAtText: '刚刚提交',
+          updatedAtText: '刚刚提交',
         },
       ]),
     ).toBe('platform');
@@ -122,6 +127,8 @@ describe('platform support tickets utils', () => {
           statusText: '待客服跟进',
           createdAtText: '刚刚提交',
           createdAtIso: '2026-07-22T10:20:00.000Z',
+          updatedAtText: '刚刚提交',
+          updatedAtIso: '2026-07-22T10:20:00.000Z',
           statusHistory: [
             {
               actionText: '工单已提交',

@@ -397,5 +397,7 @@ export type SupportTicket = {
   statusText: string;
   createdAtText: string;
   createdAtIso?: string;
+  updatedAtText?: string;
+  updatedAtIso?: string;
   statusHistory?: SupportTicketStatusHistoryItem[];
 };

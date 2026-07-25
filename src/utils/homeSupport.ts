@@ -60,6 +60,10 @@ export function appendSupportTicketStatus(
       ? {
           ...ticket,
           statusText,
+          updatedAtText: historyItem.timestampText,
+          ...(historyItem.timestampIso
+            ? { updatedAtIso: historyItem.timestampIso }
+            : {}),
           statusHistory: [...(ticket.statusHistory ?? []), historyItem],
         }
       : ticket,
@@ -118,6 +122,8 @@ function createSupportTicket(
     statusText: '待客服跟进',
     createdAtText: '刚刚提交',
     createdAtIso,
+    updatedAtText: '刚刚提交',
+    updatedAtIso: createdAtIso,
     statusHistory: [
       {
         actionText: '工单已提交',
