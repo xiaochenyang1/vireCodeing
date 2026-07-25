@@ -6,10 +6,12 @@ import type { createPlatformFileApi } from '../../services/platformFileApi';
 import type { PlatformOrderExceptionCase } from '../../services/platformOrderApi';
 import { styles } from '../../styles';
 import type { FileAttachmentRef } from '../../types';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import {
   canAppealOrderExceptionCase,
   getOrderExceptionCaseAppealStatusText,
   getOrderExceptionCaseCompensationSummary,
+  getOrderExceptionCaseLifecycleFacts,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
   sortOrderExceptionCaseActions,
@@ -132,13 +134,17 @@ export function ExceptionCaseProgressPanel({
   useEffect(() => {
     let active = true;
 
-    void hydrateExceptionCaseAttachments(cases, platformFileApi).then(
-      hydratedAttachments => {
+    hydrateExceptionCaseAttachments(cases, platformFileApi)
+      .then(hydratedAttachments => {
         if (active) {
           setAttachmentMap(hydratedAttachments);
         }
-      },
-    );
+      })
+      .catch(() => {
+        if (active) {
+          setAttachmentMap({});
+        }
+      });
 
     return () => {
       active = false;
@@ -156,6 +162,8 @@ export function ExceptionCaseProgressPanel({
       {cases.map(exceptionCase => {
         const compensationSummary =
           getOrderExceptionCaseCompensationSummary(exceptionCase);
+        const lifecycleFacts =
+          getOrderExceptionCaseLifecycleFacts(exceptionCase);
         const canAppeal = canAppealOrderExceptionCase(exceptionCase);
         const appealDraft = appealDrafts[exceptionCase.id] ?? '';
         const isAppealing = appealingCaseId === exceptionCase.id;
@@ -177,7 +185,7 @@ export function ExceptionCaseProgressPanel({
             </Text>
             <Text style={styles.detailMeta}>{exceptionCase.description}</Text>
             <Text style={styles.detailMeta}>
-              提交时间：{exceptionCase.createdAtIso}
+              提交时间：{lifecycleFacts.createdAtText}
             </Text>
             {caseAttachments.length > 0 ? (
               <View style={styles.detailInlineGroup}>
@@ -221,9 +229,14 @@ export function ExceptionCaseProgressPanel({
                 {compensationSummary}
               </Text>
             ) : null}
-            {exceptionCase.compensationExecutedAtIso ? (
+            {exceptionCase.compensationTransactionId ? (
               <Text style={styles.detailMeta}>
-                赔付执行时间：{exceptionCase.compensationExecutedAtIso}
+                赔付流水号：{exceptionCase.compensationTransactionId}
+              </Text>
+            ) : null}
+            {lifecycleFacts.compensationExecutedAtText ? (
+              <Text style={styles.detailMeta}>
+                赔付执行时间：{lifecycleFacts.compensationExecutedAtText}
               </Text>
             ) : null}
             {exceptionCase.appealStatus && exceptionCase.appealStatus !== 'none' ? (
@@ -235,16 +248,31 @@ export function ExceptionCaseProgressPanel({
                 {getOrderExceptionCaseAppealStatusText(exceptionCase.appealStatus)}
               </Text>
             ) : null}
+            {lifecycleFacts.appealRequestedAtText ? (
+              <Text style={styles.detailMeta}>
+                申诉提交时间：{lifecycleFacts.appealRequestedAtText}
+              </Text>
+            ) : null}
             {exceptionCase.appealReason ? (
               <Text style={styles.detailMeta}>
                 申诉理由：{exceptionCase.appealReason}
+              </Text>
+            ) : null}
+            {lifecycleFacts.resolvedAtText ? (
+              <Text style={styles.detailMeta}>
+                解决时间：{lifecycleFacts.resolvedAtText}
+              </Text>
+            ) : null}
+            {lifecycleFacts.closedAtText ? (
+              <Text style={styles.detailMeta}>
+                结案时间：{lifecycleFacts.closedAtText}
               </Text>
             ) : null}
             {sortOrderExceptionCaseActions(exceptionCase.actions).map(action => (
               <Text key={action.id} style={styles.detailMeta}>
                 {getOrderExceptionCaseStatusText(action.fromStatus)} →{' '}
                 {getOrderExceptionCaseStatusText(action.toStatus)}：
-                {action.content}
+                {action.content} · {formatPlatformIsoMinute(action.createdAtIso)}
               </Text>
             ))}
             {canAppeal && onSubmitAppeal ? (

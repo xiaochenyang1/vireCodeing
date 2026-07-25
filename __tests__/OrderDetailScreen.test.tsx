@@ -647,7 +647,7 @@ describe('OrderDetailScreen exception case progress', () => {
     expect(renderedText).toContain('已解决');
     expect(renderedText).toContain('处理结论： 客服判定需线下赔付。');
     expect(renderedText).toContain(
-      '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥128.00 · 更新时间：2026-07-12T08:20:00.000Z',
+      '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥128.00 · 更新时间：2026-07-12 16:20',
     );
   });
 

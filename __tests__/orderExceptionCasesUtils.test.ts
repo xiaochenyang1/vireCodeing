@@ -4,6 +4,7 @@ import {
   getOrderExceptionCaseCompensationStatusText,
   getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseCompensationTargetText,
+  getOrderExceptionCaseLifecycleFacts,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
   getOrderExceptionCaseSummaryHeadline,
@@ -52,7 +53,7 @@ describe('order exception case utilities', () => {
         compensationUpdatedAtIso: '2026-07-12T08:30:00.000Z',
       }),
     ).toBe(
-      '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥88.00 · 更新时间：2026-07-12T08:30:00.000Z',
+      '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥88.00 · 更新时间：2026-07-12 16:30',
     );
     expect(
       getOrderExceptionCaseCompensationSummary({
@@ -126,6 +127,24 @@ describe('order exception case utilities', () => {
       }),
     ).toBe('处理结论：客服已要求双方补充装卸现场凭证。');
     expect(getOrderExceptionCaseSummaryText({})).toBeUndefined();
+  });
+
+  it('formats lifecycle timestamps in platform timezone text', () => {
+    expect(
+      getOrderExceptionCaseLifecycleFacts({
+        createdAtIso: '2026-07-25T02:00:00.000Z',
+        compensationExecutedAtIso: '2026-07-25T02:35:00.000Z',
+        appealRequestedAtIso: '2026-07-25T02:40:00.000Z',
+        resolvedAtIso: '2026-07-25T02:45:00.000Z',
+        closedAtIso: '2026-07-25T02:50:00.000Z',
+      }),
+    ).toEqual({
+      createdAtText: '2026-07-25 10:00',
+      compensationExecutedAtText: '2026-07-25 10:35',
+      appealRequestedAtText: '2026-07-25 10:40',
+      resolvedAtText: '2026-07-25 10:45',
+      closedAtText: '2026-07-25 10:50',
+    });
   });
 
   it('sorts actions chronologically without mutating the input', () => {

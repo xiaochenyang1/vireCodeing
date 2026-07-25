@@ -4572,7 +4572,7 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('YC202607120002');
     expect(getRenderedText(renderer)).toContain('已解决');
     expect(getRenderedText(renderer)).toContain(
-      '赔付决议：线下已赔付 · 对象：司机 · 金额：￥66.00 · 更新时间：2026-07-12T08:15:00.000Z',
+      '赔付决议：线下已赔付 · 对象：司机 · 金额：￥66.00 · 更新时间：2026-07-12 16:15',
     );
 
     ReactTestRenderer.act(() => {

@@ -6,6 +6,7 @@ import type {
   PlatformOrderExceptionCaseSourceRole,
   PlatformOrderExceptionCaseStatus,
 } from '../services/platformOrderApi';
+import { formatPlatformIsoMinute } from './dateTime';
 
 type OrderExceptionCaseSummarySnapshot = {
   caseNo: string;
@@ -150,10 +151,37 @@ export function getOrderExceptionCaseCompensationSummary(
     options.includeUpdatedAt !== false &&
     exceptionCase.compensationUpdatedAtIso
   ) {
-    summaryParts.push(`更新时间：${exceptionCase.compensationUpdatedAtIso}`);
+    summaryParts.push(
+      `更新时间：${formatOrderExceptionCaseTime(
+        exceptionCase.compensationUpdatedAtIso,
+      )}`,
+    );
   }
 
   return summaryParts.join(' · ');
+}
+
+export function getOrderExceptionCaseLifecycleFacts(
+  exceptionCase: Pick<
+    PlatformOrderExceptionCase,
+    | 'createdAtIso'
+    | 'compensationExecutedAtIso'
+    | 'appealRequestedAtIso'
+    | 'resolvedAtIso'
+    | 'closedAtIso'
+  >,
+) {
+  return {
+    createdAtText: formatPlatformIsoMinute(exceptionCase.createdAtIso),
+    compensationExecutedAtText: formatOrderExceptionCaseTime(
+      exceptionCase.compensationExecutedAtIso,
+    ),
+    appealRequestedAtText: formatOrderExceptionCaseTime(
+      exceptionCase.appealRequestedAtIso,
+    ),
+    resolvedAtText: formatOrderExceptionCaseTime(exceptionCase.resolvedAtIso),
+    closedAtText: formatOrderExceptionCaseTime(exceptionCase.closedAtIso),
+  };
 }
 
 export function getOrderExceptionCaseSummaryText(
@@ -189,4 +217,8 @@ export function sortOrderExceptionCaseActions(
 
 function formatOrderExceptionCaseCompensationAmount(amountCents: number) {
   return `￥${(amountCents / 100).toFixed(2)}`;
+}
+
+function formatOrderExceptionCaseTime(value?: string) {
+  return value ? formatPlatformIsoMinute(value) : undefined;
 }
