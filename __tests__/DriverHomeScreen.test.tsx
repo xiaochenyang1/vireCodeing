@@ -228,6 +228,22 @@ function getWithdrawalRecordCardTestIds(
   );
 }
 
+function getDriverOrderCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('driver-order-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -739,6 +755,112 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
     ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 10:00');
+  });
+
+  it('sorts hall orders by pickup distance before rendering cards', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listOrderHall.mockResolvedValue({
+      items: [
+        {
+          id: 'order-hall-unknown',
+          orderNo: 'HY202607090003',
+          status: 'waiting' as const,
+          pickupAddress: '龙岗区坂田仓',
+          deliveryAddress: '南山区科技园',
+          cargoType: 'build',
+          weightText: '2.5 吨',
+          quantityText: '12 箱',
+          pickupContact: '赵经理',
+          pickupPhone: '13900139001',
+          deliveryContact: '钱店长',
+          deliveryPhone: '13900139002',
+          vehicleRequirement: 'medium',
+          createdAtIso: '2026-07-09T04:00:00.000Z',
+          updatedAtIso: '2026-07-09T04:00:00.000Z',
+          needTailboard: false,
+          needTarp: false,
+          pickupTimeIso: '2026-07-09T05:00:00.000Z',
+          pricingMode: 'fixed' as const,
+          priceCents: 76000,
+          paymentMethod: 'cod' as const,
+          shipperId: 'shipper-1',
+          events: [],
+        },
+        {
+          id: 'order-hall-far',
+          orderNo: 'HY202607090002',
+          status: 'waiting' as const,
+          pickupDistanceMeters: 6400,
+          pickupAddress: '宝安区西乡仓',
+          deliveryAddress: '福田区会展中心',
+          cargoType: 'build',
+          weightText: '2.5 吨',
+          quantityText: '12 箱',
+          pickupContact: '赵经理',
+          pickupPhone: '13900139001',
+          deliveryContact: '钱店长',
+          deliveryPhone: '13900139002',
+          vehicleRequirement: 'medium',
+          createdAtIso: '2026-07-09T03:00:00.000Z',
+          updatedAtIso: '2026-07-09T03:10:00.000Z',
+          needTailboard: false,
+          needTarp: false,
+          pickupTimeIso: '2026-07-09T04:00:00.000Z',
+          pricingMode: 'fixed' as const,
+          priceCents: 76000,
+          paymentMethod: 'cod' as const,
+          shipperId: 'shipper-1',
+          events: [],
+        },
+        {
+          id: 'order-hall-near',
+          orderNo: 'HY202607090001',
+          status: 'waiting' as const,
+          pickupDistanceMeters: 1200,
+          pickupAddress: '宝安区福永物流园',
+          deliveryAddress: '龙岗区坂田仓',
+          cargoType: 'build',
+          weightText: '2.5 吨',
+          quantityText: '12 箱',
+          pickupContact: '赵经理',
+          pickupPhone: '13900139001',
+          deliveryContact: '钱店长',
+          deliveryPhone: '13900139002',
+          vehicleRequirement: 'medium',
+          createdAtIso: '2026-07-09T02:00:00.000Z',
+          updatedAtIso: '2026-07-09T02:00:00.000Z',
+          needTailboard: false,
+          needTarp: false,
+          pickupTimeIso: '2026-07-09T03:00:00.000Z',
+          pricingMode: 'fixed' as const,
+          priceCents: 76000,
+          paymentMethod: 'cod' as const,
+          shipperId: 'shipper-1',
+          events: [],
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 3,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getDriverOrderCardTestIds(renderer)).toEqual([
+      'driver-order-card-HY202607090001',
+      'driver-order-card-HY202607090002',
+      'driver-order-card-HY202607090003',
+    ]);
   });
 
   it('hydrates the latest hall location snapshot on load and manual refresh', async () => {

@@ -108,6 +108,7 @@ import {
   getDriverOrderHallPricingText,
   getDriverReceiptUploadButtonText,
   getDriverOrderPickupDistanceText,
+  sortDriverOrderHallOrders,
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
   getDriverStatusText,
@@ -2721,9 +2722,8 @@ export function DriverHomeScreen({
       });
   };
 
-  const visibleOrders = filterDriverOrderHallOrders(
-    orderHallOrders,
-    acceptanceSettings,
+  const visibleOrders = sortDriverOrderHallOrders(
+    filterDriverOrderHallOrders(orderHallOrders, acceptanceSettings),
   );
   const orderHallLocallyFilteredOrders =
     filterDriverOrderHallOrdersByLocalFilter(

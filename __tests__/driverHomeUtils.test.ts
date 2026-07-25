@@ -36,6 +36,7 @@ import {
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   sortDriverBankCards,
+  sortDriverOrderHallOrders,
   sortDriverWithdrawals,
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
@@ -720,6 +721,41 @@ test('filters the order hall by pickup distance and formats distance text', () =
     '约 12.3 公里',
   );
   expect(getDriverOrderPickupDistanceText(order())).toBe('');
+});
+
+test('sorts order hall cards by pickup distance first, then latest update time', () => {
+  expect(
+    sortDriverOrderHallOrders([
+      order({
+        id: 'unknown',
+        createdAtIso: '2026-07-10T04:00:00.000Z',
+        updatedAtIso: '2026-07-10T04:00:00.000Z',
+      }),
+      order({
+        id: 'far',
+        pickupDistanceMeters: 36000,
+        createdAtIso: '2026-07-10T03:00:00.000Z',
+        updatedAtIso: '2026-07-10T03:10:00.000Z',
+      }),
+      order({
+        id: 'same-distance-newer',
+        pickupDistanceMeters: 12000,
+        createdAtIso: '2026-07-10T02:00:00.000Z',
+        updatedAtIso: '2026-07-10T02:20:00.000Z',
+      }),
+      order({
+        id: 'same-distance-older',
+        pickupDistanceMeters: 12000,
+        createdAtIso: '2026-07-10T01:00:00.000Z',
+        updatedAtIso: '2026-07-10T02:10:00.000Z',
+      }),
+    ]).map(item => item.id),
+  ).toEqual([
+    'same-distance-newer',
+    'same-distance-older',
+    'far',
+    'unknown',
+  ]);
 });
 
 test('formats acceptance vehicle types with fallback to raw id', () => {

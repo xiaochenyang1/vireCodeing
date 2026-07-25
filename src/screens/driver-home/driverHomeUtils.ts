@@ -798,6 +798,41 @@ export function filterDriverOrderHallOrders(
   });
 }
 
+function getDriverOrderHallSortTimeValue(order: PlatformShipperOrder) {
+  return order.updatedAtIso ?? order.createdAtIso;
+}
+
+export function sortDriverOrderHallOrders(
+  orders: PlatformShipperOrder[],
+) {
+  return [...orders].sort((left, right) => {
+    const leftHasDistance = hasKnownPickupDistance(left);
+    const rightHasDistance = hasKnownPickupDistance(right);
+
+    if (leftHasDistance && rightHasDistance) {
+      const distanceDiff =
+        (left.pickupDistanceMeters ?? 0) - (right.pickupDistanceMeters ?? 0);
+
+      if (distanceDiff !== 0) {
+        return distanceDiff;
+      }
+    } else if (leftHasDistance) {
+      return -1;
+    } else if (rightHasDistance) {
+      return 1;
+    }
+
+    const leftSortTime = getDriverOrderHallSortTimeValue(left);
+    const rightSortTime = getDriverOrderHallSortTimeValue(right);
+
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime.localeCompare(leftSortTime);
+    }
+
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  });
+}
+
 export function getDriverOrderPickupDistanceText(order: PlatformShipperOrder) {
   if (!hasKnownPickupDistance(order)) {
     return '';
