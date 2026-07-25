@@ -2341,10 +2341,25 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .createWithdrawal(request, idempotencyKey)
       .then(() => {
+        const submittedBankCard = request.bankCardId
+          ? bankCards.find(card => card.id === request.bankCardId)
+          : undefined;
         const defaultCard = bankCards.find(card => card.isDefault);
         withdrawalIdempotencyKeyRef.current = undefined;
         setWithdrawalForm(
-          defaultCard
+          submittedBankCard
+            ? {
+                ...emptyWithdrawalForm,
+                bankAccountName: submittedBankCard.bankAccountName,
+                bankName: submittedBankCard.bankName,
+                bankAccountNo: '',
+                selectedBankCardId: submittedBankCard.id,
+                selectedBankCardSource:
+                  withdrawalForm.selectedBankCardSource === 'manual'
+                    ? 'manual'
+                    : 'default',
+              }
+            : defaultCard
             ? {
                 ...emptyWithdrawalForm,
                 bankAccountName: defaultCard.bankAccountName,

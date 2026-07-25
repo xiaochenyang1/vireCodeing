@@ -1179,6 +1179,95 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('keeps a manually selected withdrawal card after a successful withdrawal submit', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards.mockResolvedValue({
+      items: [
+        {
+          id: 'bank-card-1',
+          bankAccountName: '李师傅',
+          bankName: '招商银行',
+          bankAccountMasked: '**** **** **** 1234',
+          isDefault: true,
+          createdAtIso: '2026-07-09T02:20:00.000Z',
+          updatedAtIso: '2026-07-09T02:20:00.000Z',
+        },
+        {
+          id: 'bank-card-2',
+          bankAccountName: '王师傅',
+          bankName: '平安银行',
+          bankAccountMasked: '**** **** **** 5678',
+          isDefault: false,
+          createdAtIso: '2026-07-09T02:30:00.000Z',
+          updatedAtIso: '2026-07-09T02:30:00.000Z',
+        },
+      ],
+      total: 2,
+    });
+    platformDriverOrderApi.createWithdrawal.mockResolvedValue({
+      id: 'withdrawal-manual-card',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-select-bank-card-2' })
+        .props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 9999 0000 5678');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.createWithdrawal).toHaveBeenCalledWith(
+      {
+        amountCents: 12000,
+        bankAccountName: '王师傅',
+        bankName: '平安银行',
+        bankAccountNo: '6225999900005678',
+        bankCardId: 'bank-card-2',
+      },
+      expect.stringMatching(uuidV4Pattern),
+    );
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
+        .value,
+    ).toBe('');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('平安银行');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('王师傅');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('');
+    expect(getRenderedText(renderer)).toContain(
+      '当前提现银行卡：平安银行 · **** **** **** 5678',
+    );
+  });
+
   it('rejects a withdrawal when the bank card number fails checksum validation', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
 
