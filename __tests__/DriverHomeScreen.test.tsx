@@ -554,6 +554,97 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('约 1.2 公里');
   });
 
+  it('shows route and navigation target details in the selected driver order detail', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090010',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverNavigationTargets.mockResolvedValue({
+      orderId: 'order-1',
+      orderNo: 'HY202607090010',
+      targets: [
+        {
+          type: 'pickup',
+          address: '宝安区福永物流园 1 号门',
+          contactName: '赵经理',
+          contactPhone: '13900139001',
+        },
+        {
+          type: 'delivery',
+          address: '龙岗区坂田仓 A 栋',
+          contactName: '钱店长',
+          contactPhone: '13900139002',
+        },
+      ],
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090010' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-order-route-HY202607090010',
+      }).props.children,
+    ).toBe('路线：宝安区福永物流园 → 龙岗区坂田仓');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-navigation-target-address-pickup-HY202607090010',
+      }).props.children,
+    ).toBe('宝安区福永物流园 1 号门');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-navigation-target-contact-delivery-HY202607090010',
+      }).props.children,
+    ).toBe('联系人：钱店长 13900139002');
+  });
+
   it('blocks quoting when saved acceptance settings are offline', async () => {
     const hallOrder = {
       id: 'order-1',

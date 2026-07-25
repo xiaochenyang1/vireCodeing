@@ -4100,6 +4100,12 @@ export function DriverHomeScreen({
           <Text style={styles.detailMeta}>
             {selectedOrder.orderNo} · {getDriverStatusText(selectedOrder.status)}
           </Text>
+          <Text
+            testID={`driver-order-route-${selectedOrder.orderNo}`}
+            style={styles.detailMeta}
+          >
+            {`路线：${selectedOrder.pickupAddress} → ${selectedOrder.deliveryAddress}`}
+          </Text>
           <Text style={styles.detailMeta}>
             货物：{selectedOrder.cargoType} · {selectedOrder.weightText} ·{' '}
             {selectedOrder.quantityText}
@@ -4120,16 +4126,39 @@ export function DriverHomeScreen({
             <View style={styles.detailInlineGroup}>
               <Text style={styles.draftSectionTitle}>导航与位置</Text>
               {navigationTargets.map(target => (
-                <Pressable
+                <View
                   key={`${target.type}-${target.address}`}
-                  testID={`driver-navigate-${target.type}-${selectedOrder.orderNo}`}
-                  style={styles.detailSecondaryButton}
-                  onPress={() => openDriverNavigation(target)}
+                  style={styles.detailInfoCard}
                 >
-                  <Text style={styles.detailSecondaryButtonText}>
-                    外跳导航到{target.type === 'pickup' ? '装货点' : '卸货点'}
+                  <Text style={styles.detailInfoLabel}>
+                    {target.type === 'pickup' ? '装货点' : '卸货点'}
                   </Text>
-                </Pressable>
+                  <Text
+                    testID={
+                      `driver-navigation-target-address-${target.type}-${selectedOrder.orderNo}`
+                    }
+                    style={styles.detailInfoValue}
+                  >
+                    {target.address}
+                  </Text>
+                  <Text
+                    testID={
+                      `driver-navigation-target-contact-${target.type}-${selectedOrder.orderNo}`
+                    }
+                    style={styles.detailMeta}
+                  >
+                    {`联系人：${target.contactName} ${target.contactPhone}`}
+                  </Text>
+                  <Pressable
+                    testID={`driver-navigate-${target.type}-${selectedOrder.orderNo}`}
+                    style={styles.detailSecondaryButton}
+                    onPress={() => openDriverNavigation(target)}
+                  >
+                    <Text style={styles.detailSecondaryButtonText}>
+                      外跳导航到{target.type === 'pickup' ? '装货点' : '卸货点'}
+                    </Text>
+                  </Pressable>
+                </View>
               ))}
               {platformMapsApi ? (
                 <Pressable
