@@ -48,6 +48,14 @@ type PlatformAuthApi = Pick<
 type LoginMethod = 'code' | 'password';
 type AuthSubMode = 'auth' | 'reset-password';
 
+function getPlatformCodeSentNotice(phone: string, devCode?: string) {
+  const baseNotice = `验证码已发送到 ${maskPhone(phone)}，请输入收到的验证码完成验证。`;
+
+  return devCode
+    ? `${baseNotice} 开发环境验证码：${devCode}。`
+    : baseNotice;
+}
+
 export function AuthScreen({
   now = Date.now(),
   onAuthenticated,
@@ -151,7 +159,7 @@ export function AuthScreen({
           code: result.devCode ?? '',
           expiresAt: now + result.expireSeconds * 1000,
         });
-        setNotice(`验证码已发送到 ${maskPhone(trimmedPhone)}，等待平台接口验证。`);
+        setNotice(getPlatformCodeSentNotice(trimmedPhone, result.devCode));
       } catch (error) {
         setNotice(getAuthErrorMessage(error, '验证码发送失败，请稍后重试'));
       }
@@ -205,7 +213,7 @@ export function AuthScreen({
           code: result.devCode ?? '',
           expiresAt: now + result.expireSeconds * 1000,
         });
-        setNotice(`验证码已发送到 ${maskPhone(trimmedPhone)}，等待平台接口验证。`);
+        setNotice(getPlatformCodeSentNotice(trimmedPhone, result.devCode));
       } catch (error) {
         setNotice(getAuthErrorMessage(error, '验证码发送失败，请稍后重试'));
       }
@@ -262,7 +270,7 @@ export function AuthScreen({
         code: result.devCode ?? '',
         expiresAt: now + result.expireSeconds * 1000,
       });
-      setNotice(`验证码已发送到 ${maskPhone(trimmedPhone)}，等待平台接口验证。`);
+      setNotice(getPlatformCodeSentNotice(trimmedPhone, result.devCode));
     } catch (error) {
       setNotice(getAuthErrorMessage(error, '验证码发送失败，请稍后重试'));
     }

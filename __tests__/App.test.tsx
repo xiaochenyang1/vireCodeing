@@ -2237,6 +2237,11 @@ test('injects platform auth api into the auth screen when base url is configured
       await flushMicrotasks();
     });
 
+    expect(getRenderedText(app)).toContain(
+      '验证码已发送到 138****8000，请输入收到的验证码完成验证。 开发环境验证码：999999。',
+    );
+    expect(getRenderedText(app)).not.toContain('等待平台接口验证');
+
     ReactTestRenderer.act(() => {
       app.root
         .findByProps({ testID: 'auth-login-code' })
@@ -2323,6 +2328,11 @@ test('syncs the platform authenticated phone into local profile account state', 
       app.root.findByProps({ testID: 'auth-login-code-send' }).props.onPress();
       await flushMicrotasks();
     });
+
+    expect(getRenderedText(app)).toContain(
+      '验证码已发送到 138****8000，请输入收到的验证码完成验证。 开发环境验证码：888888。',
+    );
+    expect(getRenderedText(app)).not.toContain('等待平台接口验证');
 
     ReactTestRenderer.act(() => {
       app.root
