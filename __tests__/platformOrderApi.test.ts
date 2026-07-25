@@ -1796,6 +1796,284 @@ describe('platform order api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('lists admin order exception cases with normalized query filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        items: [createAdminOrderExceptionCase()],
+        page: 2,
+        pageSize: 10,
+        total: 1,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminOrderExceptionCases({
+        status: 'processing',
+        sourceRole: 'driver',
+        keyword: '  YC202607250001  ',
+        createdFromIso: ' 2026-07-01T00:00:00.000Z ',
+        createdToIso: ' 2026-07-03T00:00:00.000Z ',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        page: 2,
+        pageSize: 10,
+        total: 1,
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'case-1',
+            status: 'pending',
+          }),
+        ]),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/order-exception-cases?status=processing&sourceRole=driver&keyword=YC202607250001&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('gets admin order exception case detail by normalized case id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(createAdminOrderExceptionCase()),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminOrderExceptionCase(' case-1 '),
+    ).resolves.toMatchObject({
+      id: 'case-1',
+      caseNo: 'YC202607250001',
+      actions: [expect.objectContaining({ id: 'action-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/order-exception-cases/case-1',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('processes resolves closes and executes admin order exception cases with normalized payloads', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createAdminOrderExceptionCase({
+            status: 'processing',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createAdminOrderExceptionCase({
+            status: 'resolved',
+            resolutionText: '已确认待赔付跟进。',
+            compensationStatus: 'pending',
+            compensationTargetRole: 'shipper',
+            compensationAmountCents: 3600,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createAdminOrderExceptionCase({
+            status: 'closed',
+            closedAtIso: '2026-07-25T09:30:00.000Z',
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createAdminOrderExceptionCase({
+            status: 'resolved',
+            compensationStatus: 'executed',
+            compensationTargetRole: 'shipper',
+            compensationAmountCents: 3600,
+            compensationTransactionId: 'ft-1',
+            compensationExecutedAtIso: '2026-07-25T10:00:00.000Z',
+          }),
+        ),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.processAdminOrderExceptionCase(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T08:00:00.000Z',
+        content: '  已转异常客服受理，先核订单链路。  ',
+      }),
+    ).resolves.toMatchObject({
+      status: 'processing',
+    });
+
+    await expect(
+      api.resolveAdminOrderExceptionCase(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
+        content: '  货损属实，等待赔付跟进。  ',
+        compensationStatus: 'pending',
+        compensationTargetRole: ' shipper ' as 'shipper',
+        compensationAmountCents: 3600,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      compensationStatus: 'pending',
+    });
+
+    await expect(
+      api.closeAdminOrderExceptionCase(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T09:00:00.000Z',
+        content: '  已通知双方，工单关闭归档。  ',
+      }),
+    ).resolves.toMatchObject({
+      status: 'closed',
+    });
+
+    await expect(
+      api.executeAdminOrderExceptionCaseCompensation(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T09:30:00.000Z',
+        idempotencyKey: '  exception-comp-20260725-0001  ',
+        content: '  平台已执行赔付入账。  ',
+      }),
+    ).resolves.toMatchObject({
+      compensationStatus: 'executed',
+      compensationTransactionId: 'ft-1',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/process',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T08:00:00.000Z',
+          content: '已转异常客服受理，先核订单链路。',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/resolve',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
+          content: '货损属实，等待赔付跟进。',
+          compensationStatus: 'pending',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 3600,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/close',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T09:00:00.000Z',
+          content: '已通知双方，工单关闭归档。',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/compensation/execute',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T09:30:00.000Z',
+          idempotencyKey: 'exception-comp-20260725-0001',
+          content: '平台已执行赔付入账。',
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin order exception inputs before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const invalidQuery = {
+      sourceRole: 'admin',
+    } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
+    const invalidProcessRequest = {
+      baseUpdatedAtIso: 'invalid',
+      content: 'short',
+    } as unknown as Parameters<typeof api.processAdminOrderExceptionCase>[1];
+    const invalidResolveRequest = {
+      baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
+      content: '货损属实，等待赔付跟进。',
+      compensationStatus: 'pending',
+    } as unknown as Parameters<typeof api.resolveAdminOrderExceptionCase>[1];
+    const invalidExecutionRequest = {
+      baseUpdatedAtIso: '2026-07-25T09:30:00.000Z',
+      idempotencyKey: 'short',
+      content: '平台已执行赔付入账。',
+    } as unknown as Parameters<
+      typeof api.executeAdminOrderExceptionCaseCompensation
+    >[1];
+
+    await expect(
+      api.listAdminOrderExceptionCases(invalidQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.processAdminOrderExceptionCase('case-1', invalidProcessRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.resolveAdminOrderExceptionCase('case-1', invalidResolveRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.executeAdminOrderExceptionCaseCompensation(
+        'case-1',
+        invalidExecutionRequest,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('normalizes blank-padded order id before sending a detail request', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -2948,6 +3226,39 @@ function createAdminOrderChangeRequestRecord(
     description: '请把卸货地址改到南山门店二期',
     requestedAtIso: '2026-07-01T08:00:00.000Z',
     orderStatus: 'waiting',
+    ...overrides,
+  };
+}
+
+function createAdminOrderExceptionCase(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id: 'case-1',
+    caseNo: 'YC202607250001',
+    orderId: 'order-1',
+    orderNo: 'HY202607250001',
+    sourceEventId: 'event-1',
+    reporterUserId: 'driver-1',
+    sourceRole: 'driver',
+    typeLabel: '货损',
+    description: '装货时发现外包装破损，申请客服介入。',
+    attachmentFileIds: ['file-1'],
+    status: 'pending',
+    compensationStatus: 'not_required',
+    appealStatus: 'none',
+    createdAtIso: '2026-07-25T08:00:00.000Z',
+    updatedAtIso: '2026-07-25T08:00:00.000Z',
+    actions: [
+      {
+        id: 'action-1',
+        adminUserId: 'admin-1',
+        fromStatus: 'pending',
+        toStatus: 'pending',
+        content: '已创建异常工单。',
+        createdAtIso: '2026-07-25T08:00:00.000Z',
+      },
+    ],
     ...overrides,
   };
 }

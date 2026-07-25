@@ -35,6 +35,8 @@ const PLATFORM_ORDER_IDEMPOTENCY_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PLATFORM_ORDER_DATE_TIME_WITH_OFFSET_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const ADMIN_ORDER_EXCEPTION_REQUEST_INVALID =
+  'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID';
 
 export type PlatformCreateShipperOrderRequest = {
   cargoType: string;
@@ -441,6 +443,44 @@ export type PlatformReviewAdminOrderChangeRequest = {
   reviewResultText?: string;
 };
 
+export type PlatformListAdminOrderExceptionCasesQuery = {
+  status?: PlatformOrderExceptionCaseStatus;
+  sourceRole?: PlatformOrderExceptionCaseSourceRole;
+  keyword?: string;
+  createdFromIso?: string;
+  createdToIso?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PlatformAdminOrderExceptionCaseListResult = {
+  items: PlatformOrderExceptionCase[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type PlatformAdminUpdateOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  content: string;
+};
+
+export type PlatformAdminResolveOrderExceptionCaseRequest =
+  PlatformAdminUpdateOrderExceptionCaseRequest & {
+    compensationStatus: Extract<
+      PlatformOrderExceptionCaseCompensationStatus,
+      'not_required' | 'pending' | 'offline_completed'
+    >;
+    compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
+    compensationAmountCents?: number;
+  };
+
+export type PlatformAdminExecuteOrderExceptionCaseCompensationRequest = {
+  baseUpdatedAtIso: string;
+  idempotencyKey: string;
+  content: string;
+};
+
 export function createPlatformOrderApi(config: PlatformApiConfig) {
   return {
     createOrder(
@@ -551,6 +591,92 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         config,
         `/admin/orders/${normalizedOrderId}/change-request/review`,
         normalizeAdminOrderChangeRequestReviewRequest(request),
+      );
+    },
+    async listAdminOrderExceptionCases(
+      query: PlatformListAdminOrderExceptionCasesQuery = {},
+    ) {
+      return platformGet<PlatformAdminOrderExceptionCaseListResult>(
+        config,
+        createAdminOrderExceptionCasesPath(
+          normalizeAdminOrderExceptionCasesQuery(query),
+        ),
+      );
+    },
+    async getAdminOrderExceptionCase(caseId: string) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformGet<PlatformOrderExceptionCase>(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(normalizedCaseId)}`,
+      );
+    },
+    async processAdminOrderExceptionCase(
+      caseId: string,
+      request: PlatformAdminUpdateOrderExceptionCaseRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminUpdateOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/process`,
+        normalizeAdminOrderExceptionCaseUpdateRequest(request),
+      );
+    },
+    async resolveAdminOrderExceptionCase(
+      caseId: string,
+      request: PlatformAdminResolveOrderExceptionCaseRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminResolveOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/resolve`,
+        normalizeAdminOrderExceptionCaseResolveRequest(request),
+      );
+    },
+    async closeAdminOrderExceptionCase(
+      caseId: string,
+      request: PlatformAdminUpdateOrderExceptionCaseRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminUpdateOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/close`,
+        normalizeAdminOrderExceptionCaseUpdateRequest(request),
+      );
+    },
+    async executeAdminOrderExceptionCaseCompensation(
+      caseId: string,
+      request: PlatformAdminExecuteOrderExceptionCaseCompensationRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminExecuteOrderExceptionCaseCompensationRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/compensation/execute`,
+        normalizeAdminOrderExceptionCaseCompensationExecutionRequest(request),
       );
     },
     async listExceptionCases(orderId: string) {
@@ -1623,6 +1749,314 @@ function normalizeAppealExceptionCaseRequest(
   return { baseUpdatedAtIso, reason };
 }
 
+function normalizeAdminOrderExceptionCasesQuery(
+  query: PlatformListAdminOrderExceptionCasesQuery,
+) {
+  const queryInput = query as unknown;
+
+  if (
+    queryInput === null ||
+    typeof queryInput !== 'object' ||
+    Array.isArray(queryInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception query must be an object',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  const status = normalizeOptionalTrimmedString(
+    query.status,
+    20,
+    'Platform admin order exception status is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+  const sourceRole = normalizeOptionalTrimmedString(
+    query.sourceRole,
+    20,
+    'Platform admin order exception sourceRole is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+  const keyword = normalizeOptionalTrimmedString(
+    query.keyword,
+    80,
+    'Platform admin order exception keyword is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+  const createdFromIso = normalizeOptionalTrimmedString(
+    query.createdFromIso,
+    40,
+    'Platform admin order exception createdFromIso is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+  const createdToIso = normalizeOptionalTrimmedString(
+    query.createdToIso,
+    40,
+    'Platform admin order exception createdToIso is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (
+    status !== undefined &&
+    status !== 'pending' &&
+    status !== 'processing' &&
+    status !== 'resolved' &&
+    status !== 'closed'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception status is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    sourceRole !== undefined &&
+    sourceRole !== 'shipper' &&
+    sourceRole !== 'driver'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception sourceRole is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (!Number.isInteger(page) || page < 1) {
+    throw new PlatformApiError(
+      'Platform admin order exception page is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throw new PlatformApiError(
+      'Platform admin order exception pageSize is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    (createdFromIso !== undefined && Number.isNaN(Date.parse(createdFromIso))) ||
+    (createdToIso !== undefined && Number.isNaN(Date.parse(createdToIso)))
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception created time query is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    createdFromIso !== undefined &&
+    createdToIso !== undefined &&
+    Date.parse(createdFromIso) >= Date.parse(createdToIso)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception createdFromIso must be earlier than createdToIso',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  return {
+    ...(status ? { status } : {}),
+    ...(sourceRole ? { sourceRole } : {}),
+    ...(keyword ? { keyword } : {}),
+    ...(createdFromIso ? { createdFromIso } : {}),
+    ...(createdToIso ? { createdToIso } : {}),
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeAdminOrderExceptionCaseBaseUpdatedAtIso(value: unknown) {
+  const normalizedValue = normalizeRequiredTrimmedString(
+    value,
+    40,
+    'Platform admin order exception baseUpdatedAtIso is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+
+  if (
+    !PLATFORM_ORDER_DATE_TIME_WITH_OFFSET_PATTERN.test(normalizedValue) ||
+    Number.isNaN(Date.parse(normalizedValue))
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception baseUpdatedAtIso is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  return normalizedValue;
+}
+
+function normalizeAdminOrderExceptionCaseUpdateRequest(
+  request: PlatformAdminUpdateOrderExceptionCaseRequest,
+): PlatformAdminUpdateOrderExceptionCaseRequest {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception update request must be an object',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  return {
+    baseUpdatedAtIso: normalizeAdminOrderExceptionCaseBaseUpdatedAtIso(
+      request.baseUpdatedAtIso,
+    ),
+    content: normalizeRequiredTrimmedString(
+      request.content,
+      500,
+      'Platform admin order exception content is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      6,
+    ),
+  };
+}
+
+function normalizeAdminOrderExceptionCaseResolveRequest(
+  request: PlatformAdminResolveOrderExceptionCaseRequest,
+): PlatformAdminResolveOrderExceptionCaseRequest {
+  const normalizedUpdateRequest =
+    normalizeAdminOrderExceptionCaseUpdateRequest(request);
+  const compensationStatus = normalizeRequiredTrimmedString(
+    request.compensationStatus,
+    20,
+    'Platform admin order exception compensationStatus is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as PlatformAdminResolveOrderExceptionCaseRequest['compensationStatus'];
+  const compensationTargetRole = normalizeOptionalTrimmedString(
+    request.compensationTargetRole,
+    20,
+    'Platform admin order exception compensationTargetRole is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as
+    | PlatformOrderExceptionCaseCompensationTargetRole
+    | undefined;
+  const compensationAmountCents = request.compensationAmountCents;
+
+  if (
+    compensationStatus !== 'not_required' &&
+    compensationStatus !== 'pending' &&
+    compensationStatus !== 'offline_completed'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception compensationStatus is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    compensationTargetRole !== undefined &&
+    compensationTargetRole !== 'shipper' &&
+    compensationTargetRole !== 'driver'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception compensationTargetRole is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (compensationStatus === 'not_required') {
+    if (
+      compensationTargetRole !== undefined ||
+      compensationAmountCents !== undefined
+    ) {
+      throw new PlatformApiError(
+        'Platform admin order exception compensation payload is invalid',
+        ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+        0,
+      );
+    }
+
+    return {
+      ...normalizedUpdateRequest,
+      compensationStatus,
+    };
+  }
+
+  if (!compensationTargetRole) {
+    throw new PlatformApiError(
+      'Platform admin order exception compensationTargetRole is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    !Number.isInteger(compensationAmountCents) ||
+    Number(compensationAmountCents) <= 0 ||
+    Number(compensationAmountCents) > 100000000
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception compensationAmountCents is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  return {
+    ...normalizedUpdateRequest,
+    compensationStatus,
+    compensationTargetRole,
+    compensationAmountCents: Number(compensationAmountCents),
+  };
+}
+
+function normalizeAdminOrderExceptionCaseCompensationExecutionRequest(
+  request: PlatformAdminExecuteOrderExceptionCaseCompensationRequest,
+): PlatformAdminExecuteOrderExceptionCaseCompensationRequest {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception compensation execution request must be an object',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  return {
+    baseUpdatedAtIso: normalizeAdminOrderExceptionCaseBaseUpdatedAtIso(
+      request.baseUpdatedAtIso,
+    ),
+    idempotencyKey: normalizeRequiredTrimmedString(
+      request.idempotencyKey,
+      200,
+      'Platform admin order exception compensation idempotencyKey is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      8,
+    ),
+    content: normalizeRequiredTrimmedString(
+      request.content,
+      500,
+      'Platform admin order exception compensation content is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      6,
+    ),
+  };
+}
+
 function normalizeSubmitChangeRequest(
   request: PlatformSubmitShipperOrderChangeRequest,
 ) {
@@ -2346,6 +2780,14 @@ function createAdminOrderChangeRequestsPath(
   const queryString = new URLSearchParams(query).toString();
 
   return `/admin/orders/change-requests?${queryString}`;
+}
+
+function createAdminOrderExceptionCasesPath(
+  query: ReturnType<typeof normalizeAdminOrderExceptionCasesQuery>,
+) {
+  const queryString = new URLSearchParams(query).toString();
+
+  return `/admin/order-exception-cases?${queryString}`;
 }
 
 function normalizeRequiredTrimmedString(
