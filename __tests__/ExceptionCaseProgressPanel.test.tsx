@@ -14,6 +14,22 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join('');
 }
 
+function getExceptionCaseTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('exception-case-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 describe('ExceptionCaseProgressPanel', () => {
   it('shows lifecycle, compensation, and action timing context', async () => {
     const exceptionCase: PlatformOrderExceptionCase = {
@@ -99,5 +115,55 @@ describe('ExceptionCaseProgressPanel', () => {
       '处理中 → 已解决：平台已完成赔付。 · 2026-07-25 10:45',
     );
     expect(renderedText).toContain('已解决 → 已关闭：工单归档。 · 2026-07-25 10:50');
+  });
+
+  it('sorts exception cases by latest activity before rendering', async () => {
+    const baseCase = {
+      orderId: 'order-1',
+      orderNo: 'HY202607250001',
+      reporterUserId: 'driver-1',
+      sourceRole: 'driver' as const,
+      typeLabel: '货损',
+      description: '外包装已经破损。',
+      attachmentFileIds: [],
+      appealStatus: 'none' as const,
+      actions: [],
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ExceptionCaseProgressPanel
+          cases={[
+            {
+              ...baseCase,
+              id: 'case-created-later',
+              caseNo: 'YC202607250021',
+              sourceEventId: 'event-1',
+              status: 'processing',
+              createdAtIso: '2026-07-25T02:10:00.000Z',
+              updatedAtIso: '2026-07-25T02:15:00.000Z',
+            },
+            {
+              ...baseCase,
+              id: 'case-updated-later',
+              caseNo: 'YC202607250022',
+              sourceEventId: 'event-2',
+              status: 'resolved',
+              createdAtIso: '2026-07-25T02:00:00.000Z',
+              updatedAtIso: '2026-07-25T02:20:00.000Z',
+            },
+          ]}
+          isLoading={false}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getExceptionCaseTestIds(renderer)).toEqual([
+      'exception-case-YC202607250022',
+      'exception-case-YC202607250021',
+    ]);
   });
 });

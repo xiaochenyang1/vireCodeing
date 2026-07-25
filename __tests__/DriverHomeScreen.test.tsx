@@ -5174,6 +5174,138 @@ describe('DriverHomeScreen certification uploads', () => {
     });
   });
 
+  it('prefers the latest updated exception case attachments when falling back from an event without files', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607110008',
+      status: 'transporting' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-11T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T08:10:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-11T09:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-driver-exception-4',
+          actorUserId: 'driver-1',
+          eventType: 'driver_exception_reported',
+          noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+          attachmentFileIds: [],
+          createdAtIso: '2026-07-11T08:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.listExceptionCases.mockResolvedValue({
+      total: 2,
+      items: [
+        {
+          id: 'case-created-later',
+          caseNo: 'YC202607120008',
+          orderId: 'order-1',
+          orderNo: 'HY202607110008',
+          sourceEventId: 'event-driver-exception-4',
+          reporterUserId: 'driver-1',
+          sourceRole: 'driver',
+          typeLabel: '货物损坏',
+          description: 'created later',
+          attachmentFileIds: ['file-exception-case-created-later'],
+          status: 'processing',
+          appealStatus: 'none',
+          createdAtIso: '2026-07-11T08:06:00.000Z',
+          updatedAtIso: '2026-07-11T08:06:00.000Z',
+          actions: [],
+        },
+        {
+          id: 'case-updated-later',
+          caseNo: 'YC202607120009',
+          orderId: 'order-1',
+          orderNo: 'HY202607110008',
+          sourceEventId: 'event-driver-exception-4',
+          reporterUserId: 'driver-1',
+          sourceRole: 'driver',
+          typeLabel: '货物损坏',
+          description: 'updated later',
+          attachmentFileIds: ['file-exception-case-updated-later'],
+          status: 'resolved',
+          appealStatus: 'requested',
+          createdAtIso: '2026-07-11T08:05:30.000Z',
+          updatedAtIso: '2026-07-11T08:10:00.000Z',
+          actions: [],
+        },
+      ],
+    });
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      confirmLocalUploadTarget: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve({
+          id: fileId,
+          ownerUserId: 'driver-1',
+          purpose: 'exception' as const,
+          objectKey: `driver-1/exception/${fileId}.png`,
+          publicUrl: `https://cdn.example.com/${fileId}.png`,
+          status: 'uploaded' as const,
+          createdAtIso: '2026-07-11T08:06:00.000Z',
+        }),
+      ),
+    };
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607110008' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('最近一次异常凭证');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-reported-exception-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/file-exception-case-updated-later.png',
+    });
+  });
+
   it('keeps the exception form and explains unfinished proof files', async () => {
     const order = {
       id: 'order-1',

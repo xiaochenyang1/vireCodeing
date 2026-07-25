@@ -215,6 +215,27 @@ export function sortOrderExceptionCaseActions(
   );
 }
 
+function getOrderExceptionCaseSortTimeValue(
+  exceptionCase: PlatformOrderExceptionCase,
+) {
+  return exceptionCase.updatedAtIso ?? exceptionCase.createdAtIso;
+}
+
+export function sortOrderExceptionCases(
+  cases: PlatformOrderExceptionCase[],
+) {
+  return [...cases].sort((left, right) => {
+    const leftSortTime = getOrderExceptionCaseSortTimeValue(left);
+    const rightSortTime = getOrderExceptionCaseSortTimeValue(right);
+
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime.localeCompare(leftSortTime);
+    }
+
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  });
+}
+
 function formatOrderExceptionCaseCompensationAmount(amountCents: number) {
   return `￥${(amountCents / 100).toFixed(2)}`;
 }

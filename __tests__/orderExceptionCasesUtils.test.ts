@@ -9,6 +9,7 @@ import {
   getOrderExceptionCaseStatusText,
   getOrderExceptionCaseSummaryHeadline,
   getOrderExceptionCaseSummaryText,
+  sortOrderExceptionCases,
   sortOrderExceptionCaseActions,
 } from '../src/utils/orderExceptionCases';
 
@@ -172,5 +173,53 @@ describe('order exception case utilities', () => {
       'action-new',
     ]);
     expect(actions.map(item => item.id)).toEqual(['action-new', 'action-old']);
+  });
+
+  it('sorts exception cases by latest activity without mutating the input', () => {
+    const cases = [
+      {
+        id: 'case-created-later',
+        caseNo: 'YC202607250011',
+        orderId: 'order-1',
+        orderNo: 'HY202607250011',
+        sourceEventId: 'event-1',
+        reporterUserId: 'driver-1',
+        sourceRole: 'driver' as const,
+        typeLabel: '货损',
+        description: 'created later',
+        attachmentFileIds: [],
+        status: 'processing' as const,
+        appealStatus: 'none' as const,
+        createdAtIso: '2026-07-25T02:10:00.000Z',
+        updatedAtIso: '2026-07-25T02:15:00.000Z',
+        actions: [],
+      },
+      {
+        id: 'case-updated-later',
+        caseNo: 'YC202607250012',
+        orderId: 'order-1',
+        orderNo: 'HY202607250011',
+        sourceEventId: 'event-2',
+        reporterUserId: 'driver-1',
+        sourceRole: 'driver' as const,
+        typeLabel: '货损',
+        description: 'updated later',
+        attachmentFileIds: [],
+        status: 'resolved' as const,
+        appealStatus: 'requested' as const,
+        createdAtIso: '2026-07-25T02:00:00.000Z',
+        updatedAtIso: '2026-07-25T02:20:00.000Z',
+        actions: [],
+      },
+    ];
+
+    expect(sortOrderExceptionCases(cases).map(item => item.id)).toEqual([
+      'case-updated-later',
+      'case-created-later',
+    ]);
+    expect(cases.map(item => item.id)).toEqual([
+      'case-created-later',
+      'case-updated-later',
+    ]);
   });
 });

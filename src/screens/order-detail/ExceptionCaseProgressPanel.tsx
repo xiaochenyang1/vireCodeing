@@ -14,6 +14,7 @@ import {
   getOrderExceptionCaseLifecycleFacts,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
+  sortOrderExceptionCases,
   sortOrderExceptionCaseActions,
 } from '../../utils/orderExceptionCases';
 
@@ -151,15 +152,17 @@ export function ExceptionCaseProgressPanel({
     };
   }, [cases, platformFileApi]);
 
+  const sortedCases = sortOrderExceptionCases(cases);
+
   return (
     <View style={styles.detailInlineGroup}>
       <Text style={styles.draftSectionTitle}>异常处理进度</Text>
       {isLoading ? <Text style={styles.detailMeta}>正在加载异常工单...</Text> : null}
       {notice ? <Text style={styles.detailMeta}>{notice}</Text> : null}
-      {!isLoading && !notice && cases.length === 0 ? (
+      {!isLoading && !notice && sortedCases.length === 0 ? (
         <Text style={styles.detailMeta}>暂无异常处理工单</Text>
       ) : null}
-      {cases.map(exceptionCase => {
+      {sortedCases.map(exceptionCase => {
         const compensationSummary =
           getOrderExceptionCaseCompensationSummary(exceptionCase);
         const lifecycleFacts =

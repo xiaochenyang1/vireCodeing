@@ -70,6 +70,7 @@ import {
 import {
   getOrderExceptionCaseSummaryHeadline,
   getOrderExceptionCaseSummaryText,
+  sortOrderExceptionCases,
 } from '../utils/orderExceptionCases';
 import {
   createAcceptanceSettingsForm,
@@ -571,8 +572,7 @@ async function buildDriverLatestExceptionAttachments(
   const matchingExceptionCase =
     normalizedEventAttachmentFileIds.length > 0 || !latestExceptionEvent?.id
       ? undefined
-      : [...exceptionCases]
-          .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))
+      : sortOrderExceptionCases(exceptionCases)
           .find(
             exceptionCase =>
               exceptionCase.sourceEventId === latestExceptionEvent.id &&
@@ -1219,7 +1219,11 @@ export function DriverHomeScreen({
     const exceptionCasesPromise = platformDriverOrderApi
       .listExceptionCases(selectedOrder.id)
       .then(result => {
-        setExceptionCases(Array.isArray(result?.items) ? result.items : []);
+        setExceptionCases(
+          sortOrderExceptionCases(
+            Array.isArray(result?.items) ? result.items : [],
+          ),
+        );
         setExceptionCaseNotice(undefined);
         return true;
       })
@@ -1762,7 +1766,11 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .listExceptionCases(order.id)
       .then(result => {
-        setExceptionCases(Array.isArray(result?.items) ? result.items : []);
+        setExceptionCases(
+          sortOrderExceptionCases(
+            Array.isArray(result?.items) ? result.items : [],
+          ),
+        );
       })
       .catch(error => {
         setExceptionCaseNotice(
@@ -1926,8 +1934,10 @@ export function DriverHomeScreen({
       })
       .then(updatedCase => {
         setExceptionCases(currentCases =>
-          currentCases.map(item =>
-            item.id === updatedCase.id ? updatedCase : item,
+          sortOrderExceptionCases(
+            currentCases.map(item =>
+              item.id === updatedCase.id ? updatedCase : item,
+            ),
           ),
         );
         setAppealDrafts(currentDrafts => {
@@ -2777,6 +2787,9 @@ export function DriverHomeScreen({
   const incomeChartData = aggregateIncomeRecordsByDay(incomeRecords, 7);
   const sortedMyOrders = sortDriverMyOrders(
     Array.isArray(myOrders) ? myOrders : [],
+  );
+  const sortedExceptionCases = sortOrderExceptionCases(
+    Array.isArray(exceptionCases) ? exceptionCases : [],
   );
   const completedMyOrders = sortedMyOrders.filter(
     order => order.status === 'completed',
@@ -4505,7 +4518,7 @@ export function DriverHomeScreen({
             </View>
           ) : null}
           <ExceptionCaseProgressPanel
-            cases={exceptionCases}
+            cases={sortedExceptionCases}
             isLoading={isLoadingExceptionCases}
             notice={exceptionCaseNotice}
             appealDrafts={appealDrafts}
