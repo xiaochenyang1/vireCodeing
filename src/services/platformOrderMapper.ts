@@ -114,6 +114,9 @@ export function mapPlatformOrderToRecentOrder(
 }
 
 type PlatformOrderEvent = NonNullable<PlatformShipperOrder['events']>[number];
+type PlatformLatestExceptionCase = NonNullable<
+  PlatformShipperOrder['latestExceptionCase']
+>;
 type PlatformDriverEventSnapshot = {
   driverName?: string;
   driverPhone?: string;
@@ -351,16 +354,41 @@ function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {
   );
   const photoCount = photoFiles.length || photoCountFromNote;
   const submittedAtIso = event.createdAtIso;
+  const matchingExceptionCase =
+    order.latestExceptionCase?.sourceEventId === event.id
+      ? order.latestExceptionCase
+      : undefined;
+  const resolvedAtIso = matchingExceptionCase?.resolvedAtIso;
 
   return {
     typeLabel,
     description,
-    statusText: '待客服跟进',
+    statusText: getExceptionReportStatusText(matchingExceptionCase?.status),
     submittedAtIso,
     submittedAtText: formatPlatformIsoMinute(submittedAtIso),
+    ...(resolvedAtIso
+      ? {
+          resolvedAtIso,
+          resolvedAtText: formatPlatformIsoMinute(resolvedAtIso),
+        }
+      : {}),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
+}
+
+function getExceptionReportStatusText(
+  status: PlatformLatestExceptionCase['status'] | undefined,
+) {
+  switch (status) {
+    case 'processing':
+      return '处理中';
+    case 'resolved':
+    case 'closed':
+      return '已处理';
+    default:
+      return '待客服跟进';
+  }
 }
 
 function parsePlatformCancellationNote(noteText?: string) {

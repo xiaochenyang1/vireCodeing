@@ -504,6 +504,63 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('maps latest exception case progress back into the exception record status', () => {
+    expect(
+      mapPlatformOrderToRecentOrder({
+        id: 'order-exception-progress',
+        orderNo: 'HY202607010005A',
+        shipperId: 'shipper-1',
+        status: 'transporting',
+        cargoType: 'digital',
+        weightText: '1.5 吨',
+        quantityText: '8 箱',
+        pickupAddress: '宝安区平台仓',
+        pickupContact: '赵经理',
+        pickupPhone: '13900139001',
+        deliveryAddress: '南山区平台门店',
+        deliveryContact: '钱店长',
+        deliveryPhone: '13900139002',
+        vehicleRequirement: 'medium',
+        needTailboard: false,
+        needTarp: false,
+        pickupTimeIso: '2026-07-02T02:00:00.000Z',
+        pricingMode: 'fixed',
+        priceCents: 76000,
+        paymentMethod: 'cod',
+        createdAtIso: '2026-07-01T08:00:00.000Z',
+        updatedAtIso: '2026-07-01T08:25:00.000Z',
+        latestExceptionCase: {
+          id: 'case-exception-progress',
+          caseNo: 'YC202607010005A',
+          sourceEventId: 'event-exception-progress',
+          sourceRole: 'shipper',
+          status: 'resolved',
+          resolvedAtIso: '2026-07-01T08:25:00.000Z',
+          createdAtIso: '2026-07-01T08:15:00.000Z',
+          updatedAtIso: '2026-07-01T08:25:00.000Z',
+        },
+        events: [
+          {
+            id: 'event-exception-progress',
+            eventType: 'exception_reported',
+            noteText: '货损：外包装破损，客服已回访处理',
+            createdAtIso: '2026-07-01T08:15:00.000Z',
+          },
+        ],
+      }),
+    ).toMatchObject({
+      exceptionReport: {
+        typeLabel: '货损',
+        description: '外包装破损，客服已回访处理',
+        statusText: '已处理',
+        submittedAtIso: '2026-07-01T08:15:00.000Z',
+        submittedAtText: '2026-07-01 16:15',
+        resolvedAtIso: '2026-07-01T08:25:00.000Z',
+        resolvedAtText: '2026-07-01 16:25',
+      },
+    });
+  });
+
   it('maps platform evaluation events to local evaluation cards with attachment refs', () => {
     expect(
       mapPlatformOrderToRecentOrder({
