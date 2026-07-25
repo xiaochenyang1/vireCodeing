@@ -2788,6 +2788,9 @@ export function DriverHomeScreen({
   const sortedMyOrders = sortDriverMyOrders(
     Array.isArray(myOrders) ? myOrders : [],
   );
+  const executingMyOrders = sortedMyOrders.filter(
+    order => order.status !== 'completed',
+  );
   const sortedExceptionCases = sortOrderExceptionCases(
     Array.isArray(exceptionCases) ? exceptionCases : [],
   );
@@ -4220,7 +4223,6 @@ export function DriverHomeScreen({
             { id: 'loading', label: '待装货' },
             { id: 'transporting', label: '运输中' },
             { id: 'confirming', label: '待确认' },
-            { id: 'completed', label: '已完成' },
           ].map(tab => {
             const active = activeMyOrdersFilter === tab.id;
             return (
@@ -4246,8 +4248,8 @@ export function DriverHomeScreen({
           const keyword = myOrdersSearchKeyword.trim().toLowerCase();
           const statusFiltered =
             activeMyOrdersFilter === 'all'
-              ? sortedMyOrders
-              : sortedMyOrders.filter(
+              ? executingMyOrders
+              : executingMyOrders.filter(
                   order => order.status === activeMyOrdersFilter,
                 );
           const filtered = keyword

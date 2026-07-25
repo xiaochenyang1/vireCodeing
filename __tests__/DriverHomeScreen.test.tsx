@@ -974,11 +974,12 @@ describe('DriverHomeScreen certification uploads', () => {
       page: 1,
       pageSize: 40,
     });
+    expect(
+      renderer.root.findAllByProps({ testID: 'driver-my-orders-tab-completed' }),
+    ).toHaveLength(0);
     expect(getDriverMyOrderCardTestIds(renderer)).toEqual([
       'driver-my-order-card-HY202607090013',
-      'driver-my-order-card-HY202607090012',
       'driver-my-order-card-HY202607090010',
-      'driver-my-order-card-HY202607090011',
     ]);
     expect(getDriverCompletedOrderCardTestIds(renderer)).toEqual([
       'driver-completed-order-card-HY202607090012',
