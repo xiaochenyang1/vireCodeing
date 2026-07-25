@@ -4,9 +4,11 @@ import {
   createCancellationOrderChange,
   createChangeRequestOrderChange,
   createChangeRequestReviewOrderChange,
+  createEvaluationOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
+  createExceptionReportResolutionOrderChange,
   getCancellationSettlement,
   getOrderPrimaryActionLabel,
   getOrderProgressAction,
@@ -237,7 +239,7 @@ test('creates exception report change with optional photo notice', () => {
       typeLabel: '货损',
       description: '外包装破损需要客服跟进',
       photoCount: 2,
-    }),
+    }, '2026-07-15T08:00:00.000Z'),
   ).toEqual({
     changes: {
       exceptionReport: {
@@ -245,9 +247,39 @@ test('creates exception report change with optional photo notice', () => {
         description: '外包装破损需要客服跟进',
         photoCount: 2,
         statusText: '待客服跟进',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
       },
     },
     noticeText: '异常已提交：货损 · 图片凭证 2 张 · 外包装破损需要客服跟进',
+  });
+});
+
+test('creates exception report resolution metadata with handled timing', () => {
+  expect(
+    createExceptionReportResolutionOrderChange(
+      {
+        typeLabel: '货损',
+        description: '外包装破损需要客服跟进',
+        statusText: '待客服跟进',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+      },
+      '2026-07-15T09:30:00.000Z',
+    ),
+  ).toEqual({
+    changes: {
+      exceptionReport: {
+        typeLabel: '货损',
+        description: '外包装破损需要客服跟进',
+        statusText: '已处理',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        resolvedAtIso: '2026-07-15T09:30:00.000Z',
+        resolvedAtText: '2026-07-15 17:30',
+      },
+    },
+    noticeText: '异常处理状态已更新：已处理',
   });
 });
 
@@ -341,6 +373,35 @@ test('formats evaluation notice with anonymous flag and photo vouchers', () => {
       photoCount: 1,
     }),
   ).toBe('评价已提交：5 星 · 准时、服务好 · 匿名评价 · 图片凭证 1 张 · 司机沟通顺畅，送达很及时');
+});
+
+test('creates evaluation change with submitted timing', () => {
+  expect(
+    createEvaluationOrderChange(
+      {
+        rating: 5,
+        tags: ['准时', '服务好'],
+        content: '司机沟通顺畅，送达很及时',
+        anonymous: true,
+        photoCount: 1,
+      },
+      '2026-07-15T08:00:00.000Z',
+    ),
+  ).toEqual({
+    changes: {
+      evaluation: {
+        rating: 5,
+        tags: ['准时', '服务好'],
+        content: '司机沟通顺畅，送达很及时',
+        anonymous: true,
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        photoCount: 1,
+      },
+    },
+    noticeText:
+      '评价已提交：5 星 · 准时、服务好 · 匿名评价 · 图片凭证 1 张 · 司机沟通顺畅，送达很及时',
+  });
 });
 
 test('derives the primary action label from order status', () => {

@@ -327,17 +327,38 @@ export function createExceptionReportOrderChange(report: {
   description: string;
   photoCount?: number;
   photoFiles?: FileAttachmentRef[];
-}): OrderDetailChange {
+}, submittedAtIso = new Date().toISOString()): OrderDetailChange {
+  const submittedAtText = formatPlatformIsoMinute(submittedAtIso);
+
   return {
     changes: {
       exceptionReport: {
         ...report,
         statusText: '待客服跟进',
+        submittedAtIso,
+        submittedAtText,
       },
     },
     noticeText: `异常已提交：${report.typeLabel} · ${
       report.photoCount ? `图片凭证 ${report.photoCount} 张 · ` : ''
     }${report.description}`,
+  };
+}
+
+export function createExceptionReportResolutionOrderChange(
+  exceptionReport: NonNullable<RecentOrder['exceptionReport']>,
+  resolvedAtIso = new Date().toISOString(),
+): OrderDetailChange {
+  return {
+    changes: {
+      exceptionReport: {
+        ...exceptionReport,
+        statusText: '已处理',
+        resolvedAtIso,
+        resolvedAtText: formatPlatformIsoMinute(resolvedAtIso),
+      },
+    },
+    noticeText: '异常处理状态已更新：已处理',
   };
 }
 
@@ -403,6 +424,26 @@ export function createEvaluationNotice(evaluation: {
   }${
     evaluation.photoCount ? `图片凭证 ${evaluation.photoCount} 张 · ` : ''
   }${evaluation.content}`;
+}
+
+export function createEvaluationOrderChange(evaluation: {
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous?: boolean;
+  photoCount?: number;
+  photoFiles?: FileAttachmentRef[];
+}, submittedAtIso = new Date().toISOString()): OrderDetailChange {
+  return {
+    changes: {
+      evaluation: {
+        ...evaluation,
+        submittedAtIso,
+        submittedAtText: formatPlatformIsoMinute(submittedAtIso),
+      },
+    },
+    noticeText: createEvaluationNotice(evaluation),
+  };
 }
 
 export function getOrderPrimaryActionLabel(order: RecentOrder): string {

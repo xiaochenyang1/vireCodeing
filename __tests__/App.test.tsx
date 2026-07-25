@@ -8066,7 +8066,8 @@ test('updates the local change request review status from the order detail', asy
 });
 
 test('updates the local exception processing status from the order detail', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
 
@@ -8096,6 +8097,7 @@ test('updates the local exception processing status from the order detail', asyn
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('处理状态：待客服跟进');
+  expect(renderedText).toContain('提交时间：2026-07-15 16:00');
 
   ReactTestRenderer.act(() => {
     app.root
@@ -8106,11 +8108,13 @@ test('updates the local exception processing status from the order detail', asyn
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('处理状态：已处理');
+  expect(renderedText).toContain('处理时间：2026-07-15 16:00');
   expect(renderedText).toContain('异常处理状态已更新：已处理');
 });
 
 test('submits a driver evaluation for a completed order', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
 
@@ -8150,6 +8154,7 @@ test('submits a driver evaluation for a completed order', async () => {
 
   expect(renderedText).toContain('评价已提交：5 星');
   expect(renderedText).toContain('准时');
+  expect(renderedText).toContain('提交时间：2026-07-15 16:00');
   expect(renderedText).toContain('师傅准时，货物保护不错');
 });
 
@@ -25834,9 +25839,12 @@ test('reports a platform order exception through the exception api', async () =>
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
         photoCount: 1,
         statusText: '待客服跟进',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });
+    expect(getRenderedText(app)).toContain('提交时间：2026-07-03 16:00');
 
     await ReactTestRenderer.act(async () => {
       app.root
@@ -25873,6 +25881,8 @@ test('reports a platform order exception through the exception api', async () =>
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
         photoCount: 1,
         statusText: '待客服跟进',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });
@@ -25906,6 +25916,8 @@ test('reports a platform order exception through the exception api', async () =>
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
         photoCount: 1,
         statusText: '待客服跟进',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });
@@ -26140,6 +26152,8 @@ test('attaches platform file objects to exception report photos', async () => {
       exceptionReport: {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
         photoCount: 2,
         photoFiles: [
           {
@@ -26254,6 +26268,8 @@ test('retries a failed platform order exception report through the exception api
       exceptionReport: {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: {
         status: 'failed',
@@ -26298,6 +26314,8 @@ test('retries a failed platform order exception report through the exception api
       exceptionReport: {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });
@@ -26504,10 +26522,13 @@ test('submits a platform order evaluation through the evaluation api', async () 
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
         photoCount: 1,
       },
       syncState: { status: 'synced' },
     });
+    expect(getRenderedText(app)).toContain('提交时间：2026-07-03 16:00');
 
     ReactTestRenderer.act(() => {
       app.root.findByProps({ testID: 'order-detail-back' }).props.onPress();
@@ -26542,6 +26563,8 @@ test('submits a platform order evaluation through the evaluation api', async () 
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
         photoCount: 1,
       },
       syncState: { status: 'synced' },
@@ -26782,6 +26805,8 @@ test('attaches platform file objects to evaluation photos', async () => {
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
         photoCount: 2,
         photoFiles: [
           {
@@ -26898,6 +26923,8 @@ test('retries a failed platform order evaluation through the evaluation api', as
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: {
         status: 'failed',
@@ -26945,6 +26972,8 @@ test('retries a failed platform order evaluation through the evaluation api', as
         rating: 5,
         tags: ['准时'],
         content: '司机服务细致，整体运输体验很好',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });

@@ -77,6 +77,16 @@ export function ExceptionRecordCard({
       <Text style={styles.detailMeta}>
         {`处理状态：${exceptionReport.statusText ?? '待客服跟进'}`}
       </Text>
+      {exceptionReport.submittedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`提交时间：${exceptionReport.submittedAtText}`}
+        </Text>
+      ) : null}
+      {exceptionReport.resolvedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`处理时间：${exceptionReport.resolvedAtText}`}
+        </Text>
+      ) : null}
       {photoCount > 0 ? (
         <Text style={styles.detailMeta}>
           {`图片凭证 ${photoCount} 张`}
@@ -238,6 +248,11 @@ export function EvaluationRecordCard({
       <Text style={styles.detailMeta}>
         {evaluation.rating} 星 · {evaluation.tags.join('、')}
       </Text>
+      {evaluation.submittedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`提交时间：${evaluation.submittedAtText}`}
+        </Text>
+      ) : null}
       {evaluation.anonymous ? (
         <Text style={styles.detailMeta}>匿名评价</Text>
       ) : null}
@@ -274,6 +289,11 @@ export function ShipperEvaluationRecordCard({
             {`评分：${'★'.repeat(shipperEvaluation.rating)}${'☆'.repeat(5 - shipperEvaluation.rating)}`}
           </Text>
         </View>
+        {shipperEvaluation.submittedAtText ? (
+          <Text style={styles.detailMeta}>
+            {`提交时间：${shipperEvaluation.submittedAtText}`}
+          </Text>
+        ) : null}
         {shipperEvaluation.tags.map((tag, index) => (
           <Text key={index} style={styles.detailMeta}>
             {`#${tag}`}

@@ -61,9 +61,10 @@ import {
   createCancellationOrderChange,
   createChangeRequestOrderChange,
   createChangeRequestReviewOrderChange,
+  createEvaluationOrderChange,
   createDriverQuoteOrderChange,
-  createEvaluationNotice,
   createExceptionReportOrderChange,
+  createExceptionReportResolutionOrderChange,
   getOrderPrimaryActionLabel,
   getOrderProgressAction,
   getOrderSecondaryActionLabel,
@@ -682,7 +683,10 @@ export function OrderDetailScreen({
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   }) => {
-    const exceptionChange = createExceptionReportOrderChange(report);
+    const exceptionChange = createExceptionReportOrderChange(
+      report,
+      new Date(now).toISOString(),
+    );
 
     if (onReportException) {
       onReportException(
@@ -749,13 +753,13 @@ export function OrderDetailScreen({
       return;
     }
 
-    updateOrderFromDetail({
-      exceptionReport: {
-        ...order.exceptionReport,
-        statusText: '已处理',
-      },
-    });
-    setLocalNotice('异常处理状态已更新：已处理');
+    const resolveChange = createExceptionReportResolutionOrderChange(
+      order.exceptionReport,
+      new Date(now).toISOString(),
+    );
+
+    updateOrderFromDetail(resolveChange.changes);
+    setLocalNotice(resolveChange.noticeText);
   };
 
   const submitEvaluation = (evaluation: {
@@ -766,18 +770,26 @@ export function OrderDetailScreen({
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   }) => {
+    const evaluationChange = createEvaluationOrderChange(
+      evaluation,
+      new Date(now).toISOString(),
+    );
+
     if (onSubmitEvaluation) {
-      onSubmitEvaluation(order, evaluation);
+      onSubmitEvaluation(
+        order,
+        evaluationChange.changes.evaluation as NonNullable<
+          RecentOrder['evaluation']
+        >,
+      );
       closeAllPanels();
-      setLocalNotice(createEvaluationNotice(evaluation));
+      setLocalNotice(evaluationChange.noticeText);
       return;
     }
 
-    updateOrderFromDetail({
-      evaluation,
-    });
+    updateOrderFromDetail(evaluationChange.changes);
     closeAllPanels();
-    setLocalNotice(createEvaluationNotice(evaluation));
+    setLocalNotice(evaluationChange.noticeText);
   };
 
   const toggleBonusForm = () => {

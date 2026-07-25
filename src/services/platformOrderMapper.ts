@@ -344,11 +344,14 @@ function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {
     '平台异常图片',
   );
   const photoCount = photoFiles.length || photoCountFromNote;
+  const submittedAtIso = event.createdAtIso;
 
   return {
     typeLabel,
     description,
     statusText: '待客服跟进',
+    submittedAtIso,
+    submittedAtText: formatPlatformIsoMinute(submittedAtIso),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
@@ -441,12 +444,15 @@ function createEvaluationFromPlatformEvents(order: PlatformShipperOrder) {
     '平台评价图片',
   );
   const photoCount = photoFiles.length || parsedEvaluation.photoCount;
+  const submittedAtIso = event.createdAtIso;
 
   return {
     rating: parsedEvaluation.rating,
     tags: parsedEvaluation.tags,
     content: parsedEvaluation.content,
     anonymous: parsedEvaluation.anonymous,
+    submittedAtIso,
+    submittedAtText: formatPlatformIsoMinute(submittedAtIso),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
@@ -460,6 +466,8 @@ function createShipperEvaluationFromPlatformEvents(
       tags: string[];
       content: string;
       anonymous?: boolean;
+      submittedAtText?: string;
+      submittedAtIso?: string;
       photoCount?: number;
       photoFiles?: ReturnType<typeof createPlatformAttachmentRefs>;
     }
@@ -478,12 +486,15 @@ function createShipperEvaluationFromPlatformEvents(
     '司机评价图片',
   );
   const photoCount = photoFiles.length || parsedEvaluation.photoCount;
+  const submittedAtIso = event.createdAtIso;
 
   return {
     rating: parsedEvaluation.rating,
     tags: parsedEvaluation.tags,
     content: parsedEvaluation.content,
     anonymous: parsedEvaluation.anonymous,
+    submittedAtIso,
+    submittedAtText: formatPlatformIsoMinute(submittedAtIso),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };

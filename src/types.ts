@@ -209,6 +209,10 @@ export type RecentOrder = {
     typeLabel: string;
     description: string;
     statusText?: string;
+    submittedAtText?: string;
+    submittedAtIso?: string;
+    resolvedAtText?: string;
+    resolvedAtIso?: string;
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   };
@@ -243,6 +247,8 @@ export type RecentOrder = {
     tags: string[];
     content: string;
     anonymous?: boolean;
+    submittedAtText?: string;
+    submittedAtIso?: string;
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   };
@@ -251,6 +257,8 @@ export type RecentOrder = {
     tags: string[];
     content: string;
     anonymous?: boolean;
+    submittedAtText?: string;
+    submittedAtIso?: string;
     photoCount?: number;
     photoFiles?: FileAttachmentRef[];
   };

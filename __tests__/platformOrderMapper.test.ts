@@ -479,6 +479,8 @@ describe('platform order mapper', () => {
         typeLabel: '司机延误',
         description: '司机反馈高速拥堵，预计晚到 40 分钟',
         statusText: '待客服跟进',
+        submittedAtIso: '2026-07-01T08:15:00.000Z',
+        submittedAtText: '2026-07-01 16:15',
         photoCount: 2,
         photoFiles: [
           {
@@ -540,6 +542,8 @@ describe('platform order mapper', () => {
         tags: ['准时', '服务好'],
         content: '司机服务细致，整体运输体验很好',
         anonymous: true,
+        submittedAtIso: '2026-07-01T08:20:00.000Z',
+        submittedAtText: '2026-07-01 16:20',
         photoCount: 1,
         photoFiles: [
           {
@@ -603,6 +607,8 @@ describe('platform order mapper', () => {
         tags: ['准时', '服务好'],
         content: '司机服务细致，整体运输体验很好',
         anonymous: true,
+        submittedAtIso: '2026-07-01T08:20:00.000Z',
+        submittedAtText: '2026-07-01 16:20',
         photoCount: 1,
         photoFiles: [
           {
@@ -618,6 +624,8 @@ describe('platform order mapper', () => {
         tags: ['沟通顺畅', '装货配合'],
         content: '货主装货配合好，结算沟通清楚。',
         anonymous: false,
+        submittedAtIso: '2026-07-01T08:25:00.000Z',
+        submittedAtText: '2026-07-01 16:25',
         photoCount: 1,
         photoFiles: [
           {
