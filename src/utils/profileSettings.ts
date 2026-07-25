@@ -5,6 +5,7 @@ import type {
 } from './profileLocalState';
 import type { AuthSessionSnapshot } from './authSession';
 import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
+import type { PlatformDevicePushTokenRecord } from '../services/platformNotificationsApi';
 import { formatPlatformIsoMinute } from './dateTime';
 
 export type LocalPermissionId =
@@ -111,6 +112,53 @@ const readOnlySettingIds = [
 
 export function isReadOnlySetting(settingId: string) {
   return readOnlySettingIds.includes(settingId);
+}
+
+export function sortAccountSecurityDeviceSessions(
+  deviceSessions: AccountSecurityDeviceSession[],
+) {
+  return [...deviceSessions].sort((left, right) => {
+    if (left.isCurrentDevice !== right.isCurrentDevice) {
+      return left.isCurrentDevice ? -1 : 1;
+    }
+
+    if (left.createdAtIso !== right.createdAtIso) {
+      return right.createdAtIso.localeCompare(left.createdAtIso);
+    }
+
+    return right.expiresAtIso.localeCompare(left.expiresAtIso);
+  });
+}
+
+function getPlatformPushDeviceSortTimeValue(
+  device: PlatformDevicePushTokenRecord,
+) {
+  return device.lastUsedAtIso ?? device.updatedAtIso ?? device.createdAtIso;
+}
+
+export function sortPlatformPushDevices(
+  devices: PlatformDevicePushTokenRecord[],
+  currentDeviceId?: string,
+) {
+  return [...devices].sort((left, right) => {
+    const leftIsCurrentDevice =
+      Boolean(currentDeviceId) && left.deviceId === currentDeviceId;
+    const rightIsCurrentDevice =
+      Boolean(currentDeviceId) && right.deviceId === currentDeviceId;
+
+    if (leftIsCurrentDevice !== rightIsCurrentDevice) {
+      return leftIsCurrentDevice ? -1 : 1;
+    }
+
+    const leftSortTime = getPlatformPushDeviceSortTimeValue(left);
+    const rightSortTime = getPlatformPushDeviceSortTimeValue(right);
+
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime.localeCompare(leftSortTime);
+    }
+
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  });
 }
 
 export type PlatformProfileSettingsSnapshot = {
@@ -615,7 +663,9 @@ export function createAccountSecurityCheckModel({
   const usesPlatformSession = Boolean(authSession?.accessToken);
   const hasAuthSession = Boolean(authSession);
   const hasPlatformDeviceSessions = deviceSessions !== undefined;
-  const normalizedDeviceSessions = (deviceSessions ?? []).map(session => ({
+  const normalizedDeviceSessions = sortAccountSecurityDeviceSessions(
+    deviceSessions ?? [],
+  ).map(session => ({
     id: session.id,
     deviceIdText: session.deviceId,
     createdAtText: formatIsoMinute(session.createdAtIso),

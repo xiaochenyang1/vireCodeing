@@ -22,6 +22,8 @@ import {
   isReadOnlySetting,
   localPermissionItems,
   privacyPolicyDocumentInfo,
+  sortAccountSecurityDeviceSessions,
+  sortPlatformPushDevices,
   validateAccountSettings,
   validatePasswordSettings,
 } from '../src/utils/profileSettings';
@@ -563,5 +565,76 @@ describe('profile settings utils', () => {
         isCurrentDevice: false,
       },
     ]);
+  });
+
+  it('sorts account security device sessions with current device first', () => {
+    expect(
+      sortAccountSecurityDeviceSessions([
+        {
+          id: 'session-tablet',
+          deviceId: 'mobile-device-tablet',
+          createdAtIso: '2026-07-20T08:00:00.000Z',
+          expiresAtIso: '2026-07-27T08:00:00.000Z',
+          isCurrentDevice: false,
+        },
+        {
+          id: 'session-current',
+          deviceId: 'mobile-device-current',
+          createdAtIso: '2026-07-22T08:00:00.000Z',
+          expiresAtIso: '2026-07-29T08:00:00.000Z',
+          isCurrentDevice: true,
+        },
+        {
+          id: 'session-laptop',
+          deviceId: 'mobile-device-laptop',
+          createdAtIso: '2026-07-21T08:00:00.000Z',
+          expiresAtIso: '2026-07-28T08:00:00.000Z',
+          isCurrentDevice: false,
+        },
+      ]).map(session => session.id),
+    ).toEqual(['session-current', 'session-laptop', 'session-tablet']);
+  });
+
+  it('sorts platform push devices with current device first and latest activity next', () => {
+    expect(
+      sortPlatformPushDevices(
+        [
+          {
+            id: 'push-tablet',
+            userId: 'user-1',
+            token: 'ExponentPushToken[tablet-device-token]',
+            platform: 'android',
+            deviceId: 'mobile-device-tablet',
+            isActive: true,
+            lastUsedAtIso: '2026-07-20T09:00:00.000Z',
+            createdAtIso: '2026-07-20T08:00:00.000Z',
+            updatedAtIso: '2026-07-20T09:00:00.000Z',
+          },
+          {
+            id: 'push-current',
+            userId: 'user-1',
+            token: 'ExponentPushToken[current-device-token]',
+            platform: 'ios',
+            deviceId: 'mobile-device-current',
+            isActive: true,
+            lastUsedAtIso: '2026-07-22T08:05:00.000Z',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            updatedAtIso: '2026-07-22T08:05:00.000Z',
+          },
+          {
+            id: 'push-laptop',
+            userId: 'user-1',
+            token: 'ExponentPushToken[laptop-device-token]',
+            platform: 'android',
+            deviceId: 'mobile-device-laptop',
+            isActive: true,
+            lastUsedAtIso: '2026-07-21T09:00:00.000Z',
+            createdAtIso: '2026-07-21T08:00:00.000Z',
+            updatedAtIso: '2026-07-21T09:00:00.000Z',
+          },
+        ],
+        'mobile-device-current',
+      ).map(device => device.id),
+    ).toEqual(['push-current', 'push-laptop', 'push-tablet']);
   });
 });

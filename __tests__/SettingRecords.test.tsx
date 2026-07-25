@@ -28,6 +28,23 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join('');
 }
 
+function getRenderedTestIdsByPrefix(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+  prefix: string,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith(prefix),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 describe('SettingRecords platform account profile', () => {
   const baseAccount: SavedAccountSettings = {
     displayName: '旧昵称',
@@ -937,6 +954,12 @@ describe('SettingRecords platform account profile', () => {
       listSessions: jest.fn().mockResolvedValue({
         sessions: [
           {
+            id: 'session-tablet',
+            deviceId: 'mobile-device-tablet',
+            createdAtIso: '2026-07-20T08:00:00.000Z',
+            expiresAtIso: '2026-07-27T08:00:00.000Z',
+          },
+          {
             id: 'session-current',
             deviceId: 'mobile-device-current',
             createdAtIso: '2026-07-22T08:00:00.000Z',
@@ -947,12 +970,6 @@ describe('SettingRecords platform account profile', () => {
             deviceId: 'mobile-device-laptop',
             createdAtIso: '2026-07-21T08:00:00.000Z',
             expiresAtIso: '2026-07-28T08:00:00.000Z',
-          },
-          {
-            id: 'session-tablet',
-            deviceId: 'mobile-device-tablet',
-            createdAtIso: '2026-07-20T08:00:00.000Z',
-            expiresAtIso: '2026-07-27T08:00:00.000Z',
           },
         ],
         total: 3,
@@ -1000,6 +1017,13 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain('当前设备：当前安装设备（已匹配平台会话）');
     expect(renderedText).toContain('登录时间：2026-07-22 16:00');
     expect(renderedText).toContain('会话有效期至：2026-07-29 16:00');
+    expect(
+      getRenderedTestIdsByPrefix(renderer, 'account-security-session-'),
+    ).toEqual([
+      'account-security-session-session-current',
+      'account-security-session-session-laptop',
+      'account-security-session-session-tablet',
+    ]);
 
     await ReactTestRenderer.act(async () => {
       await renderer.root
@@ -1033,17 +1057,6 @@ describe('SettingRecords platform account profile', () => {
       listDeviceTokens: jest.fn().mockResolvedValue({
         items: [
           {
-            id: 'push-current',
-            userId: 'user-1',
-            token: 'ExponentPushToken[current-device-token]',
-            platform: 'ios',
-            deviceId: 'mobile-device-current',
-            isActive: true,
-            lastUsedAtIso: '2026-07-22T08:05:00.000Z',
-            createdAtIso: '2026-07-22T08:00:00.000Z',
-            updatedAtIso: '2026-07-22T08:05:00.000Z',
-          },
-          {
             id: 'push-tablet',
             userId: 'user-1',
             token: 'ExponentPushToken[tablet-device-token]',
@@ -1053,6 +1066,17 @@ describe('SettingRecords platform account profile', () => {
             lastUsedAtIso: '2026-07-21T09:00:00.000Z',
             createdAtIso: '2026-07-21T08:00:00.000Z',
             updatedAtIso: '2026-07-21T09:00:00.000Z',
+          },
+          {
+            id: 'push-current',
+            userId: 'user-1',
+            token: 'ExponentPushToken[current-device-token]',
+            platform: 'ios',
+            deviceId: 'mobile-device-current',
+            isActive: true,
+            lastUsedAtIso: '2026-07-22T08:05:00.000Z',
+            createdAtIso: '2026-07-22T08:00:00.000Z',
+            updatedAtIso: '2026-07-22T08:05:00.000Z',
           },
         ],
       }),
@@ -1103,6 +1127,10 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain('最近活跃：2026-07-22 16:05');
     expect(renderedText).toContain('注册时间：2026-07-22 16:00');
     expect(renderedText).toContain('最近更新：2026-07-21 17:00');
+    expect(getRenderedTestIdsByPrefix(renderer, 'push-device-card-')).toEqual([
+      'push-device-card-push-current',
+      'push-device-card-push-tablet',
+    ]);
 
     await ReactTestRenderer.act(async () => {
       await renderer.root

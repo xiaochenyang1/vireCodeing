@@ -30,6 +30,7 @@ import {
   isReadOnlySetting,
   localPermissionItems,
   privacyPolicyDocumentInfo,
+  sortPlatformPushDevices,
   type LocalPermissionId,
   validateAccountSettings,
   validatePasswordSettings,
@@ -238,10 +239,14 @@ export function SettingRecords({
     loginProtectionSetting?.statusText ?? '未配置';
   const authSession = getAuthSessionSnapshot();
   const currentDeviceId = authSession?.deviceId ?? getDeviceId();
-  const currentDevicePushTokens = (platformPushDevices ?? []).filter(
+  const sortedPlatformPushDevices =
+    platformPushDevices === undefined
+      ? undefined
+      : sortPlatformPushDevices(platformPushDevices, currentDeviceId);
+  const currentDevicePushTokens = (sortedPlatformPushDevices ?? []).filter(
     device => device.deviceId === currentDeviceId,
   );
-  const otherDevicePushTokens = (platformPushDevices ?? []).filter(
+  const otherDevicePushTokens = (sortedPlatformPushDevices ?? []).filter(
     device => device.deviceId !== currentDeviceId,
   );
   const accountSecurityCheck = createAccountSecurityCheckModel({
@@ -1177,7 +1182,11 @@ export function SettingRecords({
           ) : null}
           {accountSecurityCheck.deviceSessions.length > 0
             ? accountSecurityCheck.deviceSessions.map(session => (
-                <Text key={session.id} style={styles.routeMeta}>
+                <Text
+                  key={session.id}
+                  testID={`account-security-session-${session.id}`}
+                  style={styles.routeMeta}
+                >
                   {`${session.isCurrentDevice ? '当前设备' : '其它设备'}：${
                     session.deviceIdText
                   } · 登录 ${session.createdAtText} · 有效至 ${
@@ -1267,16 +1276,20 @@ export function SettingRecords({
                 </Pressable>
               </View>
               <Text style={styles.detailMeta}>
-                {platformPushDevices === undefined
+                {sortedPlatformPushDevices === undefined
                   ? '活跃推送设备和登录会话独立管理，退出其它设备登录不会自动停用其消息提醒。'
-                  : `已同步 ${platformPushDevices.length} 个活跃推送设备，当前设备 ${currentDevicePushTokens.length} 个，其它设备 ${otherDevicePushTokens.length} 个。`}
+                  : `已同步 ${sortedPlatformPushDevices.length} 个活跃推送设备，当前设备 ${currentDevicePushTokens.length} 个，其它设备 ${otherDevicePushTokens.length} 个。`}
               </Text>
-              {platformPushDevices ===
-              undefined ? null : platformPushDevices.length === 0 ? (
+              {sortedPlatformPushDevices ===
+              undefined ? null : sortedPlatformPushDevices.length === 0 ? (
                 <Text style={styles.routeMeta}>当前没有活跃推送设备。</Text>
               ) : (
-                platformPushDevices.map(device => (
-                  <View key={device.id} style={styles.driverInfoCard}>
+                sortedPlatformPushDevices.map(device => (
+                  <View
+                    key={device.id}
+                    testID={`push-device-card-${device.id}`}
+                    style={styles.driverInfoCard}
+                  >
                     <Text style={styles.routeName}>
                       {device.deviceId === currentDeviceId
                         ? '当前设备推送'
