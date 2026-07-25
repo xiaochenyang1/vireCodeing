@@ -392,6 +392,8 @@ const initialOrders: RecentOrder[] = [
         quoteText: '￥680',
         arrivalText: '预计 28 分钟到达',
         noteText: '熟悉宝安到南山线路，可帮忙核对货物数量。',
+        quotedAtText: '今天 15:20',
+        quotedAtIso: '2026-07-15T07:20:00.000Z',
       },
       {
         driverId: 'D1002',
@@ -404,6 +406,8 @@ const initialOrders: RecentOrder[] = [
         quoteText: '￥720',
         arrivalText: '预计 35 分钟到达',
         noteText: '车辆带篷布，适合怕雨货物。',
+        quotedAtText: '今天 15:40',
+        quotedAtIso: '2026-07-15T07:40:00.000Z',
       },
     ],
   },

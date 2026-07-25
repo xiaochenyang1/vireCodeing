@@ -28,6 +28,33 @@ export type OrderDetailChange = {
   noticeText: string;
 };
 
+export function sortDriverQuotesByQuotedTimeDesc<T extends Pick<DriverQuote, 'quotedAtIso'>>(
+  quotes: T[],
+) {
+  return quotes
+    .map((quote, index) => ({
+      quote,
+      index,
+      sortIso: quote.quotedAtIso,
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = right.sortIso.localeCompare(left.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ quote }) => quote);
+}
+
 export function getOrderProgressAction(
   status: RecentOrderStatus,
   usesPlatformOrderActions = false,

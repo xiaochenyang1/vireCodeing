@@ -6097,8 +6097,14 @@ test('shows driver quotes and selects a driver from a waiting order', async () =
       .props.onPress();
   });
 
-  expect(getRenderedText(app)).toContain('司机报价列表');
-  expect(getRenderedText(app)).toContain('王师傅');
+  const renderedQuoteText = getRenderedText(app);
+
+  expect(renderedQuoteText).toContain('司机报价列表');
+  expect(renderedQuoteText).toContain('王师傅');
+  expect(renderedQuoteText).toContain('刘师傅');
+  expect(renderedQuoteText.indexOf('刘师傅')).toBeLessThan(
+    renderedQuoteText.indexOf('王师傅'),
+  );
 
   ReactTestRenderer.act(() => {
     app.root

@@ -69,6 +69,7 @@ import {
   getOrderProgressAction,
   getOrderSecondaryActionLabel,
   resolveOrderAmountCents,
+  sortDriverQuotesByQuotedTimeDesc,
   type OrderProgressAction,
 } from '../utils/orderDetail';
 import {
@@ -357,7 +358,7 @@ export function OrderDetailScreen({
   }, [order.paymentMethod, order.platformOrderId, platformPaymentApi]);
   const { isPanelOpen, closeAllPanels, togglePanel } = useOrderDetailPanels();
   const [localNotice, setLocalNotice] = useState('');
-  const driverQuotes = order.driverQuotes ?? [];
+  const driverQuotes = sortDriverQuotesByQuotedTimeDesc(order.driverQuotes ?? []);
   const canRequestChange =
     order.status === 'loading' ||
     order.status === 'transporting' ||

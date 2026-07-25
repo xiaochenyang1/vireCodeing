@@ -1,7 +1,10 @@
 import { cargoTypeOptions, vehicleRequirementOptions } from '../data/mockData';
 import type { RecentOrder, RecentOrderStatus } from '../types';
 import { formatPlatformIsoMinute } from '../utils/dateTime';
-import { createCancellationRecord } from '../utils/orderDetail';
+import {
+  createCancellationRecord,
+  sortDriverQuotesByQuotedTimeDesc,
+} from '../utils/orderDetail';
 import type { PlatformShipperOrder } from './platformOrderApi';
 
 const SHANGHAI_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -169,7 +172,9 @@ function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
         Boolean(driverQuote),
     );
 
-  return driverQuotes?.length ? driverQuotes : undefined;
+  return driverQuotes?.length
+    ? sortDriverQuotesByQuotedTimeDesc(driverQuotes)
+    : undefined;
 }
 
 function createAcceptedDriverInfoFromPlatformEvents(order: PlatformShipperOrder) {

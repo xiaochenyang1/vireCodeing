@@ -742,6 +742,46 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('sorts driver quotes by quotedAtIso descending after mapping', () => {
+    const order = baseOrder({
+      pricingMode: 'negotiable',
+      priceCents: undefined,
+      events: [
+        event({
+          id: 'q-older',
+          actorUserId: 'd1',
+          createdAtIso: '2026-07-01T08:05:00.000Z',
+          noteText: JSON.stringify({
+            quoteCents: 70000,
+            arrivalText: '40 分钟',
+            noteText: '较早报价',
+          }),
+        }),
+        event({
+          id: 'q-newer',
+          actorUserId: 'd2',
+          createdAtIso: '2026-07-01T08:25:00.000Z',
+          noteText: JSON.stringify({
+            quoteCents: 72000,
+            arrivalText: '28 分钟',
+            noteText: '较新报价',
+          }),
+        }),
+      ],
+    });
+
+    expect(mapPlatformOrderToRecentOrder(order).driverQuotes).toMatchObject([
+      {
+        driverId: 'd2',
+        quotedAtIso: '2026-07-01T08:25:00.000Z',
+      },
+      {
+        driverId: 'd1',
+        quotedAtIso: '2026-07-01T08:05:00.000Z',
+      },
+    ]);
+  });
+
   it('picks the latest driver quote snapshot when a driver quotes twice', () => {
     const order = baseOrder({
       status: 'loading',
