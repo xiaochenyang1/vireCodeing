@@ -36,6 +36,7 @@ import {
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   sortDriverBankCards,
+  sortDriverWithdrawals,
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
 import { PlatformApiError } from '../src/services/platformApiClient';
@@ -617,6 +618,51 @@ test('maps status/certification/withdrawal texts and advance notices', () => {
   expect(createDriverAdvanceSuccessNotice('confirming')).toBe(
     '司机已确认到达，等待货主确认。',
   );
+});
+
+test('sorts driver withdrawals by latest activity time descending', () => {
+  expect(
+    sortDriverWithdrawals([
+      {
+        id: 'withdrawal-created-later',
+        driverId: 'driver-1',
+        amountCents: 12000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountMasked: '**** 1234',
+        status: 'reviewing',
+        createdAtIso: '2026-07-11T09:15:00.000Z',
+        updatedAtIso: '2026-07-11T09:20:00.000Z',
+      },
+      {
+        id: 'withdrawal-updated-later',
+        driverId: 'driver-1',
+        amountCents: 8000,
+        bankAccountName: '李师傅',
+        bankName: '平安银行',
+        bankAccountMasked: '**** 5678',
+        status: 'paid',
+        payoutChannel: 'sandbox',
+        createdAtIso: '2026-07-10T09:00:00.000Z',
+        updatedAtIso: '2026-07-11T09:30:00.000Z',
+      },
+      {
+        id: 'withdrawal-updated-earlier',
+        driverId: 'driver-1',
+        amountCents: 6000,
+        bankAccountName: '李师傅',
+        bankName: '建设银行',
+        bankAccountMasked: '**** 9999',
+        status: 'rejected',
+        createdAtIso: '2026-07-09T09:00:00.000Z',
+        updatedAtIso: '2026-07-09T09:05:00.000Z',
+      },
+    ]).map(withdrawal => withdrawal.id),
+  ).toEqual([
+    'withdrawal-updated-later',
+    'withdrawal-created-later',
+    'withdrawal-updated-earlier',
+  ]);
 });
 
 test('formats driver currency and income time', () => {

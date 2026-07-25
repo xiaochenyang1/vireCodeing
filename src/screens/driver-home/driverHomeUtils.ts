@@ -925,6 +925,27 @@ export function getDriverBankCardLastUsedText(
   return `最近用于提现：${formatDriverIncomeTime(card.lastUsedAtIso)}`;
 }
 
+function getDriverWithdrawalSortTimeValue(
+  withdrawal: PlatformDriverWithdrawalRecord,
+) {
+  return withdrawal.updatedAtIso ?? withdrawal.createdAtIso;
+}
+
+export function sortDriverWithdrawals(
+  withdrawals: PlatformDriverWithdrawalRecord[],
+) {
+  return [...withdrawals].sort((left, right) => {
+    const leftSortTime = getDriverWithdrawalSortTimeValue(left);
+    const rightSortTime = getDriverWithdrawalSortTimeValue(right);
+
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime.localeCompare(leftSortTime);
+    }
+
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  });
+}
+
 export function getDriverWithdrawalStatusText(
   status: PlatformDriverWithdrawalRecord['status'],
 ) {

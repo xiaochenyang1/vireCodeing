@@ -212,6 +212,22 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join('');
 }
 
+function getWithdrawalRecordCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('driver-withdrawal-record-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -1931,6 +1947,59 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: 'driver-withdrawal-record-detail-withdrawal-rejected',
       }).props.children,
     ).toBe('驳回原因：银行卡户名校验失败');
+  });
+
+  it('sorts withdrawal records by latest updatedAtIso before rendering', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listWithdrawals.mockResolvedValue({
+      items: [
+        {
+          id: 'withdrawal-created-later',
+          driverId: 'driver-1',
+          amountCents: 12000,
+          bankAccountName: '李师傅',
+          bankName: '招商银行',
+          bankAccountMasked: '**** **** **** 1234',
+          status: 'reviewing' as const,
+          createdAtIso: '2026-07-11T09:15:00.000Z',
+          updatedAtIso: '2026-07-11T09:20:00.000Z',
+        },
+        {
+          id: 'withdrawal-updated-later',
+          driverId: 'driver-1',
+          amountCents: 8000,
+          bankAccountName: '李师傅',
+          bankName: '平安银行',
+          bankAccountMasked: '**** **** **** 5678',
+          status: 'paid' as const,
+          payoutChannel: 'sandbox',
+          providerPayoutNo: 'sandbox-payout-1',
+          payoutExecutedAtIso: '2026-07-11T09:30:00.000Z',
+          createdAtIso: '2026-07-10T09:00:00.000Z',
+          updatedAtIso: '2026-07-11T09:30:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 2,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getWithdrawalRecordCardTestIds(renderer)).toEqual([
+      'driver-withdrawal-record-card-withdrawal-updated-later',
+      'driver-withdrawal-record-card-withdrawal-created-later',
+    ]);
   });
 
   it('restores the default withdrawal card after a successful withdrawal submit', async () => {

@@ -111,6 +111,7 @@ import {
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
   getDriverStatusText,
+  sortDriverWithdrawals,
   getDriverWithdrawalStatusDetailText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
@@ -1017,7 +1018,9 @@ export function DriverHomeScreen({
     const withdrawalsPromise = platformDriverOrderApi
       .listWithdrawals({ page: 1, pageSize: 5 })
       .then(result => {
-        setWithdrawals(Array.isArray(result.items) ? result.items : []);
+        setWithdrawals(
+          sortDriverWithdrawals(Array.isArray(result.items) ? result.items : []),
+        );
         return true;
       })
       .catch(() => {
@@ -2769,7 +2772,9 @@ export function DriverHomeScreen({
     ? incomeOverview.records
     : [];
   const incomeChartData = aggregateIncomeRecordsByDay(incomeRecords, 7);
-  const withdrawalRecords = Array.isArray(withdrawals) ? withdrawals : [];
+  const withdrawalRecords = sortDriverWithdrawals(
+    Array.isArray(withdrawals) ? withdrawals : [],
+  );
   const selectedWithdrawalBankCard = withdrawalForm.selectedBankCardId
     ? bankCards.find(card => card.id === withdrawalForm.selectedBankCardId)
     : undefined;
@@ -3351,7 +3356,11 @@ export function DriverHomeScreen({
               getDriverWithdrawalStatusDetailText(withdrawal);
 
             return (
-              <View key={withdrawal.id} style={styles.detailInlineGroup}>
+              <View
+                key={withdrawal.id}
+                testID={`driver-withdrawal-record-card-${withdrawal.id}`}
+                style={styles.detailInlineGroup}
+              >
                 <Text style={styles.detailRoute}>
                   {`${withdrawal.bankName} · ${withdrawal.bankAccountMasked}`}
                 </Text>
