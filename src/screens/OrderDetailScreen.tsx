@@ -76,6 +76,7 @@ import {
   createPaymentIdempotencyKey,
   executePlatformPayment,
 } from '../utils/payment';
+import { sortOrderExceptionCases } from '../utils/orderExceptionCases';
 
 export function OrderDetailScreen({
   orderId,
@@ -219,7 +220,11 @@ export function OrderDetailScreen({
       .listExceptionCases(order.platformOrderId)
       .then(result => {
         if (active) {
-          setExceptionCases(Array.isArray(result?.items) ? result.items : []);
+          setExceptionCases(
+            sortOrderExceptionCases(
+              Array.isArray(result?.items) ? result.items : [],
+            ),
+          );
         }
       })
       .catch(error => {
@@ -268,8 +273,10 @@ export function OrderDetailScreen({
       })
       .then(updatedCase => {
         setExceptionCases(currentCases =>
-          currentCases.map(item =>
-            item.id === updatedCase.id ? updatedCase : item,
+          sortOrderExceptionCases(
+            currentCases.map(item =>
+              item.id === updatedCase.id ? updatedCase : item,
+            ),
           ),
         );
         setAppealDrafts(currentDrafts => {
@@ -821,7 +828,7 @@ export function OrderDetailScreen({
         </Pressable>
         <View style={styles.detailTitleGroup}>
           <Text style={styles.draftKicker}>订单详情</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={styles.detailTitleRow}>
             <Text style={styles.detailTitle}>{order.id}</Text>
             <Pressable
               testID="order-detail-copy-order-no"

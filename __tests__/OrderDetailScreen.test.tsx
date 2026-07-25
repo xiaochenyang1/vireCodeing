@@ -4,6 +4,7 @@ import ReactTestRenderer from 'react-test-renderer';
 
 import { orderListOrders } from '../src/data/mockData';
 import { OrderDetailScreen } from '../src/screens/OrderDetailScreen';
+import { ExceptionCaseProgressPanel } from '../src/screens/order-detail/ExceptionCaseProgressPanel';
 import { PlatformApiError } from '../src/services/platformApiClient';
 import type {
   PlatformPaymentRecord,
@@ -407,6 +408,14 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join(' ');
 }
 
+function getExceptionCaseOrderFromPanel(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return renderer.root
+    .findByType(ExceptionCaseProgressPanel)
+    .props.cases.map((item: { caseNo: string }) => item.caseNo);
+}
+
 async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
@@ -581,6 +590,65 @@ describe('OrderDetailScreen exception case progress', () => {
     expect(renderedText).toContain('暂无异常处理工单');
   });
 
+  it('sorts loaded exception cases by latest activity before storing them in state', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-sorted-cases',
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({
+        total: 2,
+        items: [
+          {
+            id: 'case-created-later',
+            caseNo: 'YC202607120021',
+            orderId: 'order-platform-sorted-cases',
+            orderNo: order.id,
+            sourceEventId: 'event-1',
+            reporterUserId: 'driver-1',
+            sourceRole: 'driver' as const,
+            typeLabel: '货损',
+            description: '较早更新但创建更晚的工单。',
+            attachmentFileIds: [],
+            status: 'processing' as const,
+            appealStatus: 'none' as const,
+            createdAtIso: '2026-07-12T08:10:00.000Z',
+            updatedAtIso: '2026-07-12T08:15:00.000Z',
+            actions: [],
+          },
+          {
+            id: 'case-updated-later',
+            caseNo: 'YC202607120022',
+            orderId: 'order-platform-sorted-cases',
+            orderNo: order.id,
+            sourceEventId: 'event-2',
+            reporterUserId: 'driver-1',
+            sourceRole: 'shipper' as const,
+            typeLabel: '司机延误',
+            description: '较晚更新的工单应该排在前面。',
+            attachmentFileIds: [],
+            status: 'resolved' as const,
+            appealStatus: 'none' as const,
+            createdAtIso: '2026-07-12T08:00:00.000Z',
+            updatedAtIso: '2026-07-12T08:20:00.000Z',
+            actions: [],
+          },
+        ],
+      }),
+      appealExceptionCase: jest.fn(),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+    });
+
+    expect(getExceptionCaseOrderFromPanel(renderer)).toEqual([
+      'YC202607120022',
+      'YC202607120021',
+    ]);
+  });
+
   it('loads and renders server exception case progress independently', async () => {
     const order = {
       ...orderListOrders[0],
@@ -648,6 +716,105 @@ describe('OrderDetailScreen exception case progress', () => {
     expect(renderedText).toContain('处理结论： 客服判定需线下赔付。');
     expect(renderedText).toContain(
       '赔付决议：待赔付跟进 · 对象：司机 · 金额：￥128.00 · 更新时间：2026-07-12 16:20',
+    );
+  });
+
+  it('resorts exception cases after a successful appeal update', async () => {
+    const order = {
+      ...orderListOrders[0],
+      platformOrderId: 'order-platform-appeal-sorted-cases',
+    };
+    const appealableCase = {
+      id: 'case-appealable',
+      caseNo: 'YC202607120031',
+      orderId: 'order-platform-appeal-sorted-cases',
+      orderNo: order.id,
+      sourceEventId: 'event-appealable',
+      reporterUserId: 'driver-1',
+      sourceRole: 'driver' as const,
+      typeLabel: '货损',
+      description: '需要申诉的工单。',
+      attachmentFileIds: [],
+      status: 'resolved' as const,
+      compensationStatus: 'pending' as const,
+      appealStatus: 'none' as const,
+      createdAtIso: '2026-07-12T08:00:00.000Z',
+      updatedAtIso: '2026-07-12T08:10:00.000Z',
+      actions: [],
+    };
+    const laterCase = {
+      id: 'case-later',
+      caseNo: 'YC202607120032',
+      orderId: 'order-platform-appeal-sorted-cases',
+      orderNo: order.id,
+      sourceEventId: 'event-later',
+      reporterUserId: 'driver-2',
+      sourceRole: 'shipper' as const,
+      typeLabel: '司机延误',
+      description: '初始时排在前面的工单。',
+      attachmentFileIds: [],
+      status: 'processing' as const,
+      appealStatus: 'none' as const,
+      createdAtIso: '2026-07-12T08:05:00.000Z',
+      updatedAtIso: '2026-07-12T08:15:00.000Z',
+      actions: [],
+    };
+    const appealedCase = {
+      ...appealableCase,
+      appealStatus: 'requested' as const,
+      appealReason: '补充现场照片和交接记录说明。',
+      appealRequestedAtIso: '2026-07-12T08:20:00.000Z',
+      updatedAtIso: '2026-07-12T08:20:00.000Z',
+    };
+    const platformOrderApi = {
+      listExceptionCases: jest.fn().mockResolvedValue({
+        total: 2,
+        items: [appealableCase, laterCase],
+      }),
+      appealExceptionCase: jest.fn().mockResolvedValue(appealedCase),
+    };
+
+    const renderer = await renderOrderDetail({
+      order,
+      platformOrderApi,
+    });
+
+    expect(getExceptionCaseOrderFromPanel(renderer)).toEqual([
+      'YC202607120032',
+      'YC202607120031',
+    ]);
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({
+          testID: 'exception-case-appeal-reason-YC202607120031',
+        })
+        .props.onChangeText('补充现场照片和交接记录说明。');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'exception-case-appeal-submit-YC202607120031',
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformOrderApi.appealExceptionCase).toHaveBeenCalledWith(
+      'order-platform-appeal-sorted-cases',
+      'case-appealable',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+        reason: '补充现场照片和交接记录说明。',
+      },
+    );
+    expect(getExceptionCaseOrderFromPanel(renderer)).toEqual([
+      'YC202607120031',
+      'YC202607120032',
+    ]);
+    expect(getRenderedText(renderer)).toContain(
+      '申诉已提交，客服将重新处理该工单。',
     );
   });
 
