@@ -8,6 +8,7 @@ import type {
   PlatformDriverLocationSnapshot,
 } from '../../services/platformMapsApi';
 import { PlatformApiError } from '../../services/platformApiClient';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import {
   buildExternalNavigationUrls,
   formatCoordinateText,
@@ -106,8 +107,10 @@ function createPlatformTrackingState(
       ? `司机位置：${formattedAddress}`
       : `司机位置：${coordinateText}`,
     detailText: formattedAddress
-      ? `坐标：${coordinateText} · 更新时间：${snapshot.recordedAtIso}`
-      : `更新时间：${snapshot.recordedAtIso}`,
+      ? `坐标：${coordinateText} · 更新时间：${formatPlatformIsoMinute(
+          snapshot.recordedAtIso,
+        )}`
+      : `更新时间：${formatPlatformIsoMinute(snapshot.recordedAtIso)}`,
     ...(estimateText ? { estimateText } : {}),
     sourceText: getTrackingSourceText(snapshot.source),
     notice,

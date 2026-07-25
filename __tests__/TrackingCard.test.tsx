@@ -177,6 +177,9 @@ describe('TrackingCard', () => {
     expect(getRenderedText(renderer)).toContain(
       '已读取司机最新上报位置，30 秒自动刷新中。',
     );
+    expect(getRenderedText(renderer)).toContain(
+      '坐标：22.533300, 113.930400 · 更新时间：2026-07-24 16:00',
+    );
     expect(
       renderer.root.findByProps({ testID: 'order-tracking-manual-refresh' }),
     ).toBeTruthy();
@@ -202,6 +205,9 @@ describe('TrackingCard', () => {
     expect(getRenderedText(renderer)).toContain('深圳市南山区科技园门店');
     expect(getRenderedText(renderer)).toContain(
       '已手动刷新司机最新位置，30 秒自动刷新中。',
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '坐标：22.548900, 113.941700 · 更新时间：2026-07-24 16:05',
     );
     expect(getRenderedText(renderer)).toContain('立即刷新位置');
 

@@ -934,7 +934,7 @@ describe('OrderDetailScreen tracking', () => {
     expect(renderedText).toContain('位置跟踪');
     expect(renderedText).toContain('司机位置：深圳市宝安区福永街道平台司机位置');
     expect(renderedText).toContain(
-      '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:00:00.000Z',
+      '坐标：22.610000, 113.910000 · 更新时间：2026-07-21 18:00',
     );
     expect(renderedText).toContain(
       '距卸货点（龙岗区坂田仓） 约 3.2 公里 · 预计 约 7 分钟',
@@ -983,7 +983,7 @@ describe('OrderDetailScreen tracking', () => {
     const renderedText = getRenderedText(renderer);
 
     expect(renderedText).toContain('司机位置：22.610000, 113.910000');
-    expect(renderedText).toContain('更新时间：2026-07-21T10:05:00.000Z');
+    expect(renderedText).toContain('更新时间：2026-07-21 18:05');
     expect(renderedText).toContain('司机位置地址解析失败，仍展示坐标。');
     expect(
       renderer.root.findByProps({ testID: 'order-tracking-source' }).props
@@ -1053,7 +1053,7 @@ describe('OrderDetailScreen tracking', () => {
       expect(platformMapsApi.getShipperDriverLocation).toHaveBeenCalledTimes(2);
       expect(renderedText).toContain('司机位置：深圳市宝安区福永街道平台司机新位置');
       expect(renderedText).toContain(
-        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:10:00.000Z',
+        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21 18:10',
       );
       expect(renderedText).toContain('已同步司机最新位置，30 秒自动刷新中。');
       expect(
@@ -1119,7 +1119,7 @@ describe('OrderDetailScreen tracking', () => {
         '司机位置：深圳市宝安区福永街道平台司机稳定位置',
       );
       expect(renderedText).toContain(
-        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21T10:15:00.000Z',
+        '坐标：22.610000, 113.910000 · 更新时间：2026-07-21 18:15',
       );
       expect(renderedText).toContain(
         '司机位置刷新失败，当前保留上一条平台位置。',
