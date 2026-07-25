@@ -1891,15 +1891,41 @@ describe('OrdersService', () => {
       {
         decision: 'approved',
         reviewResultText: '已确认地址变更',
+        costImpactText: '改址后运费上调 30 元，待补收差额',
+        refundText: '无需退款',
+        driverNoticeText: '已通知司机按新地址配送',
       },
     );
-    expect(
-      reviewed.events.some(
-        event =>
-          event.eventType === 'change_request_approved' &&
-          event.noteText === '已确认地址变更',
-      ),
-    ).toBe(true);
+    const reviewEvent = reviewed.events.find(
+      event => event.eventType === 'change_request_approved',
+    );
+    expect(reviewEvent).toBeDefined();
+    expect(JSON.parse(reviewEvent?.noteText ?? '{}')).toEqual({
+      reviewResultText: '已确认地址变更',
+      costImpactText: '改址后运费上调 30 元，待补收差额',
+      refundText: '无需退款',
+      driverNoticeText: '已通知司机按新地址配送',
+    });
+
+    await expect(
+      service.listAdminOrderChangeRequests('admin-1', {
+        status: 'approved',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          orderId: order.id,
+          status: 'approved',
+          reviewResultText: '已确认地址变更',
+          costImpactText: '改址后运费上调 30 元，待补收差额',
+          refundText: '无需退款',
+          driverNoticeText: '已通知司机按新地址配送',
+        }),
+      ],
+    });
   });
 
   it('lists admin order change request review events', async () => {
@@ -1924,6 +1950,9 @@ describe('OrdersService', () => {
     await service.reviewOrderChangeRequest('admin-1', order.id, {
       decision: 'approved',
       reviewResultText: '已确认地址变更',
+      costImpactText: '改址后运费上调 30 元，待补收差额',
+      refundText: '无需退款',
+      driverNoticeText: '已通知司机按新地址配送',
     });
 
     await expect(
@@ -1935,6 +1964,9 @@ describe('OrdersService', () => {
           stage: 'approved',
           actorUserId: 'admin-1',
           noteText: '已确认地址变更',
+          costImpactText: '改址后运费上调 30 元，待补收差额',
+          refundText: '无需退款',
+          driverNoticeText: '已通知司机按新地址配送',
         }),
         expect.objectContaining({
           eventType: 'change_requested',

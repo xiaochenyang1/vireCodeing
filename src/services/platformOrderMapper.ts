@@ -141,6 +141,13 @@ type ParsedDriverAcceptedEvent = {
   driverSnapshot?: PlatformDriverEventSnapshot;
 };
 
+type ParsedPlatformChangeRequestReviewEvent = {
+  reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
+};
+
 function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
   const driverQuotes = order.events
     ?.filter(event => event.eventType === 'driver_quote_submitted')
@@ -281,6 +288,8 @@ function createModificationRequestFromPlatformEvents(
   }
 
   const approved = reviewEvent.eventType === 'change_request_approved';
+  const parsedReview = parsePlatformChangeRequestReviewEvent(reviewEvent.noteText);
+
   return {
     description: requestEvent.noteText.trim(),
     statusText: approved ? '客服已通过' : '客服已驳回',
@@ -291,17 +300,23 @@ function createModificationRequestFromPlatformEvents(
     impactText: approved
       ? '平台客服已确认修改申请，后续费用与司机通知以平台结果为准。'
       : '平台客服已驳回修改申请，订单继续按原内容执行。',
-    costImpactText: approved
-      ? '平台已确认费用影响，当前订单金额如需调整将另行同步。'
-      : '修改申请已驳回，订单金额保持不变。',
-    refundText: approved
-      ? '如涉及差额，将按平台结算结果处理。'
-      : '修改申请已驳回，支付资金不做变更。',
-    driverNoticeText: approved
-      ? '已通知司机按修改后要求执行。'
-      : '已通知司机继续按原订单执行。',
+    costImpactText:
+      parsedReview.costImpactText ||
+      (approved
+        ? '平台已确认费用影响，当前订单金额如需调整将另行同步。'
+        : '修改申请已驳回，订单金额保持不变。'),
+    refundText:
+      parsedReview.refundText ||
+      (approved
+        ? '如涉及差额，将按平台结算结果处理。'
+        : '修改申请已驳回，支付资金不做变更。'),
+    driverNoticeText:
+      parsedReview.driverNoticeText ||
+      (approved
+        ? '已通知司机按修改后要求执行。'
+        : '已通知司机继续按原订单执行。'),
     reviewResultText:
-      reviewEvent.noteText?.trim() ||
+      parsedReview.reviewResultText ||
       (approved ? '平台客服已通过修改申请' : '平台客服已驳回修改申请'),
   };
 }
@@ -735,6 +750,51 @@ function parseDriverAcceptedEvent(noteText?: string): ParsedDriverAcceptedEvent 
     };
   } catch {
     return { noteText: noteText.trim() || undefined };
+  }
+}
+
+function parsePlatformChangeRequestReviewEvent(
+  noteText?: string,
+): ParsedPlatformChangeRequestReviewEvent {
+  if (!noteText) {
+    return {};
+  }
+
+  try {
+    const payload = JSON.parse(noteText) as {
+      reviewResultText?: unknown;
+      costImpactText?: unknown;
+      refundText?: unknown;
+      driverNoticeText?: unknown;
+    };
+
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { reviewResultText: noteText.trim() || undefined };
+    }
+
+    const reviewResultText =
+      typeof payload.reviewResultText === 'string'
+        ? payload.reviewResultText.trim()
+        : '';
+    const costImpactText =
+      typeof payload.costImpactText === 'string'
+        ? payload.costImpactText.trim()
+        : '';
+    const refundText =
+      typeof payload.refundText === 'string' ? payload.refundText.trim() : '';
+    const driverNoticeText =
+      typeof payload.driverNoticeText === 'string'
+        ? payload.driverNoticeText.trim()
+        : '';
+
+    return {
+      ...(reviewResultText ? { reviewResultText } : {}),
+      ...(costImpactText ? { costImpactText } : {}),
+      ...(refundText ? { refundText } : {}),
+      ...(driverNoticeText ? { driverNoticeText } : {}),
+    };
+  } catch {
+    return { reviewResultText: noteText.trim() || undefined };
   }
 }
 

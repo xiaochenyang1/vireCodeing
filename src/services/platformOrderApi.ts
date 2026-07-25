@@ -412,6 +412,13 @@ export type PlatformAdminOrderChangeRequestStatus =
   | 'approved'
   | 'rejected';
 
+export type PlatformOrderChangeRequestReviewSnapshot = {
+  reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
+};
+
 export type PlatformListAdminOrderChangeRequestsQuery = {
   status?: PlatformAdminOrderChangeRequestStatus;
   page?: number;
@@ -425,6 +432,9 @@ export type PlatformAdminOrderChangeRequestRecord = {
   status: PlatformAdminOrderChangeRequestStatus;
   description: string;
   reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
   requestedAtIso: string;
   reviewedAtIso?: string;
   assignedDriverId?: string;
@@ -454,12 +464,15 @@ export type PlatformAdminOrderChangeRequestReviewEvent = {
   eventType: PlatformAdminOrderChangeRequestReviewEventType;
   stage: PlatformAdminOrderChangeRequestReviewEventStage;
   noteText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
   createdAtIso: string;
 };
 
-export type PlatformReviewAdminOrderChangeRequest = {
+export type PlatformReviewAdminOrderChangeRequest =
+  PlatformOrderChangeRequestReviewSnapshot & {
   decision: 'approved' | 'rejected';
-  reviewResultText?: string;
 };
 
 export type PlatformListAdminOrderExceptionCasesQuery = {
@@ -2665,10 +2678,32 @@ function normalizeAdminOrderChangeRequestReviewRequest(
     'Platform admin order change request reviewResultText is invalid',
     'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
   );
+  const costImpactText = normalizeOptionalTrimmedString(
+    request.costImpactText,
+    200,
+    'Platform admin order change request costImpactText is invalid',
+    'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+  );
+  const refundText = normalizeOptionalTrimmedString(
+    request.refundText,
+    200,
+    'Platform admin order change request refundText is invalid',
+    'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+  );
+  const driverNoticeText = normalizeOptionalTrimmedString(
+    request.driverNoticeText,
+    200,
+    'Platform admin order change request driverNoticeText is invalid',
+    'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+  );
 
-  return reviewResultText
-    ? { decision: request.decision, reviewResultText }
-    : { decision: request.decision };
+  return {
+    decision: request.decision,
+    ...(reviewResultText ? { reviewResultText } : {}),
+    ...(costImpactText ? { costImpactText } : {}),
+    ...(refundText ? { refundText } : {}),
+    ...(driverNoticeText ? { driverNoticeText } : {}),
+  };
 }
 
 function isPlatformShipperOrderStatus(

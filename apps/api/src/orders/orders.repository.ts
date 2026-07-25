@@ -12,6 +12,7 @@ import type {
   ListAdminOrderChangeRequestsQuery,
   ListAdminOrderChangeRequestsResult,
   ListShipperOrdersQuery,
+  OrderChangeRequestReviewSnapshot,
   ReportShipperOrderExceptionRequest,
   ReviewShipperOrderChangeRequest,
   ShipperOrderEventRecord,
@@ -6282,11 +6283,89 @@ function createShipperBonusAddedNote(
 }
 
 function createOrderChangeReviewNote(input: ReviewShipperOrderChangeRequest) {
+  const reviewPayload = createOrderChangeReviewPayload(input);
+
+  if (
+    !reviewPayload.costImpactText &&
+    !reviewPayload.refundText &&
+    !reviewPayload.driverNoticeText
+  ) {
+    return reviewPayload.reviewResultText;
+  }
+
+  return JSON.stringify(reviewPayload);
+}
+
+function createOrderChangeReviewPayload(
+  input: ReviewShipperOrderChangeRequest,
+): Required<Pick<OrderChangeRequestReviewSnapshot, 'reviewResultText'>> &
+  Omit<OrderChangeRequestReviewSnapshot, 'reviewResultText'> {
   const defaultText =
     input.decision === 'approved'
       ? '平台客服已通过修改申请'
       : '平台客服已驳回修改申请';
-  return input.reviewResultText?.trim() || defaultText;
+  const reviewResultText = input.reviewResultText?.trim() || defaultText;
+  const costImpactText = input.costImpactText?.trim();
+  const refundText = input.refundText?.trim();
+  const driverNoticeText = input.driverNoticeText?.trim();
+
+  return {
+    reviewResultText,
+    ...(costImpactText ? { costImpactText } : {}),
+    ...(refundText ? { refundText } : {}),
+    ...(driverNoticeText ? { driverNoticeText } : {}),
+  };
+}
+
+function parseOrderChangeReviewNote(
+  noteText?: string,
+): OrderChangeRequestReviewSnapshot {
+  const trimmedNoteText = noteText?.trim();
+
+  if (!trimmedNoteText) {
+    return {};
+  }
+
+  try {
+    const payload = JSON.parse(trimmedNoteText) as {
+      reviewResultText?: unknown;
+      costImpactText?: unknown;
+      refundText?: unknown;
+      driverNoticeText?: unknown;
+    };
+
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      return {
+        reviewResultText: trimmedNoteText,
+      };
+    }
+
+    const reviewResultText =
+      typeof payload.reviewResultText === 'string'
+        ? payload.reviewResultText.trim()
+        : '';
+    const costImpactText =
+      typeof payload.costImpactText === 'string'
+        ? payload.costImpactText.trim()
+        : '';
+    const refundText =
+      typeof payload.refundText === 'string' ? payload.refundText.trim() : '';
+    const driverNoticeText =
+      typeof payload.driverNoticeText === 'string'
+        ? payload.driverNoticeText.trim()
+        : '';
+
+    return {
+      ...(reviewResultText ? { reviewResultText } : {}),
+      ...(costImpactText ? { costImpactText } : {}),
+      ...(refundText ? { refundText } : {}),
+      ...(driverNoticeText ? { driverNoticeText } : {}),
+    };
+  } catch {
+    return {
+      reviewResultText: trimmedNoteText,
+    };
+  }
 }
 
 function isOrderChangeRequestReviewEvent(
@@ -6310,25 +6389,48 @@ function listAdminOrderChangeRequestReviewEventsFromOrder(
   return order.events
     .filter(isOrderChangeRequestReviewEvent)
     .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))
-    .map(event => ({
-      eventId: event.id,
-      ...(event.actorUserId ? { actorUserId: event.actorUserId } : {}),
-      eventType: event.eventType,
-      stage:
+    .map(event => {
+      const parsedReviewNote =
         event.eventType === 'change_requested'
-          ? 'requested'
-          : event.eventType === 'change_request_approved'
-            ? 'approved'
-            : 'rejected',
-      ...(event.noteText ? { noteText: event.noteText } : {}),
-      createdAtIso: event.createdAtIso,
-    }));
+          ? {}
+          : parseOrderChangeReviewNote(event.noteText);
+      const noteText =
+        event.eventType === 'change_requested'
+          ? event.noteText
+          : parsedReviewNote.reviewResultText;
+
+      return {
+        eventId: event.id,
+        ...(event.actorUserId ? { actorUserId: event.actorUserId } : {}),
+        eventType: event.eventType,
+        stage:
+          event.eventType === 'change_requested'
+            ? 'requested'
+            : event.eventType === 'change_request_approved'
+              ? 'approved'
+              : 'rejected',
+        ...(noteText ? { noteText } : {}),
+        ...(parsedReviewNote.costImpactText
+          ? { costImpactText: parsedReviewNote.costImpactText }
+          : {}),
+        ...(parsedReviewNote.refundText
+          ? { refundText: parsedReviewNote.refundText }
+          : {}),
+        ...(parsedReviewNote.driverNoticeText
+          ? { driverNoticeText: parsedReviewNote.driverNoticeText }
+          : {}),
+        createdAtIso: event.createdAtIso,
+      };
+    });
 }
 
 function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   status: 'pending' | 'approved' | 'rejected';
   description: string;
   reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
   requestedAtIso: string;
   reviewedAtIso?: string;
 } | null {
@@ -6357,13 +6459,25 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
     };
   }
 
+  const parsedReviewNote = parseOrderChangeReviewNote(reviewEvent.noteText);
   return {
     status:
       reviewEvent.eventType === 'change_request_approved'
         ? 'approved'
         : 'rejected',
     description: requestEvent.noteText ?? '',
-    reviewResultText: reviewEvent.noteText,
+    ...(parsedReviewNote.reviewResultText
+      ? { reviewResultText: parsedReviewNote.reviewResultText }
+      : {}),
+    ...(parsedReviewNote.costImpactText
+      ? { costImpactText: parsedReviewNote.costImpactText }
+      : {}),
+    ...(parsedReviewNote.refundText
+      ? { refundText: parsedReviewNote.refundText }
+      : {}),
+    ...(parsedReviewNote.driverNoticeText
+      ? { driverNoticeText: parsedReviewNote.driverNoticeText }
+      : {}),
     requestedAtIso: requestEvent.createdAtIso,
     reviewedAtIso: reviewEvent.createdAtIso,
   };
@@ -6385,6 +6499,13 @@ function createAdminOrderChangeRequestRecord(
     description: changeRequest.description,
     ...(changeRequest.reviewResultText
       ? { reviewResultText: changeRequest.reviewResultText }
+      : {}),
+    ...(changeRequest.costImpactText
+      ? { costImpactText: changeRequest.costImpactText }
+      : {}),
+    ...(changeRequest.refundText ? { refundText: changeRequest.refundText } : {}),
+    ...(changeRequest.driverNoticeText
+      ? { driverNoticeText: changeRequest.driverNoticeText }
       : {}),
     requestedAtIso: changeRequest.requestedAtIso,
     ...(changeRequest.reviewedAtIso

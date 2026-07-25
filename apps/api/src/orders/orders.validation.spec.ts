@@ -7,6 +7,7 @@ import {
   parseCompleteShipperOrderRequest,
   parseCreateShipperOrderRequest,
   parseReportShipperOrderExceptionRequest,
+  parseReviewShipperOrderChangeRequest,
   parseSubmitShipperOrderChangeRequest,
   parseSubmitShipperOrderEvaluationRequest,
   parseListShipperOrdersQuery,
@@ -503,6 +504,33 @@ describe('orders validation', () => {
         description: ' ',
       }),
     ).toThrow('修改说明不能为空');
+  });
+
+  it('parses a structured order change request review payload', () => {
+    expect(
+      parseReviewShipperOrderChangeRequest({
+        decision: 'approved',
+        reviewResultText: ' 已确认地址修改 ',
+        costImpactText: ' 运费上调 30 元，待补收差额 ',
+        refundText: ' 无需退款 ',
+        driverNoticeText: ' 已电话通知司机按新地址执行 ',
+      }),
+    ).toEqual({
+      decision: 'approved',
+      reviewResultText: '已确认地址修改',
+      costImpactText: '运费上调 30 元，待补收差额',
+      refundText: '无需退款',
+      driverNoticeText: '已电话通知司机按新地址执行',
+    });
+  });
+
+  it('rejects an overlong order change request cost impact snapshot', () => {
+    expect(() =>
+      parseReviewShipperOrderChangeRequest({
+        decision: 'approved',
+        costImpactText: 'a'.repeat(201),
+      }),
+    ).toThrow('费用影响最多 200 字');
   });
 
   it('parses a list status collection passed as an array', () => {

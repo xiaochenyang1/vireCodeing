@@ -440,6 +440,24 @@ export const reviewShipperOrderChangeRequestSchema = z.object({
     .max(200, '审核说明最多 200 字')
     .optional()
     .transform(value => (value === '' ? undefined : value)),
+  costImpactText: z
+    .string()
+    .trim()
+    .max(200, '费用影响最多 200 字')
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+  refundText: z
+    .string()
+    .trim()
+    .max(200, '退款状态最多 200 字')
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
+  driverNoticeText: z
+    .string()
+    .trim()
+    .max(200, '司机通知最多 200 字')
+    .optional()
+    .transform(value => (value === '' ? undefined : value)),
 });
 
 const listAdminOrderChangeRequestsQuerySchema = z.object({

@@ -994,6 +994,7 @@ export class OrdersService {
     orderId: string,
     input: ReviewShipperOrderChangeRequest,
   ) {
+    const reviewResultText = resolveOrderChangeReviewResultText(input);
     const updatedOrder = await this.repository.reviewOrderChangeRequest(
       orderId,
       adminUserId,
@@ -1009,7 +1010,7 @@ export class OrdersService {
       orderNo: updatedOrder.orderNo,
       shipperId: updatedOrder.shipperId,
       driverId: updatedOrder.assignedDriverId,
-      reviewResultText: input.reviewResultText,
+      reviewResultText,
     });
 
     return updatedOrder;
@@ -1563,6 +1564,20 @@ function isActiveOrderStatus(status: ShipperOrderRecord['status']) {
 
 function getOrderPayablePriceCents(order: ShipperOrderRecord) {
   return order.payablePriceCents ?? order.priceCents ?? 0;
+}
+
+function resolveOrderChangeReviewResultText(
+  input: ReviewShipperOrderChangeRequest,
+) {
+  const reviewResultText = input.reviewResultText?.trim();
+
+  if (reviewResultText) {
+    return reviewResultText;
+  }
+
+  return input.decision === 'approved'
+    ? '平台客服已通过修改申请'
+    : '平台客服已驳回修改申请';
 }
 
 function formatCsvRow(values: Array<string>) {

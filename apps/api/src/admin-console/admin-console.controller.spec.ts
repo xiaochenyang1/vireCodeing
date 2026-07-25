@@ -201,9 +201,14 @@ describe('order change request admin console page', () => {
     expect(html).toContain('/change-request/review');
     expect(html).toContain('/change-request/review-events');
     expect(html).toContain('reviewResultText');
+    expect(html).toContain('costImpactText');
+    expect(html).toContain('refundText');
+    expect(html).toContain('driverNoticeText');
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
     expect(html).toContain('loadReviewEvents');
+    expect(html).toContain('buildReviewSnapshotBlocks');
+    expect(html).toContain('fillReviewForm');
     expect(html).toContain('formatReviewEventStage');
     expect(html).toContain('latestReviewEventsRequestId');
     expect(html).toContain('暂无审核事件');

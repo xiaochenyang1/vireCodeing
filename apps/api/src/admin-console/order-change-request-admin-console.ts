@@ -96,6 +96,7 @@ export function renderOrderChangeRequestAdminConsole() {
       border-radius: 8px;
       padding: 10px;
     }
+    .review-fields { display: grid; gap: 10px; margin-top: 10px; }
     textarea { width: 100%; min-height: 80px; resize: vertical; }
     ${renderAdminConsoleNavStyles()}
   </style>
@@ -106,7 +107,7 @@ export function renderOrderChangeRequestAdminConsole() {
       <div class="topbar">
         <div>
           <h1>订单修改申请审核台</h1>
-          <p class="muted">第一片：列表筛选 + 单条通过/驳回修改申请。</p>
+          <p class="muted">第一片：列表筛选、审核事件，以及费用/退款/司机通知快照录入。</p>
         </div>
         ${renderAdminSessionControls({
           currentRoute: '/api/admin/order-change-request-console',
@@ -139,6 +140,20 @@ export function renderOrderChangeRequestAdminConsole() {
           审核说明
           <textarea id="reviewResultText" placeholder="可选，通过/驳回都可填写"></textarea>
         </label>
+        <div class="review-fields">
+          <label>
+            费用影响快照
+            <textarea id="costImpactText" placeholder="可选，例如：改址后运费上调 30 元，待补收差额"></textarea>
+          </label>
+          <label>
+            退款状态快照
+            <textarea id="refundText" placeholder="可选，例如：无需退款 / 退款 20 元，已进入人工处理"></textarea>
+          </label>
+          <label>
+            司机通知快照
+            <textarea id="driverNoticeText" placeholder="可选，例如：已电话通知司机按新地址执行"></textarea>
+          </label>
+        </div>
         <div class="review-row" style="margin-top:10px;">
           <button type="button" id="approveButton">通过申请</button>
           <button type="button" id="rejectButton" class="danger">驳回申请</button>
@@ -172,12 +187,37 @@ export function renderOrderChangeRequestAdminConsole() {
       document.getElementById(id).textContent = text;
     }
 
+    function setInputValue(id, value) {
+      document.getElementById(id).value = value || '';
+    }
+
     function escapeHtml(value) {
       return String(value ?? '')
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;');
+    }
+
+    function buildReviewSnapshotBlocks(item) {
+      return [
+        item.costImpactText
+          ? '<div><strong>费用影响</strong><div class="muted">' + escapeHtml(item.costImpactText) + '</div></div>'
+          : '',
+        item.refundText
+          ? '<div><strong>退款状态</strong><div class="muted">' + escapeHtml(item.refundText) + '</div></div>'
+          : '',
+        item.driverNoticeText
+          ? '<div><strong>司机通知</strong><div class="muted">' + escapeHtml(item.driverNoticeText) + '</div></div>'
+          : '',
+      ].join('');
+    }
+
+    function fillReviewForm(item) {
+      setInputValue('reviewResultText', item?.reviewResultText || '');
+      setInputValue('costImpactText', item?.costImpactText || '');
+      setInputValue('refundText', item?.refundText || '');
+      setInputValue('driverNoticeText', item?.driverNoticeText || '');
     }
 
     async function apiGet(url) {
@@ -241,9 +281,11 @@ export function renderOrderChangeRequestAdminConsole() {
       if (!item) {
         setText('detailStatus', '请选择左侧修改申请。');
         document.getElementById('detailBody').innerHTML = '';
+        fillReviewForm();
         return;
       }
       setText('detailStatus', '当前订单：' + item.orderNo);
+      fillReviewForm(item);
       document.getElementById('detailBody').innerHTML = [
         '<div><strong>货主</strong><div class="muted">' + escapeHtml(item.shipperId) + '</div></div>',
         '<div><strong>订单状态</strong><div class="muted">' + escapeHtml(item.orderStatus) + '</div></div>',
@@ -251,6 +293,7 @@ export function renderOrderChangeRequestAdminConsole() {
         item.reviewResultText
           ? '<div><strong>审核说明</strong><div class="muted">' + escapeHtml(item.reviewResultText) + '</div></div>'
           : '',
+        buildReviewSnapshotBlocks(item),
         '<div><strong>申请时间</strong><div class="muted">' + escapeHtml(item.requestedAtIso) + '</div></div>',
       ].join('');
     }
@@ -278,6 +321,7 @@ export function renderOrderChangeRequestAdminConsole() {
           '<strong>' + escapeHtml(formatReviewEventStage(event.stage)) + '</strong>' +
           '<div class="muted">操作者：' + escapeHtml(event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
           '<div class="muted">' + escapeHtml(event.noteText || '无附加说明') + '</div>' +
+          buildReviewSnapshotBlocks(event) +
         '</div>';
       }).join('');
     }
@@ -340,9 +384,16 @@ export function renderOrderChangeRequestAdminConsole() {
         return;
       }
       const reviewResultText = document.getElementById('reviewResultText').value.trim();
-      const body = reviewResultText
-        ? { decision, reviewResultText }
-        : { decision };
+      const costImpactText = document.getElementById('costImpactText').value.trim();
+      const refundText = document.getElementById('refundText').value.trim();
+      const driverNoticeText = document.getElementById('driverNoticeText').value.trim();
+      const body = {
+        decision,
+        ...(reviewResultText ? { reviewResultText } : {}),
+        ...(costImpactText ? { costImpactText } : {}),
+        ...(refundText ? { refundText } : {}),
+        ...(driverNoticeText ? { driverNoticeText } : {}),
+      };
       setText('reviewStatus', '提交审核中...');
       try {
         await apiPost(

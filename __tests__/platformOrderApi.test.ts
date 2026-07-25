@@ -1744,6 +1744,9 @@ describe('platform order api', () => {
       api.reviewAdminOrderChangeRequest(' order-1 ', {
         decision: 'approved',
         reviewResultText: '  地址修改可执行  ',
+        costImpactText: '  运费上调 30 元，待补收差额  ',
+        refundText: '  无需退款  ',
+        driverNoticeText: '  已通知司机按新地址配送  ',
       }),
     ).resolves.toMatchObject({
       id: 'order-1',
@@ -1760,6 +1763,9 @@ describe('platform order api', () => {
         body: JSON.stringify({
           decision: 'approved',
           reviewResultText: '地址修改可执行',
+          costImpactText: '运费上调 30 元，待补收差额',
+          refundText: '无需退款',
+          driverNoticeText: '已通知司机按新地址配送',
         }),
       }),
     );

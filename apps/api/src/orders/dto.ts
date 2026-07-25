@@ -99,9 +99,15 @@ export type SubmitShipperOrderChangeRequest = {
   description: string;
 };
 
-export type ReviewShipperOrderChangeRequest = {
-  decision: 'approved' | 'rejected';
+export type OrderChangeRequestReviewSnapshot = {
   reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
+};
+
+export type ReviewShipperOrderChangeRequest = OrderChangeRequestReviewSnapshot & {
+  decision: 'approved' | 'rejected';
 };
 
 export type ListAdminOrderChangeRequestsQuery = {
@@ -117,6 +123,9 @@ export type AdminOrderChangeRequestRecord = {
   status: 'pending' | 'approved' | 'rejected';
   description: string;
   reviewResultText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
   requestedAtIso: string;
   reviewedAtIso?: string;
   assignedDriverId?: string;
@@ -146,6 +155,9 @@ export type AdminOrderChangeRequestReviewEvent = {
   eventType: AdminOrderChangeRequestReviewEventType;
   stage: AdminOrderChangeRequestReviewEventStage;
   noteText?: string;
+  costImpactText?: string;
+  refundText?: string;
+  driverNoticeText?: string;
   createdAtIso: string;
 };
 

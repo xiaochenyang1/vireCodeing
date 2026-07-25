@@ -1130,7 +1130,12 @@ describe('platform order mapper', () => {
             id: 'change-2',
             eventType: 'change_request_approved',
             createdAtIso: '2026-07-24T09:00:00.000Z',
-            noteText: '已确认地址变更',
+            noteText: JSON.stringify({
+              reviewResultText: '已确认地址变更',
+              costImpactText: '改址后运费上调 30 元，待补收差额',
+              refundText: '无需退款',
+              driverNoticeText: '已通知司机按新地址配送',
+            }),
           }),
         ],
       }),
@@ -1141,6 +1146,9 @@ describe('platform order mapper', () => {
       submittedAtText: '2026-07-24 16:00',
       reviewedAtIso: '2026-07-24T09:00:00.000Z',
       reviewedAtText: '2026-07-24 17:00',
+      costImpactText: '改址后运费上调 30 元，待补收差额',
+      refundText: '无需退款',
+      driverNoticeText: '已通知司机按新地址配送',
       reviewResultText: '已确认地址变更',
     });
   });
