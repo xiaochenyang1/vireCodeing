@@ -46,6 +46,97 @@ export type PlatformFileUploadIntent = PlatformFileUploadRecord & {
   expiresAtIso: string;
 };
 
+export type PlatformFileMaintenanceSummary = {
+  totalCount: number;
+  pendingCount: number;
+  uploadedCount: number;
+  rejectedCount: number;
+  expiredPendingCount: number;
+  cutoffIso: string;
+};
+
+export type PlatformFileMaintenanceReportQuery = {
+  topOwnersLimit?: number;
+};
+
+export type PlatformListFileMaintenanceFilesQuery = {
+  status?: PlatformFileStatus;
+  purpose?: PlatformFilePurpose;
+  ownerUserId?: string;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PlatformFileMaintenanceListItem = PlatformFileUploadRecord & {
+  isExpiredPending: boolean;
+};
+
+export type PlatformListFileMaintenanceFilesResult = {
+  items: PlatformFileMaintenanceListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type PlatformFileMaintenancePurposeBreakdownItem = {
+  purpose: PlatformFilePurpose;
+  totalCount: number;
+  pendingCount: number;
+  uploadedCount: number;
+  rejectedCount: number;
+  expiredPendingCount: number;
+};
+
+export type PlatformFileMaintenanceTopOwnerItem = {
+  ownerUserId: string;
+  totalCount: number;
+  pendingCount: number;
+  uploadedCount: number;
+  rejectedCount: number;
+  expiredPendingCount: number;
+  latestCreatedAtIso: string;
+};
+
+export type PlatformFileMaintenanceReport = {
+  purposeBreakdown: PlatformFileMaintenancePurposeBreakdownItem[];
+  topOwners: PlatformFileMaintenanceTopOwnerItem[];
+  generatedAtIso: string;
+  cutoffIso: string;
+};
+
+export type PlatformRejectExpiredPendingFilesResult = {
+  rejectedCount: number;
+  deletedObjectCount: number;
+  failedObjectDeletionCount: number;
+  cutoffIso: string;
+};
+
+export type PlatformDeleteRejectedFileObjectsResult = {
+  attemptedObjectCount: number;
+  deletedObjectCount: number;
+  failedObjectDeletionCount: number;
+};
+
+export type PlatformFileMaintenanceBatchGovernanceAction =
+  | 'reject_pending'
+  | 'delete_rejected_objects';
+
+export type PlatformRunFileMaintenanceBatchGovernanceRequest = {
+  action: PlatformFileMaintenanceBatchGovernanceAction;
+  fileIds: string[];
+};
+
+export type PlatformRunFileMaintenanceBatchGovernanceResult = {
+  action: PlatformFileMaintenanceBatchGovernanceAction;
+  requestedCount: number;
+  matchedCount: number;
+  processedCount: number;
+  skippedFileIds: string[];
+  deletedObjectCount: number;
+  failedObjectDeletionCount: number;
+};
+
 export type PlatformFileUploadConfirmationApi = {
   confirmUploaded: (
     fileId: string,
@@ -71,7 +162,14 @@ const allowedContentTypes = [
   'image/webp',
   'application/pdf',
 ];
+const allowedFileStatuses: PlatformFileStatus[] = [
+  'pending',
+  'uploaded',
+  'rejected',
+];
 const maxUploadBytes = 10 * 1024 * 1024;
+const FILE_MAINTENANCE_REQUEST_INVALID =
+  'PLATFORM_FILE_MAINTENANCE_REQUEST_INVALID';
 
 export function createPlatformFileApi(config: PlatformApiConfig) {
   return {
@@ -127,6 +225,58 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
         config,
         `/files/previews/${createObjectKeyPath(normalizedObjectKey)}?${query.toString()}`,
         { includeAuth: false },
+      );
+    },
+    rejectExpiredPendingFiles() {
+      return platformPost<undefined, PlatformRejectExpiredPendingFilesResult>(
+        config,
+        '/files/maintenance/reject-expired-pending',
+        undefined,
+      );
+    },
+    getFileMaintenanceSummary() {
+      return platformGet<PlatformFileMaintenanceSummary>(
+        config,
+        '/files/maintenance/summary',
+      );
+    },
+    async getFileMaintenanceReport(
+      query: PlatformFileMaintenanceReportQuery = {},
+    ) {
+      return platformGet<PlatformFileMaintenanceReport>(
+        config,
+        createFileMaintenanceReportPath(
+          normalizeFileMaintenanceReportQuery(query),
+        ),
+      );
+    },
+    async listFileMaintenanceFiles(
+      query: PlatformListFileMaintenanceFilesQuery = {},
+    ) {
+      return platformGet<PlatformListFileMaintenanceFilesResult>(
+        config,
+        createFileMaintenanceFilesPath(
+          normalizeListFileMaintenanceFilesQuery(query),
+        ),
+      );
+    },
+    async runFileMaintenanceBatchGovernance(
+      request: PlatformRunFileMaintenanceBatchGovernanceRequest,
+    ) {
+      return platformPost<
+        PlatformRunFileMaintenanceBatchGovernanceRequest,
+        PlatformRunFileMaintenanceBatchGovernanceResult
+      >(
+        config,
+        '/files/maintenance/batch-governance',
+        normalizeRunFileMaintenanceBatchGovernanceRequest(request),
+      );
+    },
+    deleteRejectedFileObjects() {
+      return platformPost<undefined, PlatformDeleteRejectedFileObjectsResult>(
+        config,
+        '/files/maintenance/delete-rejected-objects',
+        undefined,
       );
     },
   };
@@ -262,6 +412,138 @@ function normalizePreviewMetadataRequest(
   };
 }
 
+function normalizeFileMaintenanceReportQuery(
+  query: PlatformFileMaintenanceReportQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidFileMaintenanceRequest(
+      'File maintenance report query must be an object',
+    );
+  }
+
+  const topOwnersLimit = query.topOwnersLimit ?? 5;
+
+  if (
+    !Number.isInteger(topOwnersLimit) ||
+    topOwnersLimit < 1 ||
+    topOwnersLimit > 20
+  ) {
+    throwInvalidFileMaintenanceRequest(
+      'File maintenance topOwnersLimit is invalid',
+    );
+  }
+
+  return {
+    topOwnersLimit: String(topOwnersLimit),
+  };
+}
+
+function normalizeListFileMaintenanceFilesQuery(
+  query: PlatformListFileMaintenanceFilesQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidFileMaintenanceRequest(
+      'File maintenance files query must be an object',
+    );
+  }
+
+  const status = normalizeOptionalFileMaintenanceString(
+    query.status,
+    20,
+    'File maintenance status is invalid',
+  ) as PlatformFileStatus | undefined;
+  const purpose = normalizeOptionalFileMaintenanceString(
+    query.purpose,
+    20,
+    'File maintenance purpose is invalid',
+  ) as PlatformFilePurpose | undefined;
+  const ownerUserId = normalizeOptionalFileMaintenanceString(
+    query.ownerUserId,
+    120,
+    'File maintenance ownerUserId is invalid',
+  );
+  const keyword = normalizeOptionalFileMaintenanceString(
+    query.keyword,
+    120,
+    'File maintenance keyword is invalid',
+  );
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (status !== undefined && !allowedFileStatuses.includes(status)) {
+    throwInvalidFileMaintenanceRequest('File maintenance status is invalid');
+  }
+
+  if (purpose !== undefined && !allowedPurposes.includes(purpose)) {
+    throwInvalidFileMaintenanceRequest('File maintenance purpose is invalid');
+  }
+
+  if (!Number.isInteger(page) || page < 1) {
+    throwInvalidFileMaintenanceRequest('File maintenance page is invalid');
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throwInvalidFileMaintenanceRequest('File maintenance pageSize is invalid');
+  }
+
+  return {
+    ...(status ? { status } : {}),
+    ...(purpose ? { purpose } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
+    ...(keyword ? { keyword } : {}),
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeRunFileMaintenanceBatchGovernanceRequest(
+  request: PlatformRunFileMaintenanceBatchGovernanceRequest,
+): PlatformRunFileMaintenanceBatchGovernanceRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidFileMaintenanceRequest(
+      'File maintenance batch governance request must be an object',
+    );
+  }
+
+  const action = normalizeRequiredFileMaintenanceString(
+    request.action,
+    40,
+    'File maintenance action is invalid',
+  ) as PlatformFileMaintenanceBatchGovernanceAction;
+
+  if (
+    action !== 'reject_pending' &&
+    action !== 'delete_rejected_objects'
+  ) {
+    throwInvalidFileMaintenanceRequest('File maintenance action is invalid');
+  }
+
+  if (
+    !Array.isArray(request.fileIds) ||
+    request.fileIds.length < 1 ||
+    request.fileIds.length > 50
+  ) {
+    throwInvalidFileMaintenanceRequest('File maintenance fileIds are invalid');
+  }
+
+  const fileIds = Array.from(
+    new Set(
+      request.fileIds.map(fileId =>
+        normalizeRequiredFileMaintenanceString(
+          fileId,
+          120,
+          'File maintenance fileIds are invalid',
+        ),
+      ),
+    ),
+  );
+
+  return {
+    action,
+    fileIds,
+  };
+}
+
 function normalizeFileId(value: unknown) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(
@@ -323,6 +605,24 @@ function normalizeRequiredString(
   return normalizedValue;
 }
 
+function normalizeRequiredFileMaintenanceString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+) {
+  if (typeof value !== 'string') {
+    throwInvalidFileMaintenanceRequest(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0 || normalizedValue.length > maxLength) {
+    throwInvalidFileMaintenanceRequest(message);
+  }
+
+  return normalizedValue;
+}
+
 function normalizeOptionalTrimmedString(value: unknown, message: string) {
   if (value === undefined) {
     return undefined;
@@ -335,6 +635,32 @@ function normalizeOptionalTrimmedString(value: unknown, message: string) {
   const normalizedValue = value.trim();
 
   return normalizedValue === '' ? undefined : normalizedValue;
+}
+
+function normalizeOptionalFileMaintenanceString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throwInvalidFileMaintenanceRequest(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (normalizedValue === '') {
+    return undefined;
+  }
+
+  if (normalizedValue.length > maxLength) {
+    throwInvalidFileMaintenanceRequest(message);
+  }
+
+  return normalizedValue;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -365,11 +691,31 @@ function throwInvalidPreviewRequest(message: string): never {
   );
 }
 
+function throwInvalidFileMaintenanceRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    FILE_MAINTENANCE_REQUEST_INVALID,
+    0,
+  );
+}
+
 function createObjectKeyPath(objectKey: string) {
   return objectKey
     .split('/')
     .map((part) => encodeURIComponent(part))
     .join('/');
+}
+
+function createFileMaintenanceReportPath(
+  query: ReturnType<typeof normalizeFileMaintenanceReportQuery>,
+) {
+  return `/files/maintenance/report?${new URLSearchParams(query).toString()}`;
+}
+
+function createFileMaintenanceFilesPath(
+  query: ReturnType<typeof normalizeListFileMaintenanceFilesQuery>,
+) {
+  return `/files/maintenance/files?${new URLSearchParams(query).toString()}`;
 }
 
 function ensureTrailingSlash(value: string) {

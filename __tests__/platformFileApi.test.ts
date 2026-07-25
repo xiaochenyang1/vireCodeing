@@ -387,6 +387,170 @@ describe('platform file api', () => {
     );
   });
 
+  it('reads file maintenance summary and report with bearer token', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse(createFileMaintenanceSummary()),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(createFileMaintenanceReport()),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.getFileMaintenanceSummary()).resolves.toMatchObject({
+      totalCount: 6,
+      expiredPendingCount: 2,
+    });
+    await expect(
+      api.getFileMaintenanceReport({ topOwnersLimit: 8 }),
+    ).resolves.toMatchObject({
+      generatedAtIso: '2026-07-25T09:00:00.000Z',
+      topOwners: [expect.objectContaining({ ownerUserId: 'user-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/files/maintenance/summary',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/files/maintenance/report?topOwnersLimit=8',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('lists maintenance files with normalized query filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        items: [createMaintenanceFile()],
+        page: 2,
+        pageSize: 10,
+        total: 1,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listFileMaintenanceFiles({
+        status: 'pending',
+        purpose: 'exception',
+        ownerUserId: ' user-1 ',
+        keyword: ' object-key ',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 10,
+      items: [expect.objectContaining({ id: 'file-maint-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/files/maintenance/files?status=pending&purpose=exception&ownerUserId=user-1&keyword=object-key&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('runs file maintenance actions with normalized payloads', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          rejectedCount: 2,
+          deletedObjectCount: 1,
+          failedObjectDeletionCount: 1,
+          cutoffIso: '2026-07-25T08:00:00.000Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          action: 'reject_pending',
+          requestedCount: 2,
+          matchedCount: 2,
+          processedCount: 2,
+          skippedFileIds: [],
+          deletedObjectCount: 1,
+          failedObjectDeletionCount: 0,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          attemptedObjectCount: 3,
+          deletedObjectCount: 2,
+          failedObjectDeletionCount: 1,
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.rejectExpiredPendingFiles()).resolves.toMatchObject({
+      rejectedCount: 2,
+    });
+    await expect(
+      api.runFileMaintenanceBatchGovernance({
+        action: 'reject_pending',
+        fileIds: [' file-1 ', 'file-2', 'file-1'],
+      }),
+    ).resolves.toMatchObject({
+      requestedCount: 2,
+      processedCount: 2,
+    });
+    await expect(api.deleteRejectedFileObjects()).resolves.toMatchObject({
+      attemptedObjectCount: 3,
+      deletedObjectCount: 2,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/files/maintenance/reject-expired-pending',
+      expect.objectContaining({
+        method: 'POST',
+        body: undefined,
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/files/maintenance/batch-governance',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'reject_pending',
+          fileIds: ['file-1', 'file-2'],
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/files/maintenance/delete-rejected-objects',
+      expect.objectContaining({
+        method: 'POST',
+        body: undefined,
+      }),
+    );
+  });
+
   it('rejects invalid file requests before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -443,6 +607,34 @@ describe('platform file api', () => {
       }),
     ).rejects.toMatchObject({
       code: 'PLATFORM_FILE_PREVIEW_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.getFileMaintenanceReport({
+        topOwnersLimit: 21,
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_FILE_MAINTENANCE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.listFileMaintenanceFiles({
+        status: 'done' as never,
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_FILE_MAINTENANCE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.runFileMaintenanceBatchGovernance({
+        action: 'delete_all' as never,
+        fileIds: ['file-1'],
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_FILE_MAINTENANCE_REQUEST_INVALID',
       status: 0,
     } satisfies Partial<PlatformApiError>);
 
@@ -644,3 +836,70 @@ describe('platform file api', () => {
     },
   );
 });
+
+function createJsonResponse(data: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      code: 'OK',
+      message: 'success',
+      data,
+      requestId: 'req-test',
+      timestamp: '2026-07-25T09:00:00.000Z',
+    }),
+  };
+}
+
+function createFileMaintenanceSummary() {
+  return {
+    totalCount: 6,
+    pendingCount: 2,
+    uploadedCount: 2,
+    rejectedCount: 2,
+    expiredPendingCount: 2,
+    cutoffIso: '2026-07-25T08:00:00.000Z',
+  };
+}
+
+function createFileMaintenanceReport() {
+  return {
+    generatedAtIso: '2026-07-25T09:00:00.000Z',
+    cutoffIso: '2026-07-25T08:00:00.000Z',
+    purposeBreakdown: [
+      {
+        purpose: 'exception',
+        totalCount: 3,
+        pendingCount: 1,
+        uploadedCount: 1,
+        rejectedCount: 1,
+        expiredPendingCount: 1,
+      },
+    ],
+    topOwners: [
+      {
+        ownerUserId: 'user-1',
+        totalCount: 3,
+        pendingCount: 1,
+        uploadedCount: 1,
+        rejectedCount: 1,
+        expiredPendingCount: 1,
+        latestCreatedAtIso: '2026-07-25T07:00:00.000Z',
+      },
+    ],
+  };
+}
+
+function createMaintenanceFile(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'file-maint-1',
+    ownerUserId: 'user-1',
+    purpose: 'exception',
+    objectKey: 'user-1/exception/file-maint-1.png',
+    publicUrl: 'https://cdn.example.com/user-1/exception/file-maint-1.png',
+    status: 'pending',
+    isExpiredPending: true,
+    createdAtIso: '2026-07-25T07:00:00.000Z',
+    ...overrides,
+  };
+}
