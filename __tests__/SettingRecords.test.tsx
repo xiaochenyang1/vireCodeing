@@ -1100,6 +1100,9 @@ describe('SettingRecords platform account profile', () => {
     expect(renderedText).toContain('当前设备推送');
     expect(renderedText).toContain('其它设备推送');
     expect(renderedText).toContain('Android · 设备 mobile-device-tablet');
+    expect(renderedText).toContain('最近活跃：2026-07-22 16:05');
+    expect(renderedText).toContain('注册时间：2026-07-22 16:00');
+    expect(renderedText).toContain('最近更新：2026-07-21 17:00');
 
     await ReactTestRenderer.act(async () => {
       await renderer.root

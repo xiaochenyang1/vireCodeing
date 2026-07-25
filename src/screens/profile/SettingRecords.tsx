@@ -7,6 +7,7 @@ import { ProfileAvatar } from '../../components/ProfileAvatar';
 import { appVersionInfo } from '../../data/mockData';
 import type { PushNotificationPermissionStatus } from '../../hooks/usePushNotifications';
 import { styles } from '../../styles';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import { getProfileAvatarInitial } from '../../utils/profileOverview';
 import {
   createAccountSecurityCheckModel,
@@ -119,19 +120,7 @@ function formatPushDeviceTimestamp(isoText?: string) {
     return '未记录';
   }
 
-  const date = new Date(isoText);
-
-  if (Number.isNaN(date.valueOf())) {
-    return isoText;
-  }
-
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
+  return formatPlatformIsoMinute(isoText);
 }
 
 function formatPushTokenPreview(token: string) {
@@ -1303,11 +1292,21 @@ export function SettingRecords({
                     </Text>
                     <Text style={styles.detailMeta}>
                       {`最近活跃：${formatPushDeviceTimestamp(
-                        device.lastUsedAtIso ??
-                          device.updatedAtIso ??
-                          device.createdAtIso,
+                        device.lastUsedAtIso,
                       )}`}
                     </Text>
+                    <Text style={styles.detailMeta}>
+                      {`注册时间：${formatPushDeviceTimestamp(
+                        device.createdAtIso,
+                      )}`}
+                    </Text>
+                    {device.updatedAtIso !== device.createdAtIso ? (
+                      <Text style={styles.detailMeta}>
+                        {`最近更新：${formatPushDeviceTimestamp(
+                          device.updatedAtIso,
+                        )}`}
+                      </Text>
+                    ) : null}
                     {device.deviceId === currentDeviceId ? (
                       <Text style={styles.routeMeta}>
                         当前设备保留推送接收。
