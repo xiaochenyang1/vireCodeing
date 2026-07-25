@@ -93,7 +93,7 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     title: '货主认证审核台',
     route: '/api/admin/shipper-verification-console',
     summary:
-      '读取货主实名/企业认证队列，并可单条通过 / 驳回，打通货主认证审核第一片。',
+      '读取货主实名/企业认证队列、附件和审核事件，并可单条通过 / 驳回，打通货主认证审核第一片。',
   },
   {
     key: 'shipper-invoice',
@@ -205,11 +205,12 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '审核货主实名认证与企业认证',
     moduleKey: 'shipper-verification',
     summary:
-      '读取货主实名/企业认证队列、审核事件，并能执行实名、企业认证的单条通过 / 驳回。',
+      '读取货主实名/企业认证队列、认证附件、审核事件，并能执行实名、企业认证的单条通过 / 驳回。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/shipper-verifications',
+      '/admin/shipper-verifications/{shipperId}/attachments',
       '/admin/shipper-verifications/{shipperId}/review-events',
       '/admin/shipper-verifications/{shipperId}/identity/review',
       '/admin/shipper-verifications/{shipperId}/enterprise/review',

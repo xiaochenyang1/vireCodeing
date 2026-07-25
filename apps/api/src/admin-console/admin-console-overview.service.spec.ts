@@ -93,8 +93,8 @@ describe('AdminConsoleOverviewService', () => {
             key: 'shipper-verification',
             route: '/api/admin/shipper-verification-console',
             summary:
-              '货主实名/企业认证后台列表、通过驳回和审核事件审计第一片已接上，还没做附件预览、证照 OCR 和人脸核验。',
-            pendingGaps: ['附件预览', 'OCR / 人脸核验'],
+              '货主实名/企业认证后台列表、附件预览、通过驳回和审核事件审计第一片已接上，还没做证照 OCR 和人脸核验。',
+            pendingGaps: ['OCR / 人脸核验'],
           }),
           expect.objectContaining({
             key: 'order-management',

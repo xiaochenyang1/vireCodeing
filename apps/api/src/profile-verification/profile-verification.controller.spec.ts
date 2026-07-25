@@ -151,6 +151,50 @@ describe('ProfileVerificationController', () => {
 });
 
 describe('AdminShipperVerificationController', () => {
+  it('gets verification attachment previews for the current admin', async () => {
+    const service = {
+      getAttachmentPreviews: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        identity: {
+          identityFront: {
+            id: 'file-front',
+            attachmentType: 'identityFront',
+            status: 'uploaded',
+            previewUrl: 'https://preview.example.com/file-front',
+          },
+        },
+        enterprise: {},
+      }),
+    } as unknown as ProfileVerificationService;
+    const controller = new AdminShipperVerificationController(service);
+
+    await expect(
+      controller.getAttachmentPreviews(
+        createRequest('admin-1', 'admin'),
+        'shipper-1',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        code: 'OK',
+        data: expect.objectContaining({
+          shipperId: 'shipper-1',
+          identity: expect.objectContaining({
+            identityFront: expect.objectContaining({
+              id: 'file-front',
+              attachmentType: 'identityFront',
+              status: 'uploaded',
+            }),
+          }),
+        }),
+        requestId: 'req_profile_verification_test',
+      }),
+    );
+    expect(service.getAttachmentPreviews).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'shipper-1',
+    );
+  });
+
   it('lists verification review events for the current admin', async () => {
     const service = {
       listReviewEvents: jest.fn().mockResolvedValue([

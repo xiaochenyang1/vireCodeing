@@ -1,3 +1,5 @@
+import type { FileUploadRecord } from '../files/dto';
+
 export type ShipperProfileVerificationStatus =
   | 'reviewing'
   | 'approved'
@@ -68,6 +70,28 @@ export type ShipperVerificationListResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type ShipperVerificationAttachmentType =
+  | 'identityFront'
+  | 'identityBack'
+  | 'license';
+
+export type ShipperVerificationAttachmentRecord = FileUploadRecord & {
+  attachmentType: ShipperVerificationAttachmentType;
+  previewUrl?: string;
+  previewExpiresAtIso?: string;
+};
+
+export type ShipperVerificationAttachmentPreview = {
+  shipperId: string;
+  identity: {
+    identityFront?: ShipperVerificationAttachmentRecord;
+    identityBack?: ShipperVerificationAttachmentRecord;
+  };
+  enterprise: {
+    license?: ShipperVerificationAttachmentRecord;
+  };
 };
 
 export type AdminShipperVerificationReviewEventType =

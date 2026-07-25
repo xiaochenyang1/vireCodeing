@@ -5,12 +5,15 @@ import { InMemoryProfileVerificationRepository } from './profile-verification.re
 import { ProfileVerificationService } from './profile-verification.service';
 
 describe('ProfileVerificationService', () => {
+  const previewExpiresAtIso = '2026-07-25T08:10:00.000Z';
+
   function createFilesRepository(files: FileUploadRecord[]): FilesRepository {
     const filesById = new Map(files.map(file => [file.id, file]));
 
     return {
       createPendingFile: jest.fn(),
       findFileById: jest.fn(),
+      findFilesByIds: jest.fn(),
       findFileByIdAndOwner: jest.fn(
         async (fileId: string, ownerUserId: string) => {
           const file = filesById.get(fileId);
@@ -22,14 +25,18 @@ describe('ProfileVerificationService', () => {
       markFileUploaded: jest.fn(),
       findPendingFilesCreatedBefore: jest.fn(),
       findRejectedFiles: jest.fn(),
+      listMaintenanceFiles: jest.fn(),
+      getMaintenanceReport: jest.fn(),
       getMaintenanceSummary: jest.fn(),
       rejectPendingFilesCreatedBefore: jest.fn(),
+      rejectPendingFilesByIds: jest.fn(),
     } as unknown as FilesRepository;
   }
 
   function createUploadedIdentityFile(
     id: string,
     ownerUserId = 'shipper-1',
+    publicUrl?: string,
   ): FileUploadRecord {
     return {
       id,
@@ -38,27 +45,46 @@ describe('ProfileVerificationService', () => {
       contentType: 'image/png',
       byteSize: 2048,
       objectKey: `${ownerUserId}/identity/${id}.png`,
+      ...(publicUrl ? { publicUrl } : {}),
       status: 'uploaded',
       createdAtIso: '2026-07-09T08:00:00.000Z',
     };
   }
 
-  it('returns undefined when the current shipper has no saved verification snapshot', async () => {
+  function createService(files: FileUploadRecord[] = []) {
     const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([]);
-    const service = new ProfileVerificationService(repository, filesRepository);
+    const filesRepository = createFilesRepository(files);
+    const previewUrlSigner = {
+      signPreviewUrl: jest.fn(file => ({
+        previewUrl: `https://preview.example.com/${file.id}`,
+        previewExpiresAtIso,
+      })),
+    };
+
+    return {
+      repository,
+      filesRepository,
+      previewUrlSigner,
+      service: new ProfileVerificationService(
+        repository,
+        filesRepository,
+        previewUrlSigner,
+      ),
+    };
+  }
+
+  it('returns undefined when the current shipper has no saved verification snapshot', async () => {
+    const { service } = createService();
 
     await expect(service.getIdentity('shipper-1')).resolves.toBeUndefined();
     await expect(service.getEnterprise('shipper-1')).resolves.toBeUndefined();
   });
 
   it('saves and reads the current shipper identity verification snapshot', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([
+    const { service } = createService([
       createUploadedIdentityFile('file-front'),
       createUploadedIdentityFile('file-back'),
     ]);
-    const service = new ProfileVerificationService(repository, filesRepository);
 
     await expect(
       service.saveIdentity('shipper-1', {
@@ -83,14 +109,12 @@ describe('ProfileVerificationService', () => {
   });
 
   it('rejects shipper identity verification files that are missing or not uploaded', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([
+    const { service } = createService([
       {
         ...createUploadedIdentityFile('file-front'),
         status: 'pending',
       },
     ]);
-    const service = new ProfileVerificationService(repository, filesRepository);
 
     await expect(
       service.saveIdentity('shipper-1', {
@@ -106,9 +130,7 @@ describe('ProfileVerificationService', () => {
   });
 
   it('rejects shipper identity verification when a file is entirely missing', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([]);
-    const service = new ProfileVerificationService(repository, filesRepository);
+    const { service } = createService();
 
     await expect(
       service.saveIdentity('shipper-1', {
@@ -124,14 +146,12 @@ describe('ProfileVerificationService', () => {
   });
 
   it('rejects shipper enterprise verification files with invalid purpose', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([
+    const { service } = createService([
       {
         ...createUploadedIdentityFile('file-license'),
         purpose: 'invoice',
       },
     ]);
-    const service = new ProfileVerificationService(repository, filesRepository);
 
     await expect(
       service.saveEnterprise('shipper-1', {
@@ -148,12 +168,10 @@ describe('ProfileVerificationService', () => {
   });
 
   it('keeps enterprise verification snapshots isolated by shipper id', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([
+    const { service } = createService([
       createUploadedIdentityFile('license-1', 'shipper-1'),
       createUploadedIdentityFile('license-2', 'shipper-2'),
     ]);
-    const service = new ProfileVerificationService(repository, filesRepository);
 
     await service.saveEnterprise('shipper-1', {
       enterpriseName: '深圳晨星贸易有限公司',
@@ -185,7 +203,7 @@ describe('ProfileVerificationService', () => {
   });
 
   it('lists reviewing shipper verifications for admin', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
+    const { repository } = createService();
     const filesRepository = createFilesRepository([
       createUploadedIdentityFile('file-front'),
       createUploadedIdentityFile('file-back'),
@@ -240,12 +258,10 @@ describe('ProfileVerificationService', () => {
   });
 
   it('approves and rejects shipper identity verification for admin', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([
+    const { service } = createService([
       createUploadedIdentityFile('file-front'),
       createUploadedIdentityFile('file-back'),
     ]);
-    const service = new ProfileVerificationService(repository, filesRepository);
     const admin = { id: 'admin-1', phone: '13900000000', userType: 'admin' as const };
 
     await service.saveIdentity('shipper-1', {
@@ -310,14 +326,133 @@ describe('ProfileVerificationService', () => {
   });
 
   it('rejects non-admin users from shipper verification review', async () => {
-    const repository = new InMemoryProfileVerificationRepository();
-    const filesRepository = createFilesRepository([]);
-    const service = new ProfileVerificationService(repository, filesRepository);
+    const { service } = createService();
 
     await expect(
       service.listVerifications(
         { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
         { status: 'reviewing', page: 1, pageSize: 20 },
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+  });
+
+  it('returns shipper verification attachment previews for admin', async () => {
+    const identityFrontFile = createUploadedIdentityFile(
+      'file-front',
+      'shipper-1',
+      'https://cdn.example.com/shipper-1/front.png',
+    );
+    const identityBackFile = createUploadedIdentityFile('file-back');
+    const licenseFile = createUploadedIdentityFile(
+      'file-license',
+      'shipper-1',
+      'https://cdn.example.com/shipper-1/license.png',
+    );
+    const { service } = createService([
+      identityFrontFile,
+      identityBackFile,
+      licenseFile,
+    ]);
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: identityFrontFile.id,
+      identityBackFileId: identityBackFile.id,
+      faceVerified: true,
+    });
+    await service.saveEnterprise('shipper-1', {
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '44030019900101123X',
+      enterprisePhone: '13900139088',
+      licenseFileId: licenseFile.id,
+    });
+
+    await expect(
+      service.getAttachmentPreviews(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        'shipper-1',
+      ),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      identity: {
+        identityFront: {
+          id: identityFrontFile.id,
+          attachmentType: 'identityFront',
+          publicUrl: 'https://cdn.example.com/shipper-1/front.png',
+          status: 'uploaded',
+        },
+        identityBack: {
+          id: identityBackFile.id,
+          attachmentType: 'identityBack',
+          status: 'uploaded',
+        },
+      },
+      enterprise: {
+        license: {
+          id: licenseFile.id,
+          attachmentType: 'license',
+          publicUrl: 'https://cdn.example.com/shipper-1/license.png',
+          status: 'uploaded',
+        },
+      },
+    });
+  });
+
+  it('adds signed preview urls to shipper verification attachment previews', async () => {
+    const identityFrontFile = createUploadedIdentityFile('file-front');
+    const identityBackFile = createUploadedIdentityFile('file-back');
+    const { previewUrlSigner, service } = createService([
+      identityFrontFile,
+      identityBackFile,
+    ]);
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: identityFrontFile.id,
+      identityBackFileId: identityBackFile.id,
+      faceVerified: true,
+    });
+
+    await expect(
+      service.getAttachmentPreviews(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        'shipper-1',
+      ),
+    ).resolves.toMatchObject({
+      identity: {
+        identityFront: {
+          id: identityFrontFile.id,
+          previewUrl: `https://preview.example.com/${identityFrontFile.id}`,
+          previewExpiresAtIso,
+        },
+        identityBack: {
+          id: identityBackFile.id,
+          previewUrl: `https://preview.example.com/${identityBackFile.id}`,
+          previewExpiresAtIso,
+        },
+      },
+    });
+    expect(previewUrlSigner.signPreviewUrl).toHaveBeenCalledWith(
+      identityFrontFile,
+    );
+    expect(previewUrlSigner.signPreviewUrl).toHaveBeenCalledWith(
+      identityBackFile,
+    );
+  });
+
+  it('rejects non-admin shipper verification attachment preview access', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.getAttachmentPreviews(
+        { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
+        'shipper-1',
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),

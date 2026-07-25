@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
+import { createFilePreviewUrlSignerConfigFromEnv } from '../files/file-preview-url.config';
+import { LocalFilePreviewUrlSigner } from '../files/file-preview-url.signer';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { PrismaFilesRepository, type PrismaFilesClient } from '../files/files.repository';
@@ -36,12 +38,29 @@ import { ProfileVerificationService } from './profile-verification.service';
       inject: [PrismaService],
     },
     {
+      provide: LocalFilePreviewUrlSigner,
+      useFactory: () =>
+        new LocalFilePreviewUrlSigner(
+          createFilePreviewUrlSignerConfigFromEnv(process.env),
+        ),
+    },
+    {
       provide: ProfileVerificationService,
       useFactory: (
         repository: PrismaProfileVerificationRepository,
         filesRepository: PrismaFilesRepository,
-      ) => new ProfileVerificationService(repository, filesRepository),
-      inject: [PrismaProfileVerificationRepository, PrismaFilesRepository],
+        previewUrlSigner: LocalFilePreviewUrlSigner,
+      ) =>
+        new ProfileVerificationService(
+          repository,
+          filesRepository,
+          previewUrlSigner,
+        ),
+      inject: [
+        PrismaProfileVerificationRepository,
+        PrismaFilesRepository,
+        LocalFilePreviewUrlSigner,
+      ],
     },
     ShipperOnlyGuard,
     AdminOnlyGuard,

@@ -1,12 +1,19 @@
 import type { AuthenticatedUser } from '../auth/dto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
-import type { FilePurpose } from '../files/dto';
+import type { FilePurpose, FileUploadRecord } from '../files/dto';
+import {
+  LocalFilePreviewUrlSigner,
+  type FilePreviewUrlSigner,
+} from '../files/file-preview-url.signer';
 import type { FilesRepository } from '../files/files.repository';
 import type {
   ListShipperVerificationQuery,
   ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
   SaveShipperIdentityVerificationRequest,
+  ShipperVerificationAttachmentPreview,
+  ShipperVerificationAttachmentRecord,
+  ShipperVerificationAttachmentType,
 } from './dto';
 import type { ProfileVerificationRepository } from './profile-verification.repository';
 
@@ -14,6 +21,8 @@ export class ProfileVerificationService {
   constructor(
     private readonly repository: ProfileVerificationRepository,
     private readonly filesRepository: FilesRepository,
+    private readonly previewUrlSigner: FilePreviewUrlSigner =
+      new LocalFilePreviewUrlSigner(),
   ) {}
 
   async getIdentity(shipperId: string) {
@@ -56,6 +65,50 @@ export class ProfileVerificationService {
   async listReviewEvents(currentUser: AuthenticatedUser, shipperId: string) {
     this.assertAdmin(currentUser);
     return this.repository.listReviewEvents(shipperId);
+  }
+
+  async getAttachmentPreviews(
+    currentUser: AuthenticatedUser,
+    shipperId: string,
+  ): Promise<ShipperVerificationAttachmentPreview> {
+    this.assertAdmin(currentUser);
+
+    const [identity, enterprise] = await Promise.all([
+      this.repository.findIdentityByShipperId(shipperId),
+      this.repository.findEnterpriseByShipperId(shipperId),
+    ]);
+
+    if (!identity && !enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主认证记录不存在',
+      );
+    }
+
+    const [identityFront, identityBack, license] = await Promise.all([
+      this.findAttachment(
+        shipperId,
+        'identityFront',
+        identity?.identityFrontFileId,
+      ),
+      this.findAttachment(
+        shipperId,
+        'identityBack',
+        identity?.identityBackFileId,
+      ),
+      this.findAttachment(shipperId, 'license', enterprise?.licenseFileId),
+    ]);
+
+    return {
+      shipperId,
+      identity: {
+        ...(identityFront ? { identityFront } : {}),
+        ...(identityBack ? { identityBack } : {}),
+      },
+      enterprise: {
+        ...(license ? { license } : {}),
+      },
+    };
   }
 
   async reviewIdentity(
@@ -112,4 +165,35 @@ export class ProfileVerificationService {
       }
     }
   }
+
+  private async findAttachment(
+    shipperId: string,
+    attachmentType: ShipperVerificationAttachmentType,
+    fileId: string | undefined,
+  ): Promise<ShipperVerificationAttachmentRecord | undefined> {
+    if (!fileId) {
+      return undefined;
+    }
+
+    const file = await this.filesRepository.findFileByIdAndOwner(
+      fileId,
+      shipperId,
+    );
+
+    return file
+      ? mapAttachment(file, attachmentType, this.previewUrlSigner)
+      : undefined;
+  }
+}
+
+function mapAttachment(
+  file: FileUploadRecord,
+  attachmentType: ShipperVerificationAttachmentType,
+  previewUrlSigner: FilePreviewUrlSigner,
+): ShipperVerificationAttachmentRecord {
+  return {
+    ...file,
+    attachmentType,
+    ...previewUrlSigner.signPreviewUrl(file),
+  };
 }

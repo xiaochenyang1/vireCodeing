@@ -237,21 +237,26 @@ describe('shipper invoice admin console page', () => {
 });
 
 describe('shipper verification admin console page', () => {
-  it('renders the verification queue, review actions and audit-event panel', () => {
+  it('renders the verification queue, attachment preview, review actions and audit-event panel', () => {
     const html = renderShipperVerificationAdminConsole();
 
     expect(html).toContain('货主认证审核台');
     expect(html).toContain('/api/admin/shipper-verifications');
+    expect(html).toContain('/attachments');
     expect(html).toContain('/review-events');
     expect(html).toContain('approveIdentityButton');
     expect(html).toContain('approveEnterpriseButton');
     expect(html).toContain("review('identity', 'approved')");
     expect(html).toContain("review('enterprise', 'approved')");
+    expect(html).toContain('attachmentStatus');
+    expect(html).toContain('attachmentList');
+    expect(html).toContain('selectShipper');
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
-    expect(html).toContain('loadReviewEvents');
+    expect(html).toContain('Promise.all([');
     expect(html).toContain('formatReviewEventStage');
     expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('暂无附件');
     expect(html).toContain('暂无审核事件');
     expect(html).not.toContain('hero');
   });
