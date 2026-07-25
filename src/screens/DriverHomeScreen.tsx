@@ -104,6 +104,7 @@ import {
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
   getDriverStatusText,
+  getDriverWithdrawalStatusDetailText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
   getLatestDriverException,
@@ -3088,18 +3089,37 @@ export function DriverHomeScreen({
         </Pressable>
         <Text style={styles.detailMeta}>最近提现记录</Text>
         {withdrawalRecords.length ? (
-          withdrawalRecords.map(withdrawal => (
-            <View key={withdrawal.id} style={styles.detailInlineGroup}>
-              <Text style={styles.detailRoute}>
-                {`${withdrawal.bankName} · ${withdrawal.bankAccountMasked}`}
-              </Text>
-              <Text style={styles.detailMeta}>
-                {`${formatDriverCurrency(withdrawal.amountCents)} · ${getDriverWithdrawalStatusText(
-                  withdrawal.status,
-                )}`}
-              </Text>
-            </View>
-          ))
+          withdrawalRecords.map(withdrawal => {
+            const withdrawalDetailText =
+              getDriverWithdrawalStatusDetailText(withdrawal);
+
+            return (
+              <View key={withdrawal.id} style={styles.detailInlineGroup}>
+                <Text style={styles.detailRoute}>
+                  {`${withdrawal.bankName} · ${withdrawal.bankAccountMasked}`}
+                </Text>
+                <Text style={styles.detailMeta}>
+                  {`${formatDriverCurrency(withdrawal.amountCents)} · ${getDriverWithdrawalStatusText(
+                    withdrawal.status,
+                  )}`}
+                </Text>
+                <Text
+                  testID={`driver-withdrawal-record-created-at-${withdrawal.id}`}
+                  style={styles.detailMeta}
+                >
+                  {`申请时间：${formatDriverIncomeTime(withdrawal.createdAtIso)}`}
+                </Text>
+                {withdrawalDetailText ? (
+                  <Text
+                    testID={`driver-withdrawal-record-detail-${withdrawal.id}`}
+                    style={styles.detailMeta}
+                  >
+                    {withdrawalDetailText}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })
         ) : (
           <Text style={styles.detailMeta}>暂无提现记录。</Text>
         )}

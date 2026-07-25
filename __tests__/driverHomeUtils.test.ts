@@ -23,6 +23,7 @@ import {
   getDriverOrderPickupDistanceText,
   getDriverReceiptUploadButtonText,
   getDriverStatusText,
+  getDriverWithdrawalStatusDetailText,
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
   getLatestDriverException,
@@ -534,6 +535,38 @@ test('maps status/certification/withdrawal texts and advance notices', () => {
   expect(getCertificationStatusText('approved')).toBe('已通过');
   expect(getCertificationStatusText(undefined)).toBe('未加载');
   expect(getDriverWithdrawalStatusText('paid')).toBe('已打款');
+  expect(
+    getDriverWithdrawalStatusDetailText({
+      id: 'withdrawal-paid',
+      driverId: 'driver-1',
+      amountCents: 12000,
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountMasked: '**** **** **** 1234',
+      status: 'paid',
+      payoutChannel: 'sandbox',
+      providerPayoutNo: 'sandbox-payout-1',
+      payoutExecutedAtIso: '2026-07-10T10:30:00.000Z',
+      createdAtIso: '2026-07-10T09:00:00.000Z',
+      updatedAtIso: '2026-07-10T10:30:00.000Z',
+    }),
+  ).toBe(
+    '打款渠道：沙箱打款 · 打款时间：2026-07-10 10:30 · 流水号：sandbox-payout-1',
+  );
+  expect(
+    getDriverWithdrawalStatusDetailText({
+      id: 'withdrawal-rejected',
+      driverId: 'driver-1',
+      amountCents: 12000,
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountMasked: '**** **** **** 1234',
+      status: 'rejected',
+      rejectionReason: '  银行卡户名校验失败  ',
+      createdAtIso: '2026-07-10T09:00:00.000Z',
+      updatedAtIso: '2026-07-10T10:30:00.000Z',
+    }),
+  ).toBe('驳回原因：银行卡户名校验失败');
   expect(createDriverAdvanceSuccessNotice('transporting')).toBe('司机已确认发车。');
   expect(createDriverAdvanceSuccessNotice('confirming')).toBe(
     '司机已确认到达，等待货主确认。',

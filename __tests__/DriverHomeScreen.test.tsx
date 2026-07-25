@@ -1097,6 +1097,78 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('shows withdrawal rejection reasons and payout details in the withdrawal list', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listWithdrawals.mockResolvedValue({
+      items: [
+        {
+          id: 'withdrawal-paid',
+          driverId: 'driver-1',
+          amountCents: 8000,
+          bankAccountName: '李师傅',
+          bankName: '招商银行',
+          bankAccountMasked: '**** **** **** 1234',
+          status: 'paid' as const,
+          payoutChannel: 'sandbox',
+          providerPayoutNo: 'sandbox-payout-1',
+          payoutExecutedAtIso: '2026-07-10T10:30:00.000Z',
+          createdAtIso: '2026-07-10T09:00:00.000Z',
+          updatedAtIso: '2026-07-10T10:30:00.000Z',
+        },
+        {
+          id: 'withdrawal-rejected',
+          driverId: 'driver-1',
+          amountCents: 12000,
+          bankAccountName: '李师傅',
+          bankName: '平安银行',
+          bankAccountMasked: '**** **** **** 5678',
+          status: 'rejected' as const,
+          rejectionReason: '银行卡户名校验失败',
+          createdAtIso: '2026-07-11T09:15:00.000Z',
+          updatedAtIso: '2026-07-11T09:30:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 2,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-record-created-at-withdrawal-paid',
+      }).props.children,
+    ).toBe('申请时间：2026-07-10 09:00');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-record-detail-withdrawal-paid',
+      }).props.children,
+    ).toBe(
+      '打款渠道：沙箱打款 · 打款时间：2026-07-10 10:30 · 流水号：sandbox-payout-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-record-created-at-withdrawal-rejected',
+      }).props.children,
+    ).toBe('申请时间：2026-07-11 09:15');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-record-detail-withdrawal-rejected',
+      }).props.children,
+    ).toBe('驳回原因：银行卡户名校验失败');
+  });
+
   it('restores the default withdrawal card after a successful withdrawal submit', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards.mockResolvedValue(

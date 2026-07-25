@@ -902,6 +902,53 @@ export function getDriverWithdrawalStatusText(
   return textByStatus[status];
 }
 
+function getDriverWithdrawalChannelText(channel: string) {
+  if (channel === 'wechat') {
+    return '微信';
+  }
+  if (channel === 'alipay') {
+    return '支付宝';
+  }
+  if (channel === 'sandbox') {
+    return '沙箱打款';
+  }
+
+  return channel;
+}
+
+export function getDriverWithdrawalStatusDetailText(
+  withdrawal: PlatformDriverWithdrawalRecord,
+) {
+  const rejectionReason = withdrawal.rejectionReason?.trim();
+
+  if (withdrawal.status === 'rejected' && rejectionReason) {
+    return `驳回原因：${rejectionReason}`;
+  }
+
+  if (withdrawal.status !== 'paid') {
+    return undefined;
+  }
+
+  const detailFacts: string[] = [];
+  const payoutChannel = withdrawal.payoutChannel?.trim();
+  const payoutExecutedAtIso = withdrawal.payoutExecutedAtIso?.trim();
+  const providerPayoutNo = withdrawal.providerPayoutNo?.trim();
+
+  if (payoutChannel) {
+    detailFacts.push(`打款渠道：${getDriverWithdrawalChannelText(payoutChannel)}`);
+  }
+
+  if (payoutExecutedAtIso) {
+    detailFacts.push(`打款时间：${formatDriverIncomeTime(payoutExecutedAtIso)}`);
+  }
+
+  if (providerPayoutNo) {
+    detailFacts.push(`流水号：${providerPayoutNo}`);
+  }
+
+  return detailFacts.length ? detailFacts.join(' · ') : undefined;
+}
+
 export function hasDriverEvaluationSubmitted(order: PlatformShipperOrder) {
   return (
     order.events?.some(event => event.eventType === 'evaluation_submitted') ??
