@@ -16,6 +16,7 @@ import { renderOrderChangeRequestAdminConsole } from './order-change-request-adm
 import { renderAccountManagementAdminConsole } from './account-management-admin-console';
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
+import { renderShipperInvoiceAdminConsole } from './shipper-invoice-admin-console';
 import { renderSupportTicketAdminConsole } from './support-ticket-admin-console';
 
 describe('driver certification admin console page', () => {
@@ -209,6 +210,24 @@ describe('order change request admin console page', () => {
     expect(html).toContain('loadReviewEvents');
     expect(html).toContain('buildReviewSnapshotBlocks');
     expect(html).toContain('fillReviewForm');
+    expect(html).toContain('formatReviewEventStage');
+    expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('暂无审核事件');
+    expect(html).not.toContain('hero');
+  });
+});
+
+describe('shipper invoice admin console page', () => {
+  it('renders the invoice queue, review actions and audit-event panel', () => {
+    const html = renderShipperInvoiceAdminConsole();
+
+    expect(html).toContain('发票申请审核台');
+    expect(html).toContain('/api/admin/shipper-invoices');
+    expect(html).toContain('/review-events');
+    expect(html).toContain('/review');
+    expect(html).toContain('reviewEventStatus');
+    expect(html).toContain('reviewEventList');
+    expect(html).toContain('loadReviewEvents');
     expect(html).toContain('formatReviewEventStage');
     expect(html).toContain('latestReviewEventsRequestId');
     expect(html).toContain('暂无审核事件');

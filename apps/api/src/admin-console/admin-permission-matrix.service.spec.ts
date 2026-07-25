@@ -153,6 +153,7 @@ describe('AdminPermissionMatrixService', () => {
             riskLevel: 'high',
             apiPaths: expect.arrayContaining([
               '/admin/shipper-invoices',
+              '/admin/shipper-invoices/{applicationId}/review-events',
               '/admin/shipper-invoices/{applicationId}/review',
             ]),
           }),

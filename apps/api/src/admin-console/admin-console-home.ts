@@ -24,7 +24,7 @@ const defaultModules = [
     key: 'shipper-invoice',
     title: '发票申请审核台',
     route: '/api/admin/shipper-invoice-console',
-    summary: '查看货主发票申请队列，并执行单条通过或驳回。',
+    summary: '查看货主发票申请队列、审核事件，并执行单条通过或驳回。',
   },
   {
     key: 'order-management',

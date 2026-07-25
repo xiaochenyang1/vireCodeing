@@ -1,5 +1,6 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
+  AdminShipperInvoiceReviewEvent,
   CreateShipperInvoiceApplicationRequest,
   ListAdminShipperInvoiceQuery,
   ListAdminShipperInvoiceResult,
@@ -23,6 +24,9 @@ export interface ProfileInvoicesRepository {
   listAdminApplications(
     query: ListAdminShipperInvoiceQuery,
   ): Promise<ListAdminShipperInvoiceResult>;
+  listAdminApplicationReviewEvents(
+    applicationId: string,
+  ): Promise<AdminShipperInvoiceReviewEvent[]>;
   reviewApplication(
     applicationId: string,
     input: ReviewShipperInvoiceApplicationRequest,
@@ -148,6 +152,25 @@ export class InMemoryProfileInvoicesRepository
       pageSize: query.pageSize,
       total: allApplications.length,
     };
+  }
+
+  async listAdminApplicationReviewEvents(
+    applicationId: string,
+  ): Promise<AdminShipperInvoiceReviewEvent[]> {
+    for (const applications of this.applications.values()) {
+      const application = applications.find(item => item.id === applicationId);
+
+      if (!application) {
+        continue;
+      }
+
+      return listAdminShipperInvoiceReviewEventsFromApplication(application);
+    }
+
+    throw new BusinessError(
+      ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+      '发票申请不存在',
+    );
   }
 
   async reviewApplication(
@@ -462,6 +485,25 @@ export class PrismaProfileInvoicesRepository implements ProfileInvoicesRepositor
     };
   }
 
+  async listAdminApplicationReviewEvents(
+    applicationId: string,
+  ): Promise<AdminShipperInvoiceReviewEvent[]> {
+    const application = await this.prisma.shipperInvoiceApplication.findUnique({
+      where: { id: applicationId },
+    });
+
+    if (!application) {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+        '发票申请不存在',
+      );
+    }
+
+    return listAdminShipperInvoiceReviewEventsFromApplication(
+      mapPrismaInvoiceApplication(application),
+    );
+  }
+
   async reviewApplication(
     applicationId: string,
     input: ReviewShipperInvoiceApplicationRequest,
@@ -609,6 +651,58 @@ function mapPrismaInvoiceApplication(
     createdAtIso: application.createdAt.toISOString(),
     updatedAtIso: application.updatedAt.toISOString(),
   };
+}
+
+function listAdminShipperInvoiceReviewEventsFromApplication(
+  application: ShipperInvoiceApplicationRecord,
+): AdminShipperInvoiceReviewEvent[] {
+  const events: AdminShipperInvoiceReviewEvent[] = [
+    {
+      eventId: `${application.id}:submitted`,
+      actorUserId: application.shipperId,
+      eventType: 'invoice_application_submitted',
+      stage: 'submitted',
+      noteText: createInvoiceApplicationSubmittedNote(application),
+      createdAtIso: application.createdAtIso,
+    },
+  ];
+
+  if (application.status === 'approved' || application.status === 'rejected') {
+    events.push({
+      eventId: `${application.id}:${application.status}`,
+      eventType:
+        application.status === 'approved'
+          ? 'invoice_application_approved'
+          : 'invoice_application_rejected',
+      stage: application.status,
+      noteText: createInvoiceApplicationReviewNote(application),
+      createdAtIso: application.updatedAtIso,
+    });
+  }
+
+  return events.sort((left, right) =>
+    right.createdAtIso.localeCompare(left.createdAtIso),
+  );
+}
+
+function createInvoiceApplicationSubmittedNote(
+  application: ShipperInvoiceApplicationRecord,
+) {
+  return `申请开票 ${formatInvoiceAmount(application.amountCents)}，订单 ${application.orderNos.join('、') || '无'}`;
+}
+
+function createInvoiceApplicationReviewNote(
+  application: ShipperInvoiceApplicationRecord,
+) {
+  if (application.status === 'approved') {
+    return '管理员已通过发票申请';
+  }
+
+  return application.rejectionReason || '管理员已驳回发票申请';
+}
+
+function formatInvoiceAmount(amountCents: number) {
+  return `¥${(amountCents / 100).toFixed(2)}`;
 }
 
 function normalizeInvoiceType(

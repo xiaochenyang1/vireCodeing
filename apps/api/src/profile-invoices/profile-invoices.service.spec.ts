@@ -318,11 +318,39 @@ describe('ProfileInvoicesService', () => {
     });
 
     await expect(
+      service.listAdminApplicationReviewEvents(admin, created.id),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        eventType: 'invoice_application_submitted',
+        stage: 'submitted',
+        actorUserId: 'shipper-1',
+        noteText: '申请开票 ¥310.00，订单 HY202607240001',
+      }),
+    ]);
+
+    await expect(
       service.reviewApplication(admin, created.id, { status: 'approved' }),
     ).resolves.toMatchObject({
       id: created.id,
       status: 'approved',
     });
+
+    await expect(
+      service.listAdminApplicationReviewEvents(admin, created.id),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'invoice_application_approved',
+          stage: 'approved',
+          noteText: '管理员已通过发票申请',
+        }),
+        expect.objectContaining({
+          eventType: 'invoice_application_submitted',
+          stage: 'submitted',
+          actorUserId: 'shipper-1',
+        }),
+      ]),
+    );
   });
 
   it('rejects non-admin users from invoice review', async () => {

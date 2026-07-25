@@ -116,6 +116,13 @@ describe('AdminConsoleOverviewService', () => {
             pendingGaps: ['真实对象存储联调', '病毒扫描 / 缩略图', '深度对账 / 生命周期治理'],
           }),
           expect.objectContaining({
+            key: 'shipper-invoice',
+            route: '/api/admin/shipper-invoice-console',
+            summary:
+              '发票申请后台列表、通过驳回和审核事件审计第一片已接上，还没做发票文件下载和税局回调。',
+            pendingGaps: ['发票文件下载', '税局回调'],
+          }),
+          expect.objectContaining({
             key: 'support-ticket',
             route: '/api/admin/support-ticket-console',
             summary:

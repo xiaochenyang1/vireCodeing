@@ -75,4 +75,23 @@ export type ListAdminShipperInvoiceResult = {
   pageSize: number;
   total: number;
 };
+
+export type AdminShipperInvoiceReviewEventType =
+  | 'invoice_application_submitted'
+  | 'invoice_application_approved'
+  | 'invoice_application_rejected';
+
+export type AdminShipperInvoiceReviewEventStage =
+  | 'submitted'
+  | 'approved'
+  | 'rejected';
+
+export type AdminShipperInvoiceReviewEvent = {
+  eventId: string;
+  actorUserId?: string;
+  eventType: AdminShipperInvoiceReviewEventType;
+  stage: AdminShipperInvoiceReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
+};
 import type { OrderPaymentStatus } from '../payments/payment-domain';

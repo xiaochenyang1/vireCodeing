@@ -38,6 +38,14 @@ export class ProfileInvoicesService {
     return this.repository.reviewApplication(applicationId, input);
   }
 
+  async listAdminApplicationReviewEvents(
+    currentUser: AuthenticatedUser,
+    applicationId: string,
+  ) {
+    this.assertAdmin(currentUser);
+    return this.repository.listAdminApplicationReviewEvents(applicationId);
+  }
+
   async createApplication(
     shipperId: string,
     input: CreateShipperInvoiceApplicationRequest,

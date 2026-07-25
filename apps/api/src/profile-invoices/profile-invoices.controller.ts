@@ -88,6 +88,20 @@ export class AdminShipperInvoicesController {
     );
   }
 
+  @Get(':applicationId/review-events')
+  async listAdminApplicationReviewEvents(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return ok(
+      await this.profileInvoicesService.listAdminApplicationReviewEvents(
+        getCurrentAdmin(request),
+        applicationId,
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Post(':applicationId/review')
   async reviewApplication(
     @Req() request: AuthenticatedRequest,
