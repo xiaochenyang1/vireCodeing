@@ -4430,6 +4430,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(getRenderedText(renderer)).toContain('司机订单同步队列');
+    expect(getRenderedText(renderer)).toContain('原始版本：2026-07-07 16:05');
     await ReactTestRenderer.act(async () => {
       renderer.root
         .findByProps({ testID: 'driver-order-mutation-retry-status-order-1' })

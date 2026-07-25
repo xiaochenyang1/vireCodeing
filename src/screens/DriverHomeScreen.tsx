@@ -35,6 +35,7 @@ import {
   formatCoordinateText,
   formatTrackingEstimateText,
 } from '../utils/mapsNavigation';
+import { formatPlatformIsoMinute } from '../utils/dateTime';
 import type {
   PlatformDriverCertificationSnapshot,
   createPlatformDriverCertificationApi,
@@ -3068,7 +3069,9 @@ export function DriverHomeScreen({
                 }待重试`}
               </Text>
               <Text style={styles.detailMeta}>
-                {`原始版本：${item.mutationContext.baseUpdatedAtIso}`}
+                {`原始版本：${formatPlatformIsoMinute(
+                  item.mutationContext.baseUpdatedAtIso,
+                )}`}
               </Text>
               <Pressable
                 testID={`driver-order-mutation-retry-${item.operation}-${item.orderId}`}
