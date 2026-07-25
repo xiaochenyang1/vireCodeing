@@ -6,6 +6,7 @@ import {
   removeStorageItem,
   writeJsonStorage,
 } from './storage';
+import { sortRecentOrdersByLatestActivity } from './orderList';
 import { sortMessageCenterItems } from './platformMessages';
 
 const APP_RUNTIME_STATE_VERSION = 1;
@@ -26,16 +27,20 @@ let appRuntimeStateSnapshot: AppRuntimeStateSnapshot | undefined;
 const localMessageDefaultsById = new Map(
   messageCenterItems.map(item => [item.id, item]),
 );
+const localOrderDefaultsById = new Map(
+  orderListOrders.map(order => [order.id, order]),
+);
 
 function cloneData<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function createDefaultAppRuntimeState(): AppRuntimeState {
+  const orders = normalizeOrders(cloneData(orderListOrders));
   const messages = normalizeMessages(cloneData(messageCenterItems));
 
   return {
-    orders: cloneData(orderListOrders),
+    orders,
     messages,
     messageUnreadCount: countUnreadMessages(messages),
   };
@@ -116,10 +121,11 @@ function normalizeAppRuntimeState(
   state: Pick<AppRuntimeState, 'orders' | 'messages'> &
     Partial<Pick<AppRuntimeState, 'messageUnreadCount'>>,
 ) {
+  const orders = normalizeOrders(state.orders);
   const messages = normalizeMessages(state.messages);
 
   return cloneData({
-    orders: state.orders,
+    orders,
     messages,
     messageUnreadCount:
       typeof state.messageUnreadCount === 'number' &&
@@ -132,6 +138,25 @@ function normalizeAppRuntimeState(
 
 function countUnreadMessages(messages: MessageCenterItem[]) {
   return messages.filter(message => message.unread).length;
+}
+
+function normalizeOrders(orders: RecentOrder[]) {
+  return sortRecentOrdersByLatestActivity(
+    orders.map(order => {
+      const localDefault = localOrderDefaultsById.get(order.id);
+
+      if (!localDefault) {
+        return order;
+      }
+
+      return {
+        ...order,
+        createdAtIso: order.createdAtIso ?? localDefault.createdAtIso,
+        updatedAtIso: order.updatedAtIso ?? localDefault.updatedAtIso,
+        pickupTimeIso: order.pickupTimeIso ?? localDefault.pickupTimeIso,
+      };
+    }),
+  );
 }
 
 function normalizeMessages(messages: MessageCenterItem[]) {

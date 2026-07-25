@@ -17,6 +17,26 @@ export type CustomDateRangeDayNumbers = {
   endDayNumber: number;
 };
 
+export function getRecentOrderLatestActivityIso(
+  order: Pick<RecentOrder, 'updatedAtIso' | 'createdAtIso'>,
+) {
+  return order.updatedAtIso ?? order.createdAtIso;
+}
+
+export function sortRecentOrdersByLatestActivity(orders: RecentOrder[]) {
+  return orders
+    .map((order, index) => ({ order, index }))
+    .sort((left, right) => {
+      const compareResult = compareRecentOrdersByLatestActivityDesc(
+        left.order,
+        right.order,
+      );
+
+      return compareResult !== 0 ? compareResult : left.index - right.index;
+    })
+    .map(item => item.order);
+}
+
 export function getFilteredOrders({
   orders,
   statusFilter,
@@ -32,11 +52,13 @@ export function getFilteredOrders({
   searchKeyword: string;
   now: number;
 }) {
-  return filterOrdersBySearchKeyword(
-    filterOrdersByStatus(orders, statusFilter).filter(order =>
-      matchesOrderTimeFilter(order, timeFilter, now, customDateRange),
+  return sortRecentOrdersByLatestActivity(
+    filterOrdersBySearchKeyword(
+      filterOrdersByStatus(orders, statusFilter).filter(order =>
+        matchesOrderTimeFilter(order, timeFilter, now, customDateRange),
+      ),
+      searchKeyword,
     ),
-    searchKeyword,
   );
 }
 
@@ -234,6 +256,44 @@ export function extractOrderDayNumbers(order: RecentOrder, now: number) {
   ];
 
   return Array.from(new Set(dayNumbers));
+}
+
+function compareRecentOrdersByLatestActivityDesc(
+  left: RecentOrder,
+  right: RecentOrder,
+) {
+  const leftSortTime = getRecentOrderLatestActivityIso(left);
+  const rightSortTime = getRecentOrderLatestActivityIso(right);
+
+  if (leftSortTime && rightSortTime && leftSortTime !== rightSortTime) {
+    return rightSortTime.localeCompare(leftSortTime);
+  }
+
+  if (leftSortTime && !rightSortTime) {
+    return -1;
+  }
+
+  if (!leftSortTime && rightSortTime) {
+    return 1;
+  }
+
+  if (
+    left.createdAtIso &&
+    right.createdAtIso &&
+    left.createdAtIso !== right.createdAtIso
+  ) {
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  }
+
+  if (left.createdAtIso && !right.createdAtIso) {
+    return -1;
+  }
+
+  if (!left.createdAtIso && right.createdAtIso) {
+    return 1;
+  }
+
+  return 0;
 }
 
 function extractStructuredOrderDayNumbers(order: RecentOrder) {

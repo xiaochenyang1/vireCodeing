@@ -27,6 +27,7 @@ import {
   createPrefillFromOrder,
   createSyncedOrderSyncState,
 } from './src/utils/order';
+import { sortRecentOrdersByLatestActivity } from './src/utils/orderList';
 import {
   createFailedOrderMutationSyncState,
   createOrderCreateContext,
@@ -1074,17 +1075,19 @@ function App({
     const platformRecentOrder = await mapHydratedPlatformOrder(platformOrder);
 
     setOrders(currentOrders => {
-      const nextOrders = currentOrders.map(currentOrder =>
-        currentOrder.id === orderId
-          ? {
-              ...mergePlatformOrderWithLocalRuntimeState(
-                platformRecentOrder,
-                currentOrder,
-              ),
-              ...overrides,
-              ...(syncStateOverride ? { syncState: syncStateOverride } : {}),
-            }
-          : currentOrder,
+      const nextOrders = sortRecentOrdersByLatestActivity(
+        currentOrders.map(currentOrder =>
+          currentOrder.id === orderId
+            ? {
+                ...mergePlatformOrderWithLocalRuntimeState(
+                  platformRecentOrder,
+                  currentOrder,
+                ),
+                ...overrides,
+                ...(syncStateOverride ? { syncState: syncStateOverride } : {}),
+              }
+            : currentOrder,
+        ),
       );
       persistRuntimeState({ nextOrders });
       return nextOrders;
@@ -1357,17 +1360,19 @@ function App({
 
     if (!getAuthSessionSnapshot()?.accessToken) {
       setOrders(currentOrders => {
-        const nextOrders = currentOrders.map(order =>
-          order.id === orderId
-            ? {
-                ...order,
-                syncState: createFailedOrderSyncState(
-                  '平台订单详情刷新需要重新登录后再同步。',
-                  'refresh',
-                  nowRef.current,
-                ),
-              }
-            : order,
+        const nextOrders = sortRecentOrdersByLatestActivity(
+          currentOrders.map(order =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  syncState: createFailedOrderSyncState(
+                    '平台订单详情刷新需要重新登录后再同步。',
+                    'refresh',
+                    nowRef.current,
+                  ),
+                }
+              : order,
+          ),
         );
         persistRuntimeState({ nextOrders });
         return nextOrders;
@@ -1388,13 +1393,15 @@ function App({
             : currentSelectedOrderId,
         );
         setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(order =>
-            order.id === orderId
-              ? mergePlatformOrderWithLocalRuntimeState(
-                  platformRecentOrder,
-                  order,
-                )
-              : order,
+          const nextOrders = sortRecentOrdersByLatestActivity(
+            currentOrders.map(order =>
+              order.id === orderId
+                ? mergePlatformOrderWithLocalRuntimeState(
+                    platformRecentOrder,
+                    order,
+                  )
+                : order,
+            ),
           );
           persistRuntimeState({ nextOrders });
           return nextOrders;
@@ -1402,17 +1409,19 @@ function App({
       })
       .catch(() => {
         setOrders(currentOrders => {
-          const nextOrders = currentOrders.map(order =>
-            order.id === orderId
-              ? {
-                  ...order,
-                  syncState: createFailedOrderSyncState(
-                    '平台订单详情刷新失败，已保留本地订单详情。',
-                    'refresh',
-                    nowRef.current,
-                  ),
-                }
-              : order,
+          const nextOrders = sortRecentOrdersByLatestActivity(
+            currentOrders.map(order =>
+              order.id === orderId
+                ? {
+                    ...order,
+                    syncState: createFailedOrderSyncState(
+                      '平台订单详情刷新失败，已保留本地订单详情。',
+                      'refresh',
+                      nowRef.current,
+                    ),
+                  }
+                : order,
+            ),
           );
           persistRuntimeState({ nextOrders });
           return nextOrders;
@@ -1953,13 +1962,14 @@ function App({
           }
         : order,
     );
+    const sortedNextOrders = sortRecentOrdersByLatestActivity(nextOrders);
     const hasPendingOrders = nextOrders.some(
       (order, index) => order !== orders[index],
     );
 
     if (hasPendingOrders) {
-      setOrders(nextOrders);
-      persistRuntimeState({ nextOrders });
+      setOrders(sortedNextOrders);
+      persistRuntimeState({ nextOrders: sortedNextOrders });
       shouldRefreshQueue = true;
     }
 
@@ -2147,7 +2157,10 @@ function App({
             ),
           }
         : localOrder;
-    const durableOrders = [pendingOrder, ...orders];
+    const durableOrders = sortRecentOrdersByLatestActivity([
+      pendingOrder,
+      ...orders,
+    ]);
 
     setOrders(durableOrders);
     syncLocalCouponUsage(draftOrder, pendingOrder.id);
@@ -2173,7 +2186,10 @@ function App({
           { createContext },
         ),
       };
-      const failedOrders = [failedOrder, ...orders];
+      const failedOrders = sortRecentOrdersByLatestActivity([
+        failedOrder,
+        ...orders,
+      ]);
 
       setOrders(failedOrders);
       saveAppRuntimeState({
@@ -2214,8 +2230,10 @@ function App({
       }
 
       setOrders(currentOrders => {
-        const nextOrders = currentOrders.map(currentOrder =>
-          currentOrder.id === localOrder.id ? order : currentOrder,
+        const nextOrders = sortRecentOrdersByLatestActivity(
+          currentOrders.map(currentOrder =>
+            currentOrder.id === localOrder.id ? order : currentOrder,
+          ),
         );
         persistRuntimeState({ nextOrders });
         return nextOrders;
@@ -2265,21 +2283,23 @@ function App({
 
   const updateOrder = (orderId: string, changes: Partial<RecentOrder>) => {
     setOrders(currentOrders => {
-      const nextOrders = currentOrders.map(order =>
-        order.id === orderId
-          ? {
-              ...order,
-              ...changes,
-              syncState:
-                'syncState' in changes
-                  ? changes.syncState
-                  : createPendingOrderSyncState(
-                      '本地订单状态已变更，等待真实后端 API 接入后同步。',
-                      'local',
-                      nowRef.current,
-                    ),
-            }
-          : order,
+      const nextOrders = sortRecentOrdersByLatestActivity(
+        currentOrders.map(order =>
+          order.id === orderId
+            ? {
+                ...order,
+                ...changes,
+                syncState:
+                  'syncState' in changes
+                    ? changes.syncState
+                    : createPendingOrderSyncState(
+                        '本地订单状态已变更，等待真实后端 API 接入后同步。',
+                        'local',
+                        nowRef.current,
+                      ),
+              }
+            : order,
+        ),
       );
       persistRuntimeState({ nextOrders });
       return nextOrders;

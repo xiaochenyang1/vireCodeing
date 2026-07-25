@@ -1,5 +1,6 @@
 import type { OrderListFilter, OrderSyncOperation, RecentOrder } from '../types';
 import type { PlatformListShipperOrdersQuery } from '../services/platformOrderApi';
+import { sortRecentOrdersByLatestActivity } from './orderList';
 
 /**
  * 平台订单列表相关的纯 helper 与状态谓词。
@@ -62,7 +63,7 @@ export function mergeRecentOrdersById(
     }
   });
 
-  return mergedOrders;
+  return sortRecentOrdersByLatestActivity(mergedOrders);
 }
 
 export function shouldKeepLocalCreateOrderInPlatformList(order: RecentOrder) {

@@ -163,3 +163,94 @@ test('hydrates legacy local messages by backfilling structured timestamps and so
     ],
   });
 });
+
+test('hydrates legacy local orders by backfilling structured timestamps and sorting newest first', async () => {
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: {
+        orders: [
+          {
+            id: 'HY20260619005',
+            status: 'cancelled',
+            from: '光明区公明仓库',
+            to: '龙华区民治门店',
+            cargoType: '日用品',
+            weightText: '800 kg',
+            vehicleRequirement: '小货车',
+            priceText: '￥260',
+            updatedAtText: '已取消 · 2 天前',
+          },
+          {
+            id: 'HY20260622001',
+            status: 'waiting',
+            from: '宝安区福永物流园',
+            to: '南山区科技园门店',
+            cargoType: '建材',
+            weightText: '2.5 吨',
+            quantityText: '16 件',
+            vehicleRequirement: '中型货车',
+            priceText: '￥680',
+            updatedAtText: '10 分钟前发布',
+            pickupTimeText: '今天 16:30',
+          },
+          {
+            id: 'HY20260620003',
+            status: 'confirming',
+            from: '盐田港仓储中心',
+            to: '罗湖区翠竹门店',
+            cargoType: '食品',
+            weightText: '1.2 吨',
+            vehicleRequirement: '小货车',
+            priceText: '￥310',
+            updatedAtText: '等待确认送达',
+            pickupTimeText: '昨天 10:00',
+          },
+          {
+            id: 'HY20260621008',
+            status: 'transporting',
+            from: '龙岗区坂田工厂',
+            to: '福田区车公庙展厅',
+            cargoType: '家电',
+            weightText: '36 件',
+            vehicleRequirement: '厢式货车',
+            priceText: '￥520',
+            updatedAtText: '预计 18:20 到达',
+            pickupTimeText: '今天 13:00',
+          },
+        ],
+        messages: [],
+        messageUnreadCount: 0,
+      },
+    }),
+  );
+
+  await hydrateAppRuntimeState();
+
+  expect(getAppRuntimeState().orders).toMatchObject([
+    {
+      id: 'HY20260622001',
+      createdAtIso: '2026-06-26T15:20:00+08:00',
+      updatedAtIso: '2026-06-26T15:50:00+08:00',
+      pickupTimeIso: '2026-06-26T16:30:00+08:00',
+    },
+    {
+      id: 'HY20260621008',
+      createdAtIso: '2026-06-26T12:40:00+08:00',
+      updatedAtIso: '2026-06-26T13:20:00+08:00',
+      pickupTimeIso: '2026-06-26T13:00:00+08:00',
+    },
+    {
+      id: 'HY20260620003',
+      createdAtIso: '2026-06-25T09:20:00+08:00',
+      updatedAtIso: '2026-06-25T10:40:00+08:00',
+      pickupTimeIso: '2026-06-25T10:00:00+08:00',
+    },
+    {
+      id: 'HY20260619005',
+      createdAtIso: '2026-06-24T08:30:00+08:00',
+      updatedAtIso: '2026-06-24T09:10:00+08:00',
+    },
+  ]);
+});

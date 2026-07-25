@@ -6,6 +6,7 @@ import {
   getFilteredOrders,
   matchesOrderTimeFilter,
   parseCustomDateRange,
+  sortRecentOrdersByLatestActivity,
   validateCustomDateRange,
 } from '../src/utils/orderList';
 
@@ -55,6 +56,42 @@ test('filters order list by status including active transport statuses', () => {
   expect(
     filterOrdersByStatus(orders, 'cancelled').map(order => order.id),
   ).toEqual(['cancelled']);
+});
+
+test('sorts shipper orders by latest updatedAtIso or createdAtIso descending', () => {
+  const orders = [
+    createOrder({
+      id: 'HY-older-updated',
+      createdAtIso: '2026-06-26T08:00:00.000Z',
+      updatedAtIso: '2026-06-26T08:10:00.000Z',
+    }),
+    createOrder({
+      id: 'HY-newer-created',
+      createdAtIso: '2026-06-26T09:30:00.000Z',
+      updatedAtIso: undefined,
+    }),
+    createOrder({
+      id: 'HY-latest-updated',
+      createdAtIso: '2026-06-26T07:00:00.000Z',
+      updatedAtIso: '2026-06-26T10:15:00.000Z',
+    }),
+  ];
+
+  expect(sortRecentOrdersByLatestActivity(orders).map(order => order.id)).toEqual(
+    ['HY-latest-updated', 'HY-newer-created', 'HY-older-updated'],
+  );
+});
+
+test('keeps the original shipper order order when structured activity time is missing', () => {
+  const orders = [
+    createOrder({ id: 'HY-raw-1', createdAtIso: undefined, updatedAtIso: undefined }),
+    createOrder({ id: 'HY-raw-2', createdAtIso: undefined, updatedAtIso: undefined }),
+    createOrder({ id: 'HY-raw-3', createdAtIso: undefined, updatedAtIso: undefined }),
+  ];
+
+  expect(sortRecentOrdersByLatestActivity(orders).map(order => order.id)).toEqual(
+    ['HY-raw-1', 'HY-raw-2', 'HY-raw-3'],
+  );
 });
 
 test('matches local time filters from existing order time copy', () => {

@@ -1711,6 +1711,17 @@ function getFrequentRouteNameOrder(app: AppRenderer) {
     .filter(text => routeNames.includes(text));
 }
 
+function getVisibleRecentOrderIds(app: AppRenderer) {
+  return app.root
+    .findAll(
+      node =>
+        typeof node.props.testID === 'string' &&
+        node.props.testID.startsWith('home-recent-order-') &&
+        typeof node.props.onPress === 'function',
+    )
+    .map(node => String(node.props.testID).replace('home-recent-order-', ''));
+}
+
 async function openFirstRecentOrder(app: AppRenderer) {
   ReactTestRenderer.act(() => {
     app.root
@@ -1776,6 +1787,18 @@ test('logs in from the auth screen and reaches the shipper home', async () => {
   expect(renderedText).toContain('待接单');
   expect(renderedText).toContain('常用路线');
   expect(renderedText).toContain('最近订单');
+});
+
+test('shows recent shipper orders on the home screen in latest activity order', async () => {
+  const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime());
+
+  await loginToHome(app);
+
+  expect(getVisibleRecentOrderIds(app).slice(0, 3)).toEqual([
+    'HY20260622001',
+    'HY20260621008',
+    'HY20260620003',
+  ]);
 });
 
 test('opens the recent order detail from the home screen', async () => {
@@ -2103,6 +2126,20 @@ test('opens the order list from the order status header', async () => {
   expect(renderedText).toContain('我的订单');
   expect(renderedText).toContain('全部订单');
   expect(renderedText).toContain('订单管理');
+});
+
+test('shows shipper orders in the order list in latest activity order', async () => {
+  const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime());
+
+  await loginToHome(app);
+  await openOrderList(app);
+
+  expect(getVisibleRecentOrderIds(app).slice(0, 4)).toEqual([
+    'HY20260622001',
+    'HY20260621008',
+    'HY20260620003',
+    'HY20260619005',
+  ]);
 });
 
 test('returns to the order list after opening a detail from the order list', async () => {
@@ -6033,7 +6070,7 @@ test('filters the order list by search keyword', async () => {
 });
 
 test('filters the order list by local time range', async () => {
-  const app = await renderApp();
+  const app = await renderApp(new Date('2026-06-26T08:00:00+08:00').getTime());
 
   await loginToHome(app);
   await openOrderList(app);
@@ -24904,6 +24941,109 @@ test('loads the next platform order list page and appends it locally', async () 
     expect(getRenderedText(app)).toContain('第一页平台卸货地');
     expect(getRenderedText(app)).toContain('第二页平台卸货地');
     expect(getAppRuntimeState().orders).toHaveLength(2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('keeps the platform shipper order list sorted by latest activity after refresh and pagination merge', async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-sorted-list',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-sorted-list.900',
+          refreshToken: 'refresh.platform-sorted-list.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [
+          createPlatformOrderFixture({
+            id: 'order-platform-sorted-older',
+            orderNo: 'HY202607020401',
+            deliveryAddress: '较早平台卸货地',
+            createdAtIso: '2026-07-01T07:00:00.000Z',
+            updatedAtIso: '2026-07-01T08:00:00.000Z',
+          }),
+          createPlatformOrderFixture({
+            id: 'order-platform-sorted-latest',
+            orderNo: 'HY202607020402',
+            deliveryAddress: '最新平台卸货地',
+            createdAtIso: '2026-07-01T09:00:00.000Z',
+            updatedAtIso: '2026-07-01T11:00:00.000Z',
+          }),
+        ],
+        page: 1,
+        pageSize: 20,
+        total: 3,
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        items: [
+          createPlatformOrderFixture({
+            id: 'order-platform-sorted-middle',
+            orderNo: 'HY202607020403',
+            deliveryAddress: '中间平台卸货地',
+            createdAtIso: '2026-07-01T08:30:00.000Z',
+            updatedAtIso: '2026-07-01T10:00:00.000Z',
+          }),
+        ],
+        page: 2,
+        pageSize: 20,
+        total: 3,
+      }),
+    );
+
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-01T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-orders-view-all' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getVisibleRecentOrderIds(app).slice(0, 2)).toEqual([
+      'HY202607020402',
+      'HY202607020401',
+    ]);
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'orders-load-more' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getVisibleRecentOrderIds(app).slice(0, 3)).toEqual([
+      'HY202607020402',
+      'HY202607020403',
+      'HY202607020401',
+    ]);
+    expect(getAppRuntimeState().orders.map(order => order.id)).toEqual([
+      'HY202607020402',
+      'HY202607020403',
+      'HY202607020401',
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
