@@ -173,6 +173,7 @@ function createMockDriverCertificationApi() {
     listAdminCertifications: jest.fn(),
     reviewAdminIdentity: jest.fn(),
     reviewAdminVehicle: jest.fn(),
+    batchReviewAdmin: jest.fn(),
     getAdminAttachmentPreviews: jest.fn(),
     listAdminReviewEvents: jest.fn(),
   };

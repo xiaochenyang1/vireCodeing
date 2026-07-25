@@ -74,6 +74,20 @@ export type PlatformDriverCertificationReviewRequest =
       rejectionReason: string;
     };
 
+export type PlatformBatchDriverCertificationReviewRequest =
+  PlatformDriverCertificationReviewRequest & {
+    driverIds: string[];
+    certificationType: 'identity' | 'vehicle';
+  };
+
+export type PlatformBatchDriverCertificationReviewResult = {
+  certificationType: 'identity' | 'vehicle';
+  status: 'approved' | 'rejected';
+  driverIds: string[];
+  updatedCount: number;
+  items: PlatformDriverCertificationSnapshot[];
+};
+
 export type PlatformDriverCertificationReviewEvent = {
   id: string;
   driverId: string;
@@ -217,6 +231,18 @@ export function createPlatformDriverCertificationApi(config: PlatformApiConfig) 
           normalizeDriverId(driverId),
         )}/vehicle/review`,
         normalizeReviewRequest(request),
+      );
+    },
+    async batchReviewAdmin(
+      request: PlatformBatchDriverCertificationReviewRequest,
+    ) {
+      return platformPost<
+        PlatformBatchDriverCertificationReviewRequest,
+        PlatformBatchDriverCertificationReviewResult
+      >(
+        config,
+        '/admin/driver-certifications/batch-review',
+        normalizeBatchReviewRequest(request),
       );
     },
     async getAdminAttachmentPreviews(driverId: string) {
@@ -367,6 +393,54 @@ function normalizeReviewRequest(
   }
 
   throwInvalidRequest('Platform driver certification review status is invalid');
+}
+
+function normalizeBatchReviewRequest(
+  request: PlatformBatchDriverCertificationReviewRequest,
+): PlatformBatchDriverCertificationReviewRequest {
+  assertPlainObject(
+    request,
+    'Platform driver certification batch review must be an object',
+  );
+
+  if (
+    request.certificationType !== 'identity' &&
+    request.certificationType !== 'vehicle'
+  ) {
+    throwInvalidRequest(
+      'Platform driver certification batch review type is invalid',
+    );
+  }
+
+  if (!Array.isArray(request.driverIds)) {
+    throwInvalidRequest(
+      'Platform driver certification batch review driverIds is invalid',
+    );
+  }
+
+  if (request.driverIds.length < 1 || request.driverIds.length > 50) {
+    throwInvalidRequest(
+      'Platform driver certification batch review driverIds is invalid',
+    );
+  }
+
+  const driverIds = request.driverIds.map(driverId =>
+    normalizeRequiredString(driverId, 'driverId', 120),
+  );
+
+  if (new Set(driverIds).size !== driverIds.length) {
+    throwInvalidRequest(
+      'Platform driver certification batch review driverIds is invalid',
+    );
+  }
+
+  const normalizedReview = normalizeReviewRequest(request);
+
+  return {
+    driverIds,
+    certificationType: request.certificationType,
+    ...normalizedReview,
+  };
 }
 
 function normalizeDriverId(value: unknown) {

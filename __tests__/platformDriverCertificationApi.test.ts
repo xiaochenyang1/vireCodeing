@@ -223,6 +223,70 @@ describe('platform driver certification api', () => {
     );
   });
 
+  it('batch reviews driver certifications as admin with normalized payloads', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        certificationType: 'identity',
+        status: 'rejected',
+        driverIds: ['driver-2', 'driver-1'],
+        updatedCount: 2,
+        items: [
+          {
+            driver: { id: 'driver-2' },
+            identity: {
+              driverId: 'driver-2',
+              status: 'rejected',
+              rejectionReason: '证件模糊',
+            },
+            vehicle: { driverId: 'driver-2', status: 'approved' },
+          },
+          {
+            driver: { id: 'driver-1' },
+            identity: {
+              driverId: 'driver-1',
+              status: 'rejected',
+              rejectionReason: '证件模糊',
+            },
+            vehicle: { driverId: 'driver-1', status: 'approved' },
+          },
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformDriverCertificationApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'admin-token',
+    });
+
+    await expect(
+      api.batchReviewAdmin({
+        driverIds: [' driver-2 ', 'driver-1'],
+        certificationType: 'identity',
+        status: 'rejected',
+        rejectionReason: ' 证件模糊 ',
+      }),
+    ).resolves.toMatchObject({
+      certificationType: 'identity',
+      status: 'rejected',
+      driverIds: ['driver-2', 'driver-1'],
+      updatedCount: 2,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/driver-certifications/batch-review',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          driverIds: ['driver-2', 'driver-1'],
+          certificationType: 'identity',
+          status: 'rejected',
+          rejectionReason: '证件模糊',
+        }),
+      }),
+    );
+  });
+
   it('gets admin certification attachment previews and review events', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(
@@ -341,6 +405,16 @@ describe('platform driver certification api', () => {
       code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
       status: 0,
     });
+    await expect(
+      api.batchReviewAdmin({
+        driverIds: ['driver-1', ' driver-1 '],
+        certificationType: 'identity',
+        status: 'approved',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+      status: 0,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -451,6 +525,31 @@ describe('platform driver certification api', () => {
 
       await expect(
         api.reviewAdminIdentity('driver-1', request as never),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [{ driverIds: [], certificationType: 'identity', status: 'approved' }, 'empty driverIds'],
+    [{ driverIds: ['driver-1'], certificationType: 'pending', status: 'approved' }, 'invalid certification type'],
+    [{ driverIds: ['driver-1'], certificationType: 'identity', status: 'rejected' }, 'rejected without reason'],
+    [{ driverIds: ['driver-1', ' driver-1 '], certificationType: 'vehicle', status: 'approved' }, 'duplicate driverIds'],
+    [null, 'non-object batch review'],
+  ])(
+    'rejects invalid admin batch review requests before sending them: %s',
+    async (request, _label) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformDriverCertificationApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.batchReviewAdmin(request as never),
       ).rejects.toMatchObject({
         code: 'PLATFORM_DRIVER_CERTIFICATION_REQUEST_INVALID',
       });
