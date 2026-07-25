@@ -10,6 +10,10 @@ export type PlatformSupportTicketStatus = 'pending' | 'processing' | 'resolved';
 export type PlatformSupportTicketStatusHistoryItem = {
   actionText: string;
   timestampIso: string;
+  fromStatus?: PlatformSupportTicketStatus;
+  toStatus?: PlatformSupportTicketStatus;
+  operatorUserId?: string;
+  content?: string;
 };
 
 export type PlatformSupportTicket = {
@@ -28,10 +32,32 @@ export type PlatformSupportTicketListResult = {
   items: PlatformSupportTicket[];
 };
 
+export type PlatformListAdminSupportTicketsQuery = {
+  page?: number;
+  pageSize?: number;
+  status?: PlatformSupportTicketStatus;
+  keyword?: string;
+};
+
+export type PlatformAdminSupportTicketListResult = {
+  items: PlatformSupportTicket[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type PlatformCreateSupportTicketRequest = {
   channelName: string;
   description: string;
 };
+
+export type PlatformUpdateSupportTicketRequest = {
+  baseUpdatedAtIso: string;
+  content: string;
+};
+
+const SUPPORT_TICKET_REQUEST_INVALID =
+  'PLATFORM_SUPPORT_TICKET_REQUEST_INVALID';
 
 export function createPlatformSupportTicketsApi(config: PlatformApiConfig) {
   return {
@@ -49,15 +75,63 @@ export function createPlatformSupportTicketsApi(config: PlatformApiConfig) {
         PlatformSupportTicket
       >(config, '/shipper/support-tickets', normalizedRequest);
     },
+    async listAdminSupportTickets(
+      query: PlatformListAdminSupportTicketsQuery = {},
+    ) {
+      const normalizedQuery = normalizeAdminSupportTicketListQuery(query);
+
+      return platformGet<PlatformAdminSupportTicketListResult>(
+        config,
+        `/admin/support-tickets?${new URLSearchParams(
+          normalizedQuery,
+        ).toString()}`,
+      );
+    },
+    async getAdminSupportTicket(ticketId: string) {
+      return platformGet<PlatformSupportTicket>(
+        config,
+        `/admin/support-tickets/${encodeURIComponent(
+          normalizeSupportTicketId(ticketId),
+        )}`,
+      );
+    },
+    async processAdminSupportTicket(
+      ticketId: string,
+      request: PlatformUpdateSupportTicketRequest,
+    ) {
+      return platformPost<
+        PlatformUpdateSupportTicketRequest,
+        PlatformSupportTicket
+      >(
+        config,
+        `/admin/support-tickets/${encodeURIComponent(
+          normalizeSupportTicketId(ticketId),
+        )}/process`,
+        normalizeUpdateSupportTicketRequest(request),
+      );
+    },
+    async resolveAdminSupportTicket(
+      ticketId: string,
+      request: PlatformUpdateSupportTicketRequest,
+    ) {
+      return platformPost<
+        PlatformUpdateSupportTicketRequest,
+        PlatformSupportTicket
+      >(
+        config,
+        `/admin/support-tickets/${encodeURIComponent(
+          normalizeSupportTicketId(ticketId),
+        )}/resolve`,
+        normalizeUpdateSupportTicketRequest(request),
+      );
+    },
   };
 }
 
 function normalizeCreateSupportTicketRequest(
   request: PlatformCreateSupportTicketRequest,
 ) {
-  if (!isPlainObject(request)) {
-    throwInvalidSupportTicketRequest('Support ticket request must be an object');
-  }
+  assertPlainObject(request, 'Support ticket request must be an object');
 
   return {
     channelName: normalizeRequiredString(
@@ -73,10 +147,91 @@ function normalizeCreateSupportTicketRequest(
   };
 }
 
+function normalizeAdminSupportTicketListQuery(
+  query: PlatformListAdminSupportTicketsQuery,
+) {
+  assertPlainObject(query, 'Support ticket query must be an object');
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (!Number.isInteger(page) || page < 1) {
+    throwInvalidSupportTicketRequest('Support ticket page is invalid');
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throwInvalidSupportTicketRequest('Support ticket pageSize is invalid');
+  }
+
+  const normalizedQuery: Record<string, string> = {
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+
+  if (query.status !== undefined) {
+    if (!['pending', 'processing', 'resolved'].includes(query.status)) {
+      throwInvalidSupportTicketRequest('Support ticket status is invalid');
+    }
+
+    normalizedQuery.status = query.status;
+  }
+
+  const keyword = normalizeOptionalString(
+    query.keyword,
+    80,
+    'Support ticket keyword is invalid',
+  );
+
+  if (keyword) {
+    normalizedQuery.keyword = keyword;
+  }
+
+  return normalizedQuery;
+}
+
+function normalizeUpdateSupportTicketRequest(
+  request: PlatformUpdateSupportTicketRequest,
+): PlatformUpdateSupportTicketRequest {
+  assertPlainObject(
+    request,
+    'Support ticket update request must be an object',
+  );
+
+  const baseUpdatedAtIso = normalizeRequiredString(
+    request.baseUpdatedAtIso,
+    40,
+    'Support ticket baseUpdatedAtIso is invalid',
+  );
+
+  if (Number.isNaN(Date.parse(baseUpdatedAtIso))) {
+    throwInvalidSupportTicketRequest(
+      'Support ticket baseUpdatedAtIso is invalid',
+    );
+  }
+
+  return {
+    baseUpdatedAtIso,
+    content: normalizeRequiredString(
+      request.content,
+      500,
+      'Support ticket content is invalid',
+      6,
+    ),
+  };
+}
+
+function normalizeSupportTicketId(ticketId: string) {
+  return normalizeRequiredString(
+    ticketId,
+    120,
+    'Support ticket id is invalid',
+  );
+}
+
 function normalizeRequiredString(
   value: unknown,
   maxLength: number,
   message: string,
+  minLength = 1,
 ) {
   if (typeof value !== 'string') {
     throwInvalidSupportTicketRequest(message);
@@ -84,21 +239,55 @@ function normalizeRequiredString(
 
   const normalizedValue = value.trim();
 
-  if (normalizedValue.length === 0 || normalizedValue.length > maxLength) {
+  if (
+    normalizedValue.length < minLength ||
+    normalizedValue.length > maxLength
+  ) {
     throwInvalidSupportTicketRequest(message);
   }
 
   return normalizedValue;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function normalizeOptionalString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throwInvalidSupportTicketRequest(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  if (normalizedValue.length > maxLength) {
+    throwInvalidSupportTicketRequest(message);
+  }
+
+  return normalizedValue;
+}
+
+function assertPlainObject(
+  value: unknown,
+  message: string,
+): asserts value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throwInvalidSupportTicketRequest(message);
+  }
 }
 
 function throwInvalidSupportTicketRequest(message: string): never {
   throw new PlatformApiError(
     message,
-    'PLATFORM_SUPPORT_TICKET_REQUEST_INVALID',
+    SUPPORT_TICKET_REQUEST_INVALID,
     0,
   );
 }
