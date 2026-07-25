@@ -1151,6 +1151,11 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/driver/location:');
     expect(source).toContain('/shipper/orders/{orderId}/driver-location:');
     expect(source).toContain('/driver/orders/{orderId}/navigation-targets:');
+    expectPathBlockToContain(
+      source,
+      '/driver/location',
+      'Read current driver latest location snapshot',
+    );
     expect(source).toContain('GeocodeRequest');
     expect(source).toContain('ReverseGeocodeRequest');
     expect(source).toContain('ReportDriverLocationRequest');

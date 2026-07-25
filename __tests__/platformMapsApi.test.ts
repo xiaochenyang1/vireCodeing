@@ -84,6 +84,37 @@ describe('platform maps api', () => {
       }),
     );
   });
+
+  it('gets the current driver latest location snapshot', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        driverId: 'driver-1',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'sandbox',
+        recordedAtIso: '2026-07-25T08:00:00.000Z',
+        updatedAtIso: '2026-07-25T08:00:00.000Z',
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformMapsApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.getDriverLocation()).resolves.toMatchObject({
+      driverId: 'driver-1',
+      latitude: 22.61,
+      longitude: 113.91,
+      source: 'sandbox',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/driver/location',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
 });
 
 describe('maps navigation utils', () => {

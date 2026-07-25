@@ -283,6 +283,24 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   /driver/location:
+    get:
+      summary: Read current driver latest location snapshot
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/BearerAuthHeader'
+      responses:
+        '200':
+          description: Latest driver location snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverLocationSnapshotResponse'
+        '404':
+          description: DRIVER_LOCATION_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     post:
       summary: Report the current driver location snapshot
       parameters:

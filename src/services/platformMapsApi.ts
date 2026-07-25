@@ -76,6 +76,12 @@ export function createPlatformMapsApi(config: PlatformApiConfig) {
         PlatformDriverLocationSnapshot
       >(config, '/driver/location', normalizedRequest);
     },
+    async getDriverLocation() {
+      return platformGet<PlatformDriverLocationSnapshot>(
+        config,
+        '/driver/location',
+      );
+    },
     async getShipperDriverLocation(orderId: string) {
       const normalizedOrderId = normalizeOrderId(orderId);
 

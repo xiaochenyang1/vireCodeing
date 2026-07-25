@@ -180,6 +180,13 @@ function createMockDriverCertificationApi() {
 
 function createMockDriverMapsApi() {
   return {
+    getDriverLocation: jest.fn().mockRejectedValue(
+      new PlatformApiError(
+        'driver location not found',
+        'DRIVER_LOCATION_NOT_FOUND',
+        404,
+      ),
+    ),
     reportDriverLocation: jest.fn().mockResolvedValue({
       driverId: 'driver-1',
       latitude: 22.6,
@@ -560,6 +567,98 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
     ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 02:00');
+  });
+
+  it('hydrates the latest hall location snapshot on load and manual refresh', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverLocation
+      .mockResolvedValueOnce({
+        driverId: 'driver-1',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'manual' as const,
+        recordedAtIso: '2026-07-09T02:00:00.000Z',
+        updatedAtIso: '2026-07-09T02:00:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        driverId: 'driver-1',
+        latitude: 22.62,
+        longitude: 113.92,
+        source: 'device' as const,
+        recordedAtIso: '2026-07-09T03:00:00.000Z',
+        updatedAtIso: '2026-07-09T03:00:00.000Z',
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
+        .children,
+    ).toBe('22.610000, 113.910000');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
+        .children,
+    ).toBe('来源：手动上报 · 上报时间：2026-07-09 02:00');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
+        .children,
+    ).toBe('22.620000, 113.920000');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
+        .children,
+    ).toBe('来源：设备定位 · 上报时间：2026-07-09 03:00');
+    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+  });
+
+  it('ignores execution-order location snapshots when hydrating hall location feedback', async () => {
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverLocation.mockResolvedValue({
+      driverId: 'driver-1',
+      orderId: 'order-1',
+      latitude: 22.61,
+      longitude: 113.91,
+      source: 'sandbox' as const,
+      recordedAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={createMockDriverOrderApi()}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
+    expect(
+      renderer.root.findAllByProps({ testID: 'driver-hall-location-coordinate' }),
+    ).toHaveLength(0);
   });
 
   it('shows route and navigation target details in the selected driver order detail', async () => {

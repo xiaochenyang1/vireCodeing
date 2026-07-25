@@ -152,7 +152,7 @@ type DriverPlatformFileApi = Pick<
   >;
 type PlatformMapsApi = Pick<
   ReturnType<typeof createPlatformMapsApi>,
-  'getDriverNavigationTargets' | 'reportDriverLocation'
+  'getDriverLocation' | 'getDriverNavigationTargets' | 'reportDriverLocation'
 >;
 type DriverUploadedFileRef = {
   file: PlatformFileUploadRecord;
@@ -932,6 +932,36 @@ export function DriverHomeScreen({
       });
   };
 
+  const refreshLatestHallLocation = (
+    options: { silentError?: boolean; silentNotFound?: boolean } = {},
+  ) => {
+    if (!platformMapsApi) {
+      setLatestReportedHallLocation(undefined);
+      return Promise.resolve(true);
+    }
+
+    return platformMapsApi
+      .getDriverLocation()
+      .then(snapshot => {
+        setLatestReportedHallLocation(snapshot.orderId ? undefined : snapshot);
+        return true;
+      })
+      .catch(error => {
+        if (
+          error instanceof PlatformApiError &&
+          error.code === 'DRIVER_LOCATION_NOT_FOUND'
+        ) {
+          setLatestReportedHallLocation(undefined);
+          return options.silentNotFound === false ? false : true;
+        }
+
+        if (!options.silentError) {
+          setNotice('最新大厅位置加载失败，请稍后重试。');
+        }
+        return false;
+      });
+  };
+
   const refreshIncome = () => {
     if (!platformDriverOrderApi) {
       setIncomeOverview(undefined);
@@ -1136,6 +1166,7 @@ export function DriverHomeScreen({
         hasDirtyAcceptanceSettingsDraft
           ? Promise.resolve(true)
           : refreshAcceptanceSettings(),
+        refreshLatestHallLocation({ silentNotFound: true }),
         refreshIncome(),
         refreshBankCards(),
         hasDirtyCertificationDraft ? Promise.resolve(true) : refreshCertification(),
@@ -1158,10 +1189,16 @@ export function DriverHomeScreen({
     refreshMyOrders();
     refreshCertification();
     refreshAcceptanceSettings();
+    refreshLatestHallLocation({ silentError: true, silentNotFound: true });
     refreshIncome();
     refreshBankCards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platformDriverOrderApi, platformDriverCertificationApi, platformFileApi]);
+  }, [
+    platformDriverOrderApi,
+    platformDriverCertificationApi,
+    platformFileApi,
+    platformMapsApi,
+  ]);
 
   useEffect(() => {
     let isMounted = true;

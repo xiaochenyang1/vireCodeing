@@ -4,7 +4,6 @@ import {
   Get,
   Param,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -63,6 +62,23 @@ export class MapsController {
       await this.mapsService.reverseGeocode(parseReverseGeocodeRequest(body)),
       getRequestId(request),
     );
+  }
+
+  @Get('driver/location')
+  @UseGuards(AccessTokenGuard, DriverOnlyGuard)
+  async getDriverLocation(@Req() request: AuthenticatedRequest) {
+    const snapshot = await this.mapsService.getDriverLocation(
+      getCurrentUserId(request, 'driver'),
+    );
+
+    if (!snapshot) {
+      throw new BusinessError(
+        ApiErrorCode.DRIVER_LOCATION_NOT_FOUND,
+        '司机尚未上报位置',
+      );
+    }
+
+    return ok(snapshot, getRequestId(request));
   }
 
   @Post('driver/location')
