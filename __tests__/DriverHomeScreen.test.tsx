@@ -552,6 +552,14 @@ describe('DriverHomeScreen certification uploads', () => {
       '已上报 sandbox 大厅位置，接单范围已按最新位置刷新。',
     );
     expect(getRenderedText(renderer)).toContain('约 1.2 公里');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
+        .children,
+    ).toBe('22.600000, 113.900000');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
+        .children,
+    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 02:00');
   });
 
   it('shows route and navigation target details in the selected driver order detail', async () => {

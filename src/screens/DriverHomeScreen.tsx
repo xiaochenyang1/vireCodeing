@@ -686,6 +686,8 @@ export function DriverHomeScreen({
   const [navigationTargets, setNavigationTargets] = useState<
     PlatformNavigationTarget[]
   >([]);
+  const [latestReportedHallLocation, setLatestReportedHallLocation] =
+    useState<PlatformDriverLocationSnapshot>();
   const [latestReportedDriverLocation, setLatestReportedDriverLocation] =
     useState<PlatformDriverLocationSnapshot>();
   const [certification, setCertification] =
@@ -1691,7 +1693,8 @@ export function DriverHomeScreen({
         ...sandboxDriverLocation,
         source: 'sandbox',
       })
-      .then(async () => {
+      .then(async snapshot => {
+        setLatestReportedHallLocation(snapshot);
         const refreshed = await refreshOrderHall(acceptanceSettings);
 
         setNotice(
@@ -2688,6 +2691,20 @@ export function DriverHomeScreen({
   const selectedReportedExceptionAttachmentRefs = selectedOrder
     ? reportedExceptionAttachments[selectedOrder.orderNo] ?? []
     : [];
+  const latestReportedHallLocationCoordinateText = latestReportedHallLocation
+    ? formatCoordinateText(
+        latestReportedHallLocation.latitude,
+        latestReportedHallLocation.longitude,
+      )
+    : undefined;
+  const latestReportedHallLocationEstimateText = latestReportedHallLocation
+    ? formatTrackingEstimateText({
+        distanceToTargetMeters: latestReportedHallLocation.distanceToTargetMeters,
+        etaMinutes: latestReportedHallLocation.etaMinutes,
+        targetType: latestReportedHallLocation.targetType,
+        targetAddress: latestReportedHallLocation.targetAddress,
+      })
+    : undefined;
   const latestReportedDriverLocationCoordinateText = latestReportedDriverLocation
     ? formatCoordinateText(
         latestReportedDriverLocation.latitude,
@@ -2954,6 +2971,43 @@ export function DriverHomeScreen({
               上报 sandbox 大厅位置
             </Text>
           </Pressable>
+        ) : null}
+        {latestReportedHallLocation ? (
+          <View style={styles.detailInfoCard}>
+            <Text style={styles.detailInfoLabel}>最新大厅位置</Text>
+            <Text
+              testID="driver-hall-location-coordinate"
+              style={styles.detailInfoValue}
+            >
+              {latestReportedHallLocationCoordinateText}
+            </Text>
+            <Text
+              testID="driver-hall-location-meta"
+              style={styles.detailMeta}
+            >
+              {`来源：${getDriverLocationSourceText(
+                latestReportedHallLocation.source,
+              )} · 上报时间：${formatDriverIncomeTime(
+                latestReportedHallLocation.recordedAtIso,
+              )}`}
+            </Text>
+            {latestReportedHallLocationEstimateText ? (
+              <Text
+                testID="driver-hall-location-estimate"
+                style={styles.detailMeta}
+              >
+                {latestReportedHallLocationEstimateText}
+              </Text>
+            ) : null}
+            {latestReportedHallLocation.targetAddress ? (
+              <Text
+                testID="driver-hall-location-target"
+                style={styles.detailMeta}
+              >
+                {`当前目标：${latestReportedHallLocation.targetAddress}`}
+              </Text>
+            ) : null}
+          </View>
         ) : null}
         {vehicleRequirementOptions.map(option => {
           const selected = acceptanceSettingsForm.vehicleTypePreferences.includes(
