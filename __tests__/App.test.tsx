@@ -1866,7 +1866,8 @@ test('advances a waiting order through the local status flow', async () => {
 });
 
 test('cancels a waiting order from the detail screen', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
   await openFirstRecentOrder(app);
@@ -1897,6 +1898,8 @@ test('cancels a waiting order from the detail screen', async () => {
   expect(renderedText).toContain('已取消 · 刚刚');
   expect(renderedText).toContain('已取消');
   expect(renderedText).toContain('取消原因：计划有变');
+  expect(renderedText).toContain('提交时间：2026-07-15 16:00');
+  expect(renderedText).toContain('审核时间：2026-07-15 16:00');
   expect(renderedText).toContain('客户临时调整发货计划');
   expect(renderedText).toContain(
     '违约提示：待接单取消，本地演示不产生违约费用。',
@@ -1908,7 +1911,8 @@ test('cancels a waiting order from the detail screen', async () => {
 });
 
 test('records local settlement review when cancelling an assigned order', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
   await openFirstRecentOrder(app);
@@ -1943,6 +1947,8 @@ test('records local settlement review when cancelling an assigned order', async 
 
   const renderedText = getRenderedText(app);
 
+  expect(renderedText).toContain('提交时间：2026-07-15 16:00');
+  expect(renderedText).not.toContain('审核时间：');
   expect(renderedText).toContain(
     '违约提示：司机已接单，本地演示提示需客服确认违约费用。',
   );
@@ -22681,6 +22687,10 @@ test('cancels a platform order through the shipper order api', async () => {
       cancellation: {
         reasonText: '计划有变',
         description: '客户临时调整发货计划',
+        submittedAtIso: '2026-07-01T08:00:00.000Z',
+        submittedAtText: '2026-07-01 16:00',
+        reviewedAtIso: '2026-07-01T08:00:00.000Z',
+        reviewedAtText: '2026-07-01 16:00',
         feeText: '待接单取消已提交平台，当前不产生违约费用。',
         settlementText: '无违约金',
         refundText: '无需退款',
@@ -22689,6 +22699,8 @@ test('cancels a platform order through the shipper order api', async () => {
       },
       syncState: { status: 'synced' },
     });
+    expect(getRenderedText(app)).toContain('提交时间：2026-07-01 16:00');
+    expect(getRenderedText(app)).toContain('审核时间：2026-07-01 16:00');
     expect(getRenderedText(app)).toContain('后端同步：已同步');
   } finally {
     globalThis.fetch = originalFetch;
@@ -22793,6 +22805,10 @@ test('keeps a platform order cancellation queued when action has no auth token',
       cancellation: {
         reasonText: '计划有变',
         description: '客户临时调整发货计划',
+        submittedAtIso: '2026-07-01T08:00:00.000Z',
+        submittedAtText: '2026-07-01 16:00',
+        reviewedAtIso: '2026-07-01T08:00:00.000Z',
+        reviewedAtText: '2026-07-01 16:00',
       },
       syncState: {
         status: 'failed',
@@ -22926,6 +22942,10 @@ test('retries a failed platform order cancellation through the cancel api', asyn
       cancellation: {
         reasonText: '计划有变',
         description: '客户临时调整发货计划',
+        submittedAtIso: '2026-07-01T08:00:00.000Z',
+        submittedAtText: '2026-07-01 16:00',
+        reviewedAtIso: '2026-07-01T08:00:00.000Z',
+        reviewedAtText: '2026-07-01 16:00',
       },
       syncState: { status: 'failed' },
     });

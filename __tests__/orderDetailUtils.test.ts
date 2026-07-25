@@ -1,6 +1,7 @@
 import {
   buildDetailTimeline,
   createBonusOrderChange,
+  createCancellationOrderChange,
   createChangeRequestOrderChange,
   createChangeRequestReviewOrderChange,
   createDriverQuoteOrderChange,
@@ -108,6 +109,72 @@ test('returns platform cancellation settlement copy for platform orders', () => 
     refundText: '可退 ￥90，平台将进入退款处理',
     reviewStatusText: '系统规则已核算',
     driverNoticeText: '已生成平台司机取消通知，按规则同步违约结果',
+  });
+});
+
+test('creates auto-reviewed cancellation timing for waiting orders', () => {
+  expect(
+    createCancellationOrderChange(
+      {
+        reasonText: '计划有变',
+        description: '客户临时调整发货计划',
+      },
+      'waiting',
+      false,
+      undefined,
+      '2026-07-15T08:00:00.000Z',
+    ),
+  ).toEqual({
+    changes: {
+      status: 'cancelled',
+      updatedAtText: '已取消 · 刚刚',
+      cancellation: {
+        reasonText: '计划有变',
+        description: '客户临时调整发货计划',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        reviewedAtIso: '2026-07-15T08:00:00.000Z',
+        reviewedAtText: '2026-07-15 16:00',
+        feeText: '待接单取消，本地演示不产生违约费用。',
+        settlementText: '无违约金',
+        refundText: '无需退款',
+        reviewStatusText: '系统自动通过',
+        driverNoticeText: '订单尚未分配司机，无需通知',
+      },
+    },
+    noticeText: '订单已取消：计划有变',
+  });
+});
+
+test('creates pending-review cancellation timing for assigned orders', () => {
+  expect(
+    createCancellationOrderChange(
+      {
+        reasonText: '计划有变',
+        description: '司机接单后客户取消运输',
+      },
+      'loading',
+      false,
+      undefined,
+      '2026-07-15T08:00:00.000Z',
+    ),
+  ).toEqual({
+    changes: {
+      status: 'cancelled',
+      updatedAtText: '已取消 · 刚刚',
+      cancellation: {
+        reasonText: '计划有变',
+        description: '司机接单后客户取消运输',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        feeText: '司机已接单，本地演示提示需客服确认违约费用。',
+        settlementText: '待客服确认违约金',
+        refundText: '支付资金暂不变更，客服确认后更新退款状态',
+        reviewStatusText: '待客服确认',
+        driverNoticeText: '已生成司机取消通知，等待客服确认后同步',
+      },
+    },
+    noticeText: '订单已取消：计划有变',
   });
 });
 

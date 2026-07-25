@@ -228,6 +228,10 @@ export type RecentOrder = {
   cancellation?: {
     reasonText: string;
     description: string;
+    submittedAtText?: string;
+    submittedAtIso?: string;
+    reviewedAtText?: string;
+    reviewedAtIso?: string;
     feeText: string;
     settlementText?: string;
     refundText?: string;

@@ -149,6 +149,64 @@ export function getCancellationSettlement(
   };
 }
 
+export function createCancellationRecord(
+  cancellation: {
+    reasonText: string;
+    description: string;
+  },
+  status: RecentOrderStatus,
+  usesPlatformCancellation = false,
+  orderAmountCents?: number,
+  submittedAtIso = new Date().toISOString(),
+) {
+  const settlement = getCancellationSettlement(
+    status,
+    usesPlatformCancellation,
+    orderAmountCents,
+  );
+  const submittedAtText = formatPlatformIsoMinute(submittedAtIso);
+  const isReviewed = settlement.reviewStatusText !== '待客服确认';
+
+  return {
+    ...cancellation,
+    ...settlement,
+    submittedAtIso,
+    submittedAtText,
+    ...(isReviewed
+      ? {
+          reviewedAtIso: submittedAtIso,
+          reviewedAtText: submittedAtText,
+        }
+      : {}),
+  };
+}
+
+export function createCancellationOrderChange(
+  cancellation: {
+    reasonText: string;
+    description: string;
+  },
+  status: RecentOrderStatus,
+  usesPlatformCancellation = false,
+  orderAmountCents?: number,
+  submittedAtIso = new Date().toISOString(),
+): OrderDetailChange {
+  return {
+    changes: {
+      status: 'cancelled',
+      updatedAtText: '已取消 · 刚刚',
+      cancellation: createCancellationRecord(
+        cancellation,
+        status,
+        usesPlatformCancellation,
+        orderAmountCents,
+        submittedAtIso,
+      ),
+    },
+    noticeText: `订单已取消：${cancellation.reasonText}`,
+  };
+}
+
 function resolveLocalCancellationPenalty(
   status: RecentOrderStatus,
   orderAmountCents?: number,

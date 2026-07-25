@@ -187,7 +187,19 @@ export function CancellationRecordCard({
       <Text style={styles.detailMeta}>
         {`取消原因：${cancellation.reasonText}`}
       </Text>
-      <Text style={styles.detailMeta}>{cancellation.description}</Text>
+      {cancellation.submittedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`提交时间：${cancellation.submittedAtText}`}
+        </Text>
+      ) : null}
+      {cancellation.reviewedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`审核时间：${cancellation.reviewedAtText}`}
+        </Text>
+      ) : null}
+      {cancellation.description ? (
+        <Text style={styles.detailMeta}>{cancellation.description}</Text>
+      ) : null}
       <Text style={styles.detailMeta}>{`违约提示：${cancellation.feeText}`}</Text>
       {cancellation.settlementText ? (
         <Text style={styles.detailMeta}>

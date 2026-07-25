@@ -58,12 +58,12 @@ import { formatPlatformIsoMinute } from '../utils/dateTime';
 import {
   buildDetailTimeline,
   createBonusOrderChange,
+  createCancellationOrderChange,
   createChangeRequestOrderChange,
   createChangeRequestReviewOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
-  getCancellationSettlement,
   getOrderPrimaryActionLabel,
   getOrderProgressAction,
   getOrderSecondaryActionLabel,
@@ -636,30 +636,29 @@ export function OrderDetailScreen({
     reasonText: string;
     description: string;
   }) => {
-    const cancellationSettlement = getCancellationSettlement(
+    const cancellationChange = createCancellationOrderChange(
+      cancellation,
       order.status,
-      usesPlatformOrderActions,
+      hasPlatformOrderBinding,
       resolveOrderAmountCents(order),
+      new Date(now).toISOString(),
     );
-    const cancellationRecord = {
-      ...cancellation,
-      ...cancellationSettlement,
-    };
 
     if (onCancelOrder) {
-      onCancelOrder(order, cancellationRecord);
+      onCancelOrder(
+        order,
+        cancellationChange.changes.cancellation as NonNullable<
+          RecentOrder['cancellation']
+        >,
+      );
       closeAllPanels();
-      setLocalNotice(`订单已取消：${cancellation.reasonText}`);
+      setLocalNotice(cancellationChange.noticeText);
       return;
     }
 
-    updateOrderFromDetail({
-      status: 'cancelled',
-      updatedAtText: '已取消 · 刚刚',
-      cancellation: cancellationRecord,
-    });
+    updateOrderFromDetail(cancellationChange.changes);
     closeAllPanels();
-    setLocalNotice(`订单已取消：${cancellation.reasonText}`);
+    setLocalNotice(cancellationChange.noticeText);
   };
 
   const submitBonus = (bonusAmount: string) => {
@@ -969,7 +968,7 @@ export function OrderDetailScreen({
       {isPanelOpen('cancellation') ? (
         <CancellationForm
           onSubmit={submitCancellation}
-          usesPlatformCancellation={usesPlatformOrderActions}
+          usesPlatformCancellation={hasPlatformOrderBinding}
         />
       ) : null}
 

@@ -105,6 +105,39 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('maps cancellation records from cancelled platform events', () => {
+    const mapped = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'cancelled',
+        priceCents: 10000,
+        events: [
+          event({
+            id: 'accept',
+            eventType: 'driver_accepted',
+            createdAtIso: '2026-07-24T07:00:00.000Z',
+          }),
+          event({
+            id: 'cancel',
+            eventType: 'cancelled',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            noteText: '计划有变：客户临时调整发货计划',
+          }),
+        ],
+      }),
+    );
+
+    expect(mapped.cancellation).toMatchObject({
+      reasonText: '计划有变',
+      description: '客户临时调整发货计划',
+      submittedAtIso: '2026-07-24T08:00:00.000Z',
+      submittedAtText: '2026-07-24 16:00',
+      reviewedAtText: '2026-07-24 16:00',
+      settlementText: '违约金 ￥10',
+      refundText: '可退 ￥90，平台将进入退款处理',
+      reviewStatusText: '系统规则已核算',
+    });
+  });
+
   it('maps latest exception case snapshots with compensation decisions', () => {
     const platformOrder = {
       ...baseOrder({ status: 'transporting' }),

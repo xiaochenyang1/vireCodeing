@@ -1,6 +1,7 @@
 import { cargoTypeOptions, vehicleRequirementOptions } from '../data/mockData';
-import type { RecentOrder } from '../types';
+import type { RecentOrder, RecentOrderStatus } from '../types';
 import { formatPlatformIsoMinute } from '../utils/dateTime';
+import { createCancellationRecord } from '../utils/orderDetail';
 import type { PlatformShipperOrder } from './platformOrderApi';
 
 const SHANGHAI_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -32,6 +33,7 @@ export function mapPlatformOrderToRecentOrder(
     'cargo',
     '平台货物图片',
   );
+  const cancellation = createCancellationFromPlatformEvents(order);
   const exceptionReport = createExceptionReportFromPlatformEvents(order);
   const modificationRequest =
     createModificationRequestFromPlatformEvents(order);
@@ -95,6 +97,7 @@ export function mapPlatformOrderToRecentOrder(
     valueAddedServicesText: order.valueAddedServicesText,
     ...(acceptedDriverInfo ? { driverInfo: acceptedDriverInfo } : {}),
     driverQuotes: createDriverQuotesFromPlatformEvents(order),
+    ...(cancellation ? { cancellation } : {}),
     ...(exceptionReport ? { exceptionReport } : {}),
     ...(modificationRequest ? { modificationRequest } : {}),
     ...(evaluation ? { evaluation } : {}),
@@ -289,6 +292,27 @@ function createModificationRequestFromPlatformEvents(
   };
 }
 
+function createCancellationFromPlatformEvents(order: PlatformShipperOrder) {
+  if (order.status !== 'cancelled') {
+    return undefined;
+  }
+
+  const cancelEvent = findLatestPlatformEvent(order, 'cancelled');
+  const parsedCancellation = parsePlatformCancellationNote(cancelEvent?.noteText);
+
+  if (!cancelEvent || !parsedCancellation) {
+    return undefined;
+  }
+
+  return createCancellationRecord(
+    parsedCancellation,
+    resolveStatusBeforePlatformCancellation(order, cancelEvent.createdAtIso),
+    true,
+    order.payablePriceCents ?? order.priceCents,
+    cancelEvent.createdAtIso,
+  );
+}
+
 function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {
   const event = findLatestPlatformEvent(order, 'exception_reported');
 
@@ -328,6 +352,68 @@ function createExceptionReportFromPlatformEvents(order: PlatformShipperOrder) {
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
+}
+
+function parsePlatformCancellationNote(noteText?: string) {
+  const value = noteText?.trim();
+
+  if (!value) {
+    return undefined;
+  }
+
+  const separatorIndex = value.indexOf('：');
+
+  if (separatorIndex <= 0) {
+    return {
+      reasonText: value,
+      description: '',
+    };
+  }
+
+  return {
+    reasonText: value.slice(0, separatorIndex).trim(),
+    description: value.slice(separatorIndex + 1).trim(),
+  };
+}
+
+function resolveStatusBeforePlatformCancellation(
+  order: PlatformShipperOrder,
+  cancelledAtIso: string,
+): RecentOrderStatus {
+  const events = (order.events ?? [])
+    .filter(event => event.createdAtIso < cancelledAtIso)
+    .sort((left, right) => left.createdAtIso.localeCompare(right.createdAtIso));
+  let status: RecentOrderStatus = 'waiting';
+
+  events.forEach(event => {
+    if (event.eventType === 'driver_accepted' && status === 'waiting') {
+      status = 'loading';
+      return;
+    }
+
+    if (event.eventType !== 'status_changed') {
+      return;
+    }
+
+    const nextStatus = parsePlatformAdvancedStatus(event.noteText);
+
+    if (nextStatus) {
+      status = nextStatus;
+    }
+  });
+
+  return status;
+}
+
+function parsePlatformAdvancedStatus(noteText?: string) {
+  switch (noteText?.trim()) {
+    case '订单进入运输中':
+      return 'transporting' as const;
+    case '订单进入待确认':
+      return 'confirming' as const;
+    default:
+      return undefined;
+  }
 }
 
 function createLatestExceptionCaseFromPlatformOrder(order: PlatformShipperOrder) {
