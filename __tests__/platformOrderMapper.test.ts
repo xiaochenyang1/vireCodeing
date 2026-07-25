@@ -970,6 +970,8 @@ describe('platform order mapper', () => {
     expect(pending.modificationRequest).toMatchObject({
       description: '请把卸货地址改到南山门店二期',
       statusText: '待客服确认',
+      submittedAtIso: '2026-07-24T08:00:00.000Z',
+      submittedAtText: '2026-07-24 16:00',
     });
 
     const approved = mapPlatformOrderToRecentOrder(
@@ -994,6 +996,9 @@ describe('platform order mapper', () => {
     expect(approved.modificationRequest).toMatchObject({
       description: '请把卸货地址改到南山门店二期',
       statusText: '客服已通过',
+      submittedAtText: '2026-07-24 16:00',
+      reviewedAtIso: '2026-07-24T09:00:00.000Z',
+      reviewedAtText: '2026-07-24 17:00',
       reviewResultText: '已确认地址变更',
     });
   });

@@ -215,6 +215,10 @@ export type RecentOrder = {
   modificationRequest?: {
     description: string;
     statusText: string;
+    submittedAtText?: string;
+    submittedAtIso?: string;
+    reviewedAtText?: string;
+    reviewedAtIso?: string;
     impactText: string;
     costImpactText?: string;
     refundText?: string;

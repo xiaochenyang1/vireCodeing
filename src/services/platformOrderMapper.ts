@@ -1,5 +1,6 @@
 import { cargoTypeOptions, vehicleRequirementOptions } from '../data/mockData';
 import type { RecentOrder } from '../types';
+import { formatPlatformIsoMinute } from '../utils/dateTime';
 import type { PlatformShipperOrder } from './platformOrderApi';
 
 const SHANGHAI_TIME_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -236,6 +237,8 @@ function createModificationRequestFromPlatformEvents(
   if (!requestEvent?.noteText?.trim()) {
     return undefined;
   }
+  const submittedAtIso = requestEvent.createdAtIso;
+  const submittedAtText = formatPlatformIsoMinute(submittedAtIso);
 
   const reviewEvent = (order.events ?? [])
     .filter(
@@ -250,6 +253,8 @@ function createModificationRequestFromPlatformEvents(
     return {
       description: requestEvent.noteText.trim(),
       statusText: '待客服确认',
+      submittedAtIso,
+      submittedAtText,
       impactText:
         '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。',
       costImpactText: '待平台重新核算费用，当前订单金额暂不变更。',
@@ -262,6 +267,10 @@ function createModificationRequestFromPlatformEvents(
   return {
     description: requestEvent.noteText.trim(),
     statusText: approved ? '客服已通过' : '客服已驳回',
+    submittedAtIso,
+    submittedAtText,
+    reviewedAtIso: reviewEvent.createdAtIso,
+    reviewedAtText: formatPlatformIsoMinute(reviewEvent.createdAtIso),
     impactText: approved
       ? '平台客服已确认修改申请，后续费用与司机通知以平台结果为准。'
       : '平台客服已驳回修改申请，订单继续按原内容执行。',

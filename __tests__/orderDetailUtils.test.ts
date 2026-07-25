@@ -2,6 +2,7 @@ import {
   buildDetailTimeline,
   createBonusOrderChange,
   createChangeRequestOrderChange,
+  createChangeRequestReviewOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
@@ -184,11 +185,19 @@ test('creates exception report change with optional photo notice', () => {
 });
 
 test('creates non-waiting change request metadata and notice', () => {
-  expect(createChangeRequestOrderChange('卸货地址改到二号门')).toEqual({
+  expect(
+    createChangeRequestOrderChange(
+      '卸货地址改到二号门',
+      false,
+      '2026-07-15T08:00:00.000Z',
+    ),
+  ).toEqual({
     changes: {
       modificationRequest: {
         description: '卸货地址改到二号门',
         statusText: '待客服确认',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
         impactText: '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
         costImpactText: '待客服重新核算费用，当前订单金额暂不变更。',
         refundText: '支付资金暂不变更，审核通过后再同步差额。',
@@ -201,12 +210,18 @@ test('creates non-waiting change request metadata and notice', () => {
 
 test('creates platform change request metadata with platform-specific guidance', () => {
   expect(
-    createChangeRequestOrderChange('卸货地址改到二号门', true),
+    createChangeRequestOrderChange(
+      '卸货地址改到二号门',
+      true,
+      '2026-07-15T08:00:00.000Z',
+    ),
   ).toEqual({
     changes: {
       modificationRequest: {
         description: '卸货地址改到二号门',
         statusText: '待客服确认',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
         impactText:
           '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。',
         costImpactText: '待平台重新核算费用，当前订单金额暂不变更。',
@@ -215,6 +230,37 @@ test('creates platform change request metadata with platform-specific guidance',
       },
     },
     noticeText: '修改申请已提交：卸货地址改到二号门',
+  });
+});
+
+test('creates local change request review metadata with review timing', () => {
+  expect(
+    createChangeRequestReviewOrderChange(
+      {
+        description: '卸货地址改到二号门',
+        statusText: '待客服确认',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        impactText: '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
+      },
+      '已确认',
+      '客服已确认修改申请，司机通知已同步。',
+      '2026-07-15T09:30:00.000Z',
+    ),
+  ).toEqual({
+    changes: {
+      modificationRequest: {
+        description: '卸货地址改到二号门',
+        statusText: '已确认',
+        submittedAtIso: '2026-07-15T08:00:00.000Z',
+        submittedAtText: '2026-07-15 16:00',
+        reviewedAtIso: '2026-07-15T09:30:00.000Z',
+        reviewedAtText: '2026-07-15 17:30',
+        impactText: '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
+        reviewResultText: '客服已确认修改申请，司机通知已同步。',
+      },
+    },
+    noticeText: '客服已确认修改申请，司机通知已同步。',
   });
 });
 

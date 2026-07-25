@@ -4,6 +4,7 @@ import type {
   RecentOrder,
   RecentOrderStatus,
 } from '../types';
+import { formatPlatformIsoMinute } from './dateTime';
 import { formatPriceText } from './order';
 
 export type OrderProgressAction = {
@@ -285,12 +286,15 @@ export function createExceptionReportOrderChange(report: {
 export function createChangeRequestOrderChange(
   description: string,
   usesPlatformChangeRequest = false,
+  submittedAtIso = new Date().toISOString(),
 ): OrderDetailChange {
   return {
     changes: {
       modificationRequest: {
         description,
         statusText: '待客服确认',
+        submittedAtIso,
+        submittedAtText: formatPlatformIsoMinute(submittedAtIso),
         impactText: usesPlatformChangeRequest
           ? '司机已接单，当前订单已进入平台修改申请流程，客服将确认司机通知、费用和退款影响。'
           : '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
@@ -306,6 +310,26 @@ export function createChangeRequestOrderChange(
       },
     },
     noticeText: `修改申请已提交：${description}`,
+  };
+}
+
+export function createChangeRequestReviewOrderChange(
+  modificationRequest: NonNullable<RecentOrder['modificationRequest']>,
+  statusText: string,
+  reviewResultText: string,
+  reviewedAtIso = new Date().toISOString(),
+): OrderDetailChange {
+  return {
+    changes: {
+      modificationRequest: {
+        ...modificationRequest,
+        statusText,
+        reviewResultText,
+        reviewedAtIso,
+        reviewedAtText: formatPlatformIsoMinute(reviewedAtIso),
+      },
+    },
+    noticeText: reviewResultText,
   };
 }
 

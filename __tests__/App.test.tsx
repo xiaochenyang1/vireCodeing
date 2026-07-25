@@ -7929,7 +7929,8 @@ test('shows a local tracking card for a transporting order', async () => {
 });
 
 test('submits a change request for a non-waiting order', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
 
@@ -7970,6 +7971,7 @@ test('submits a change request for a non-waiting order', async () => {
   expect(renderedText).toContain('修改申请记录');
   expect(renderedText).toContain('卸货地址改到福田会展中心，需司机确认');
   expect(renderedText).toContain('处理状态：待客服确认');
+  expect(renderedText).toContain('提交时间：2026-07-15 16:00');
   expect(renderedText).toContain(
     '司机已接单，本地演示需客服确认司机通知、费用和退款影响。',
   );
@@ -7985,7 +7987,8 @@ test('submits a change request for a non-waiting order', async () => {
 });
 
 test('updates the local change request review status from the order detail', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
 
@@ -8020,6 +8023,7 @@ test('updates the local change request review status from the order detail', asy
   let renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('处理状态：已确认');
+  expect(renderedText).toContain('审核时间：2026-07-15 16:00');
   expect(renderedText).toContain(
     '审核结果：客服已确认修改申请，司机通知已同步。',
   );
@@ -8049,6 +8053,7 @@ test('updates the local change request review status from the order detail', asy
   renderedText = getRenderedText(app);
 
   expect(renderedText).toContain('处理状态：已驳回');
+  expect(renderedText).toContain('审核时间：2026-07-15 16:00');
   expect(renderedText).toContain(
     '审核结果：客服驳回修改申请，订单按原信息继续执行。',
   );
@@ -27025,6 +27030,11 @@ test('submits a platform order change request through the change request api', a
     expect(getFetchCallBody(changeRequestCall)).toMatchObject({
       description: '请把卸货地址改到南山门店二期',
     });
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain('提交时间：2026-07-03 16:00');
+    expect(renderedText).not.toContain('本地确认修改');
+    expect(renderedText).not.toContain('本地驳回修改');
     expect(getAppRuntimeState().orders[0]).toMatchObject({
       id: 'HY202607030007',
       platformOrderId: 'order-platform-change-request-1',
@@ -27032,6 +27042,8 @@ test('submits a platform order change request through the change request api', a
       modificationRequest: {
         description: '请把卸货地址改到南山门店二期',
         statusText: '待客服确认',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });
@@ -27128,6 +27140,8 @@ test('retries a failed platform order change request through the change request 
       modificationRequest: {
         description: '请把卸货地址改到南山门店二期',
         statusText: '待客服确认',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: {
         status: 'failed',
@@ -27171,6 +27185,8 @@ test('retries a failed platform order change request through the change request 
       modificationRequest: {
         description: '请把卸货地址改到南山门店二期',
         statusText: '待客服确认',
+        submittedAtIso: '2026-07-03T08:00:00.000Z',
+        submittedAtText: '2026-07-03 16:00',
       },
       syncState: { status: 'synced' },
     });

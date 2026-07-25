@@ -104,10 +104,12 @@ export function ExceptionRecordCard({
 export function ModificationRequestRecordCard({
   orderId,
   modificationRequest,
+  canReviewLocally,
   onReview,
 }: {
   orderId: string;
   modificationRequest: NonNullable<RecentOrder['modificationRequest']>;
+  canReviewLocally: boolean;
   onReview: (statusText: string, reviewResultText: string) => void;
 }) {
   return (
@@ -117,6 +119,16 @@ export function ModificationRequestRecordCard({
       <Text style={styles.detailMeta}>
         {`处理状态：${modificationRequest.statusText}`}
       </Text>
+      {modificationRequest.submittedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`提交时间：${modificationRequest.submittedAtText}`}
+        </Text>
+      ) : null}
+      {modificationRequest.reviewedAtText ? (
+        <Text style={styles.detailMeta}>
+          {`审核时间：${modificationRequest.reviewedAtText}`}
+        </Text>
+      ) : null}
       <Text style={styles.detailMeta}>{modificationRequest.impactText}</Text>
       {modificationRequest.costImpactText ? (
         <Text style={styles.detailMeta}>
@@ -138,7 +150,7 @@ export function ModificationRequestRecordCard({
           {`审核结果：${modificationRequest.reviewResultText}`}
         </Text>
       ) : null}
-      {modificationRequest.statusText === '待客服确认' ? (
+      {canReviewLocally && modificationRequest.statusText === '待客服确认' ? (
         <>
           <Pressable
             testID={`change-request-approve-${orderId}`}

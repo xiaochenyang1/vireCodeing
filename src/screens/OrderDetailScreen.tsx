@@ -59,6 +59,7 @@ import {
   buildDetailTimeline,
   createBonusOrderChange,
   createChangeRequestOrderChange,
+  createChangeRequestReviewOrderChange,
   createDriverQuoteOrderChange,
   createEvaluationNotice,
   createExceptionReportOrderChange,
@@ -160,6 +161,7 @@ export function OrderDetailScreen({
   const usesPlatformOrderActions = Boolean(
     platformOrderApi && order.platformOrderId,
   );
+  const hasPlatformOrderBinding = Boolean(order.platformOrderId);
   const progressAction = getOrderProgressAction(
     order.status,
     usesPlatformOrderActions,
@@ -703,7 +705,8 @@ export function OrderDetailScreen({
   const submitChangeRequest = (description: string) => {
     const changeRequest = createChangeRequestOrderChange(
       description,
-      usesPlatformOrderActions,
+      hasPlatformOrderBinding,
+      new Date(now).toISOString(),
     );
 
     if (onSubmitChangeRequest) {
@@ -731,14 +734,15 @@ export function OrderDetailScreen({
       return;
     }
 
-    updateOrderFromDetail({
-      modificationRequest: {
-        ...order.modificationRequest,
-        statusText,
-        reviewResultText,
-      },
-    });
-    setLocalNotice(reviewResultText);
+    const reviewChange = createChangeRequestReviewOrderChange(
+      order.modificationRequest,
+      statusText,
+      reviewResultText,
+      new Date(now).toISOString(),
+    );
+
+    updateOrderFromDetail(reviewChange.changes);
+    setLocalNotice(reviewChange.noticeText);
   };
 
   const resolveExceptionReport = () => {
@@ -956,9 +960,9 @@ export function OrderDetailScreen({
       ) : null}
 
       {isPanelOpen('changeRequest') ? (
-      <ChangeRequestForm
-        onSubmit={submitChangeRequest}
-        usesPlatformChangeRequest={usesPlatformOrderActions}
+        <ChangeRequestForm
+          onSubmit={submitChangeRequest}
+          usesPlatformChangeRequest={hasPlatformOrderBinding}
         />
       ) : null}
 
@@ -1008,6 +1012,7 @@ export function OrderDetailScreen({
         <ModificationRequestRecordCard
           orderId={order.id}
           modificationRequest={order.modificationRequest}
+          canReviewLocally={!order.platformOrderId}
           onReview={updateChangeRequestReview}
         />
       ) : null}
