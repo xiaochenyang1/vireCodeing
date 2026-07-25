@@ -645,6 +645,126 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('联系人：钱店长 13900139002');
   });
 
+  it('shows the latest reported driver location snapshot after reporting sandbox order location', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090011',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverNavigationTargets.mockResolvedValue({
+      orderId: 'order-1',
+      orderNo: 'HY202607090011',
+      targets: [
+        {
+          type: 'pickup',
+          address: '宝安区福永物流园 1 号门',
+          latitude: 22.6,
+          longitude: 113.9,
+          contactName: '赵经理',
+          contactPhone: '13900139001',
+        },
+      ],
+    });
+    platformMapsApi.reportDriverLocation.mockResolvedValue({
+      driverId: 'driver-1',
+      orderId: 'order-1',
+      latitude: 22.61,
+      longitude: 113.91,
+      accuracyMeters: 25,
+      source: 'sandbox' as const,
+      recordedAtIso: '2026-07-09T03:10:00.000Z',
+      updatedAtIso: '2026-07-09T03:10:00.000Z',
+      distanceToTargetMeters: 3200,
+      etaMinutes: 7,
+      targetType: 'delivery' as const,
+      targetAddress: '龙岗区坂田仓',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090011' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findAllByProps({
+        testID: 'driver-report-location-HY202607090011',
+      })[0].props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.reportDriverLocation).toHaveBeenCalledWith({
+      latitude: 22.6,
+      longitude: 113.9,
+      orderId: 'order-1',
+      source: 'sandbox',
+      accuracyMeters: 25,
+    });
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-coordinate-HY202607090011',
+      }).props.children,
+    ).toBe('22.610000, 113.910000');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-meta-HY202607090011',
+      }).props.children,
+    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 03:10');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-estimate-HY202607090011',
+      }).props.children,
+    ).toBe('距卸货点（龙岗区坂田仓） 约 3.2 公里 · 预计 约 7 分钟');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-target-HY202607090011',
+      }).props.children,
+    ).toBe('当前目标：龙岗区坂田仓');
+  });
+
   it('blocks quoting when saved acceptance settings are offline', async () => {
     const hallOrder = {
       id: 'order-1',

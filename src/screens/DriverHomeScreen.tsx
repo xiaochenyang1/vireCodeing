@@ -26,10 +26,15 @@ import type {
   createPlatformDriverOrderApi,
 } from '../services/platformDriverOrderApi';
 import type {
+  PlatformDriverLocationSnapshot,
   PlatformNavigationTarget,
   createPlatformMapsApi,
 } from '../services/platformMapsApi';
-import { buildExternalNavigationUrls } from '../utils/mapsNavigation';
+import {
+  buildExternalNavigationUrls,
+  formatCoordinateText,
+  formatTrackingEstimateText,
+} from '../utils/mapsNavigation';
 import type {
   PlatformDriverCertificationSnapshot,
   createPlatformDriverCertificationApi,
@@ -197,6 +202,20 @@ const driverOrderHallFilterOptions: Array<{
     testID: 'driver-order-hall-filter-negotiable',
   },
 ];
+
+function getDriverLocationSourceText(
+  source: PlatformDriverLocationSnapshot['source'],
+) {
+  if (source === 'sandbox') {
+    return 'sandbox 上报';
+  }
+
+  if (source === 'device') {
+    return '设备定位';
+  }
+
+  return '手动上报';
+}
 
 function useDriverPngUpload(
   platformFileApi: DriverPlatformFileApi | undefined,
@@ -667,6 +686,8 @@ export function DriverHomeScreen({
   const [navigationTargets, setNavigationTargets] = useState<
     PlatformNavigationTarget[]
   >([]);
+  const [latestReportedDriverLocation, setLatestReportedDriverLocation] =
+    useState<PlatformDriverLocationSnapshot>();
   const [certification, setCertification] =
     useState<PlatformDriverCertificationSnapshot>();
   const [incomeOverview, setIncomeOverview] =
@@ -1564,6 +1585,7 @@ export function DriverHomeScreen({
     setAppealDrafts({});
     setAppealingCaseId(undefined);
     setNavigationTargets([]);
+    setLatestReportedDriverLocation(undefined);
     setIsLoadingExceptionCases(true);
     platformDriverOrderApi
       .getOrder(order.id)
@@ -1704,7 +1726,8 @@ export function DriverHomeScreen({
         source: 'sandbox',
         accuracyMeters: sandboxDriverLocation.accuracyMeters,
       })
-      .then(() => {
+      .then(snapshot => {
+        setLatestReportedDriverLocation(snapshot);
         setNotice('已上报 sandbox 司机位置。');
       })
       .catch(error => {
@@ -2665,6 +2688,21 @@ export function DriverHomeScreen({
   const selectedReportedExceptionAttachmentRefs = selectedOrder
     ? reportedExceptionAttachments[selectedOrder.orderNo] ?? []
     : [];
+  const latestReportedDriverLocationCoordinateText = latestReportedDriverLocation
+    ? formatCoordinateText(
+        latestReportedDriverLocation.latitude,
+        latestReportedDriverLocation.longitude,
+      )
+    : undefined;
+  const latestReportedDriverLocationEstimateText = latestReportedDriverLocation
+    ? formatTrackingEstimateText({
+        distanceToTargetMeters:
+          latestReportedDriverLocation.distanceToTargetMeters,
+        etaMinutes: latestReportedDriverLocation.etaMinutes,
+        targetType: latestReportedDriverLocation.targetType,
+        targetAddress: latestReportedDriverLocation.targetAddress,
+      })
+    : undefined;
   const createUploadedAttachmentMetaLines = (
     attachmentRef: DriverUploadedFileRef,
   ) => [
@@ -4170,6 +4208,43 @@ export function DriverHomeScreen({
                     上报 sandbox 位置
                   </Text>
                 </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          {latestReportedDriverLocation ? (
+            <View style={styles.detailInfoCard}>
+              <Text style={styles.detailInfoLabel}>最新上报位置</Text>
+              <Text
+                testID={`driver-latest-location-coordinate-${selectedOrder.orderNo}`}
+                style={styles.detailInfoValue}
+              >
+                {latestReportedDriverLocationCoordinateText}
+              </Text>
+              <Text
+                testID={`driver-latest-location-meta-${selectedOrder.orderNo}`}
+                style={styles.detailMeta}
+              >
+                {`来源：${getDriverLocationSourceText(
+                  latestReportedDriverLocation.source,
+                )} · 上报时间：${formatDriverIncomeTime(
+                  latestReportedDriverLocation.recordedAtIso,
+                )}`}
+              </Text>
+              {latestReportedDriverLocationEstimateText ? (
+                <Text
+                  testID={`driver-latest-location-estimate-${selectedOrder.orderNo}`}
+                  style={styles.detailMeta}
+                >
+                  {latestReportedDriverLocationEstimateText}
+                </Text>
+              ) : null}
+              {latestReportedDriverLocation.targetAddress ? (
+                <Text
+                  testID={`driver-latest-location-target-${selectedOrder.orderNo}`}
+                  style={styles.detailMeta}
+                >
+                  {`当前目标：${latestReportedDriverLocation.targetAddress}`}
+                </Text>
               ) : null}
             </View>
           ) : null}
