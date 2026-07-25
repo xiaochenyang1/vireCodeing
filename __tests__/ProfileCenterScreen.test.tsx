@@ -717,12 +717,11 @@ describe('ProfileCenterScreen verification sync guards', () => {
 
     await openProfileSection(renderer, 'evaluations');
 
-    expect(platformFileApi.getFileMetadata).toHaveBeenNthCalledWith(
-      1,
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledTimes(2);
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
       'file-platform-evaluation-1',
     );
-    expect(platformFileApi.getFileMetadata).toHaveBeenNthCalledWith(
-      2,
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
       'file-platform-received-1',
     );
     expect(

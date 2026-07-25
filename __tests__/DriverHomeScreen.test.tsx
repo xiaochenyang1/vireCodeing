@@ -292,6 +292,26 @@ function getDriverCompletedOrderCardTestIds(
   );
 }
 
+async function openDriverOrderDetail(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+  orderNo: string,
+) {
+  const openButton =
+    renderer.root.findAllByProps({ testID: `driver-open-order-${orderNo}` })[0] ??
+    renderer.root.findAllByProps({
+      testID: `driver-open-completed-order-${orderNo}`,
+    })[0];
+
+  if (!openButton) {
+    throw new Error(`Missing driver order open trigger for ${orderNo}`);
+  }
+
+  await ReactTestRenderer.act(async () => {
+    openButton.props.onPress();
+    await flushMicrotasks();
+  });
+}
+
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -5662,12 +5682,7 @@ describe('DriverHomeScreen certification uploads', () => {
       );
       await flushMicrotasks();
     });
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607110003' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607110003');
 
     expect(
       renderer.root.findAllByProps({
@@ -5743,12 +5758,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090088' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090088');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -5866,12 +5876,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090104' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090104');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6006,12 +6011,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090099' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090099');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6093,12 +6093,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090100' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090100');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6193,12 +6188,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090101' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090101');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6313,12 +6303,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090103' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090103');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6453,12 +6438,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090102' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090102');
 
     ReactTestRenderer.act(() => {
       renderer.root
@@ -6516,12 +6496,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    await ReactTestRenderer.act(async () => {
-      renderer.root
-        .findByProps({ testID: 'driver-open-order-HY202607090102' })
-        .props.onPress();
-      await flushMicrotasks();
-    });
+    await openDriverOrderDetail(renderer, 'HY202607090102');
 
     expect(getRenderedText(renderer)).toContain('评价回复同步队列');
     expect(getRenderedText(renderer)).toContain('持久化队列恢复后重试。');
