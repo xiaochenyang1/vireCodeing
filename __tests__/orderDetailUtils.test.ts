@@ -194,7 +194,9 @@ test('creates order change and notice for selecting a driver quote', () => {
     noteText: '可协助搬运',
   };
 
-  expect(createDriverQuoteOrderChange(quote)).toEqual({
+  expect(
+    createDriverQuoteOrderChange(quote, '2026-07-15T08:00:00.000Z'),
+  ).toEqual({
     changes: {
       status: 'loading',
       priceText: '¥860',
@@ -206,6 +208,8 @@ test('creates order change and notice for selecting a driver quote', () => {
         vehicleText: '4.2 米厢货',
         plateNumber: '辽A12345',
         completedOrdersText: '已完成 312 单',
+        acceptedAtIso: '2026-07-15T08:00:00.000Z',
+        acceptedAtText: '2026-07-15 16:00',
       },
       updatedAtText: '司机已接单 · 刚刚',
     },

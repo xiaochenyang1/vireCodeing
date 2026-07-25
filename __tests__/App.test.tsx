@@ -6057,7 +6057,8 @@ test('filters the order list by a local custom date range', async () => {
 });
 
 test('shows driver quotes and selects a driver from a waiting order', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
   await openFirstRecentOrder(app);
@@ -6083,6 +6084,7 @@ test('shows driver quotes and selects a driver from a waiting order', async () =
   expect(renderedText).toContain('司机信息');
   expect(renderedText).toContain('王师傅');
   expect(renderedText).toContain('粤B·A12345');
+  expect(renderedText).toContain('接单时间：2026-07-15 16:00');
 });
 
 test('opens the system dialer for an assigned driver', async () => {

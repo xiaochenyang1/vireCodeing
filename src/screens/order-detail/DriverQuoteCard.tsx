@@ -17,6 +17,11 @@ export function DriverQuoteCard({
       <View style={styles.driverQuoteFooter}>
         <View style={styles.driverQuoteTextGroup}>
           <Text style={styles.driverQuotePrice}>{quote.quoteText}</Text>
+          {quote.quotedAtText ? (
+            <Text style={styles.driverMeta}>
+              {`报价时间：${quote.quotedAtText}`}
+            </Text>
+          ) : null}
           <Text style={styles.driverMeta}>{quote.arrivalText}</Text>
           <Text style={styles.driverMeta}>{quote.noteText}</Text>
         </View>

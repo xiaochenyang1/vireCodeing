@@ -355,6 +355,8 @@ describe('platform order mapper', () => {
           plateNumber: '粤B12345',
           completedOrdersText: '12 单',
           quoteText: '￥880',
+          quotedAtIso: '2026-07-01T08:05:00.000Z',
+          quotedAtText: '2026-07-01 16:05',
           arrivalText: '45 分钟到达',
           noteText: '可带尾板',
         },
@@ -435,6 +437,8 @@ describe('platform order mapper', () => {
         vehicleText: '4.2 米 厢式货车',
         plateNumber: '粤B12345',
         completedOrdersText: '12 单',
+        acceptedAtIso: '2026-07-01T08:10:00.000Z',
+        acceptedAtText: '2026-07-01 16:10',
       },
     });
   });

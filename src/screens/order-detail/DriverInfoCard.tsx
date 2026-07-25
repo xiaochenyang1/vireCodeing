@@ -10,6 +10,11 @@ export function DriverInfoCard({ driver }: { driver: DriverInfo }) {
         <View>
           <Text style={styles.driverName}>{driver.driverName}</Text>
           <Text style={styles.driverMeta}>{driver.driverPhone}</Text>
+          {driver.acceptedAtText ? (
+            <Text style={styles.driverMeta}>
+              {`接单时间：${driver.acceptedAtText}`}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.driverRatingPill}>
           <Text style={styles.driverRatingText}>{driver.ratingText}</Text>

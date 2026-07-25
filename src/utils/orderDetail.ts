@@ -260,14 +260,20 @@ export function resolveOrderAmountCents(order: Pick<
 
 export function createDriverQuoteOrderChange(
   quote: DriverQuote,
+  acceptedAtIso = new Date().toISOString(),
 ): OrderDetailChange {
   const { quoteText, arrivalText, noteText, ...driverInfo } = quote;
+  const acceptedAtText = formatPlatformIsoMinute(acceptedAtIso);
 
   return {
     changes: {
       status: 'loading',
       priceText: quoteText,
-      driverInfo,
+      driverInfo: {
+        ...driverInfo,
+        acceptedAtIso,
+        acceptedAtText,
+      },
       updatedAtText: '司机已接单 · 刚刚',
     },
     noticeText: `${driverInfo.driverName} 已接单，${arrivalText}。${noteText}`,

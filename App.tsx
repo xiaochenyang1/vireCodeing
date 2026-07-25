@@ -2914,7 +2914,10 @@ function App({
     order: RecentOrder,
     quote: DriverQuote,
   ) => {
-    const selection = createDriverQuoteOrderChange(quote);
+    const selection = createDriverQuoteOrderChange(
+      quote,
+      new Date(nowRef.current).toISOString(),
+    );
     const localQuoteChanges: Partial<RecentOrder> = {
       ...selection.changes,
       updatedAtIso: new Date(nowRef.current).toISOString(),

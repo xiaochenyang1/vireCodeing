@@ -113,12 +113,16 @@ export type DriverInfo = {
   vehicleText: string;
   plateNumber: string;
   completedOrdersText: string;
+  acceptedAtText?: string;
+  acceptedAtIso?: string;
 };
 
 export type DriverQuote = DriverInfo & {
   quoteText: string;
   arrivalText: string;
   noteText: string;
+  quotedAtText?: string;
+  quotedAtIso?: string;
 };
 
 export type RecentOrderExceptionCaseStatus =

@@ -507,7 +507,10 @@ export function OrderDetailScreen({
       return;
     }
 
-    const selection = createDriverQuoteOrderChange(quote);
+    const selection = createDriverQuoteOrderChange(
+      quote,
+      new Date(now).toISOString(),
+    );
 
     updateOrderFromDetail(selection.changes);
     closeAllPanels();

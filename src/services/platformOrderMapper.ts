@@ -157,6 +157,8 @@ function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
         quoteText: formatCents(quote.quoteCents),
         arrivalText: quote.arrivalText,
         noteText: quote.noteText ?? '司机未填写报价备注',
+        quotedAtIso: event.createdAtIso,
+        quotedAtText: formatPlatformIsoMinute(event.createdAtIso),
       };
     })
     .filter(
@@ -179,11 +181,15 @@ function createAcceptedDriverInfoFromPlatformEvents(order: PlatformShipperOrder)
     acceptedEventPayload.driverSnapshot ??
     findDriverQuoteSnapshotForDriver(order, acceptedEvent.actorUserId);
 
-  return createDriverInfoFromSnapshot(
-    acceptedEvent.actorUserId,
-    driverSnapshot,
-    '平台已接单',
-  );
+  return {
+    ...createDriverInfoFromSnapshot(
+      acceptedEvent.actorUserId,
+      driverSnapshot,
+      '平台已接单',
+    ),
+    acceptedAtIso: acceptedEvent.createdAtIso,
+    acceptedAtText: formatPlatformIsoMinute(acceptedEvent.createdAtIso),
+  };
 }
 
 function getAcceptedDriverQuoteText(order: PlatformShipperOrder) {
