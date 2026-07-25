@@ -2341,8 +2341,20 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .createWithdrawal(request, idempotencyKey)
       .then(() => {
+        const defaultCard = bankCards.find(card => card.isDefault);
         withdrawalIdempotencyKeyRef.current = undefined;
-        setWithdrawalForm(emptyWithdrawalForm);
+        setWithdrawalForm(
+          defaultCard
+            ? {
+                ...emptyWithdrawalForm,
+                bankAccountName: defaultCard.bankAccountName,
+                bankName: defaultCard.bankName,
+                bankAccountNo: '',
+                selectedBankCardId: defaultCard.id,
+                selectedBankCardSource: 'default',
+              }
+            : emptyWithdrawalForm,
+        );
         setNotice('提现申请已提交审核。');
         refreshIncome();
       })
