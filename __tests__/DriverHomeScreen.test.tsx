@@ -722,7 +722,7 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
-    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 02:00');
+    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 10:00');
   });
 
   it('hydrates the latest hall location snapshot on load and manual refresh', async () => {
@@ -767,7 +767,7 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
-    ).toBe('来源：手动上报 · 上报时间：2026-07-09 02:00');
+    ).toBe('来源：手动上报 · 上报时间：2026-07-09 10:00');
 
     await ReactTestRenderer.act(async () => {
       renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
@@ -782,7 +782,7 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
-    ).toBe('来源：设备定位 · 上报时间：2026-07-09 03:00');
+    ).toBe('来源：设备定位 · 上报时间：2026-07-09 11:00');
     expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
   });
 
@@ -1117,7 +1117,7 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({
         testID: 'driver-latest-location-meta-HY202607090011',
       }).props.children,
-    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 03:10');
+    ).toBe('来源：sandbox 上报 · 上报时间：2026-07-09 11:10');
     expect(
       renderer.root.findByProps({
         testID: 'driver-latest-location-estimate-HY202607090011',
@@ -1229,7 +1229,7 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({
         testID: 'driver-latest-location-meta-HY202607090012',
       }).props.children,
-    ).toBe('来源：设备定位 · 上报时间：2026-07-09 02:30');
+    ).toBe('来源：设备定位 · 上报时间：2026-07-09 10:30');
     expect(
       renderer.root.findByProps({
         testID: 'driver-latest-location-estimate-HY202607090012',
@@ -1913,19 +1913,19 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({
         testID: 'driver-withdrawal-record-created-at-withdrawal-paid',
       }).props.children,
-    ).toBe('申请时间：2026-07-10 09:00');
+    ).toBe('申请时间：2026-07-10 17:00');
     expect(
       renderer.root.findByProps({
         testID: 'driver-withdrawal-record-detail-withdrawal-paid',
       }).props.children,
     ).toBe(
-      '打款渠道：沙箱打款 · 打款时间：2026-07-10 10:30 · 流水号：sandbox-payout-1',
+      '打款渠道：沙箱打款 · 打款时间：2026-07-10 18:30 · 流水号：sandbox-payout-1',
     );
     expect(
       renderer.root.findByProps({
         testID: 'driver-withdrawal-record-created-at-withdrawal-rejected',
       }).props.children,
-    ).toBe('申请时间：2026-07-11 09:15');
+    ).toBe('申请时间：2026-07-11 17:15');
     expect(
       renderer.root.findByProps({
         testID: 'driver-withdrawal-record-detail-withdrawal-rejected',
@@ -2117,7 +2117,7 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({
         testID: 'driver-bank-card-last-used-bank-card-1',
       }).props.children,
-    ).toBe('最近用于提现：2026-07-24 12:00');
+    ).toBe('最近用于提现：2026-07-24 20:00');
     expect(
       renderer.root.findByProps({ testID: 'driver-bank-card-select-bank-card-1' })
         .props.disabled,
@@ -2169,7 +2169,7 @@ describe('DriverHomeScreen certification uploads', () => {
       renderer.root.findByProps({
         testID: 'driver-bank-card-last-used-bank-card-1',
       }).props.children,
-    ).toBe('最近用于提现：2026-07-25 12:00');
+    ).toBe('最近用于提现：2026-07-25 20:00');
   });
 
   it('keeps a manually selected withdrawal card after a successful withdrawal submit', async () => {

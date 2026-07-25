@@ -323,7 +323,7 @@ test('sorts driver bank cards for display and formats last-used text', () => {
     'bank-card-1',
   ]);
   expect(getDriverBankCardLastUsedText(sortedCards[1])).toBe(
-    '最近用于提现：2026-07-25 10:00',
+    '最近用于提现：2026-07-25 18:00',
   );
   expect(getDriverBankCardLastUsedText(sortedCards[0])).toBeUndefined();
 });
@@ -597,7 +597,7 @@ test('maps status/certification/withdrawal texts and advance notices', () => {
       updatedAtIso: '2026-07-10T10:30:00.000Z',
     }),
   ).toBe(
-    '打款渠道：沙箱打款 · 打款时间：2026-07-10 10:30 · 流水号：sandbox-payout-1',
+    '打款渠道：沙箱打款 · 打款时间：2026-07-10 18:30 · 流水号：sandbox-payout-1',
   );
   expect(
     getDriverWithdrawalStatusDetailText({
@@ -622,7 +622,7 @@ test('maps status/certification/withdrawal texts and advance notices', () => {
 test('formats driver currency and income time', () => {
   expect(formatDriverCurrency(12345)).toBe('￥123.45');
   expect(formatDriverIncomeTime('2026-07-10T08:30:45.000Z')).toBe(
-    '2026-07-10 08:30',
+    '2026-07-10 16:30',
   );
 });
 

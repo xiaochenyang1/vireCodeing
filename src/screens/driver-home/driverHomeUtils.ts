@@ -17,6 +17,7 @@ import type {
 import type { PlatformDriverCertificationSnapshot } from '../../services/platformDriverCertificationApi';
 import { PlatformApiError } from '../../services/platformApiClient';
 import type { PlatformShipperOrder } from '../../services/platformOrderApi';
+import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import type { DriverEvaluationReplyQueue } from '../../utils/driverEvaluationReplyQueue';
 
 /**
@@ -886,7 +887,7 @@ export function formatDriverCurrency(valueCents: number) {
 }
 
 export function formatDriverIncomeTime(value: string) {
-  return value.replace('T', ' ').slice(0, 16);
+  return formatPlatformIsoMinute(value);
 }
 
 function getDriverBankCardSortTimeValue(
