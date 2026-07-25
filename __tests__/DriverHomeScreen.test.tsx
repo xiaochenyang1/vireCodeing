@@ -244,6 +244,38 @@ function getDriverOrderCardTestIds(
   );
 }
 
+function getDriverMyOrderCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('driver-my-order-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
+function getDriverCompletedOrderCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('driver-completed-order-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) {
     await Promise.resolve();
@@ -860,6 +892,92 @@ describe('DriverHomeScreen certification uploads', () => {
       'driver-order-card-HY202607090001',
       'driver-order-card-HY202607090002',
       'driver-order-card-HY202607090003',
+    ]);
+  });
+
+  it('sorts my orders by latest activity before rendering execution and completed cards', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    const baseOrder = {
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [
+        {
+          ...baseOrder,
+          id: 'order-completed-earlier',
+          orderNo: 'HY202607090011',
+          status: 'completed' as const,
+          createdAtIso: '2026-07-09T01:00:00.000Z',
+          updatedAtIso: '2026-07-09T01:05:00.000Z',
+        },
+        {
+          ...baseOrder,
+          id: 'order-loading-middle',
+          orderNo: 'HY202607090010',
+          status: 'loading' as const,
+          createdAtIso: '2026-07-09T02:00:00.000Z',
+          updatedAtIso: '2026-07-09T02:05:00.000Z',
+        },
+        {
+          ...baseOrder,
+          id: 'order-completed-later',
+          orderNo: 'HY202607090012',
+          status: 'completed' as const,
+          createdAtIso: '2026-07-09T03:00:00.000Z',
+          updatedAtIso: '2026-07-09T03:05:00.000Z',
+        },
+        {
+          ...baseOrder,
+          id: 'order-transporting-latest',
+          orderNo: 'HY202607090013',
+          status: 'transporting' as const,
+          createdAtIso: '2026-07-09T04:00:00.000Z',
+          updatedAtIso: '2026-07-09T04:05:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 4,
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getDriverMyOrderCardTestIds(renderer)).toEqual([
+      'driver-my-order-card-HY202607090013',
+      'driver-my-order-card-HY202607090012',
+      'driver-my-order-card-HY202607090010',
+      'driver-my-order-card-HY202607090011',
+    ]);
+    expect(getDriverCompletedOrderCardTestIds(renderer)).toEqual([
+      'driver-completed-order-card-HY202607090012',
+      'driver-completed-order-card-HY202607090011',
     ]);
   });
 

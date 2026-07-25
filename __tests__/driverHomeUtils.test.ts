@@ -36,6 +36,7 @@ import {
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   sortDriverBankCards,
+  sortDriverMyOrders,
   sortDriverOrderHallOrders,
   sortDriverWithdrawals,
   upsertOrder,
@@ -559,12 +560,65 @@ test('selects the latest driver exception event', () => {
   expect(result?.attachmentFileIds).toEqual(['file-1', 'file-2']);
 });
 
-test('upserts driver orders by id (prepend new, replace existing)', () => {
-  const base = [order({ id: 'a' })];
-  expect(upsertOrder(base, order({ id: 'b' })).map(o => o.id)).toEqual(['b', 'a']);
+test('sorts driver my orders by latest activity time descending', () => {
   expect(
-    upsertOrder(base, order({ id: 'a', status: 'loading' }))[0].status,
-  ).toBe('loading');
+    sortDriverMyOrders([
+      order({
+        id: 'created-later',
+        createdAtIso: '2026-07-11T09:15:00.000Z',
+        updatedAtIso: '2026-07-11T09:15:00.000Z',
+      }),
+      order({
+        id: 'updated-later',
+        createdAtIso: '2026-07-10T09:00:00.000Z',
+        updatedAtIso: '2026-07-11T09:30:00.000Z',
+      }),
+      order({
+        id: 'updated-earlier',
+        createdAtIso: '2026-07-09T09:00:00.000Z',
+        updatedAtIso: '2026-07-09T09:05:00.000Z',
+      }),
+    ]).map(item => item.id),
+  ).toEqual(['updated-later', 'created-later', 'updated-earlier']);
+});
+
+test('upserts driver orders by id and re-sorts by latest activity', () => {
+  const base = [
+    order({
+      id: 'older',
+      createdAtIso: '2026-07-10T08:00:00.000Z',
+      updatedAtIso: '2026-07-10T08:10:00.000Z',
+    }),
+    order({
+      id: 'newer',
+      createdAtIso: '2026-07-10T08:00:00.000Z',
+      updatedAtIso: '2026-07-10T08:20:00.000Z',
+    }),
+  ];
+
+  expect(
+    upsertOrder(
+      base,
+      order({
+        id: 'middle',
+        createdAtIso: '2026-07-10T08:00:00.000Z',
+        updatedAtIso: '2026-07-10T08:15:00.000Z',
+      }),
+    ).map(item => item.id),
+  ).toEqual(['newer', 'middle', 'older']);
+
+  const updatedOrders = upsertOrder(
+    base,
+    order({
+      id: 'older',
+      status: 'loading',
+      createdAtIso: '2026-07-10T08:00:00.000Z',
+      updatedAtIso: '2026-07-10T08:30:00.000Z',
+    }),
+  );
+
+  expect(updatedOrders.map(item => item.id)).toEqual(['older', 'newer']);
+  expect(updatedOrders[0].status).toBe('loading');
 });
 
 test('derives next status and button/receipt labels', () => {

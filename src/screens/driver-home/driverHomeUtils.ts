@@ -637,6 +637,50 @@ export function getLatestDriverException(order: PlatformShipperOrder) {
     )[0];
 }
 
+function compareDriverOrdersByLatestActivityDesc(
+  left: PlatformShipperOrder,
+  right: PlatformShipperOrder,
+) {
+  const leftSortTime = left.updatedAtIso ?? left.createdAtIso;
+  const rightSortTime = right.updatedAtIso ?? right.createdAtIso;
+
+  if (leftSortTime && rightSortTime && leftSortTime !== rightSortTime) {
+    return rightSortTime.localeCompare(leftSortTime);
+  }
+
+  if (leftSortTime && !rightSortTime) {
+    return -1;
+  }
+
+  if (!leftSortTime && rightSortTime) {
+    return 1;
+  }
+
+  if (
+    left.createdAtIso &&
+    right.createdAtIso &&
+    left.createdAtIso !== right.createdAtIso
+  ) {
+    return right.createdAtIso.localeCompare(left.createdAtIso);
+  }
+
+  if (left.createdAtIso && !right.createdAtIso) {
+    return -1;
+  }
+
+  if (!left.createdAtIso && right.createdAtIso) {
+    return 1;
+  }
+
+  return 0;
+}
+
+export function sortDriverMyOrders(
+  orders: PlatformShipperOrder[],
+) {
+  return [...orders].sort(compareDriverOrdersByLatestActivityDesc);
+}
+
 export function upsertOrder(
   orders: PlatformShipperOrder[],
   updatedOrder: PlatformShipperOrder,
@@ -644,11 +688,13 @@ export function upsertOrder(
   const hasOrder = orders.some(order => order.id === updatedOrder.id);
 
   if (!hasOrder) {
-    return [updatedOrder, ...orders];
+    return sortDriverMyOrders([...orders, updatedOrder]);
   }
 
-  return orders.map(order =>
-    order.id === updatedOrder.id ? updatedOrder : order,
+  return sortDriverMyOrders(
+    orders.map(order =>
+      order.id === updatedOrder.id ? updatedOrder : order,
+    ),
   );
 }
 

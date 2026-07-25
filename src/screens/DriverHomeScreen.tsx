@@ -109,6 +109,7 @@ import {
   getDriverReceiptUploadButtonText,
   getDriverOrderPickupDistanceText,
   sortDriverOrderHallOrders,
+  sortDriverMyOrders,
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
   getDriverStatusText,
@@ -891,7 +892,9 @@ export function DriverHomeScreen({
         pageSize: 20,
       })
       .then(result => {
-        setMyOrders(result.items);
+        setMyOrders(
+          sortDriverMyOrders(Array.isArray(result?.items) ? result.items : []),
+        );
         return true;
       })
       .catch(() => {
@@ -2772,6 +2775,12 @@ export function DriverHomeScreen({
     ? incomeOverview.records
     : [];
   const incomeChartData = aggregateIncomeRecordsByDay(incomeRecords, 7);
+  const sortedMyOrders = sortDriverMyOrders(
+    Array.isArray(myOrders) ? myOrders : [],
+  );
+  const completedMyOrders = sortedMyOrders.filter(
+    order => order.status === 'completed',
+  );
   const withdrawalRecords = sortDriverWithdrawals(
     Array.isArray(withdrawals) ? withdrawals : [],
   );
@@ -4224,8 +4233,10 @@ export function DriverHomeScreen({
           const keyword = myOrdersSearchKeyword.trim().toLowerCase();
           const statusFiltered =
             activeMyOrdersFilter === 'all'
-              ? myOrders
-              : myOrders.filter(order => order.status === activeMyOrdersFilter);
+              ? sortedMyOrders
+              : sortedMyOrders.filter(
+                  order => order.status === activeMyOrdersFilter,
+                );
           const filtered = keyword
             ? statusFiltered.filter(
                 order =>
@@ -4314,12 +4325,10 @@ export function DriverHomeScreen({
         <Text style={styles.detailMeta}>
           展示已送达并确认完成的订单
         </Text>
-        {myOrders.filter(order => order.status === 'completed').length === 0 ? (
+        {completedMyOrders.length === 0 ? (
           <Text style={styles.detailMeta}>暂无已完成订单。</Text>
         ) : (
-          myOrders
-            .filter(order => order.status === 'completed')
-            .map(order => (
+          completedMyOrders.map(order => (
               <View
                 key={order.id}
                 testID={`driver-completed-order-card-${order.orderNo}`}
