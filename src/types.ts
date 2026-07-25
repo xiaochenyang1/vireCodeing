@@ -385,6 +385,8 @@ export type MessageCenterItem = {
   content: string;
   timeText: string;
   unread: boolean;
+  createdAtIso?: string;
+  updatedAtIso?: string;
   platformOrderId?: string;
   orderNo?: string;
 };

@@ -5,16 +5,78 @@ export function mapPlatformInboxMessagesToLocal(
   items: PlatformInboxMessage[],
   now: Date = new Date(),
 ): MessageCenterItem[] {
-  return items.map(item => ({
-    id: item.id,
-    category: mapCategory(item.category),
-    title: item.title,
-    content: buildMessageContent(item),
-    timeText: formatRelativeTime(item.createdAtIso, now),
-    unread: item.unread,
-    platformOrderId: item.orderId,
-    orderNo: item.orderNo,
-  }));
+  return sortMessageCenterItems(
+    items.map(item => ({
+      id: item.id,
+      category: mapCategory(item.category),
+      title: item.title,
+      content: buildMessageContent(item),
+      timeText: formatRelativeTime(item.createdAtIso, now),
+      unread: item.unread,
+      createdAtIso: item.createdAtIso,
+      updatedAtIso: item.updatedAtIso,
+      platformOrderId: item.orderId,
+      orderNo: item.orderNo,
+    })),
+  );
+}
+
+export function getMessageCenterItemSortIso(
+  item: Pick<MessageCenterItem, 'createdAtIso' | 'updatedAtIso'>,
+) {
+  return item.createdAtIso ?? item.updatedAtIso;
+}
+
+export function sortMessageCenterItems(messages: MessageCenterItem[]) {
+  return messages
+    .map((message, index) => ({
+      message,
+      index,
+      sortIso: getMessageCenterItemSortIso(message),
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = right.sortIso.localeCompare(left.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+}
+
+export function sortMessageCenterItemsChronologically(
+  messages: MessageCenterItem[],
+) {
+  return messages
+    .map((message, index) => ({
+      message,
+      index,
+      sortIso: getMessageCenterItemSortIso(message),
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = left.sortIso.localeCompare(right.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
 }
 
 function mapCategory(

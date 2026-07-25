@@ -12,6 +12,10 @@ import type {
   OrderDetailReturnTarget,
 } from '../../types';
 import { getMessageOrderId } from '../../utils/homeSupport';
+import {
+  sortMessageCenterItems,
+  sortMessageCenterItemsChronologically,
+} from '../../utils/platformMessages';
 import { SupportTopBar } from './SupportTopBar';
 
 type ConversationView = 'list' | 'chat';
@@ -76,9 +80,10 @@ function getConversationTitle(messages: MessageCenterItem[]): string {
 function groupMessagesIntoConversations(
   messages: MessageCenterItem[],
 ): { conversations: Conversation[]; notifications: MessageCenterItem[] } {
+  const sortedMessages = sortMessageCenterItems(messages);
   const conversationMap = new Map<string, MessageCenterItem[]>();
 
-  messages.forEach(message => {
+  sortedMessages.forEach(message => {
     const orderId = getMessageOrderId(message.content, {
       orderNo: message.orderNo,
       platformOrderId: message.platformOrderId,
@@ -94,32 +99,30 @@ function groupMessagesIntoConversations(
 
   const conversations: Conversation[] = [];
   conversationMap.forEach((msgs, key) => {
-    const sorted = [...msgs].sort(
-      (a, b) => a.timeText.localeCompare(b.timeText),
-    );
-    const latest = sorted[sorted.length - 1];
+    const latest = msgs[0];
+    const chronologicalMessages = sortMessageCenterItemsChronologically(msgs);
     const orderId = key.replace('order-', '');
-    const platformOrderId = sorted[0].platformOrderId;
-    const orderNo = sorted[0].orderNo;
-    const unread = sorted.some(m => m.unread);
+    const platformOrderId = latest?.platformOrderId;
+    const orderNo = latest?.orderNo;
+    const unread = msgs.some(m => m.unread);
 
     conversations.push({
       id: key,
-      title: getConversationTitle(sorted),
-      lastMessage: latest.content,
-      timeText: latest.timeText,
+      title: getConversationTitle(msgs),
+      lastMessage: latest?.content ?? '',
+      timeText: latest?.timeText ?? '',
       unread,
       orderId,
       platformOrderId,
       orderNo,
-      messages: sorted,
-      avatarLabel: getConversationAvatarLabel(sorted[0].category),
+      messages: chronologicalMessages,
+      avatarLabel: getConversationAvatarLabel(
+        latest?.category ?? msgs[0]?.category ?? 'system',
+      ),
     });
   });
 
-  conversations.sort((a, b) => b.timeText.localeCompare(a.timeText));
-
-  const notifications = messages.filter(
+  const notifications = sortedMessages.filter(
     m => {
       const orderId = getMessageOrderId(m.content, {
         orderNo: m.orderNo,
