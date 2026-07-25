@@ -315,7 +315,7 @@ describe('platform driver order api', () => {
         amountCents: 12000,
         bankAccountName: '  李师傅  ',
         bankName: '  招商银行深圳宝安支行  ',
-        bankAccountNo: '  6225 8888 0000 1234  ',
+        bankAccountNo: '  6225 0000 0002 1234  ',
       },
       '550e8400-e29b-41d4-a716-446655440112',
     );
@@ -331,7 +331,7 @@ describe('platform driver order api', () => {
           amountCents: 12000,
           bankAccountName: '李师傅',
           bankName: '招商银行深圳宝安支行',
-          bankAccountNo: '6225888800001234',
+          bankAccountNo: '6225000000021234',
         }),
       }),
     );

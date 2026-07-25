@@ -109,6 +109,7 @@ import {
   getLatestDriverShipperEvaluation,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
+  isDriverBankCardNumberValid,
   isDriverEvaluationReplyMissingAccessToken,
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
@@ -2302,10 +2303,25 @@ export function DriverHomeScreen({
       return;
     }
 
+    const amountYuan = Number(withdrawalForm.amountText.trim());
+    const hasValidAmount = Number.isFinite(amountYuan) && amountYuan >= 1;
+    const hasBankAccountName =
+      withdrawalForm.bankAccountName.trim().length >= 2;
+    const hasBankName = withdrawalForm.bankName.trim().length >= 2;
+    const bankAccountNo = withdrawalForm.bankAccountNo.replace(/\s+/g, '');
+    const hasBankAccountNo = bankAccountNo.length > 0;
     const request = createDriverWithdrawalRequest(withdrawalForm);
 
     if (!request) {
-      setNotice('请填写有效提现金额、开户银行、收款人姓名和银行卡号。');
+      setNotice(
+        hasValidAmount &&
+          hasBankAccountName &&
+          hasBankName &&
+          hasBankAccountNo &&
+          !isDriverBankCardNumberValid(bankAccountNo)
+          ? '请输入有效的银行卡号。'
+          : '请填写有效提现金额、开户银行、收款人姓名和银行卡号。',
+      );
       return;
     }
 

@@ -422,13 +422,47 @@ export function createAcceptanceSettingsRequest(
   };
 }
 
+function normalizeDriverBankCardNumber(value: string) {
+  return value.replace(/\s+/g, '');
+}
+
+export function isDriverBankCardNumberValid(value: string) {
+  const bankCardNumber = normalizeDriverBankCardNumber(value);
+
+  if (
+    !/^\d{10,30}$/.test(bankCardNumber) ||
+    /^(\d)\1+$/.test(bankCardNumber)
+  ) {
+    return false;
+  }
+
+  let checksum = 0;
+  let shouldDouble = false;
+
+  for (let index = bankCardNumber.length - 1; index >= 0; index -= 1) {
+    let digit = Number(bankCardNumber[index]);
+
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) {
+        digit -= 9;
+      }
+    }
+
+    checksum += digit;
+    shouldDouble = !shouldDouble;
+  }
+
+  return checksum % 10 === 0;
+}
+
 export function createDriverWithdrawalRequest(
   form: DriverWithdrawalFormState,
 ): PlatformCreateDriverWithdrawalRequest | undefined {
   const amountYuan = Number(form.amountText.trim());
   const bankAccountName = form.bankAccountName.trim();
   const bankName = form.bankName.trim();
-  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+  const bankAccountNo = normalizeDriverBankCardNumber(form.bankAccountNo);
   const selectedBankCardId = form.selectedBankCardId?.trim();
 
   if (
@@ -436,7 +470,7 @@ export function createDriverWithdrawalRequest(
     amountYuan < 1 ||
     bankAccountName.length < 2 ||
     bankName.length < 2 ||
-    !/^\d{10,30}$/.test(bankAccountNo)
+    !isDriverBankCardNumberValid(bankAccountNo)
   ) {
     return undefined;
   }
@@ -457,7 +491,7 @@ export function isDriverWithdrawalFormPristine(
     form.amountText.trim().length === 0 &&
     form.bankAccountName.trim().length === 0 &&
     form.bankName.trim().length === 0 &&
-    form.bankAccountNo.replace(/\s+/g, '').length === 0 &&
+    normalizeDriverBankCardNumber(form.bankAccountNo).length === 0 &&
     (form.selectedBankCardId?.trim().length ?? 0) === 0 &&
     (form.selectedBankCardSource?.trim().length ?? 0) === 0
   );
@@ -468,12 +502,12 @@ export function createDriverBankCardRequest(
 ): PlatformCreateDriverBankCardRequest | undefined {
   const bankAccountName = form.bankAccountName.trim();
   const bankName = form.bankName.trim();
-  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+  const bankAccountNo = normalizeDriverBankCardNumber(form.bankAccountNo);
 
   if (
     bankAccountName.length < 2 ||
     bankName.length < 2 ||
-    !/^\d{10,30}$/.test(bankAccountNo) ||
+    !isDriverBankCardNumberValid(bankAccountNo) ||
     bankAccountNo.length < 16
   ) {
     return undefined;
@@ -492,13 +526,17 @@ export function createDriverBankCardUpdateRequest(
 ): PlatformUpdateDriverBankCardRequest | undefined {
   const bankAccountName = form.bankAccountName.trim();
   const bankName = form.bankName.trim();
-  const bankAccountNo = form.bankAccountNo.replace(/\s+/g, '');
+  const bankAccountNo = normalizeDriverBankCardNumber(form.bankAccountNo);
 
   if (bankAccountName.length < 2 || bankName.length < 2) {
     return undefined;
   }
 
-  if (bankAccountNo && (!/^\d{10,30}$/.test(bankAccountNo) || bankAccountNo.length < 16)) {
+  if (
+    bankAccountNo &&
+    (!isDriverBankCardNumberValid(bankAccountNo) ||
+      bankAccountNo.length < 16)
+  ) {
     return undefined;
   }
 

@@ -27,6 +27,7 @@ import {
   getLatestDriverException,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
+  isDriverBankCardNumberValid,
   isDriverAcceptanceSettingsFormDirty,
   isDriverCertificationFormDirty,
   isDriverWithdrawalFormPristine,
@@ -213,27 +214,27 @@ test('validates a driver withdrawal request', () => {
       amountText: '100',
       bankAccountName: '李师傅',
       bankName: '招商银行',
-      bankAccountNo: '6222 0000 1111 2222',
+      bankAccountNo: '6225 0000 0002 1234',
     }),
   ).toEqual({
     amountCents: 10000,
     bankAccountName: '李师傅',
     bankName: '招商银行',
-    bankAccountNo: '6222000011112222',
+    bankAccountNo: '6225000000021234',
   });
   expect(
     createDriverWithdrawalRequest({
       amountText: '100',
       bankAccountName: '李师傅',
       bankName: '招商银行',
-      bankAccountNo: '6222 0000 1111 2222',
+      bankAccountNo: '6225 0000 0002 1234',
       selectedBankCardId: ' bank-card-1 ',
     }),
   ).toEqual({
     amountCents: 10000,
     bankAccountName: '李师傅',
     bankName: '招商银行',
-    bankAccountNo: '6222000011112222',
+    bankAccountNo: '6225000000021234',
     bankCardId: 'bank-card-1',
   });
 
@@ -242,7 +243,7 @@ test('validates a driver withdrawal request', () => {
       amountText: '100',
       bankAccountName: '李',
       bankName: '招商银行',
-      bankAccountNo: '6222000011112222',
+      bankAccountNo: '6225000000021234',
     }),
   ).toBeUndefined();
   expect(
@@ -253,6 +254,21 @@ test('validates a driver withdrawal request', () => {
       bankAccountNo: '123',
     }),
   ).toBeUndefined();
+  expect(
+    createDriverWithdrawalRequest({
+      amountText: '100',
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6225 0000 0002 1235',
+    }),
+  ).toBeUndefined();
+});
+
+test('validates driver bank card numbers with checksum and repeated-digit guards', () => {
+  expect(isDriverBankCardNumberValid('6225 0000 0002 1234')).toBe(true);
+  expect(isDriverBankCardNumberValid('6225 9999 0000 5678')).toBe(true);
+  expect(isDriverBankCardNumberValid('6225 0000 0002 1235')).toBe(false);
+  expect(isDriverBankCardNumberValid('1111 1111 1111 1111')).toBe(false);
 });
 
 test('detects whether the driver withdrawal form is still pristine', () => {
@@ -322,13 +338,13 @@ test('builds driver bank card create/update requests and edit forms', () => {
     createDriverBankCardRequest({
       bankAccountName: ' 李师傅 ',
       bankName: ' 招商银行 ',
-      bankAccountNo: '6222 0000 1111 2222',
+      bankAccountNo: '6225 0000 0002 1234',
       isDefault: true,
     }),
   ).toEqual({
     bankAccountName: '李师傅',
     bankName: '招商银行',
-    bankAccountNo: '6222000011112222',
+    bankAccountNo: '6225000000021234',
     isDefault: true,
   });
   expect(
@@ -348,6 +364,22 @@ test('builds driver bank card create/update requests and edit forms', () => {
       bankAccountName: '李队长',
       bankName: '平安银行',
       bankAccountNo: '123',
+      isDefault: false,
+    }),
+  ).toBeUndefined();
+  expect(
+    createDriverBankCardRequest({
+      bankAccountName: '李师傅',
+      bankName: '招商银行',
+      bankAccountNo: '6225 0000 0002 1235',
+      isDefault: false,
+    }),
+  ).toBeUndefined();
+  expect(
+    createDriverBankCardUpdateRequest({
+      bankAccountName: '李队长',
+      bankName: '平安银行',
+      bankAccountNo: '6225 0000 0002 1235',
       isDefault: false,
     }),
   ).toBeUndefined();
