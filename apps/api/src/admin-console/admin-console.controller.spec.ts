@@ -162,6 +162,20 @@ describe('finance admin console page', () => {
     expect(html).not.toContain('hero');
   });
 
+  it('renders withdrawal list helpers for bank snapshots and status-specific finance facts', () => {
+    const html = renderFinanceAdminConsole();
+
+    expect(html).toContain('formatFinanceTimestamp');
+    expect(html).toContain('formatWithdrawalListDetail');
+    expect(html).toContain('item.bankName || \'-\'');
+    expect(html).toContain('item.bankAccountMasked || \'-\'');
+    expect(html).toContain('item.rejectionReason');
+    expect(html).toContain('item.payoutChannel');
+    expect(html).toContain('item.providerPayoutNo');
+    expect(html).toContain('item.payoutExecutedAtIso');
+    expect(html).toContain('withdrawal.version=');
+  });
+
   it('keeps stale responses from overriding newer finance queries', () => {
     const html = renderFinanceAdminConsole();
 

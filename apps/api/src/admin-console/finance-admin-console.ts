@@ -241,6 +241,58 @@ export function renderFinanceAdminConsole() {
       return (amount / 100).toFixed(2) + ' 元';
     }
 
+    function formatFinanceTimestamp(value) {
+      if (!value) {
+        return '-';
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hour = String(date.getHours()).padStart(2, '0');
+      const minute = String(date.getMinutes()).padStart(2, '0');
+      return year + '-' + month + '-' + day + ' ' + hour + ':' + minute;
+    }
+
+    function getWithdrawalPayoutChannelText(value) {
+      if (value === 'sandbox') return '沙箱打款';
+      if (value === 'wechat') return '微信';
+      if (value === 'alipay') return '支付宝';
+      return value || '-';
+    }
+
+    function formatWithdrawalListDetail(item) {
+      const facts = [];
+      if (item.status === 'reviewing') {
+        facts.push('申请时间 ' + formatFinanceTimestamp(item.createdAtIso));
+        facts.push('版本 ' + (item.version ?? 0));
+        return facts.join(' · ');
+      }
+      if (item.payoutExecutedAtIso) {
+        facts.push('打款时间 ' + formatFinanceTimestamp(item.payoutExecutedAtIso));
+      } else if (item.processedAtIso) {
+        facts.push('处理时间 ' + formatFinanceTimestamp(item.processedAtIso));
+      } else if (item.updatedAtIso || item.createdAtIso) {
+        facts.push(
+          '更新时间 ' + formatFinanceTimestamp(item.updatedAtIso || item.createdAtIso),
+        );
+      }
+      if (item.rejectionReason) {
+        facts.push('驳回原因 ' + item.rejectionReason);
+      }
+      if (item.payoutChannel) {
+        facts.push('打款渠道 ' + getWithdrawalPayoutChannelText(item.payoutChannel));
+      }
+      if (item.providerPayoutNo) {
+        facts.push('流水号 ' + item.providerPayoutNo);
+      }
+      facts.push('版本 ' + (item.version ?? 0));
+      return facts.join(' · ');
+    }
+
     function resetFinanceReport(message = '当前还没拉财务报表') {
       document.getElementById('financeReportStatus').textContent = message;
       document.getElementById('financeReportSummary').innerHTML =
@@ -748,7 +800,7 @@ export function renderFinanceAdminConsole() {
           currentFinanceTab !== 'withdrawals'
             ? ''
             : reviewableOnPage
-              ? '<label class="inline-checkbox" onclick="event.stopPropagation()"><input type="checkbox" data-withdrawal-select-id="' + escapeHtml(item.id) + '" onchange="toggleWithdrawalBatchSelection(this.getAttribute(\'data-withdrawal-select-id\'), this.checked)"' + (selectedWithdrawalIds.has(String(item.id || '')) ? ' checked' : '') + ' />批量</label>'
+              ? '<label class="inline-checkbox" onclick="event.stopPropagation()"><input type="checkbox" data-withdrawal-select-id="' + escapeHtml(item.id) + '" onchange="toggleWithdrawalBatchSelection(this.getAttribute(&quot;data-withdrawal-select-id&quot;), this.checked)"' + (selectedWithdrawalIds.has(String(item.id || '')) ? ' checked' : '') + ' />批量</label>'
               : '<span class="muted">已处理</span>';
         return '<div class="record-row' + (item.id === selectedFinanceRecordId ? ' selected' : '') + '" data-record-id="' + escapeHtml(item.id) + '" onclick="selectFinanceRecord(this.dataset.recordId)">' +
           '<div class="record-row-header"><div><strong>' + escapeHtml(formatPrimaryTitle(item)) + '</strong> <span class="status">' + escapeHtml(item.status || 'n/a') + '</span></div>' + batchSelectionControl + '</div>' +
@@ -776,10 +828,22 @@ export function renderFinanceAdminConsole() {
       if (currentFinanceTab === 'settlements') {
         return '订单 ' + (item.orderId || '-') + ' · 司机净收入 ' + formatMoney(item.driverNetAmountCents);
       }
-      return '司机 ' + (item.driverId || '-') + ' · ' + formatMoney(item.amountCents) + ' · 版本 ' + (item.version ?? 0);
+      return (
+        '司机 ' +
+        (item.driverId || '-') +
+        ' · ' +
+        formatMoney(item.amountCents) +
+        ' · ' +
+        (item.bankName || '-') +
+        ' ' +
+        (item.bankAccountMasked || '-')
+      );
     }
 
     function formatTertiaryLine(item) {
+      if (currentFinanceTab === 'withdrawals') {
+        return formatWithdrawalListDetail(item);
+      }
       return item.updatedAtIso || item.createdAtIso || item.settledAtIso || '';
     }
 
@@ -829,7 +893,17 @@ export function renderFinanceAdminConsole() {
         return '已选退款 ' + (item.refundNo || item.id) + '。如果要重试，expectedVersion 应该用当前 outbox attemptCount=' + suggestedVersion + '。';
       }
       if (currentFinanceTab === 'withdrawals') {
-        return '已选提现 ' + item.id + '。审核通过或驳回都会拿 withdrawal.version=' + suggestedVersion + ' 做 CAS。';
+        return (
+          '已选提现 ' +
+          item.id +
+          '（' +
+          (item.bankName || '-') +
+          ' ' +
+          (item.bankAccountMasked || '-') +
+          '）。审核通过或驳回都会拿 withdrawal.version=' +
+          suggestedVersion +
+          ' 做 CAS。'
+        );
       }
       if (item.financialTransactionId) {
         return '已选记录自带 financialTransactionId=' + item.financialTransactionId + '，直接点“查看资金流水”就行。';
