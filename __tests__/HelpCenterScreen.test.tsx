@@ -14,6 +14,22 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join('');
 }
 
+function getSupportTicketCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('support-ticket-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 describe('HelpCenterScreen', () => {
   const mixedTickets: SupportTicket[] = [
     {
@@ -119,6 +135,28 @@ describe('HelpCenterScreen', () => {
         timestampText: '刚刚',
       },
     );
+  });
+
+  it('sorts mixed support tickets by latest update time before rendering', async () => {
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <HelpCenterScreen
+          supportTickets={mixedTickets}
+          ticketsTitle="平台工单（含本地兜底）"
+          modeBadgeText="平台同步"
+          canUpdateTicketStatus={false}
+          onBackHome={jest.fn()}
+          onSubmitTicket={jest.fn()}
+          onUpdateTicketStatus={jest.fn()}
+        />,
+      );
+    });
+
+    expect(getSupportTicketCardTestIds(renderer)).toEqual([
+      'support-ticket-card-support-ticket-2',
+      'support-ticket-card-platform-ticket-1',
+    ]);
   });
 
   it('shows a manual platform ticket refresh action when enabled', async () => {

@@ -4,6 +4,7 @@ import {
   createLocalSupportTicket,
   createUpdateSupportTicketStatusChange,
   getMessageOrderId,
+  sortSupportTickets,
 } from '../src/utils/homeSupport';
 import type { SupportTicket } from '../src/types';
 
@@ -156,6 +157,50 @@ test('creates an add-ticket change and avoids existing local ticket ids', () => 
   dateNowSpy.mockRestore();
 });
 
+test('sorts support tickets by latest updatedAtIso or createdAtIso descending', () => {
+  expect(
+    sortSupportTickets([
+      {
+        id: 'support-ticket-legacy-1',
+        channelName: '投诉建议',
+        description: '旧工单 1',
+        statusText: '待客服跟进',
+        createdAtText: '昨天',
+      },
+      {
+        id: 'support-ticket-2',
+        channelName: '订单咨询',
+        description: '创建时间更晚但没有更新时间',
+        statusText: '待客服跟进',
+        createdAtText: '08:15',
+        createdAtIso: '2026-07-22T08:15:00.000Z',
+      },
+      {
+        id: 'support-ticket-1',
+        channelName: '投诉建议',
+        description: '已经处理过的工单',
+        statusText: '客服已受理',
+        createdAtText: '08:00',
+        createdAtIso: '2026-07-22T08:00:00.000Z',
+        updatedAtText: '08:10',
+        updatedAtIso: '2026-07-22T08:10:00.000Z',
+      },
+      {
+        id: 'support-ticket-legacy-2',
+        channelName: '发票问题',
+        description: '旧工单 2',
+        statusText: '待客服跟进',
+        createdAtText: '前天',
+      },
+    ]).map(ticket => ticket.id),
+  ).toEqual([
+    'support-ticket-2',
+    'support-ticket-1',
+    'support-ticket-legacy-1',
+    'support-ticket-legacy-2',
+  ]);
+});
+
 test('creates an update-ticket change with appended processing history', () => {
   const now = new Date('2026-06-30T03:15:00.000Z').getTime();
   const expectedIso = new Date(now).toISOString();
@@ -210,4 +255,66 @@ test('creates an update-ticket change with appended processing history', () => {
   });
 
   dateNowSpy.mockRestore();
+});
+
+test('resorts local support tickets after updating a ticket status', () => {
+  const now = new Date('2026-06-30T03:15:00.000Z').getTime();
+  const expectedIso = new Date(now).toISOString();
+  const tickets: SupportTicket[] = [
+    {
+      id: 'support-ticket-1',
+      channelName: '投诉建议',
+      description: '较早提交的工单',
+      statusText: '待客服跟进',
+      createdAtText: '08:00',
+      createdAtIso: '2026-06-30T02:00:00.000Z',
+      updatedAtText: '08:00',
+      updatedAtIso: '2026-06-30T02:00:00.000Z',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampText: '08:00',
+          timestampIso: '2026-06-30T02:00:00.000Z',
+        },
+      ],
+    },
+    {
+      id: 'support-ticket-2',
+      channelName: '订单咨询',
+      description: '原本排在前面的工单',
+      statusText: '待客服跟进',
+      createdAtText: '09:00',
+      createdAtIso: '2026-06-30T02:30:00.000Z',
+      updatedAtText: '09:00',
+      updatedAtIso: '2026-06-30T02:30:00.000Z',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampText: '09:00',
+          timestampIso: '2026-06-30T02:30:00.000Z',
+        },
+      ],
+    },
+  ];
+
+  const change = createUpdateSupportTicketStatusChange(
+    tickets,
+    'support-ticket-1',
+    '客服已受理',
+    {
+      actionText: '客服已受理',
+      timestampText: '刚刚',
+    },
+    now,
+  );
+
+  expect(change.supportTickets.map(ticket => ticket.id)).toEqual([
+    'support-ticket-1',
+    'support-ticket-2',
+  ]);
+  expect(change.supportTickets[0]).toMatchObject({
+    id: 'support-ticket-1',
+    statusText: '客服已受理',
+    updatedAtIso: expectedIso,
+  });
 });

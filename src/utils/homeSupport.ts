@@ -28,6 +28,35 @@ export function isLocalSupportTicketId(ticketId: string) {
   return ticketId.startsWith(localSupportTicketIdPrefix);
 }
 
+export function getSupportTicketSortIso(ticket: SupportTicket) {
+  return ticket.updatedAtIso ?? ticket.createdAtIso;
+}
+
+export function sortSupportTickets(supportTickets: SupportTicket[]) {
+  return supportTickets
+    .map((ticket, index) => ({
+      ticket,
+      index,
+      sortIso: getSupportTicketSortIso(ticket),
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = right.sortIso.localeCompare(left.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ ticket }) => ticket);
+}
+
 export function createLocalSupportTicket({
   currentTicketCount,
   channelName,
@@ -82,7 +111,7 @@ export function createAddSupportTicketChange(
   );
 
   return {
-    supportTickets: [ticket, ...supportTickets],
+    supportTickets: sortSupportTickets([ticket, ...supportTickets]),
   };
 }
 
@@ -99,11 +128,13 @@ export function createUpdateSupportTicketStatusChange(
   };
 
   return {
-    supportTickets: appendSupportTicketStatus(
-      supportTickets,
-      ticketId,
-      statusText,
-      historyItemWithTimestampIso,
+    supportTickets: sortSupportTickets(
+      appendSupportTicketStatus(
+        supportTickets,
+        ticketId,
+        statusText,
+        historyItemWithTimestampIso,
+      ),
     ),
   };
 }

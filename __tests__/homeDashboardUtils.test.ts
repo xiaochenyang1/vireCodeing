@@ -190,6 +190,42 @@ test('merges home local state snapshots without mutating the current state', () 
   expect(currentState.routes).toEqual([currentRoute]);
 });
 
+test('sorts support tickets by latest update time when creating a home local snapshot', () => {
+  const olderPlatformTicket: SupportTicket = {
+    id: 'platform-ticket-1',
+    channelName: '投诉建议',
+    description: '平台较早工单',
+    statusText: '客服已受理',
+    createdAtText: '08:00',
+    createdAtIso: '2026-07-22T08:00:00.000Z',
+    updatedAtText: '08:35',
+    updatedAtIso: '2026-07-22T08:35:00.000Z',
+  };
+  const newerLocalTicket: SupportTicket = {
+    id: 'support-ticket-1',
+    channelName: '投诉建议',
+    description: '本地较新工单',
+    statusText: '客服已受理',
+    createdAtText: '08:20',
+    createdAtIso: '2026-07-22T08:20:00.000Z',
+    updatedAtText: '08:38',
+    updatedAtIso: '2026-07-22T08:38:00.000Z',
+  };
+
+  expect(
+    createHomeLocalStateSnapshot(
+      {
+        selectedCity: '深圳',
+        routes: [],
+        supportTickets: [],
+      },
+      {
+        supportTickets: [olderPlatformTicket, newerLocalTicket],
+      },
+    ).supportTickets,
+  ).toEqual([newerLocalTicket, olderPlatformTicket]);
+});
+
 test('creates home support view changes for navigation sections', () => {
   expect(createHomeSupportViewChange('messages')).toEqual({
     supportView: 'messages',

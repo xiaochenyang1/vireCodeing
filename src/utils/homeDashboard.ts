@@ -22,6 +22,7 @@ import {
 import {
   createAddSupportTicketChange,
   createUpdateSupportTicketStatusChange,
+  sortSupportTickets,
   type SupportTicketDraft,
 } from './homeSupport';
 
@@ -272,7 +273,9 @@ export function createHomeLocalStateSnapshot(
   return {
     selectedCity: nextState.selectedCity ?? currentState.selectedCity,
     routes: nextState.routes ?? currentState.routes,
-    supportTickets: nextState.supportTickets ?? currentState.supportTickets,
+    supportTickets: sortSupportTickets(
+      nextState.supportTickets ?? currentState.supportTickets,
+    ),
     syncState: nextState.syncState ?? currentState.syncState,
   };
 }

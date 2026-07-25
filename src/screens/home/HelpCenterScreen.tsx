@@ -11,6 +11,7 @@ import type {
 } from '../../types';
 import {
   isLocalSupportTicketId,
+  sortSupportTickets,
   type SupportTicketDraft,
 } from '../../utils/homeSupport';
 import { SupportTopBar } from './SupportTopBar';
@@ -129,6 +130,7 @@ export function HelpCenterScreen({
 
   const canUpdateTicketLocally = (ticket: SupportTicket) =>
     isLocalSupportTicketId(ticket.id);
+  const sortedSupportTickets = sortSupportTickets(supportTickets);
 
   return (
     <ScrollView
@@ -254,10 +256,10 @@ export function HelpCenterScreen({
         </Pressable>
       </View>
 
-      {supportTickets.length > 0 ? (
+      {sortedSupportTickets.length > 0 ? (
         <View style={styles.detailCard}>
           <Text style={styles.draftSectionTitle}>{ticketsTitle}</Text>
-          {supportTickets.map(ticket => {
+          {sortedSupportTickets.map(ticket => {
             const statusHistory = ticket.statusHistory ?? [
               {
                 actionText: '工单已提交',
@@ -266,7 +268,11 @@ export function HelpCenterScreen({
             ];
 
             return (
-              <View key={ticket.id} style={styles.driverInfoCard}>
+              <View
+                key={ticket.id}
+                testID={`support-ticket-card-${ticket.id}`}
+                style={styles.driverInfoCard}
+              >
                 <Text style={styles.driverName}>
                   {`工单类型：${ticket.channelName}`}
                 </Text>

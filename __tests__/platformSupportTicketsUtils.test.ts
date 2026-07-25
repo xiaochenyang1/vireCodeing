@@ -87,9 +87,26 @@ describe('platform support tickets utils', () => {
   });
 
   test('maps lists and infers local/platform modes', () => {
-    const platformTickets = mapPlatformSupportTicketsToLocal([platformTicket]);
+    const platformTickets = mapPlatformSupportTicketsToLocal([
+      {
+        ...platformTicket,
+        id: '550e8400-e29b-41d4-a716-446655440001',
+        createdAtIso: '2026-07-22T09:40:00.000Z',
+        updatedAtIso: '2026-07-22T09:40:00.000Z',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampIso: '2026-07-22T09:40:00.000Z',
+          },
+        ],
+      },
+      platformTicket,
+    ]);
 
-    expect(platformTickets).toHaveLength(1);
+    expect(platformTickets.map(ticket => ticket.id)).toEqual([
+      '550e8400-e29b-41d4-a716-446655440001',
+      '550e8400-e29b-41d4-a716-446655440000',
+    ]);
     expect(inferSupportTicketMode(platformTickets)).toBe('platform');
     expect(
       inferSupportTicketMode([
@@ -140,11 +157,11 @@ describe('platform support tickets utils', () => {
       ]),
     ).toMatchObject([
       {
-        id: '550e8400-e29b-41d4-a716-446655440000',
-      },
-      {
         id: 'support-ticket-3',
         description: '本地兜底工单',
+      },
+      {
+        id: '550e8400-e29b-41d4-a716-446655440000',
       },
     ]);
   });

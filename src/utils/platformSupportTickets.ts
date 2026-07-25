@@ -1,12 +1,14 @@
 import type { PlatformSupportTicket } from '../services/platformSupportTicketsApi';
 import type { SupportTicket } from '../types';
-import { isLocalSupportTicketId } from './homeSupport';
+import { isLocalSupportTicketId, sortSupportTickets } from './homeSupport';
 
 export function mapPlatformSupportTicketsToLocal(
   items: PlatformSupportTicket[],
   now: Date = new Date(),
 ): SupportTicket[] {
-  return items.map(item => mapPlatformSupportTicketToLocal(item, now));
+  return sortSupportTickets(
+    items.map(item => mapPlatformSupportTicketToLocal(item, now)),
+  );
 }
 
 export function mapPlatformSupportTicketToLocal(
@@ -46,10 +48,10 @@ export function mergeSupportTicketsWithLocalFallback(
   platformTickets: SupportTicket[],
   currentSupportTickets: SupportTicket[],
 ): SupportTicket[] {
-  return [
+  return sortSupportTickets([
     ...platformTickets,
     ...currentSupportTickets.filter(ticket => isLocalSupportTicketId(ticket.id)),
-  ];
+  ]);
 }
 
 function mapPlatformSupportTicketStatus(

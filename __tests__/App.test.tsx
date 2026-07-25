@@ -1654,6 +1654,20 @@ function getRenderedText(app: AppRenderer) {
     .join(' ');
 }
 
+function getSupportTicketCardTestIds(app: AppRenderer) {
+  return Array.from(
+    new Set(
+      app.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('support-ticket-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 async function getStoredSnapshot<T>(key: string): Promise<T> {
   const storedValue = await AsyncStorage.getItem(key);
 
@@ -10905,8 +10919,127 @@ test('keeps local fallback support tickets when platform help-center refresh suc
       }),
     ).toHaveLength(0);
     expect(getHomeLocalState().supportTickets.map(ticket => ticket.id)).toEqual([
-      '550e8400-e29b-41d4-a716-446655440010',
       'support-ticket-1',
+      '550e8400-e29b-41d4-a716-446655440010',
+    ]);
+    expect(getSupportTicketCardTestIds(app)).toEqual([
+      'support-ticket-card-support-ticket-1',
+      'support-ticket-card-550e8400-e29b-41d4-a716-446655440010',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sorts mixed support tickets by latest update time after platform help-center load', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-22T08:40:00.000Z').getTime();
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        expireSeconds: 300,
+        devCode: '999999',
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-support-ticket-sorted-load',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.support-ticket.sorted-load',
+          refreshToken: 'refresh.support-ticket.sorted-load',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        shipperId: 'user-support-ticket-sorted-load',
+        items: [
+          {
+            id: '550e8400-e29b-41d4-a716-446655440011',
+            shipperId: 'user-support-ticket-sorted-load',
+            channelName: '投诉建议',
+            description: '平台较早工单',
+            status: 'processing',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+              {
+                actionText: '客服已受理',
+                timestampIso: '2026-07-22T08:35:00.000Z',
+              },
+            ],
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:35:00.000Z',
+          },
+        ],
+      }),
+    );
+  installPlatformFetchMock(fetchMock);
+  const persistedHomeState = {
+    ...getHomeLocalState(),
+    supportTickets: [
+      {
+        id: 'support-ticket-1',
+        channelName: '投诉建议',
+        description: '本地较新工单',
+        statusText: '客服已受理',
+        createdAtText: '08:20',
+        createdAtIso: '2026-07-22T08:20:00.000Z',
+        updatedAtText: '刚刚',
+        updatedAtIso: '2026-07-22T08:38:00.000Z',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampText: '08:20',
+            timestampIso: '2026-07-22T08:20:00.000Z',
+          },
+          {
+            actionText: '客服已受理',
+            timestampText: '刚刚',
+            timestampIso: '2026-07-22T08:38:00.000Z',
+          },
+        ],
+      },
+    ],
+  };
+  saveHomeLocalState(persistedHomeState);
+  await AsyncStorage.setItem(
+    '@vireCodeing/home-local-state',
+    JSON.stringify({
+      version: 1,
+      state: persistedHomeState,
+    }),
+  );
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'home-open-help' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('平台工单（含本地兜底）');
+    expect(getRenderedText(app)).toContain('本地较新工单');
+    expect(getRenderedText(app)).toContain('平台较早工单');
+    expect(getHomeLocalState().supportTickets.map(ticket => ticket.id)).toEqual([
+      'support-ticket-1',
+      '550e8400-e29b-41d4-a716-446655440011',
+    ]);
+    expect(getSupportTicketCardTestIds(app)).toEqual([
+      'support-ticket-card-support-ticket-1',
+      'support-ticket-card-550e8400-e29b-41d4-a716-446655440011',
     ]);
   } finally {
     globalThis.fetch = originalFetch;
