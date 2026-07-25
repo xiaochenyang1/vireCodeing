@@ -361,6 +361,43 @@ export type PlatformProfileReceivedEvaluationSnapshot = {
   items: PlatformProfileReceivedEvaluationRecord[];
 };
 
+export type PlatformAdminEvaluationDirection =
+  | 'shipper_to_driver'
+  | 'driver_to_shipper';
+
+export type PlatformAdminEvaluationAuditListQuery = {
+  page?: number;
+  pageSize?: number;
+  direction?: PlatformAdminEvaluationDirection;
+  rating?: number;
+  keyword?: string;
+};
+
+export type PlatformAdminEvaluationAuditRecord = {
+  id: string;
+  orderId: string;
+  orderNo: string;
+  direction: PlatformAdminEvaluationDirection;
+  reviewerUserId: string;
+  reviewerName: string;
+  revieweeUserId: string;
+  revieweeName: string;
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous: boolean;
+  photoCount: number;
+  photoFileIds?: string[];
+  submittedAtIso: string;
+};
+
+export type PlatformAdminEvaluationAuditListResult = {
+  items: PlatformAdminEvaluationAuditRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type PlatformSaveProfileAddressBookRequest = {
   addresses: PlatformProfileAddressBookAddress[];
   contacts: PlatformProfileAddressBookContact[];
@@ -538,6 +575,16 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       return platformGet<PlatformProfileReceivedEvaluationSnapshot>(
         config,
         '/shipper/profile/evaluations/received',
+      );
+    },
+    async listAdminEvaluationAudits(
+      query: PlatformAdminEvaluationAuditListQuery = {},
+    ) {
+      const normalizedQuery = normalizeAdminEvaluationAuditListQuery(query);
+
+      return platformGet<PlatformAdminEvaluationAuditListResult>(
+        config,
+        `/admin/evaluations?${new URLSearchParams(normalizedQuery).toString()}`,
       );
     },
     async createInvoiceApplication(
@@ -964,6 +1011,64 @@ function normalizeAdminShipperCouponReportQuery(
 
   return {
     topShippersLimit: String(topShippersLimit),
+  };
+}
+
+function normalizeAdminEvaluationAuditListQuery(
+  query: PlatformAdminEvaluationAuditListQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit query must be an object',
+    );
+  }
+
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (!Number.isInteger(page) || page < 1) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit page is invalid',
+    );
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit pageSize is invalid',
+    );
+  }
+
+  if (
+    query.direction !== undefined &&
+    !['shipper_to_driver', 'driver_to_shipper'].includes(query.direction)
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit direction is invalid',
+    );
+  }
+
+  if (
+    query.rating !== undefined &&
+    (!Number.isInteger(query.rating) || query.rating < 1 || query.rating > 5)
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit rating is invalid',
+    );
+  }
+
+  const normalizedKeyword = normalizeOptionalString(
+    query.keyword,
+    100,
+    'Admin evaluation audit keyword is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
+
+  return {
+    ...(query.direction ? { direction: query.direction } : {}),
+    ...(query.rating !== undefined ? { rating: String(query.rating) } : {}),
+    ...(normalizedKeyword ? { keyword: normalizedKeyword } : {}),
+    page: String(page),
+    pageSize: String(pageSize),
   };
 }
 
@@ -1545,6 +1650,14 @@ function throwInvalidAdminShipperCouponRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_ADMIN_SHIPPER_COUPON_REQUEST_INVALID',
+    0,
+  );
+}
+
+function throwInvalidAdminEvaluationAuditRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
     0,
   );
 }

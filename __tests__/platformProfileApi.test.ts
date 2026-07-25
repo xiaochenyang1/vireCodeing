@@ -1426,6 +1426,108 @@ describe('platform profile api', () => {
     );
   });
 
+  it('lists admin evaluation audits with normalized query filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          items: [
+            {
+              id: 'audit-1',
+              orderId: 'order-1',
+              orderNo: 'HY202607090001',
+              direction: 'shipper_to_driver',
+              reviewerUserId: 'shipper-1',
+              reviewerName: '货主一',
+              revieweeUserId: 'driver-1',
+              revieweeName: '司机一',
+              rating: 5,
+              tags: ['准时送达'],
+              content: '评价审计记录',
+              anonymous: false,
+              photoCount: 1,
+              photoFileIds: ['file-audit-1'],
+              submittedAtIso: '2026-07-09T08:00:00.000Z',
+            },
+          ],
+          page: 2,
+          pageSize: 10,
+          total: 18,
+        },
+        requestId: 'req-admin-evaluation-audit',
+        timestamp: '2026-07-09T08:05:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminEvaluationAudits({
+        direction: 'shipper_to_driver',
+        rating: 5,
+        keyword: '  评价审计  ',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 10,
+      total: 18,
+      items: [
+        expect.objectContaining({
+          id: 'audit-1',
+          direction: 'shipper_to_driver',
+        }),
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/evaluations?direction=shipper_to_driver&rating=5&keyword=%E8%AF%84%E4%BB%B7%E5%AE%A1%E8%AE%A1&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin evaluation audit query before sending it', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const invalidDirectionQuery = {
+      direction: 'driver_to_admin',
+    } as unknown as Parameters<typeof api.listAdminEvaluationAudits>[0];
+    const invalidRatingQuery = {
+      rating: 0,
+    } as unknown as Parameters<typeof api.listAdminEvaluationAudits>[0];
+
+    await expect(
+      api.listAdminEvaluationAudits(invalidDirectionQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.listAdminEvaluationAudits(invalidRatingQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('lists admin shipper invoices and reviews invoice payloads', async () => {
     const fetchMock = jest
       .fn()
