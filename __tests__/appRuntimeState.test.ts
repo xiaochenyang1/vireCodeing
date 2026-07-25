@@ -92,3 +92,74 @@ test('hydrates legacy runtime snapshots by rebuilding the unread count', async (
 
   expect(getAppRuntimeState().messageUnreadCount).toBe(1);
 });
+
+test('hydrates legacy local messages by backfilling structured timestamps and sorting newest first', async () => {
+  await AsyncStorage.setItem(
+    '@vireCodeing/app-runtime-state',
+    JSON.stringify({
+      version: 1,
+      state: {
+        orders: runtimeState.orders,
+        messages: [
+          {
+            id: 'message-finance-1',
+            category: 'finance',
+            title: '财务到账提醒',
+            content: '异常赔付已打入司机钱包，可在收支明细中查看。',
+            timeText: '昨天 10:15',
+            unread: false,
+          },
+          {
+            id: 'message-quote-1',
+            category: 'order',
+            title: '司机报价提醒',
+            content:
+              '订单 HY20260622001 收到 2 个司机报价，请尽快选择合适司机。',
+            timeText: '10 分钟前',
+            unread: true,
+          },
+          {
+            id: 'message-system-1',
+            category: 'system',
+            title: '系统通知',
+            content: '平台已为已认证货主开放本地发单演示能力。',
+            timeText: '今天 09:30',
+            unread: true,
+          },
+          {
+            id: 'message-service-1',
+            category: 'service',
+            title: '客服处理进度',
+            content: '运输异常提交后，客服将在 24 小时内跟进处理。',
+            timeText: '昨天 18:00',
+            unread: false,
+          },
+        ],
+      },
+    }),
+  );
+
+  await hydrateAppRuntimeState();
+
+  expect(getAppRuntimeState()).toMatchObject({
+    messageUnreadCount: 2,
+    messages: [
+      {
+        id: 'message-quote-1',
+        createdAtIso: '2026-06-22T09:50:00+08:00',
+      },
+      {
+        id: 'message-system-1',
+        createdAtIso: '2026-06-22T09:30:00+08:00',
+      },
+      {
+        id: 'message-service-1',
+        createdAtIso: '2026-06-21T18:00:00+08:00',
+      },
+      {
+        id: 'message-finance-1',
+        createdAtIso: '2026-06-21T10:15:00+08:00',
+      },
+    ],
+  });
+});

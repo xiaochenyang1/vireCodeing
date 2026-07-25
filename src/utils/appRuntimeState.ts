@@ -6,6 +6,7 @@ import {
   removeStorageItem,
   writeJsonStorage,
 } from './storage';
+import { sortMessageCenterItems } from './platformMessages';
 
 const APP_RUNTIME_STATE_VERSION = 1;
 const APP_RUNTIME_STATE_STORAGE_KEY = '@vireCodeing/app-runtime-state';
@@ -22,16 +23,21 @@ export type AppRuntimeState = {
 };
 
 let appRuntimeStateSnapshot: AppRuntimeStateSnapshot | undefined;
+const localMessageDefaultsById = new Map(
+  messageCenterItems.map(item => [item.id, item]),
+);
 
 function cloneData<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function createDefaultAppRuntimeState(): AppRuntimeState {
+  const messages = normalizeMessages(cloneData(messageCenterItems));
+
   return {
     orders: cloneData(orderListOrders),
-    messages: cloneData(messageCenterItems),
-    messageUnreadCount: countUnreadMessages(messageCenterItems),
+    messages,
+    messageUnreadCount: countUnreadMessages(messages),
   };
 }
 
@@ -110,18 +116,38 @@ function normalizeAppRuntimeState(
   state: Pick<AppRuntimeState, 'orders' | 'messages'> &
     Partial<Pick<AppRuntimeState, 'messageUnreadCount'>>,
 ) {
+  const messages = normalizeMessages(state.messages);
+
   return cloneData({
     orders: state.orders,
-    messages: state.messages,
+    messages,
     messageUnreadCount:
       typeof state.messageUnreadCount === 'number' &&
       Number.isInteger(state.messageUnreadCount) &&
       state.messageUnreadCount >= 0
         ? state.messageUnreadCount
-        : countUnreadMessages(state.messages),
+        : countUnreadMessages(messages),
   });
 }
 
 function countUnreadMessages(messages: MessageCenterItem[]) {
   return messages.filter(message => message.unread).length;
+}
+
+function normalizeMessages(messages: MessageCenterItem[]) {
+  return sortMessageCenterItems(
+    messages.map(message => {
+      const localDefault = localMessageDefaultsById.get(message.id);
+
+      if (!localDefault) {
+        return message;
+      }
+
+      return {
+        ...message,
+        createdAtIso: message.createdAtIso ?? localDefault.createdAtIso,
+        updatedAtIso: message.updatedAtIso ?? localDefault.updatedAtIso,
+      };
+    }),
+  );
 }

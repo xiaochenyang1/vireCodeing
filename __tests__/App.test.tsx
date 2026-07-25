@@ -8914,6 +8914,10 @@ test('opens the local message center from the home screen', async () => {
   });
 
   let renderedText = getRenderedText(app);
+  const quoteMessageIndex = renderedText.indexOf('司机报价提醒');
+  const systemMessageIndex = renderedText.indexOf('系统通知');
+  const serviceMessageIndex = renderedText.indexOf('客服处理进度');
+  const financeMessageIndex = renderedText.indexOf('财务到账提醒');
 
   expect(renderedText).toContain('消息中心');
   expect(renderedText).toContain('本地版');
@@ -8925,6 +8929,9 @@ test('opens the local message center from the home screen', async () => {
     app.root.findByProps({ testID: 'message-category-message-finance-1' }).props
       .children,
   ).toBe('财务通知');
+  expect(quoteMessageIndex).toBeLessThan(systemMessageIndex);
+  expect(systemMessageIndex).toBeLessThan(serviceMessageIndex);
+  expect(serviceMessageIndex).toBeLessThan(financeMessageIndex);
 
   ReactTestRenderer.act(() => {
     app.root.findByProps({ testID: 'support-back-home' }).props.onPress();
