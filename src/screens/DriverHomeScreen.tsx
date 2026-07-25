@@ -843,8 +843,8 @@ export function DriverHomeScreen({
     setCertification(snapshot);
     setCertificationForm(createDriverCertificationForm(snapshot));
 
-    void buildDriverCertificationAttachments(snapshot, platformFileApi).then(
-      hydratedAttachments => {
+    buildDriverCertificationAttachments(snapshot, platformFileApi)
+      .then(hydratedAttachments => {
         setCertificationAttachments(current =>
           mergeDriverCertificationAttachments(
             current,
@@ -852,8 +852,8 @@ export function DriverHomeScreen({
             hydratedAttachments,
           ),
         );
-      },
-    );
+      })
+      .catch(() => undefined);
   };
 
   const refreshOrderHall = (
@@ -1356,22 +1356,21 @@ export function DriverHomeScreen({
       };
     }
 
-    void buildDriverExecutionReceiptAttachments(
-      selectedOrder,
-      platformFileApi,
-    ).then(hydratedAttachments => {
-      if (cancelled) {
-        return;
-      }
+    buildDriverExecutionReceiptAttachments(selectedOrder, platformFileApi)
+      .then(hydratedAttachments => {
+        if (cancelled) {
+          return;
+        }
 
-      setExecutionReceiptAttachments(current => ({
-        ...current,
-        [selectedOrder.id]: mergeDriverExecutionReceiptAttachments(
-          hydratedAttachments,
-          current[selectedOrder.id],
-        ),
-      }));
-    });
+        setExecutionReceiptAttachments(current => ({
+          ...current,
+          [selectedOrder.id]: mergeDriverExecutionReceiptAttachments(
+            hydratedAttachments,
+            current[selectedOrder.id],
+          ),
+        }));
+      })
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
@@ -1387,23 +1386,25 @@ export function DriverHomeScreen({
       };
     }
 
-    void buildDriverLatestExceptionAttachments(
+    buildDriverLatestExceptionAttachments(
       selectedOrder,
       exceptionCases,
       platformFileApi,
-    ).then(hydratedAttachments => {
-      if (cancelled) {
-        return;
-      }
+    )
+      .then(hydratedAttachments => {
+        if (cancelled) {
+          return;
+        }
 
-      setReportedExceptionAttachments(current => ({
-        ...current,
-        [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
-          hydratedAttachments,
-          current[selectedOrder.orderNo],
-        ),
-      }));
-    });
+        setReportedExceptionAttachments(current => ({
+          ...current,
+          [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
+            hydratedAttachments,
+            current[selectedOrder.orderNo],
+          ),
+        }));
+      })
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
@@ -1419,22 +1420,24 @@ export function DriverHomeScreen({
       };
     }
 
-    void buildDriverLatestShipperEvaluationAttachments(
+    buildDriverLatestShipperEvaluationAttachments(
       selectedOrder,
       platformFileApi,
-    ).then(hydratedAttachments => {
-      if (cancelled) {
-        return;
-      }
+    )
+      .then(hydratedAttachments => {
+        if (cancelled) {
+          return;
+        }
 
-      setReportedShipperEvaluationAttachments(current => ({
-        ...current,
-        [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
-          hydratedAttachments,
-          current[selectedOrder.orderNo],
-        ),
-      }));
-    });
+        setReportedShipperEvaluationAttachments(current => ({
+          ...current,
+          [selectedOrder.orderNo]: mergeDriverUploadedFileRefs(
+            hydratedAttachments,
+            current[selectedOrder.orderNo],
+          ),
+        }));
+      })
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
@@ -4273,6 +4276,9 @@ export function DriverHomeScreen({
             order.latestExceptionCase
               ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
               : undefined;
+          const driverOrderStatusBadgeStyle = {
+            backgroundColor: getDriverStatusBadgeColor(order.status),
+          };
 
           return (
             <View
@@ -4283,22 +4289,17 @@ export function DriverHomeScreen({
               <Text style={styles.detailRoute}>
                 {order.pickupAddress} → {order.deliveryAddress}
               </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+              <View style={styles.driverOrderStatusRow}>
                 <Text style={styles.detailMeta}>
                   {order.orderNo} · {getDriverStatusText(order.status)}
                 </Text>
                 <View
                   style={[
-                    {
-                      marginLeft: 8,
-                      paddingHorizontal: 8,
-                      paddingVertical: 2,
-                      borderRadius: 4,
-                      backgroundColor: getDriverStatusBadgeColor(order.status),
-                    },
+                    styles.driverOrderStatusBadge,
+                    driverOrderStatusBadgeStyle,
                   ]}
                 >
-                  <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>
+                  <Text style={styles.driverOrderStatusBadgeText}>
                     {getDriverStatusText(order.status)}
                   </Text>
                 </View>

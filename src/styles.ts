@@ -635,6 +635,22 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  driverOrderStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  driverOrderStatusBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  driverOrderStatusBadgeText: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: '700',
+  },
 
   // ── Orders ───────────────────────────────────────────────────────
   ordersContent: screenContentWithGap14,
