@@ -12,6 +12,7 @@ import type { RecentOrder } from '../../types';
 import type {
   EnterpriseVerificationRequest,
   InvoiceApplicationDetails,
+  InvoiceHistoryEntry,
   InvoiceItem,
   InvoiceRejectionReasons,
   InvoiceTitleOption,
@@ -44,6 +45,27 @@ import {
   formatLocalCurrency,
   formatLocalDateTime,
 } from './profileRecordUtils';
+
+function shouldShowInvoiceApplicationUpdatedAt(
+  historyEntry: Pick<
+    InvoiceHistoryEntry,
+    | 'statusText'
+    | 'submittedAtText'
+    | 'submittedAtIso'
+    | 'updatedAtText'
+    | 'updatedAtIso'
+  >,
+) {
+  if (historyEntry.statusText !== '申请中' || !historyEntry.updatedAtText) {
+    return false;
+  }
+
+  if (historyEntry.updatedAtIso && historyEntry.submittedAtIso) {
+    return historyEntry.updatedAtIso !== historyEntry.submittedAtIso;
+  }
+
+  return historyEntry.updatedAtText !== historyEntry.submittedAtText;
+}
 
 type InvoicePlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
@@ -619,15 +641,22 @@ export function InvoiceRecords({
                     {`提交时间：${latestHistoryEntry.submittedAtText}`}
                   </Text>
                 ) : null}
+                {shouldShowInvoiceApplicationUpdatedAt(latestHistoryEntry) ? (
+                  <Text style={styles.routeMeta}>
+                    {`最近更新：${latestHistoryEntry.updatedAtText}`}
+                  </Text>
+                ) : null}
                 {latestHistoryEntry.approvedAtText ? (
                   <Text style={styles.routeMeta}>
                     {`开票时间：${latestHistoryEntry.approvedAtText}`}
                   </Text>
                 ) : null}
-                {details.rejectedAtText &&
+                {(latestHistoryEntry.rejectedAtText ?? details.rejectedAtText) &&
                 latestHistoryEntry.statusText === '已驳回' ? (
                   <Text style={styles.routeMeta}>
-                    {`驳回时间：${details.rejectedAtText}`}
+                    {`驳回时间：${
+                      latestHistoryEntry.rejectedAtText ?? details.rejectedAtText
+                    }`}
                   </Text>
                 ) : null}
                 {latestHistoryEntry.downloadedAtText ? (
@@ -687,6 +716,11 @@ export function InvoiceRecords({
                         <Text style={styles.routeMeta}>
                           {`提交时间：${historyEntry.submittedAtText}`}
                         </Text>
+                        {shouldShowInvoiceApplicationUpdatedAt(historyEntry) ? (
+                          <Text style={styles.routeMeta}>
+                            {`最近更新：${historyEntry.updatedAtText}`}
+                          </Text>
+                        ) : null}
                         <Text style={styles.routeMeta}>
                           {`接收邮箱：${historyEntry.receiverEmail}`}
                         </Text>
@@ -699,6 +733,11 @@ export function InvoiceRecords({
                         {historyEntry.approvedAtText ? (
                           <Text style={styles.routeMeta}>
                             {`开票时间：${historyEntry.approvedAtText}`}
+                          </Text>
+                        ) : null}
+                        {historyEntry.rejectedAtText ? (
+                          <Text style={styles.routeMeta}>
+                            {`驳回时间：${historyEntry.rejectedAtText}`}
                           </Text>
                         ) : null}
                         {historyEntry.downloadedAtText ? (

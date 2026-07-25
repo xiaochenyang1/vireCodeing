@@ -13210,7 +13210,7 @@ test('manual refreshes platform invoice records from profile', async () => {
     amountCents: 43000,
     status: 'reviewing' as const,
     createdAtIso: '2026-07-14T08:00:00.000Z',
-    updatedAtIso: '2026-07-14T08:00:00.000Z',
+    updatedAtIso: '2026-07-14T09:30:00.000Z',
   };
   const refreshedPlatformInvoice = {
     id: 'invoice-platform-refresh-2',
@@ -13317,6 +13317,8 @@ test('manual refreshes platform invoice records from profile', async () => {
     expect(renderedText).toContain('待开票 ￥430');
     expect(renderedText).toContain('申请中');
     expect(renderedText).toContain('HY202607140001');
+    expect(renderedText).toContain('最近更新：2026-07-14 17:30');
+    expect(renderedText).toContain('平台处理中：2026-07-14 17:30');
     expect(renderedText).not.toContain('平台货主 B');
     expect(
       app.root.findByProps({ testID: 'invoice-manual-refresh' }),
@@ -13337,6 +13339,7 @@ test('manual refreshes platform invoice records from profile', async () => {
     expect(renderedText).toContain('已开票');
     expect(renderedText).toContain('HY202607150001');
     expect(renderedText).toContain('开票时间：2026-07-15 18:00');
+    expect(renderedText).not.toContain('最近更新：2026-07-14 17:30');
     expect(renderedText).not.toContain('平台货主 A');
     expect(invoiceListLoadCount).toBe(2);
 

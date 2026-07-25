@@ -94,11 +94,14 @@ export type InvoiceHistoryEntry = {
   orderText: string;
   submittedAtText: string;
   submittedAtIso?: string;
+  updatedAtText?: string;
+  updatedAtIso?: string;
   statusText: string;
   receiverEmail: string;
   rejectionReasonText?: string;
   approvedAtText?: string;
   approvedAtIso?: string;
+  rejectedAtText?: string;
   rejectedAtIso?: string;
   downloadedAtText?: string;
   downloadedAtIso?: string;
@@ -113,6 +116,8 @@ export type InvoiceApplicationDetails = {
   platformSynced?: boolean;
   submittedAtText?: string;
   submittedAtIso?: string;
+  updatedAtText?: string;
+  updatedAtIso?: string;
   approvedAtText?: string;
   approvedAtIso?: string;
   rejectedAtText?: string;

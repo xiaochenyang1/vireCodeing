@@ -445,6 +445,7 @@ describe('profile invoice utils', () => {
       invoiceAmountText: '￥850',
       platformSynced: true,
       submittedAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-09T09:00:00.000Z',
       rejectedAtIso: '2026-07-09T09:00:00.000Z',
     });
     expect(
@@ -452,7 +453,30 @@ describe('profile invoice utils', () => {
     ).toMatchObject({
       statusText: '已驳回',
       rejectionReasonText: '企业资料待补充',
+      updatedAtIso: '2026-07-09T09:00:00.000Z',
+      rejectedAtIso: '2026-07-09T09:00:00.000Z',
     });
+    expect(nextState.invoiceDetails['invoice-platform-2']).toMatchObject({
+      submittedAtIso: '2026-07-08T08:00:00.000Z',
+      updatedAtIso: '2026-07-08T08:05:00.000Z',
+    });
+    expect(nextState.invoiceDetails['invoice-platform-2'].historyEntries?.[0]).toMatchObject({
+      statusText: '申请中',
+      submittedAtIso: '2026-07-08T08:00:00.000Z',
+      updatedAtIso: '2026-07-08T08:05:00.000Z',
+    });
+    expect(nextState.invoiceDetails['invoice-platform-2'].statusHistory).toEqual([
+      {
+        actionText: '申请提交',
+        timestampText: '2026-07-08 16:00',
+        timestampIso: '2026-07-08T08:00:00.000Z',
+      },
+      {
+        actionText: '平台处理中',
+        timestampText: '2026-07-08 16:05',
+        timestampIso: '2026-07-08T08:05:00.000Z',
+      },
+    ]);
     expect(nextState.invoiceRejectionReasons).toEqual({
       'invoice-platform-1': '企业资料待补充',
     });
@@ -509,6 +533,8 @@ describe('profile invoice utils', () => {
       invoiceAmountText: '￥570',
       submittedAtText: '2026-06-30 10:00',
       submittedAtIso: '2026-06-30T02:00:00.000Z',
+      updatedAtText: '2026-06-30 10:00',
+      updatedAtIso: '2026-06-30T02:00:00.000Z',
       approvedAtText: undefined,
       approvedAtIso: undefined,
       rejectedAtText: undefined,
@@ -532,6 +558,8 @@ describe('profile invoice utils', () => {
           orderText: 'HY20260620003、HY20260618002',
           submittedAtText: '2026-06-30 10:00',
           submittedAtIso: '2026-06-30T02:00:00.000Z',
+          updatedAtText: '2026-06-30 10:00',
+          updatedAtIso: '2026-06-30T02:00:00.000Z',
           receiverEmail: 'finance@example.com',
           statusText: '申请中',
         },
@@ -607,6 +635,7 @@ describe('profile invoice utils', () => {
       titleText: '新抬头',
       statusText: '申请中',
       submittedAtIso: '2026-06-30T02:00:00.000Z',
+      updatedAtIso: '2026-06-30T02:00:00.000Z',
     });
   });
 
@@ -663,12 +692,16 @@ describe('profile invoice utils', () => {
       approved.invoiceDetails['invoice-1'].historyEntries?.[1],
     ).toMatchObject({
       statusText: '已开票',
+      updatedAtText: '11:00',
+      updatedAtIso: '2026-06-30T03:00:00.000Z',
       approvedAtText: '11:00',
       approvedAtIso: '2026-06-30T03:00:00.000Z',
     });
-    expect(approved.invoiceDetails['invoice-1'].approvedAtIso).toBe(
-      '2026-06-30T03:00:00.000Z',
-    );
+    expect(approved.invoiceDetails['invoice-1']).toMatchObject({
+      updatedAtText: '11:00',
+      updatedAtIso: '2026-06-30T03:00:00.000Z',
+      approvedAtIso: '2026-06-30T03:00:00.000Z',
+    });
     expect(approved.invoiceDetails['invoice-1'].statusHistory?.[1]).toMatchObject({
       actionText: '审核通过',
       timestampIso: '2026-06-30T03:00:00.000Z',
@@ -691,7 +724,10 @@ describe('profile invoice utils', () => {
       rejected.invoiceDetails['invoice-1'].historyEntries?.[1],
     ).toMatchObject({
       statusText: '已驳回',
+      updatedAtText: '12:00',
+      updatedAtIso: '2026-06-30T04:00:00.000Z',
       rejectionReasonText: '企业认证信息待补充',
+      rejectedAtText: '12:00',
       approvedAtText: undefined,
       approvedAtIso: undefined,
       downloadedAtText: undefined,
@@ -699,6 +735,8 @@ describe('profile invoice utils', () => {
       rejectedAtIso: '2026-06-30T04:00:00.000Z',
     });
     expect(rejected.invoiceDetails['invoice-1']).toMatchObject({
+      updatedAtText: '12:00',
+      updatedAtIso: '2026-06-30T04:00:00.000Z',
       rejectedAtText: '12:00',
       rejectedAtIso: '2026-06-30T04:00:00.000Z',
       approvedAtText: undefined,
@@ -717,6 +755,10 @@ describe('profile invoice utils', () => {
     expect(downloaded['invoice-1'].downloadedAtIso).toBe(
       '2026-06-30T05:00:00.000Z',
     );
+    expect(downloaded['invoice-1']).toMatchObject({
+      updatedAtText: '13:00',
+      updatedAtIso: '2026-06-30T05:00:00.000Z',
+    });
     expect(downloaded['invoice-1'].historyEntries?.[0]).toMatchObject({
       entryId: 'invoice-1-history-1',
     });
@@ -728,6 +770,8 @@ describe('profile invoice utils', () => {
     );
     expect(downloaded['invoice-1'].historyEntries?.[1]).toMatchObject({
       entryId: 'invoice-1-history-2',
+      updatedAtText: '13:00',
+      updatedAtIso: '2026-06-30T05:00:00.000Z',
       downloadedAtText: '13:00',
       downloadedAtIso: '2026-06-30T05:00:00.000Z',
     });

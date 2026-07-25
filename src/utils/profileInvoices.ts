@@ -290,6 +290,8 @@ export function createLocalInvoiceStateFromPlatformApplications(
       platformSynced: true,
       submittedAtText,
       submittedAtIso: application.createdAtIso,
+      updatedAtText,
+      updatedAtIso: application.updatedAtIso,
       ...(application.status === 'approved'
         ? {
             approvedAtText: updatedAtText,
@@ -313,6 +315,8 @@ export function createLocalInvoiceStateFromPlatformApplications(
           orderText: selectedOrderText,
           submittedAtText,
           submittedAtIso: application.createdAtIso,
+          updatedAtText,
+          updatedAtIso: application.updatedAtIso,
           receiverEmail: application.receiverEmail,
           statusText: getPlatformInvoiceStatusText(application.status),
           ...(application.status === 'approved'
@@ -324,6 +328,7 @@ export function createLocalInvoiceStateFromPlatformApplications(
           ...(application.status === 'rejected'
             ? {
                 rejectionReasonText: application.rejectionReason,
+                rejectedAtText: updatedAtText,
                 rejectedAtIso: application.updatedAtIso,
               }
             : {}),
@@ -389,6 +394,8 @@ export function createInvoiceHistoryEntry({
     orderText,
     submittedAtText,
     submittedAtIso,
+    updatedAtText: submittedAtText,
+    updatedAtIso: submittedAtIso,
     receiverEmail,
     statusText: '申请中',
   };
@@ -475,6 +482,8 @@ export function createSubmittedInvoiceChanges({
         invoiceAmountText,
         submittedAtText: currentTimeText,
         submittedAtIso: currentTimeIso,
+        updatedAtText: currentTimeText,
+        updatedAtIso: currentTimeIso,
         approvedAtText: undefined,
         approvedAtIso: undefined,
         rejectedAtText: undefined,
@@ -542,6 +551,8 @@ export function createApprovedInvoiceChanges({
           ...invoiceDetails,
           [invoiceId]: {
             ...currentDetails,
+            updatedAtText: currentTimeText,
+            updatedAtIso: currentTimeIso,
             approvedAtText: currentTimeText,
             approvedAtIso: currentTimeIso,
             statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
@@ -553,6 +564,8 @@ export function createApprovedInvoiceChanges({
               currentDetails.historyEntries,
               currentEntry => ({
                 ...currentEntry,
+                updatedAtText: currentTimeText,
+                updatedAtIso: currentTimeIso,
                 statusText: '已开票',
                 approvedAtText: currentTimeText,
                 approvedAtIso: currentTimeIso,
@@ -596,6 +609,8 @@ export function createRejectedInvoiceChanges({
           ...invoiceDetails,
           [invoiceId]: {
             ...currentDetails,
+            updatedAtText: currentTimeText,
+            updatedAtIso: currentTimeIso,
             rejectedAtText: currentTimeText,
             rejectedAtIso: currentTimeIso,
             approvedAtText: undefined,
@@ -612,8 +627,11 @@ export function createRejectedInvoiceChanges({
               currentDetails.historyEntries,
               currentEntry => ({
                 ...currentEntry,
+                updatedAtText: currentTimeText,
+                updatedAtIso: currentTimeIso,
                 statusText: '已驳回',
                 rejectionReasonText: rejectionReason,
+                rejectedAtText: currentTimeText,
                 rejectedAtIso: currentTimeIso,
                 approvedAtText: undefined,
                 approvedAtIso: undefined,
@@ -648,6 +666,8 @@ export function createDownloadedInvoiceDetails({
     ...invoiceDetails,
     [invoiceId]: {
       ...currentDetails,
+      updatedAtText: currentTimeText,
+      updatedAtIso: currentTimeIso,
       downloadedAtText: currentTimeText,
       downloadedAtIso: currentTimeIso,
       statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
@@ -659,6 +679,8 @@ export function createDownloadedInvoiceDetails({
         currentDetails.historyEntries,
         currentEntry => ({
           ...currentEntry,
+          updatedAtText: currentTimeText,
+          updatedAtIso: currentTimeIso,
           downloadedAtText: currentTimeText,
           downloadedAtIso: currentTimeIso,
         }),
@@ -726,6 +748,15 @@ function createPlatformInvoiceStatusHistory(
       timestampText: submittedAtText,
       timestampIso: application.createdAtIso,
     },
+    ...(application.updatedAtIso !== application.createdAtIso
+      ? [
+          {
+            actionText: '平台处理中',
+            timestampText: updatedAtText,
+            timestampIso: application.updatedAtIso,
+          },
+        ]
+      : []),
   ];
 }
 
