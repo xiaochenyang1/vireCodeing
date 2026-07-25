@@ -75,7 +75,7 @@ describe('AuthScreen platform adapter', () => {
       purpose: 'login',
     });
     expect(getRenderedText(renderer)).toContain(
-      '验证码已发送到 138****8000，等待平台接口验证。',
+      '验证码已发送到 138****8000，请输入收到的验证码完成验证。 开发环境验证码：123456。',
     );
   });
 
