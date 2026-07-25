@@ -1,5 +1,6 @@
 import {
   PlatformApiError,
+  type PlatformApiErrorBody,
   platformGet,
   platformPost,
   platformPut,
@@ -248,6 +249,93 @@ export type PlatformListShipperOrdersQuery = {
   pageSize?: number;
 };
 
+export type PlatformAdminOrderFilters = Omit<
+  PlatformListShipperOrdersQuery,
+  'page' | 'pageSize'
+>;
+
+export type PlatformAdminOrderReportQuery = PlatformAdminOrderFilters & {
+  topShippersLimit?: number;
+};
+
+export type PlatformAdminOrderSummary = {
+  totalOrderCount: number;
+  waitingOrderCount: number;
+  activeOrderCount: number;
+  completedOrderCount: number;
+  cancelledOrderCount: number;
+  exceptionOrderCount: number;
+};
+
+export type PlatformAdminOrderReportStatusBreakdownItem = {
+  status: PlatformShipperOrderStatus;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type PlatformAdminOrderReportPaymentStatusBreakdownItem = {
+  paymentStatus: OrderPaymentStatus;
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type PlatformAdminOrderReportPricingModeBreakdownItem = {
+  pricingMode: PlatformCreateShipperOrderRequest['pricingMode'];
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type PlatformAdminOrderReportPaymentMethodBreakdownItem = {
+  paymentMethod: PlatformCreateShipperOrderRequest['paymentMethod'];
+  orderCount: number;
+  payablePriceTotalCents: number;
+};
+
+export type PlatformAdminOrderReportTopShipperItem = {
+  shipperId: string;
+  orderCount: number;
+  waitingOrderCount: number;
+  activeOrderCount: number;
+  completedOrderCount: number;
+  cancelledOrderCount: number;
+  payablePriceTotalCents: number;
+  latestOrderCreatedAtIso?: string;
+};
+
+export type PlatformAdminOrderReport = {
+  generatedAtIso: string;
+  filters: PlatformAdminOrderFilters;
+  summary: PlatformAdminOrderSummary;
+  statusBreakdown: PlatformAdminOrderReportStatusBreakdownItem[];
+  paymentStatusBreakdown: PlatformAdminOrderReportPaymentStatusBreakdownItem[];
+  pricingModeBreakdown: PlatformAdminOrderReportPricingModeBreakdownItem[];
+  paymentMethodBreakdown: PlatformAdminOrderReportPaymentMethodBreakdownItem[];
+  topShippers: PlatformAdminOrderReportTopShipperItem[];
+};
+
+export type PlatformAdminOrdersCsvExport = {
+  filename: string;
+  contentType: string;
+  content: string;
+};
+
+export type PlatformAdminBatchCancelOrderItem = {
+  orderId: string;
+  baseUpdatedAtIso: string;
+};
+
+export type PlatformAdminBatchCancelOrdersRequest = {
+  items: PlatformAdminBatchCancelOrderItem[];
+  reasonText: string;
+  description?: string;
+};
+
+export type PlatformAdminBatchCancelOrdersResult = {
+  orderIds: string[];
+  updatedCount: number;
+  items: PlatformShipperOrder[];
+};
+
 export function createPlatformOrderApi(config: PlatformApiConfig) {
   return {
     createOrder(
@@ -278,12 +366,43 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         createListOrdersPath(query),
       );
     },
+    async listAdminOrders(query: PlatformListShipperOrdersQuery = {}) {
+      assertValidListOrdersQuery(query);
+
+      return platformGet<PlatformOrderListResult>(
+        config,
+        createAdminListOrdersPath(query),
+      );
+    },
+    async getAdminOrderReport(query: PlatformAdminOrderReportQuery = {}) {
+      assertValidAdminOrderReportQuery(query);
+
+      return platformGet<PlatformAdminOrderReport>(
+        config,
+        createAdminOrderReportPath(query),
+      );
+    },
+    async exportAdminOrdersCsv(query: PlatformAdminOrderFilters = {}) {
+      assertValidAdminOrderFiltersQuery(query);
+      return platformGetText(
+        config,
+        createAdminOrdersExportPath(query),
+      );
+    },
     async getOrder(orderId: string) {
       const normalizedOrderId = normalizeOrderId(orderId);
 
       return platformGet<PlatformShipperOrder>(
         config,
         `/shipper/orders/${normalizedOrderId}`,
+      );
+    },
+    async getAdminOrder(orderId: string) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+
+      return platformGet<PlatformShipperOrder>(
+        config,
+        `/admin/orders/${normalizedOrderId}`,
       );
     },
     async listExceptionCases(orderId: string) {
@@ -335,6 +454,47 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         config,
         `/shipper/orders/${normalizedOrderId}/cancel`,
         normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
+    },
+    async cancelAdminOrder(
+      orderId: string,
+      request: PlatformCancelShipperOrderRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+      const normalizedRequest = normalizeCancelOrderRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      );
+
+      return platformPost<
+        PlatformCancelShipperOrderRequest,
+        PlatformShipperOrder
+      >(
+        config,
+        `/admin/orders/${normalizedOrderId}/cancel`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
+    },
+    async batchCancelAdminOrders(
+      request: PlatformAdminBatchCancelOrdersRequest,
+      idempotencyKey: string,
+    ) {
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      );
+
+      return platformPost<
+        PlatformAdminBatchCancelOrdersRequest,
+        PlatformAdminBatchCancelOrdersResult
+      >(
+        config,
+        '/admin/orders/batch-cancel',
+        normalizeAdminBatchCancelOrdersRequest(request),
         createOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
@@ -915,6 +1075,100 @@ function normalizeCancelOrderRequest(
   return description
     ? { baseUpdatedAtIso, reasonText, description }
     : { baseUpdatedAtIso, reasonText };
+}
+
+function normalizeAdminBatchCancelOrdersRequest(
+  request: PlatformAdminBatchCancelOrdersRequest,
+) {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin batch cancel request must be an object',
+      'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (!Array.isArray(request.items) || request.items.length === 0) {
+    throw new PlatformApiError(
+      'Platform admin batch cancel items are invalid',
+      'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (request.items.length > 50) {
+    throw new PlatformApiError(
+      'Platform admin batch cancel items are invalid',
+      'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  const orderIds = new Set<string>();
+  const items = request.items.map(item => {
+    const itemInput = item as unknown;
+
+    if (
+      itemInput === null ||
+      typeof itemInput !== 'object' ||
+      Array.isArray(itemInput)
+    ) {
+      throw new PlatformApiError(
+        'Platform admin batch cancel item must be an object',
+        'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+        0,
+      );
+    }
+
+    const orderId = normalizeRequiredTrimmedString(
+      item.orderId,
+      120,
+      'Platform admin batch cancel orderId is invalid',
+      'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+    );
+    const baseUpdatedAtIso = normalizeOrderMutationBaseUpdatedAtIso(
+      item.baseUpdatedAtIso,
+      'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+    );
+
+    if (orderIds.has(orderId)) {
+      throw new PlatformApiError(
+        'Platform admin batch cancel order ids must be unique',
+        'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+        0,
+      );
+    }
+
+    orderIds.add(orderId);
+
+    return {
+      orderId,
+      baseUpdatedAtIso,
+    };
+  });
+
+  const reasonText = normalizeRequiredTrimmedString(
+    request.reasonText,
+    50,
+    'Platform admin batch cancel reason is invalid',
+    'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+  );
+  const description = normalizeOptionalTrimmedString(
+    request.description,
+    200,
+    'Platform admin batch cancel description is invalid',
+    'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+  );
+
+  return description
+    ? { items, reasonText, description }
+    : { items, reasonText };
 }
 
 function normalizeAcceptQuoteRequest(
@@ -1651,6 +1905,27 @@ function assertValidListOrdersQuery(query: PlatformListShipperOrdersQuery) {
   }
 }
 
+function assertValidAdminOrderFiltersQuery(query: PlatformAdminOrderFilters) {
+  assertValidListOrdersQuery(query);
+}
+
+function assertValidAdminOrderReportQuery(query: PlatformAdminOrderReportQuery) {
+  assertValidAdminOrderFiltersQuery(query);
+
+  if (
+    query.topShippersLimit !== undefined &&
+    (!Number.isInteger(query.topShippersLimit) ||
+      query.topShippersLimit < 1 ||
+      query.topShippersLimit > 20)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order report topShippersLimit must be an integer from 1 to 20',
+      'PLATFORM_ORDER_LIST_QUERY_INVALID',
+      0,
+    );
+  }
+}
+
 function isPlatformShipperOrderStatus(
   value: unknown,
 ): value is PlatformShipperOrderStatus {
@@ -1677,7 +1952,12 @@ function normalizeListOrdersDateTime(dateTimeIso: string | undefined) {
   return value ? { value, time: Date.parse(value) } : undefined;
 }
 
-function createListOrdersPath(query: PlatformListShipperOrdersQuery) {
+function createOrderListSearchParams(
+  query: PlatformAdminOrderFilters & {
+    page?: number;
+    pageSize?: number;
+  },
+) {
   const searchParams = new URLSearchParams();
   const keyword = normalizeListOrdersKeyword(query.keyword);
   const statuses = normalizeListOrdersStatuses(query.statuses);
@@ -1712,7 +1992,183 @@ function createListOrdersPath(query: PlatformListShipperOrdersQuery) {
     searchParams.set('pageSize', String(query.pageSize));
   }
 
+  return searchParams;
+}
+
+function createListOrdersPath(query: PlatformListShipperOrdersQuery) {
+  const searchParams = createOrderListSearchParams(query);
   const queryString = searchParams.toString();
 
   return queryString ? `/shipper/orders?${queryString}` : '/shipper/orders';
+}
+
+function createAdminListOrdersPath(query: PlatformListShipperOrdersQuery) {
+  const queryString = createOrderListSearchParams(query).toString();
+
+  return queryString ? `/admin/orders?${queryString}` : '/admin/orders';
+}
+
+function createAdminOrderReportPath(query: PlatformAdminOrderReportQuery) {
+  const searchParams = createOrderListSearchParams(query);
+
+  if (query.topShippersLimit !== undefined) {
+    searchParams.set('topShippersLimit', String(query.topShippersLimit));
+  }
+
+  const queryString = searchParams.toString();
+
+  return queryString
+    ? `/admin/orders/report?${queryString}`
+    : '/admin/orders/report';
+}
+
+function createAdminOrdersExportPath(query: PlatformAdminOrderFilters) {
+  const queryString = createOrderListSearchParams(query).toString();
+
+  return queryString
+    ? `/admin/orders/export?${queryString}`
+    : '/admin/orders/export';
+}
+
+function normalizeRequiredTrimmedString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+  errorCode: string,
+  minLength = 1,
+) {
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(message, errorCode, 0);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (
+    normalizedValue.length < minLength ||
+    normalizedValue.length > maxLength
+  ) {
+    throw new PlatformApiError(message, errorCode, 0);
+  }
+
+  return normalizedValue;
+}
+
+function normalizeOptionalTrimmedString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+  errorCode: string,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw new PlatformApiError(message, errorCode, 0);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (normalizedValue.length > maxLength) {
+    throw new PlatformApiError(message, errorCode, 0);
+  }
+
+  return normalizedValue;
+}
+
+async function platformGetText(
+  config: PlatformApiConfig,
+  path: string,
+): Promise<PlatformAdminOrdersCsvExport> {
+  const accessToken = config.getAccessToken?.();
+  const requestId = config.getRequestId?.();
+
+  if (!accessToken) {
+    throw new PlatformApiError(
+      'Platform API access token is missing',
+      'AUTH_ACCESS_TOKEN_MISSING',
+      0,
+    );
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(createPlatformRequestUrl(config.baseUrl, path), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(requestId ? { 'x-request-id': requestId } : {}),
+      },
+    });
+  } catch {
+    throw new PlatformApiError(
+      'Platform API network request failed',
+      'NETWORK_ERROR',
+      0,
+    );
+  }
+
+  if (!response.ok) {
+    throw await createTextResponseApiError(response);
+  }
+
+  let content: string;
+
+  try {
+    content = await response.text();
+  } catch {
+    throw new PlatformApiError(
+      'Platform API response is invalid',
+      'PLATFORM_RESPONSE_INVALID',
+      response.status,
+    );
+  }
+
+  return {
+    filename: extractDownloadFilename(
+      response.headers.get('content-disposition'),
+    ),
+    contentType:
+      response.headers.get('content-type') ?? 'text/csv; charset=utf-8',
+    content,
+  };
+}
+
+async function createTextResponseApiError(response: Response) {
+  try {
+    const text = await response.text();
+    const payload = text ? (JSON.parse(text) as PlatformApiErrorBody) : undefined;
+
+    if (payload?.code && payload.message) {
+      return new PlatformApiError(
+        payload.message,
+        payload.code,
+        response.status,
+        payload.requestId,
+      );
+    }
+  } catch {
+    // Fall through to the generic error below.
+  }
+
+  return new PlatformApiError(
+    `Platform API request failed: ${response.status}`,
+    'HTTP_ERROR',
+    response.status,
+  );
+}
+
+function createPlatformRequestUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
+function extractDownloadFilename(contentDisposition: string | null) {
+  const matched = /filename="?([^";]+)"?/i.exec(contentDisposition ?? '');
+
+  return matched ? matched[1] : 'admin-orders.csv';
 }

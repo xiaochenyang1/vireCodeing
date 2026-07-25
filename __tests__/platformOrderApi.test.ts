@@ -1257,6 +1257,306 @@ describe('platform order api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('lists admin orders with normalized filters and pagination query', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        items: [createOrderRecord()],
+        page: 2,
+        pageSize: 10,
+        total: 1,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminOrders({
+        status: 'waiting',
+        keyword: '  南山门店  ',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 10,
+      total: 1,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders?status=waiting&keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('reads admin order report with normalized filters and top shipper limit', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(createAdminOrderReport()),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminOrderReport({
+        statuses: ['waiting', 'transporting', 'waiting'],
+        createdFromIso: ' 2026-07-01T00:00:00.000Z ',
+        createdToIso: ' 2026-07-03T00:00:00.000Z ',
+        topShippersLimit: 3,
+      }),
+    ).resolves.toMatchObject({
+      summary: {
+        totalOrderCount: 5,
+      },
+      topShippers: [expect.objectContaining({ shipperId: 'shipper-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/report?statuses=waiting%2Ctransporting&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&topShippersLimit=3',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('exports admin orders csv with filename and normalized filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createTextResponse(
+        '\uFEFForderId,orderNo\r\norder-1,HY202607010001',
+        'admin-orders-filtered.csv',
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api/',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.exportAdminOrdersCsv({
+        keyword: '  南山仓  ',
+        statuses: ['waiting', 'transporting'],
+      }),
+    ).resolves.toEqual({
+      filename: 'admin-orders-filtered.csv',
+      contentType: 'text/csv; charset=utf-8',
+      content: '\uFEFForderId,orderNo\r\norder-1,HY202607010001',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/export?statuses=waiting%2Ctransporting&keyword=%E5%8D%97%E5%B1%B1%E4%BB%93',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('gets and cancels an admin order with normalized id and payload', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(createJsonResponse(createOrderRecord()))
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createOrderRecord({
+            status: 'cancelled',
+          }),
+        ),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const mutationContext = createOrderMutationContext();
+
+    await expect(api.getAdminOrder('  order-1  ')).resolves.toMatchObject({
+      id: 'order-1',
+      orderNo: 'HY202607010001',
+    });
+    await expect(
+      api.cancelAdminOrder(
+        ' order-1 ',
+        {
+          baseUpdatedAtIso: ` ${mutationContext.baseUpdatedAtIso} `,
+          reasonText: '  风险订单  ',
+          description: '  人工取消  ',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).resolves.toMatchObject({
+      id: 'order-1',
+      status: 'cancelled',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/orders/order-1',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/orders/order-1/cancel',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
+        body: JSON.stringify({
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          reasonText: '风险订单',
+          description: '人工取消',
+        }),
+      }),
+    );
+  });
+
+  it('batch cancels admin orders with deduped normalized payload', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        orderIds: ['order-1', 'order-2'],
+        updatedCount: 2,
+        items: [
+          createOrderRecord({ id: 'order-1', status: 'cancelled' }),
+          createOrderRecord({
+            id: 'order-2',
+            orderNo: 'HY202607010002',
+            status: 'cancelled',
+          }),
+        ],
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const mutationContext = createOrderMutationContext();
+
+    await expect(
+      api.batchCancelAdminOrders(
+        {
+          items: [
+            {
+              orderId: ' order-1 ',
+              baseUpdatedAtIso: ` ${mutationContext.baseUpdatedAtIso} `,
+            },
+            {
+              orderId: 'order-2',
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+          ],
+          reasonText: '  批量清理脏单  ',
+          description: '  waiting 订单整批回收  ',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).resolves.toMatchObject({
+      updatedCount: 2,
+      orderIds: ['order-1', 'order-2'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/batch-cancel',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+          'Idempotency-Key': mutationContext.idempotencyKey,
+        }),
+        body: JSON.stringify({
+          items: [
+            {
+              orderId: 'order-1',
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+            {
+              orderId: 'order-2',
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+          ],
+          reasonText: '批量清理脏单',
+          description: 'waiting 订单整批回收',
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin order management requests before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const mutationContext = createOrderMutationContext();
+
+    await expect(
+      api.getAdminOrderReport({ topShippersLimit: 0 }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_LIST_QUERY_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.batchCancelAdminOrders(
+        {
+          items: [
+            {
+              orderId: 'order-1',
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+            {
+              orderId: ' order-1 ',
+              baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+            },
+          ],
+          reasonText: '批量清理脏单',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.batchCancelAdminOrders(
+        {
+          items: [],
+          reasonText: '批量清理脏单',
+        },
+        mutationContext.idempotencyKey,
+      ),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_CANCEL_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('normalizes blank-padded order id before sending a detail request', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1350,6 +1650,16 @@ describe('platform order api', () => {
         tags: ['准时送达'],
         content: '司机服务细致，整体运输体验很好',
       }),
+      () => api.getAdminOrder(blankOrderId),
+      () =>
+        api.cancelAdminOrder(
+          blankOrderId,
+          {
+            reasonText: '计划变更',
+            baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          },
+          mutationContext.idempotencyKey,
+        ),
       () => api.getOrder(nullOrderId),
       () => api.getOrder(numberOrderId),
     ];
@@ -2203,6 +2513,9 @@ function createJsonResponse(data: unknown) {
   return {
     ok: true,
     status: 200,
+    headers: {
+      get: () => null,
+    },
     json: async () => ({
       code: 'OK',
       message: 'success',
@@ -2210,5 +2523,103 @@ function createJsonResponse(data: unknown) {
       requestId: 'req_order',
       timestamp: '2026-07-12T08:00:00.000Z',
     }),
+  };
+}
+
+function createTextResponse(content: string, filename = 'admin-orders.csv') {
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => {
+        const normalizedName = name.toLowerCase();
+
+        if (normalizedName === 'content-type') {
+          return 'text/csv; charset=utf-8';
+        }
+
+        if (normalizedName === 'content-disposition') {
+          return `attachment; filename="${filename}"`;
+        }
+
+        return null;
+      },
+    },
+    text: async () => content,
+  };
+}
+
+function createOrderRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'order-1',
+    orderNo: 'HY202607010001',
+    shipperId: 'shipper-1',
+    status: 'waiting',
+    paymentStatus: 'pending',
+    createdAtIso: '2026-07-01T08:00:00.000Z',
+    updatedAtIso: '2026-07-01T08:00:00.000Z',
+    events: [],
+    ...createInput(),
+    ...overrides,
+  };
+}
+
+function createAdminOrderReport(overrides: Record<string, unknown> = {}) {
+  return {
+    generatedAtIso: '2026-07-25T08:00:00.000Z',
+    filters: {
+      statuses: ['waiting', 'transporting'],
+      createdFromIso: '2026-07-01T00:00:00.000Z',
+      createdToIso: '2026-07-03T00:00:00.000Z',
+    },
+    summary: {
+      totalOrderCount: 5,
+      waitingOrderCount: 2,
+      activeOrderCount: 2,
+      completedOrderCount: 1,
+      cancelledOrderCount: 0,
+      exceptionOrderCount: 1,
+    },
+    statusBreakdown: [
+      {
+        status: 'waiting',
+        orderCount: 2,
+        payablePriceTotalCents: 152000,
+      },
+    ],
+    paymentStatusBreakdown: [
+      {
+        paymentStatus: 'pending',
+        orderCount: 2,
+        payablePriceTotalCents: 152000,
+      },
+    ],
+    pricingModeBreakdown: [
+      {
+        pricingMode: 'fixed',
+        orderCount: 5,
+        payablePriceTotalCents: 380000,
+      },
+    ],
+    paymentMethodBreakdown: [
+      {
+        paymentMethod: 'cod',
+        orderCount: 5,
+        payablePriceTotalCents: 380000,
+      },
+    ],
+    topShippers: [
+      {
+        shipperId: 'shipper-1',
+        orderCount: 3,
+        waitingOrderCount: 1,
+        activeOrderCount: 1,
+        completedOrderCount: 1,
+        cancelledOrderCount: 0,
+        payablePriceTotalCents: 228000,
+        latestOrderCreatedAtIso: '2026-07-02T08:00:00.000Z',
+      },
+    ],
+    ...overrides,
   };
 }
