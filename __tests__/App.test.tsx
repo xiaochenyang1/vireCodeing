@@ -12504,23 +12504,6 @@ test('shows platform spending snapshot when opening spending in platform mode', 
     },
     items: [
       {
-        orderId: 'platform-order-spending-3',
-        orderNo: 'HY202607090003',
-        status: 'loading' as const,
-        paymentMethod: 'online' as const,
-        paymentStatus: 'escrowed' as const,
-        paymentChannel: 'wechat' as const,
-        paymentOrderStatus: 'escrowed' as const,
-        amountCents: 52000,
-        priceCents: 54000,
-        payablePriceCents: 52000,
-        couponTitle: '满 500 减 20',
-        couponDiscountCents: 2000,
-        occurredAtIso: '2026-07-09T09:20:00.000Z',
-        paidAtIso: '2026-07-09T09:10:00.000Z',
-        routeText: '龙华仓库 → 福田门店',
-      },
-      {
         orderId: 'platform-order-spending-2',
         orderNo: 'HY202607090002',
         status: 'completed' as const,
@@ -12546,6 +12529,23 @@ test('shows platform spending snapshot when opening spending in platform mode', 
         paidAtIso: '2026-07-08T18:00:00.000Z',
         refundedAtIso: '2026-07-08T18:30:00.000Z',
         routeText: '光明仓库 → 前海门店',
+      },
+      {
+        orderId: 'platform-order-spending-3',
+        orderNo: 'HY202607090003',
+        status: 'loading' as const,
+        paymentMethod: 'online' as const,
+        paymentStatus: 'escrowed' as const,
+        paymentChannel: 'wechat' as const,
+        paymentOrderStatus: 'escrowed' as const,
+        amountCents: 52000,
+        priceCents: 54000,
+        payablePriceCents: 52000,
+        couponTitle: '满 500 减 20',
+        couponDiscountCents: 2000,
+        occurredAtIso: '2026-07-09T09:20:00.000Z',
+        paidAtIso: '2026-07-09T09:10:00.000Z',
+        routeText: '龙华仓库 → 福田门店',
       },
     ],
   };
@@ -12616,6 +12616,9 @@ test('shows platform spending snapshot when opening spending in platform mode', 
     });
 
     const renderedText = getRenderedText(app);
+    const latestRecordIndex = renderedText.indexOf('HY202607090003');
+    const middleRecordIndex = renderedText.indexOf('HY202607090002');
+    const oldestRecordIndex = renderedText.indexOf('HY202607090001');
 
     expect(renderedText).toContain('消费记录已按平台资金流水同步');
     expect(renderedText).toContain('HY202607090003');
@@ -12632,6 +12635,8 @@ test('shows platform spending snapshot when opening spending in platform mode', 
     expect(renderedText).not.toContain('退款中金额');
     expect(renderedText).not.toContain('HY20260620003');
     expect(renderedText).not.toContain('真实支付/退款流水尚未接通');
+    expect(latestRecordIndex).toBeLessThan(middleRecordIndex);
+    expect(middleRecordIndex).toBeLessThan(oldestRecordIndex);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/profile/spending-records',
@@ -12803,6 +12808,8 @@ test('manual refreshes platform spending records from profile', async () => {
     });
 
     renderedText = getRenderedText(app);
+    const refreshedLatestRecordIndex = renderedText.indexOf('HY202607110010');
+    const refreshedOlderRecordIndex = renderedText.indexOf('HY202607110009');
 
     expect(renderedText).toContain('平台消费记录已手动刷新到最新资金流水');
     expect(renderedText).toContain('HY202607110009');
@@ -12814,6 +12821,7 @@ test('manual refreshes platform spending records from profile', async () => {
     expect(renderedText).toContain('已完成消费：￥880');
     expect(renderedText).toContain('托管中金额：￥0');
     expect(renderedText).toContain('已退款金额：￥120');
+    expect(refreshedLatestRecordIndex).toBeLessThan(refreshedOlderRecordIndex);
     expect(spendingRequestCount).toBe(2);
 
     expect(fetchMock).toHaveBeenCalledWith(

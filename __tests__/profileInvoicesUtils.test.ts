@@ -132,6 +132,31 @@ describe('profile invoice utils', () => {
     });
   });
 
+  it('sorts local invoiceable orders by completedAtIso descending before mock items', () => {
+    const invoiceableRecords = createInvoiceableOrders([
+      createOrder({
+        id: 'HYLOCAL-OLDER',
+        updatedAtIso: '2026-06-29T08:00:00+08:00',
+        updatedAtText: '订单已完成 · 2026-06-29 08:00',
+      }),
+      createOrder({
+        id: 'HYLOCAL-NEWER',
+        updatedAtIso: '2026-06-30T08:00:00+08:00',
+        updatedAtText: '订单已完成 · 2026-06-30 08:00',
+      }),
+    ]);
+
+    expect(invoiceableRecords[0]).toMatchObject({
+      orderId: 'HYLOCAL-NEWER',
+      completedAtIso: '2026-06-30T08:00:00+08:00',
+    });
+    expect(invoiceableRecords[1]).toMatchObject({
+      orderId: 'HYLOCAL-OLDER',
+      completedAtIso: '2026-06-29T08:00:00+08:00',
+    });
+    expect(invoiceableRecords[2].orderId).toBe('HY20260620003');
+  });
+
   it('uses payable amount for couponed invoiceable orders', () => {
     const invoiceableRecords = createInvoiceableOrders([
       createOrder({
@@ -224,18 +249,18 @@ describe('profile invoice utils', () => {
 
     expect(invoiceableRecords).toEqual([
       expect.objectContaining({
-        id: createPlatformInvoiceOrderSelectionId('platform-order-1'),
-        orderId: 'HYPLATFORM001',
-        platformOrderId: 'platform-order-1',
-        amountValue: 880,
-        amountText: '可开票 ￥880',
-      }),
-      expect.objectContaining({
         id: createPlatformInvoiceOrderSelectionId('platform-order-2'),
         orderId: 'HYPLATFORM002',
         platformOrderId: 'platform-order-2',
         amountValue: 820,
         amountText: '可开票 ￥820',
+      }),
+      expect.objectContaining({
+        id: createPlatformInvoiceOrderSelectionId('platform-order-1'),
+        orderId: 'HYPLATFORM001',
+        platformOrderId: 'platform-order-1',
+        amountValue: 880,
+        amountText: '可开票 ￥880',
       }),
     ]);
   });

@@ -24,6 +24,11 @@ export type SpendingRecordItem = BaseSpendingRecordItem & {
   platformOrderId?: string;
 };
 
+type IsoSortableItem = {
+  fallbackIndex: number;
+  sortIso?: string;
+};
+
 export function createSpendingRecords(
   orders: RecentOrder[],
   options: {
@@ -35,8 +40,9 @@ export function createSpendingRecords(
   const platformRecords = options.platformRecords ?? [];
 
   if (platformOnly) {
-    return platformRecords.map(record =>
-      createSpendingRecordFromPlatformRecord(record),
+    return sortItemsByIsoDesc(
+      platformRecords.map(record => createSpendingRecordFromPlatformRecord(record)),
+      item => item.occurredAtIso,
     );
   }
 
@@ -50,7 +56,7 @@ export function createSpendingRecords(
     )
     .map(order => createSpendingRecordFromOrder(order));
 
-  return [...localRecords, ...spendingRecordItems];
+  return [...sortItemsByIsoDesc(localRecords, item => item.occurredAtIso), ...spendingRecordItems];
 }
 
 export function createInvoiceableOrders(
@@ -64,30 +70,33 @@ export function createInvoiceableOrders(
   const platformRecords = options.platformRecords ?? [];
 
   if (platformOnly) {
-    return platformRecords
-      .filter(isPlatformInvoiceableSpendingRecord)
-      .map(record => {
-        const succeededRefundCents =
-          record.refundStatus === 'succeeded'
-            ? record.refundAmountCents ?? 0
-            : 0;
-        const amountValue = convertCentsToYuan(
-          record.amountCents - succeededRefundCents,
-        );
+    return sortItemsByIsoDesc(
+      platformRecords
+        .filter(isPlatformInvoiceableSpendingRecord)
+        .map(record => {
+          const succeededRefundCents =
+            record.refundStatus === 'succeeded'
+              ? record.refundAmountCents ?? 0
+              : 0;
+          const amountValue = convertCentsToYuan(
+            record.amountCents - succeededRefundCents,
+          );
 
-        return {
-          id: createPlatformInvoiceOrderSelectionId(record.orderId),
-          orderId: record.orderNo,
-          platformOrderId: record.orderId,
-          amountValue,
-          amountText: `可开票 ${formatLocalCurrency(amountValue)}`,
-          routeText: record.routeText,
-          completedAtIso: record.settledAtIso,
-          completedTimeText: formatPlatformIsoDateTime(
-            record.settledAtIso ?? record.occurredAtIso,
-          ),
-        };
-      });
+          return {
+            id: createPlatformInvoiceOrderSelectionId(record.orderId),
+            orderId: record.orderNo,
+            platformOrderId: record.orderId,
+            amountValue,
+            amountText: `可开票 ${formatLocalCurrency(amountValue)}`,
+            routeText: record.routeText,
+            completedAtIso: record.settledAtIso,
+            completedTimeText: formatPlatformIsoDateTime(
+              record.settledAtIso ?? record.occurredAtIso,
+            ),
+          };
+        }),
+      item => item.completedAtIso,
+    );
   }
 
   const existingOrderIds = new Set(
@@ -120,7 +129,40 @@ export function createInvoiceableOrders(
       };
     });
 
-  return [...localOrders, ...invoiceableOrderItems];
+  return [...sortItemsByIsoDesc(localOrders, item => item.completedAtIso), ...invoiceableOrderItems];
+}
+
+function sortItemsByIsoDesc<T>(
+  items: T[],
+  getSortIso: (item: T) => string | undefined,
+) {
+  return items
+    .map((item, fallbackIndex) => ({
+      item,
+      fallbackIndex,
+      sortIso: getSortIso(item),
+    }))
+    .sort((left, right) => compareIsoSortableItemsDesc(left, right))
+    .map(({ item }) => item);
+}
+
+function compareIsoSortableItemsDesc(
+  left: IsoSortableItem,
+  right: IsoSortableItem,
+) {
+  if (left.sortIso && right.sortIso) {
+    const diff = right.sortIso.localeCompare(left.sortIso);
+
+    if (diff !== 0) {
+      return diff;
+    }
+  } else if (left.sortIso) {
+    return -1;
+  } else if (right.sortIso) {
+    return 1;
+  }
+
+  return left.fallbackIndex - right.fallbackIndex;
 }
 
 function createSpendingRecordFromOrder(order: RecentOrder): SpendingRecordItem {

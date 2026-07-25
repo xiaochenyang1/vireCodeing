@@ -95,6 +95,31 @@ test('creates local spending records with structured occurrence time from orders
   });
 });
 
+test('sorts local spending records by occurredAtIso descending before mock items', () => {
+  const records = createSpendingRecords([
+    createOrder({
+      id: 'HYLOCAL-OLDER',
+      updatedAtIso: '2026-06-29T08:00:00+08:00',
+      updatedAtText: '订单已完成 · 2026-06-29 08:00',
+    }),
+    createOrder({
+      id: 'HYLOCAL-NEWER',
+      updatedAtIso: '2026-06-30T08:00:00+08:00',
+      updatedAtText: '订单已完成 · 2026-06-30 08:00',
+    }),
+  ]);
+
+  expect(records[0]).toMatchObject({
+    orderId: 'HYLOCAL-NEWER',
+    occurredAtIso: '2026-06-30T08:00:00+08:00',
+  });
+  expect(records[1]).toMatchObject({
+    orderId: 'HYLOCAL-OLDER',
+    occurredAtIso: '2026-06-29T08:00:00+08:00',
+  });
+  expect(records[2].id).toBe('spending-1');
+});
+
 test('uses payable amount for couponed spending records', () => {
   const records = createSpendingRecords([
     createOrder({
@@ -173,7 +198,7 @@ test('uses status categories for platform spending filters and totals', () => {
   });
 });
 
-test('maps platform payment, settlement and refund facts without order-status guesses', () => {
+test('sorts platform spending records by occurredAtIso descending while mapping financial facts', () => {
   const records = createSpendingRecords([], {
     platformOnly: true,
     platformRecords: [
@@ -211,16 +236,11 @@ test('maps platform payment, settlement and refund facts without order-status gu
     ] as never,
   });
 
+  expect(records.map(record => record.id)).toEqual([
+    'spending-platform-order-refunded-1',
+    'spending-platform-order-settled-1',
+  ]);
   expect(records[0]).toMatchObject({
-    methodText: '在线支付 · 支付宝',
-    statusText: '已结算',
-    paymentTimeText: '结算时间：2026-07-15 16:10',
-    paymentStatusText: '资金状态：已结算',
-    settlementText: '结算金额：￥310',
-    flowText: '资金依据：平台支付与结算记录',
-    statusCategory: 'completed',
-  });
-  expect(records[1]).toMatchObject({
     methodText: '在线支付 · 微信支付',
     statusText: '已退款',
     paymentTimeText: '退款时间：2026-07-15 17:00',
@@ -228,6 +248,15 @@ test('maps platform payment, settlement and refund facts without order-status gu
     settlementText: '退款金额：￥30',
     flowText: '资金依据：平台支付与退款记录',
     statusCategory: 'refund',
+  });
+  expect(records[1]).toMatchObject({
+    methodText: '在线支付 · 支付宝',
+    statusText: '已结算',
+    paymentTimeText: '结算时间：2026-07-15 16:10',
+    paymentStatusText: '资金状态：已结算',
+    settlementText: '结算金额：￥310',
+    flowText: '资金依据：平台支付与结算记录',
+    statusCategory: 'completed',
   });
   expect(records.map(record => record.flowText).join(' ')).not.toContain(
     '待接入',
