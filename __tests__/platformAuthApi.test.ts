@@ -671,6 +671,394 @@ describe('platform auth api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('lists admin auth accounts and reads account report with normalized filters', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          items: [
+            createAdminAuthAccountRecord({
+              userId: 'driver-1',
+              userType: 'driver',
+              riskLevel: 'warning',
+            }),
+          ],
+          total: 1,
+          page: 2,
+          pageSize: 10,
+          summary: createAdminAuthAccountSummary(),
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(
+          createAdminAuthAccountReport({
+            filters: {
+              userType: 'driver',
+              status: 'active',
+              keyword: '13800138000',
+              riskOnly: true,
+              riskTag: 'shared_device',
+              riskLevel: 'warning',
+            },
+          }),
+        ),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(
+      api.listAdminAuthAccounts({
+        userType: 'driver',
+        status: 'active',
+        keyword: ' 13800138000 ',
+        riskOnly: true,
+        riskTag: 'shared_device',
+        riskLevel: 'warning',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        page: 2,
+        pageSize: 10,
+        summary: expect.objectContaining({
+          totalUserCount: 3,
+        }),
+      }),
+    );
+    await expect(
+      api.getAdminAuthAccountReport({
+        userType: 'driver',
+        status: 'active',
+        keyword: ' 13800138000 ',
+        riskOnly: true,
+        riskTag: 'shared_device',
+        riskLevel: 'warning',
+        topAccountsLimit: 3,
+        auditEventLimit: 2,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        topRiskAccounts: expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'user-1',
+          }),
+        ]),
+        governanceAuditSummary: expect.objectContaining({
+          totalEventCount: 2,
+        }),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/auth/accounts?userType=driver&status=active&keyword=13800138000&riskOnly=true&riskTag=shared_device&riskLevel=warning&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.admin-user.900',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/auth/accounts/report?userType=driver&status=active&keyword=13800138000&riskOnly=true&riskTag=shared_device&riskLevel=warning&topAccountsLimit=3&auditEventLimit=2',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('exports admin auth accounts csv and gets account detail', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createTextResponse(
+          'userId,userPhone\nuser-1,13800138000\n',
+          'admin-auth-accounts.csv',
+        ),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse(createAdminAuthAccountDetail()),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(
+      api.exportAdminAuthAccountsCsv({
+        status: 'disabled',
+      }),
+    ).resolves.toEqual({
+      filename: 'admin-auth-accounts.csv',
+      contentType: 'text/csv; charset=utf-8',
+      content: 'userId,userPhone\nuser-1,13800138000\n',
+    });
+    await expect(
+      api.getAdminAuthAccountDetail(' user-1 '),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        account: expect.objectContaining({
+          userId: 'user-1',
+        }),
+        activeSessions: expect.arrayContaining([
+          expect.objectContaining({
+            id: '550e8400-e29b-41d4-a716-446655440001',
+          }),
+        ]),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/auth/accounts/export?status=disabled&page=1&pageSize=20',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.admin-user.900',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/auth/accounts/user-1',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('updates and batch-updates admin auth account governance with normalized payloads', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          userId: 'user-1',
+          status: 'disabled',
+          revokedSessionCount: 2,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          status: 'active',
+          userIds: ['user-1', 'user-2'],
+          updatedCount: 2,
+          revokedSessionCount: 0,
+          items: [
+            {
+              userId: 'user-1',
+              status: 'active',
+              revokedSessionCount: 0,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          userId: 'user-1',
+          revokedCount: 2,
+          keepSessionId: '550e8400-e29b-41d4-a716-446655440001',
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          userIds: ['user-1', 'user-2'],
+          updatedCount: 2,
+          revokedCount: 3,
+          items: [
+            {
+              userId: 'user-1',
+              revokedCount: 1,
+              keepSessionId: '550e8400-e29b-41d4-a716-446655440001',
+            },
+          ],
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(
+      api.updateAdminAuthAccountStatus(' user-1 ', {
+        status: 'disabled',
+      }),
+    ).resolves.toEqual({
+      userId: 'user-1',
+      status: 'disabled',
+      revokedSessionCount: 2,
+    });
+    await expect(
+      api.batchUpdateAdminAuthAccountStatus({
+        items: [{ userId: ' user-1 ' }, { userId: 'user-2' }],
+        status: 'active',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        updatedCount: 2,
+        userIds: ['user-1', 'user-2'],
+      }),
+    );
+    await expect(
+      api.revokeAdminAuthAccountSessions(' user-1 ', {
+        keepSessionId: ' 550e8400-e29b-41d4-a716-446655440001 ',
+      }),
+    ).resolves.toEqual({
+      userId: 'user-1',
+      revokedCount: 2,
+      keepSessionId: '550e8400-e29b-41d4-a716-446655440001',
+    });
+    await expect(
+      api.batchRevokeAdminAuthAccountSessions({
+        items: [
+          {
+            userId: ' user-1 ',
+            keepSessionId: ' 550e8400-e29b-41d4-a716-446655440001 ',
+          },
+          { userId: 'user-2' },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        updatedCount: 2,
+        revokedCount: 3,
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/auth/accounts/user-1/status',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          status: 'disabled',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/auth/accounts/batch-status',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          items: [{ userId: 'user-1' }, { userId: 'user-2' }],
+          status: 'active',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/admin/auth/accounts/user-1/revoke-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          keepSessionId: '550e8400-e29b-41d4-a716-446655440001',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'http://localhost:3000/api/admin/auth/accounts/batch-revoke-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          items: [
+            {
+              userId: 'user-1',
+              keepSessionId: '550e8400-e29b-41d4-a716-446655440001',
+            },
+            { userId: 'user-2' },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin auth account inputs before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+    const invalidListQuery = {
+      riskLevel: 'critical',
+    } as unknown as Parameters<typeof api.listAdminAuthAccounts>[0];
+    const invalidReportQuery = {
+      topAccountsLimit: 21,
+    } as unknown as Parameters<typeof api.getAdminAuthAccountReport>[0];
+    const invalidDetailUserId =
+      '   ' as unknown as Parameters<typeof api.getAdminAuthAccountDetail>[0];
+    const invalidStatusRequest = {
+      status: 'paused',
+    } as unknown as Parameters<typeof api.updateAdminAuthAccountStatus>[1];
+    const invalidBatchStatusRequest = {
+      items: [{ userId: 'user-1' }, { userId: ' user-1 ' }],
+      status: 'disabled',
+    } as unknown as Parameters<typeof api.batchUpdateAdminAuthAccountStatus>[0];
+    const invalidRevokeRequest = {
+      keepSessionId: 'session-1',
+    } as unknown as Parameters<typeof api.revokeAdminAuthAccountSessions>[1];
+    const invalidBatchRevokeRequest = {
+      items: [{ userId: 'user-1' }, { userId: ' user-1 ' }],
+    } as unknown as Parameters<typeof api.batchRevokeAdminAuthAccountSessions>[0];
+
+    await expect(
+      api.listAdminAuthAccounts(invalidListQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.getAdminAuthAccountReport(invalidReportQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.getAdminAuthAccountDetail(invalidDetailUserId),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.updateAdminAuthAccountStatus('user-1', invalidStatusRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.batchUpdateAdminAuthAccountStatus(invalidBatchStatusRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.revokeAdminAuthAccountSessions('user-1', invalidRevokeRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.batchRevokeAdminAuthAccountSessions(invalidBatchRevokeRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refreshes auth tokens', async () => {
     const tokens: PlatformAuthTokens = {
       accessToken: 'access.local-user-13800138000.900',
@@ -1108,6 +1496,121 @@ function createAdminAuthSessionGovernanceAuditRecord(
       },
     ],
     createdAtIso: '2026-07-25T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function createTextResponse(
+  content: string,
+  filename = 'admin-auth-accounts.csv',
+) {
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (name: string) => {
+        const normalizedName = name.toLowerCase();
+
+        if (normalizedName === 'content-type') {
+          return 'text/csv; charset=utf-8';
+        }
+
+        if (normalizedName === 'content-disposition') {
+          return `attachment; filename="${filename}"`;
+        }
+
+        return null;
+      },
+    },
+    text: async () => content,
+  };
+}
+
+function createAdminAuthAccountSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    totalUserCount: 3,
+    activeUserCount: 2,
+    disabledUserCount: 1,
+    riskyUserCount: 1,
+    highRiskUserCount: 0,
+    activeSessionUserCount: 2,
+    ...overrides,
+  };
+}
+
+function createAdminAuthAccountRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    userId: 'user-1',
+    userPhone: '13800138000',
+    userType: 'shipper',
+    status: 'active',
+    createdAtIso: '2026-07-25T08:00:00.000Z',
+    updatedAtIso: '2026-07-25T08:10:00.000Z',
+    activeSessionCount: 2,
+    activeDeviceCount: 2,
+    latestSessionCreatedAtIso: '2026-07-25T08:10:00.000Z',
+    riskLevel: 'warning',
+    riskTags: ['shared_device'],
+    ...overrides,
+  };
+}
+
+function createAdminAuthAccountDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    account: createAdminAuthAccountRecord(),
+    activeSessions: [createAdminAuthSessionRecord()],
+    recentAuditEvents: [createAdminAuthSessionGovernanceAuditRecord()],
+    ...overrides,
+  };
+}
+
+function createAdminAuthAccountReport(overrides: Record<string, unknown> = {}) {
+  return {
+    generatedAtIso: '2026-07-25T10:00:00.000Z',
+    filters: {
+      userType: 'shipper',
+      status: 'active',
+      keyword: '13800138000',
+      riskOnly: true,
+      riskTag: 'shared_device',
+      riskLevel: 'warning',
+    },
+    summary: createAdminAuthAccountSummary(),
+    statusBreakdown: [
+      {
+        status: 'active',
+        userCount: 2,
+      },
+    ],
+    userTypeBreakdown: [
+      {
+        userType: 'shipper',
+        userCount: 2,
+        riskyUserCount: 1,
+        disabledUserCount: 0,
+        activeSessionUserCount: 2,
+      },
+    ],
+    riskTagBreakdown: [
+      {
+        riskTag: 'shared_device',
+        userCount: 1,
+      },
+    ],
+    topRiskAccounts: [createAdminAuthAccountRecord()],
+    governanceAuditSummary: {
+      totalEventCount: 2,
+      totalRevokedSessionCount: 3,
+      latestEventCreatedAtIso: '2026-07-25T09:00:00.000Z',
+      actionBreakdown: [
+        {
+          action: 'revoke_session',
+          eventCount: 2,
+          revokedSessionCount: 3,
+        },
+      ],
+    },
+    recentAuditEvents: [createAdminAuthSessionGovernanceAuditRecord()],
     ...overrides,
   };
 }

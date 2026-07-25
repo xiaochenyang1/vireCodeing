@@ -5,8 +5,12 @@ import {
   type PlatformApiConfig,
 } from './platformApiClient';
 
+const PLATFORM_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type PlatformMobileUserType = 'shipper' | 'driver';
 export type PlatformUserType = PlatformMobileUserType | 'admin';
+export type PlatformMobileUserStatus = 'active' | 'disabled';
 export type PlatformVerificationPurpose = 'login' | 'register' | 'reset';
 
 export type PlatformSendCodeRequest = {
@@ -220,6 +224,166 @@ export type PlatformRevokeOtherAdminSessionsResult = {
   revokedCount: number;
 };
 
+export type PlatformAdminAuthAccountFilters = {
+  userType?: PlatformUserType;
+  status?: PlatformMobileUserStatus;
+  keyword?: string;
+  riskOnly?: boolean;
+  riskTag?: PlatformAdminAuthSessionRiskTag;
+  riskLevel?: PlatformAdminAuthSessionRiskLevel;
+};
+
+export type PlatformListAdminAuthAccountsQuery =
+  PlatformAdminAuthAccountFilters & {
+    page?: number;
+    pageSize?: number;
+  };
+
+export type PlatformAdminAuthAccountRecord = {
+  userId: string;
+  userPhone: string;
+  userType: PlatformUserType;
+  status: PlatformMobileUserStatus;
+  createdAtIso: string;
+  updatedAtIso: string;
+  activeSessionCount: number;
+  activeDeviceCount: number;
+  latestSessionCreatedAtIso?: string;
+  riskLevel: PlatformAdminAuthSessionRiskLevel;
+  riskTags: PlatformAdminAuthSessionRiskTag[];
+};
+
+export type PlatformAdminAuthAccountSummary = {
+  totalUserCount: number;
+  activeUserCount: number;
+  disabledUserCount: number;
+  riskyUserCount: number;
+  highRiskUserCount: number;
+  activeSessionUserCount: number;
+};
+
+export type PlatformAdminAuthAccountListResult = {
+  items: PlatformAdminAuthAccountRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: PlatformAdminAuthAccountSummary;
+};
+
+export type PlatformAdminAuthAccountDetail = {
+  account: PlatformAdminAuthAccountRecord;
+  activeSessions: PlatformAdminAuthSessionRecord[];
+  recentAuditEvents: PlatformAdminAuthSessionGovernanceAuditRecord[];
+};
+
+export type PlatformAdminAuthAccountReportQuery =
+  PlatformAdminAuthAccountFilters & {
+    topAccountsLimit?: number;
+    auditEventLimit?: number;
+  };
+
+export type PlatformAdminAuthAccountReportStatusBreakdownItem = {
+  status: PlatformMobileUserStatus;
+  userCount: number;
+};
+
+export type PlatformAdminAuthAccountReportUserTypeBreakdownItem = {
+  userType: PlatformUserType;
+  userCount: number;
+  riskyUserCount: number;
+  disabledUserCount: number;
+  activeSessionUserCount: number;
+};
+
+export type PlatformAdminAuthAccountReportRiskTagBreakdownItem = {
+  riskTag: PlatformAdminAuthSessionRiskTag;
+  userCount: number;
+};
+
+export type PlatformAdminAuthAccountReportAuditActionBreakdownItem = {
+  action: PlatformAdminAuthSessionGovernanceAuditAction;
+  eventCount: number;
+  revokedSessionCount: number;
+};
+
+export type PlatformAdminAuthAccountReportGovernanceAuditSummary = {
+  totalEventCount: number;
+  totalRevokedSessionCount: number;
+  latestEventCreatedAtIso?: string;
+  actionBreakdown: PlatformAdminAuthAccountReportAuditActionBreakdownItem[];
+};
+
+export type PlatformAdminAuthAccountReport = {
+  generatedAtIso: string;
+  filters: PlatformAdminAuthAccountFilters;
+  summary: PlatformAdminAuthAccountSummary;
+  statusBreakdown: PlatformAdminAuthAccountReportStatusBreakdownItem[];
+  userTypeBreakdown: PlatformAdminAuthAccountReportUserTypeBreakdownItem[];
+  riskTagBreakdown: PlatformAdminAuthAccountReportRiskTagBreakdownItem[];
+  topRiskAccounts: PlatformAdminAuthAccountRecord[];
+  governanceAuditSummary: PlatformAdminAuthAccountReportGovernanceAuditSummary;
+  recentAuditEvents: PlatformAdminAuthSessionGovernanceAuditRecord[];
+};
+
+export type PlatformAdminAuthAccountsCsvExport = {
+  filename: string;
+  contentType: string;
+  content: string;
+};
+
+export type PlatformBatchUpdateAdminAuthAccountStatusItem = {
+  userId: string;
+};
+
+export type PlatformBatchUpdateAdminAuthAccountStatusRequest = {
+  items: PlatformBatchUpdateAdminAuthAccountStatusItem[];
+  status: PlatformMobileUserStatus;
+};
+
+export type PlatformUpdateAdminAuthAccountStatusRequest = {
+  status: PlatformMobileUserStatus;
+};
+
+export type PlatformUpdateAdminAuthAccountStatusResult = {
+  userId: string;
+  status: PlatformMobileUserStatus;
+  revokedSessionCount: number;
+};
+
+export type PlatformBatchUpdateAdminAuthAccountStatusResult = {
+  status: PlatformMobileUserStatus;
+  userIds: string[];
+  updatedCount: number;
+  revokedSessionCount: number;
+  items: PlatformUpdateAdminAuthAccountStatusResult[];
+};
+
+export type PlatformBatchRevokeAdminAuthAccountSessionsItem = {
+  userId: string;
+  keepSessionId?: string;
+};
+
+export type PlatformBatchRevokeAdminAuthAccountSessionsRequest = {
+  items: PlatformBatchRevokeAdminAuthAccountSessionsItem[];
+};
+
+export type PlatformRevokeAdminAuthAccountSessionsRequest = {
+  keepSessionId?: string;
+};
+
+export type PlatformRevokeAdminAuthAccountSessionsResult = {
+  userId: string;
+  revokedCount: number;
+  keepSessionId?: string;
+};
+
+export type PlatformBatchRevokeAdminAuthAccountSessionsResult = {
+  userIds: string[];
+  updatedCount: number;
+  revokedCount: number;
+  items: PlatformRevokeAdminAuthAccountSessionsResult[];
+};
+
 export type PlatformLogoutRequest = {
   refreshToken: string;
   deviceId: string;
@@ -321,6 +485,94 @@ export function createPlatformAuthApi(config: PlatformApiConfig) {
         config,
         '/admin/auth/sessions/revoke-other-sessions',
         normalizeRevokeOtherAdminSessionsRequest(request),
+      );
+    },
+    async listAdminAuthAccounts(query: PlatformListAdminAuthAccountsQuery = {}) {
+      return platformGet<PlatformAdminAuthAccountListResult>(
+        config,
+        createAdminAuthAccountsPath(normalizeAdminAuthAccountListQuery(query)),
+      );
+    },
+    async getAdminAuthAccountReport(
+      query: PlatformAdminAuthAccountReportQuery = {},
+    ) {
+      return platformGet<PlatformAdminAuthAccountReport>(
+        config,
+        createAdminAuthAccountReportPath(
+          normalizeAdminAuthAccountReportQuery(query),
+        ),
+      );
+    },
+    async exportAdminAuthAccountsCsv(
+      query: PlatformListAdminAuthAccountsQuery = {},
+    ) {
+      return platformGetText(
+        config,
+        createAdminAuthAccountsExportPath(
+          normalizeAdminAuthAccountListQuery(query),
+        ),
+      );
+    },
+    async getAdminAuthAccountDetail(userId: string) {
+      return platformGet<PlatformAdminAuthAccountDetail>(
+        config,
+        `/admin/auth/accounts/${encodeURIComponent(
+          normalizeAdminAuthAccountId(userId),
+        )}`,
+      );
+    },
+    async updateAdminAuthAccountStatus(
+      userId: string,
+      request: PlatformUpdateAdminAuthAccountStatusRequest,
+    ) {
+      return platformPost<
+        PlatformUpdateAdminAuthAccountStatusRequest,
+        PlatformUpdateAdminAuthAccountStatusResult
+      >(
+        config,
+        `/admin/auth/accounts/${encodeURIComponent(
+          normalizeAdminAuthAccountId(userId),
+        )}/status`,
+        normalizeUpdateAdminAuthAccountStatusRequest(request),
+      );
+    },
+    async batchUpdateAdminAuthAccountStatus(
+      request: PlatformBatchUpdateAdminAuthAccountStatusRequest,
+    ) {
+      return platformPost<
+        PlatformBatchUpdateAdminAuthAccountStatusRequest,
+        PlatformBatchUpdateAdminAuthAccountStatusResult
+      >(
+        config,
+        '/admin/auth/accounts/batch-status',
+        normalizeBatchUpdateAdminAuthAccountStatusRequest(request),
+      );
+    },
+    async revokeAdminAuthAccountSessions(
+      userId: string,
+      request: PlatformRevokeAdminAuthAccountSessionsRequest = {},
+    ) {
+      return platformPost<
+        PlatformRevokeAdminAuthAccountSessionsRequest,
+        PlatformRevokeAdminAuthAccountSessionsResult
+      >(
+        config,
+        `/admin/auth/accounts/${encodeURIComponent(
+          normalizeAdminAuthAccountId(userId),
+        )}/revoke-sessions`,
+        normalizeRevokeAdminAuthAccountSessionsRequest(request),
+      );
+    },
+    async batchRevokeAdminAuthAccountSessions(
+      request: PlatformBatchRevokeAdminAuthAccountSessionsRequest,
+    ) {
+      return platformPost<
+        PlatformBatchRevokeAdminAuthAccountSessionsRequest,
+        PlatformBatchRevokeAdminAuthAccountSessionsResult
+      >(
+        config,
+        '/admin/auth/accounts/batch-revoke-sessions',
+        normalizeBatchRevokeAdminAuthAccountSessionsRequest(request),
       );
     },
     async refresh(request: PlatformRefreshRequest) {
@@ -492,11 +744,7 @@ function normalizeAdminAuthSessionId(sessionId: unknown) {
     'Admin auth session id is invalid',
   );
 
-  if (
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      normalizedSessionId,
-    )
-  ) {
+  if (!PLATFORM_UUID_PATTERN.test(normalizedSessionId)) {
     throwInvalidAdminAuthSessionRequest('Admin auth session id is invalid');
   }
 
@@ -697,6 +945,508 @@ function createAdminAuthSessionAuditEventsPath(
   return `/admin/auth/sessions/audit-events?${new URLSearchParams(query).toString()}`;
 }
 
+function normalizeAdminAuthAccountListQuery(
+  query: PlatformListAdminAuthAccountsQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account query must be an object',
+    );
+  }
+
+  const filters = normalizeAdminAuthAccountFilters(query);
+  const page = normalizeAdminAuthAccountPageValue(query.page);
+  const pageSize = normalizeAdminAuthAccountPageSizeValue(query.pageSize);
+
+  return {
+    ...filters,
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeAdminAuthAccountReportQuery(
+  query: PlatformAdminAuthAccountReportQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account report query must be an object',
+    );
+  }
+
+  const filters = normalizeAdminAuthAccountFilters(query);
+  const topAccountsLimit = normalizeAdminAuthAccountLimitValue(
+    query.topAccountsLimit,
+    5,
+    'Admin auth account topAccountsLimit is invalid',
+  );
+  const auditEventLimit = normalizeAdminAuthAccountLimitValue(
+    query.auditEventLimit,
+    10,
+    'Admin auth account auditEventLimit is invalid',
+  );
+
+  return {
+    ...filters,
+    topAccountsLimit: String(topAccountsLimit),
+    auditEventLimit: String(auditEventLimit),
+  };
+}
+
+function normalizeAdminAuthAccountFilters(
+  query: PlatformAdminAuthAccountFilters,
+) {
+  const userType = normalizeOptionalAdminAuthAccountUserType(
+    query.userType,
+    'Admin auth account userType is invalid',
+  );
+  const status = normalizeOptionalAdminAuthAccountStatus(
+    query.status,
+    'Admin auth account status is invalid',
+  );
+  const keyword = normalizeAdminAuthAccountOptionalTrimmedString(
+    query.keyword,
+    60,
+    'Admin auth account keyword is invalid',
+  );
+  const riskTag = normalizeOptionalAdminAuthAccountRiskTag(
+    query.riskTag,
+    'Admin auth account riskTag is invalid',
+  );
+  const riskLevel = normalizeOptionalAdminAuthAccountRiskLevel(
+    query.riskLevel,
+    'Admin auth account riskLevel is invalid',
+  );
+
+  if (query.riskOnly !== undefined && typeof query.riskOnly !== 'boolean') {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account riskOnly is invalid',
+    );
+  }
+
+  return {
+    ...(userType ? { userType } : {}),
+    ...(status ? { status } : {}),
+    ...(keyword ? { keyword } : {}),
+    ...(query.riskOnly !== undefined ? { riskOnly: String(query.riskOnly) } : {}),
+    ...(riskTag ? { riskTag } : {}),
+    ...(riskLevel ? { riskLevel } : {}),
+  };
+}
+
+function normalizeAdminAuthAccountId(userId: unknown) {
+  const normalizedUserId = normalizeAdminAuthAccountRequiredTrimmedString(
+    userId,
+    'Admin auth account user id is invalid',
+  );
+
+  if (normalizedUserId.length > 120) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account user id is invalid',
+    );
+  }
+
+  return normalizedUserId;
+}
+
+function normalizeUpdateAdminAuthAccountStatusRequest(
+  request: PlatformUpdateAdminAuthAccountStatusRequest,
+): PlatformUpdateAdminAuthAccountStatusRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account status update request must be an object',
+    );
+  }
+
+  return {
+    status: normalizeAdminAuthAccountStatus(
+      request.status,
+      'Admin auth account status is invalid',
+    ),
+  };
+}
+
+function normalizeBatchUpdateAdminAuthAccountStatusRequest(
+  request: PlatformBatchUpdateAdminAuthAccountStatusRequest,
+): PlatformBatchUpdateAdminAuthAccountStatusRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch status update request must be an object',
+    );
+  }
+
+  if (!Array.isArray(request.items) || !request.items.length || request.items.length > 50) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch status update items are invalid',
+    );
+  }
+
+  const items = request.items.map(item => {
+    if (!isPlainObject(item)) {
+      throwInvalidAdminAuthAccountRequest(
+        'Admin auth account batch status update items are invalid',
+      );
+    }
+
+    return {
+      userId: normalizeAdminAuthAccountId(item.userId),
+    };
+  });
+  const userIds = items.map(item => item.userId);
+
+  if (new Set(userIds).size !== userIds.length) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch status update user ids are duplicated',
+    );
+  }
+
+  return {
+    items,
+    status: normalizeAdminAuthAccountStatus(
+      request.status,
+      'Admin auth account status is invalid',
+    ),
+  };
+}
+
+function normalizeRevokeAdminAuthAccountSessionsRequest(
+  request: PlatformRevokeAdminAuthAccountSessionsRequest,
+): PlatformRevokeAdminAuthAccountSessionsRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account revoke sessions request must be an object',
+    );
+  }
+
+  const keepSessionId = normalizeOptionalAdminAuthAccountSessionId(
+    request.keepSessionId,
+    'Admin auth account keepSessionId is invalid',
+  );
+
+  return keepSessionId ? { keepSessionId } : {};
+}
+
+function normalizeBatchRevokeAdminAuthAccountSessionsRequest(
+  request: PlatformBatchRevokeAdminAuthAccountSessionsRequest,
+): PlatformBatchRevokeAdminAuthAccountSessionsRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch revoke sessions request must be an object',
+    );
+  }
+
+  if (!Array.isArray(request.items) || !request.items.length || request.items.length > 50) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch revoke sessions items are invalid',
+    );
+  }
+
+  const items = request.items.map(item => {
+    if (!isPlainObject(item)) {
+      throwInvalidAdminAuthAccountRequest(
+        'Admin auth account batch revoke sessions items are invalid',
+      );
+    }
+
+    const keepSessionId = normalizeOptionalAdminAuthAccountSessionId(
+      item.keepSessionId,
+      'Admin auth account keepSessionId is invalid',
+    );
+
+    return {
+      userId: normalizeAdminAuthAccountId(item.userId),
+      ...(keepSessionId ? { keepSessionId } : {}),
+    };
+  });
+  const userIds = items.map(item => item.userId);
+
+  if (new Set(userIds).size !== userIds.length) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account batch revoke sessions user ids are duplicated',
+    );
+  }
+
+  return { items };
+}
+
+function normalizeAdminAuthAccountRequiredTrimmedString(
+  value: unknown,
+  message: string,
+) {
+  if (typeof value !== 'string') {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (!normalizedValue) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue;
+}
+
+function normalizeAdminAuthAccountOptionalTrimmedString(
+  value: unknown,
+  maxLength: number,
+  message: string,
+) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  const normalizedValue = value.trim();
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (normalizedValue.length > maxLength) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue;
+}
+
+function normalizeOptionalAdminAuthAccountUserType(
+  value: unknown,
+  message: string,
+) {
+  const normalizedValue = normalizeAdminAuthAccountOptionalTrimmedString(
+    value,
+    20,
+    message,
+  );
+
+  if (
+    normalizedValue !== undefined &&
+    normalizedValue !== 'shipper' &&
+    normalizedValue !== 'driver' &&
+    normalizedValue !== 'admin'
+  ) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue as PlatformUserType | undefined;
+}
+
+function normalizeAdminAuthAccountStatus(value: unknown, message: string) {
+  const normalizedValue = normalizeAdminAuthAccountRequiredTrimmedString(
+    value,
+    message,
+  );
+
+  if (normalizedValue !== 'active' && normalizedValue !== 'disabled') {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue as PlatformMobileUserStatus;
+}
+
+function normalizeOptionalAdminAuthAccountStatus(
+  value: unknown,
+  message: string,
+) {
+  const normalizedValue = normalizeAdminAuthAccountOptionalTrimmedString(
+    value,
+    20,
+    message,
+  );
+
+  if (
+    normalizedValue !== undefined &&
+    normalizedValue !== 'active' &&
+    normalizedValue !== 'disabled'
+  ) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue as PlatformMobileUserStatus | undefined;
+}
+
+function normalizeOptionalAdminAuthAccountRiskTag(
+  value: unknown,
+  message: string,
+) {
+  const normalizedValue = normalizeAdminAuthAccountOptionalTrimmedString(
+    value,
+    30,
+    message,
+  );
+
+  if (
+    normalizedValue !== undefined &&
+    normalizedValue !== 'shared_device' &&
+    normalizedValue !== 'high_session_volume' &&
+    normalizedValue !== 'admin_multi_device'
+  ) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue as PlatformAdminAuthSessionRiskTag | undefined;
+}
+
+function normalizeOptionalAdminAuthAccountRiskLevel(
+  value: unknown,
+  message: string,
+) {
+  const normalizedValue = normalizeAdminAuthAccountOptionalTrimmedString(
+    value,
+    20,
+    message,
+  );
+
+  if (
+    normalizedValue !== undefined &&
+    normalizedValue !== 'none' &&
+    normalizedValue !== 'warning' &&
+    normalizedValue !== 'high'
+  ) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue as PlatformAdminAuthSessionRiskLevel | undefined;
+}
+
+function normalizeAdminAuthAccountPageValue(value: unknown) {
+  if (value === undefined) {
+    return 1;
+  }
+
+  if (!Number.isInteger(value) || Number(value) < 1) {
+    throwInvalidAdminAuthAccountRequest('Admin auth account page is invalid');
+  }
+
+  return Number(value);
+}
+
+function normalizeAdminAuthAccountPageSizeValue(value: unknown) {
+  if (value === undefined) {
+    return 20;
+  }
+
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 50) {
+    throwInvalidAdminAuthAccountRequest(
+      'Admin auth account pageSize is invalid',
+    );
+  }
+
+  return Number(value);
+}
+
+function normalizeAdminAuthAccountLimitValue(
+  value: unknown,
+  defaultValue: number,
+  message: string,
+) {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 20) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return Number(value);
+}
+
+function normalizeOptionalAdminAuthAccountSessionId(
+  value: unknown,
+  message: string,
+) {
+  const normalizedValue = normalizeAdminAuthAccountOptionalTrimmedString(
+    value,
+    40,
+    message,
+  );
+
+  if (normalizedValue !== undefined && !PLATFORM_UUID_PATTERN.test(normalizedValue)) {
+    throwInvalidAdminAuthAccountRequest(message);
+  }
+
+  return normalizedValue;
+}
+
+function createAdminAuthAccountsPath(
+  query: ReturnType<typeof normalizeAdminAuthAccountListQuery>,
+) {
+  return `/admin/auth/accounts?${new URLSearchParams(query).toString()}`;
+}
+
+function createAdminAuthAccountReportPath(
+  query: ReturnType<typeof normalizeAdminAuthAccountReportQuery>,
+) {
+  return `/admin/auth/accounts/report?${new URLSearchParams(query).toString()}`;
+}
+
+function createAdminAuthAccountsExportPath(
+  query: ReturnType<typeof normalizeAdminAuthAccountListQuery>,
+) {
+  return `/admin/auth/accounts/export?${new URLSearchParams(query).toString()}`;
+}
+
+async function platformGetText(
+  config: PlatformApiConfig,
+  path: string,
+): Promise<PlatformAdminAuthAccountsCsvExport> {
+  const accessToken = config.getAccessToken?.();
+  const requestId = config.getRequestId?.();
+
+  if (!accessToken) {
+    throw new PlatformApiError(
+      'Platform API access token is missing',
+      'AUTH_ACCESS_TOKEN_MISSING',
+      0,
+    );
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(createPlatformRequestUrl(config.baseUrl, path), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(requestId ? { 'x-request-id': requestId } : {}),
+      },
+    });
+  } catch {
+    throw new PlatformApiError(
+      'Platform API network request failed',
+      'NETWORK_ERROR',
+      0,
+    );
+  }
+
+  if (!response.ok) {
+    throw new PlatformApiError(
+      `Platform API request failed: ${response.status}`,
+      'HTTP_ERROR',
+      response.status,
+    );
+  }
+
+  const content = await response.text();
+  const contentType =
+    response.headers.get('content-type') ?? 'text/plain; charset=utf-8';
+  const contentDisposition = response.headers.get('content-disposition') ?? '';
+  const filenameMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+
+  return {
+    filename: filenameMatch?.[1] ?? 'admin-auth-accounts.csv',
+    contentType,
+    content,
+  };
+}
+
+function createPlatformRequestUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -713,6 +1463,14 @@ function throwInvalidAdminAuthSessionRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_ADMIN_AUTH_SESSION_REQUEST_INVALID',
+    0,
+  );
+}
+
+function throwInvalidAdminAuthAccountRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_ADMIN_AUTH_ACCOUNT_REQUEST_INVALID',
     0,
   );
 }
