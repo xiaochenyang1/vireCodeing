@@ -201,6 +201,32 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     ],
   },
   {
+    key: 'shipper_verification_manage',
+    title: '审核货主实名认证与企业认证',
+    moduleKey: 'shipper-verification',
+    summary:
+      '读取货主实名/企业认证队列，并能执行实名、企业认证的单条通过 / 驳回。',
+    actions: ['read', 'write'],
+    riskLevel: 'high',
+    apiPaths: [
+      '/admin/shipper-verifications',
+      '/admin/shipper-verifications/{shipperId}/identity/review',
+      '/admin/shipper-verifications/{shipperId}/enterprise/review',
+    ],
+  },
+  {
+    key: 'shipper_invoice_manage',
+    title: '审核货主发票申请',
+    moduleKey: 'shipper-invoice',
+    summary: '读取货主发票申请队列，并能执行单条通过 / 驳回。',
+    actions: ['read', 'write'],
+    riskLevel: 'high',
+    apiPaths: [
+      '/admin/shipper-invoices',
+      '/admin/shipper-invoices/{applicationId}/review',
+    ],
+  },
+  {
     key: 'order_management_manage',
     title: '查看并取消待接单后台订单',
     moduleKey: 'order-management',
@@ -215,6 +241,20 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/orders/{orderId}',
       '/admin/orders/batch-cancel',
       '/admin/orders/{orderId}/cancel',
+    ],
+  },
+  {
+    key: 'order_change_request_manage',
+    title: '审核货主订单修改申请',
+    moduleKey: 'order-change-request',
+    summary:
+      '读取货主修改申请队列、审核事件和结构化审核快照，并能执行单条通过 / 驳回。',
+    actions: ['read', 'write'],
+    riskLevel: 'high',
+    apiPaths: [
+      '/admin/orders/change-requests',
+      '/admin/orders/{orderId}/change-request/review-events',
+      '/admin/orders/{orderId}/change-request/review',
     ],
   },
   {

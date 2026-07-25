@@ -1049,10 +1049,10 @@ describe('AdminConsoleController', () => {
       generatedAtIso: '2026-07-18T04:00:00.000Z',
       defaultProfileKey: 'platform_admin',
       profileCount: 1,
-      moduleCount: 12,
-      capabilityCount: 12,
-      writeCapabilityCount: 9,
-      highRiskCapabilityCount: 9,
+      moduleCount: 15,
+      capabilityCount: 15,
+      writeCapabilityCount: 12,
+      highRiskCapabilityCount: 12,
       profiles: [],
       modules: [],
       capabilities: [],
@@ -1070,8 +1070,8 @@ describe('AdminConsoleController', () => {
       requestId: 'request-admin-1',
       data: expect.objectContaining({
         defaultProfileKey: 'platform_admin',
-        moduleCount: 12,
-        capabilityCount: 12,
+        moduleCount: 15,
+        capabilityCount: 15,
       }),
     });
     expect(service.getMatrix).toHaveBeenCalledTimes(1);

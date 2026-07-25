@@ -186,12 +186,12 @@ describe('AdminConsoleOverviewService', () => {
               }),
               expect.objectContaining({
                 label: '能力项',
-                value: 12,
+                value: 15,
                 tone: 'neutral',
               }),
               expect.objectContaining({
                 label: '高风险能力',
-                value: 9,
+                value: 12,
                 tone: 'warning',
               }),
             ]),
