@@ -440,6 +440,162 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('车辆认证：审核中');
   });
 
+  it('manually refreshes the currently opened driver order detail snapshots', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090009',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const refreshedOrder = {
+      ...order,
+      deliveryAddress: '南山区科技园仓',
+      deliveryContact: '周主管',
+      deliveryPhone: '13900139009',
+      updatedAtIso: '2026-07-09T03:00:00.000Z',
+      events: [
+        {
+          type: 'status_changed',
+          status: 'transporting',
+          createdAtIso: '2026-07-09T03:00:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders
+      .mockResolvedValueOnce({
+        items: [order],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [refreshedOrder],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      });
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(refreshedOrder);
+    platformDriverOrderApi.listExceptionCases
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'case-1',
+            caseNo: 'EC202607090001',
+            orderId: 'order-1',
+            orderNo: 'HY202607090009',
+            sourceEventId: 'event-1',
+            reporterUserId: 'driver-1',
+            sourceRole: 'driver',
+            typeLabel: '货损',
+            description: '卸货前发现外包装受损。',
+            status: 'processing' as const,
+            attachmentFileIds: [],
+            appealStatus: 'not_requested' as const,
+            createdAtIso: '2026-07-09T03:05:00.000Z',
+            updatedAtIso: '2026-07-09T03:05:00.000Z',
+            actions: [],
+          },
+        ],
+        total: 1,
+      });
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverNavigationTargets
+      .mockResolvedValueOnce({
+        orderId: 'order-1',
+        orderNo: 'HY202607090009',
+        targets: [
+          {
+            type: 'delivery',
+            address: '龙岗区坂田仓 A 栋',
+            contactName: '钱店长',
+            contactPhone: '13900139002',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        orderId: 'order-1',
+        orderNo: 'HY202607090009',
+        targets: [
+          {
+            type: 'delivery',
+            address: '南山区科技园仓 2 号门',
+            contactName: '周主管',
+            contactPhone: '13900139009',
+          },
+        ],
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090009' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-order-route-HY202607090009',
+      }).props.children,
+    ).toBe('路线：宝安区福永物流园 → 龙岗区坂田仓');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.listExceptionCases).toHaveBeenCalledTimes(2);
+    expect(platformMapsApi.getDriverNavigationTargets).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-order-route-HY202607090009',
+      }).props.children,
+    ).toBe('路线：宝安区福永物流园 → 南山区科技园仓');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-navigation-target-address-delivery-HY202607090009',
+      }).props.children,
+    ).toBe('南山区科技园仓 2 号门');
+    expect(getRenderedText(renderer)).toContain('事件记录：1 条');
+    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+  });
+
   it('keeps local certification and acceptance drafts when manually refreshing the driver home screen', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     const platformDriverCertificationApi = createMockDriverCertificationApi();

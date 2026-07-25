@@ -1176,6 +1176,80 @@ export function DriverHomeScreen({
       });
   };
 
+  const refreshSelectedOrderDetail = () => {
+    if (!selectedOrder || !platformDriverOrderApi) {
+      return Promise.resolve(true);
+    }
+
+    const fallbackNavigationTargets = [
+      {
+        type: 'pickup' as const,
+        address: selectedOrder.pickupAddress,
+        contactName: selectedOrder.pickupContact,
+        contactPhone: selectedOrder.pickupPhone,
+      },
+      {
+        type: 'delivery' as const,
+        address: selectedOrder.deliveryAddress,
+        contactName: selectedOrder.deliveryContact,
+        contactPhone: selectedOrder.deliveryPhone,
+      },
+    ];
+
+    const orderPromise = platformDriverOrderApi
+      .getOrder(selectedOrder.id)
+      .then(orderDetail => {
+        setSelectedOrder(orderDetail);
+        setMyOrders(currentOrders => upsertOrder(currentOrders, orderDetail));
+        return true;
+      })
+      .catch(() => {
+        setNotice('司机订单详情刷新失败，请稍后重试。');
+        return false;
+      });
+
+    const exceptionCasesPromise = platformDriverOrderApi
+      .listExceptionCases(selectedOrder.id)
+      .then(result => {
+        setExceptionCases(Array.isArray(result?.items) ? result.items : []);
+        setExceptionCaseNotice(undefined);
+        return true;
+      })
+      .catch(error => {
+        setExceptionCaseNotice(
+          error instanceof PlatformApiError &&
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+            ? '登录状态已失效，请重新登录后查看异常处理进度。'
+            : '异常处理进度加载失败，请稍后重试。',
+        );
+        return false;
+      });
+
+    const navigationTargetsPromise = platformMapsApi
+      ? platformMapsApi
+          .getDriverNavigationTargets(selectedOrder.id)
+          .then(result => {
+            setNavigationTargets(
+              Array.isArray(result?.targets) ? result.targets : [],
+            );
+            return true;
+          })
+          .catch(() => {
+            setNavigationTargets(fallbackNavigationTargets);
+            return true;
+          })
+      : (() => {
+          setNavigationTargets(fallbackNavigationTargets);
+          return Promise.resolve(true);
+        })();
+
+    return Promise.all([
+      orderPromise,
+      exceptionCasesPromise,
+      navigationTargetsPromise,
+    ]).then(results => results.every(Boolean));
+  };
+
   const refreshDriverHomeSnapshot = async () => {
     if (isRefreshingHomeSnapshot) {
       return;
@@ -1200,6 +1274,7 @@ export function DriverHomeScreen({
           ? Promise.resolve(true)
           : refreshAcceptanceSettings(),
         refreshLatestHallLocation({ silentNotFound: true }),
+        refreshSelectedOrderDetail(),
         selectedOrder
           ? refreshLatestReportedDriverLocation(selectedOrder.id)
           : Promise.resolve(true),
