@@ -417,6 +417,260 @@ describe('platform auth api', () => {
     );
   });
 
+  it('lists admin auth sessions with default and normalized query filters', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sessions: [createAdminAuthSessionRecord()],
+          total: 1,
+          page: 1,
+          pageSize: 20,
+          riskSummary: {
+            riskySessionCount: 1,
+            highRiskSessionCount: 0,
+            sharedDeviceCount: 1,
+            highSessionVolumeUserCount: 0,
+            adminMultiDeviceUserCount: 0,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sessions: [
+            createAdminAuthSessionRecord({
+              id: '550e8400-e29b-41d4-a716-446655440003',
+              userId: 'driver-1',
+              userType: 'driver',
+              riskLevel: 'high',
+              riskTags: ['shared_device'],
+            }),
+          ],
+          total: 1,
+          page: 2,
+          pageSize: 10,
+          riskSummary: {
+            riskySessionCount: 1,
+            highRiskSessionCount: 1,
+            sharedDeviceCount: 1,
+            highSessionVolumeUserCount: 0,
+            adminMultiDeviceUserCount: 0,
+          },
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(api.listAdminAuthSessions()).resolves.toEqual(
+      expect.objectContaining({
+        page: 1,
+        pageSize: 20,
+        sessions: expect.arrayContaining([
+          expect.objectContaining({
+            id: '550e8400-e29b-41d4-a716-446655440001',
+            userType: 'admin',
+          }),
+        ]),
+      }),
+    );
+    await expect(
+      api.listAdminAuthSessions({
+        scope: 'all',
+        userType: 'driver',
+        keyword: '  13800138000  ',
+        riskOnly: true,
+        riskTag: 'shared_device',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        page: 2,
+        pageSize: 10,
+        riskSummary: expect.objectContaining({
+          highRiskSessionCount: 1,
+        }),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/auth/sessions?scope=current_admin&page=1&pageSize=20',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.admin-user.900',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/auth/sessions?scope=all&userType=driver&keyword=13800138000&riskOnly=true&riskTag=shared_device&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('lists admin auth session governance audit events with normalized query filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        events: [createAdminAuthSessionGovernanceAuditRecord()],
+        total: 1,
+        page: 2,
+        pageSize: 5,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(
+      api.listAdminAuthSessionAuditEvents({
+        action: 'revoke_session',
+        result: 'revoked',
+        keyword: '  13800138000  ',
+        page: 2,
+        pageSize: 5,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        page: 2,
+        pageSize: 5,
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            action: 'revoke_session',
+            result: 'revoked',
+          }),
+        ]),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/auth/sessions/audit-events?action=revoke_session&result=revoked&keyword=13800138000&page=2&pageSize=5',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.admin-user.900',
+        }),
+      }),
+    );
+  });
+
+  it('revokes admin auth sessions with normalized ids and device payloads', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sessionId: '550e8400-e29b-41d4-a716-446655440001',
+          revoked: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          currentDeviceId: 'admin-device-current',
+          revokedCount: 3,
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+
+    await expect(
+      api.revokeAdminAuthSession(' 550e8400-e29b-41d4-a716-446655440001 '),
+    ).resolves.toEqual({
+      sessionId: '550e8400-e29b-41d4-a716-446655440001',
+      revoked: true,
+    });
+    await expect(
+      api.revokeOtherAdminAuthSessions({
+        currentDeviceId: ' admin-device-current ',
+      }),
+    ).resolves.toEqual({
+      currentDeviceId: 'admin-device-current',
+      revokedCount: 3,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/auth/sessions/550e8400-e29b-41d4-a716-446655440001/revoke',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.admin-user.900',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/auth/sessions/revoke-other-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          currentDeviceId: 'admin-device-current',
+        }),
+      }),
+    );
+  });
+
+  it('rejects invalid admin auth session inputs before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformAuthApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access.admin-user.900',
+    });
+    const invalidSessionQuery = {
+      riskOnly: 'true',
+    } as unknown as Parameters<typeof api.listAdminAuthSessions>[0];
+    const invalidAuditQuery = {
+      result: 'failed',
+    } as unknown as Parameters<typeof api.listAdminAuthSessionAuditEvents>[0];
+    const invalidSessionId =
+      'session-1' as unknown as Parameters<typeof api.revokeAdminAuthSession>[0];
+    const invalidRevokeOtherRequest = {
+      currentDeviceId: ' ',
+    } as unknown as Parameters<typeof api.revokeOtherAdminAuthSessions>[0];
+
+    await expect(
+      api.listAdminAuthSessions(invalidSessionQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_SESSION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.listAdminAuthSessionAuditEvents(invalidAuditQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_SESSION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.revokeAdminAuthSession(invalidSessionId),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_SESSION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.revokeOtherAdminAuthSessions(invalidRevokeOtherRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_AUTH_SESSION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('refreshes auth tokens', async () => {
     const tokens: PlatformAuthTokens = {
       accessToken: 'access.local-user-13800138000.900',
@@ -796,3 +1050,64 @@ describe('platform auth api', () => {
     });
   });
 });
+
+function createJsonResponse(data: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      code: 'OK',
+      message: 'success',
+      data,
+      requestId: 'req_test',
+      timestamp: '2026-07-25T08:00:00.000Z',
+    }),
+  };
+}
+
+function createAdminAuthSessionRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '550e8400-e29b-41d4-a716-446655440001',
+    userId: 'admin-1',
+    userPhone: '13800138000',
+    userType: 'admin',
+    deviceId: 'admin-device-current',
+    createdAtIso: '2026-07-25T08:00:00.000Z',
+    expiresAtIso: '2026-08-01T08:00:00.000Z',
+    isCurrentUser: true,
+    riskLevel: 'warning',
+    riskTags: ['shared_device'],
+    riskContext: {
+      deviceSessionCount: 2,
+      deviceUserCount: 2,
+      userSessionCount: 2,
+    },
+    ...overrides,
+  };
+}
+
+function createAdminAuthSessionGovernanceAuditRecord(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id: 'audit-1',
+    actorAdminId: 'admin-1',
+    actorAdminPhone: '13800138000',
+    action: 'revoke_session',
+    result: 'revoked',
+    requestedSessionId: '550e8400-e29b-41d4-a716-446655440001',
+    currentDeviceId: 'admin-device-current',
+    revokedCount: 1,
+    subjects: [
+      {
+        sessionId: '550e8400-e29b-41d4-a716-446655440002',
+        userId: 'driver-1',
+        userPhone: '13900139000',
+        userType: 'driver',
+        deviceId: 'driver-device-1',
+      },
+    ],
+    createdAtIso: '2026-07-25T09:00:00.000Z',
+    ...overrides,
+  };
+}
