@@ -209,6 +209,177 @@ describe('platform profile api', () => {
     );
   });
 
+  it('lists admin shipper verifications and reviews identity and enterprise payloads', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            items: [
+              {
+                shipperId: 'shipper-1',
+                identity: {
+                  shipperId: 'shipper-1',
+                  realName: '张先生',
+                  idNumber: '44030019900101123X',
+                  identityFrontFileId: 'file-front',
+                  identityBackFileId: 'file-back',
+                  faceVerified: true,
+                  status: 'reviewing',
+                  createdAtIso: '2026-07-09T08:00:00.000Z',
+                  updatedAtIso: '2026-07-09T08:05:00.000Z',
+                },
+              },
+            ],
+            page: 2,
+            pageSize: 10,
+            total: 12,
+          },
+          requestId: 'req-admin-profile-list',
+          timestamp: '2026-07-09T08:05:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            shipperId: 'shipper-1',
+            identity: {
+              shipperId: 'shipper-1',
+              realName: '张先生',
+              idNumber: '44030019900101123X',
+              identityFrontFileId: 'file-front',
+              identityBackFileId: 'file-back',
+              faceVerified: true,
+              status: 'approved',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+              updatedAtIso: '2026-07-09T08:10:00.000Z',
+            },
+          },
+          requestId: 'req-admin-profile-identity-review',
+          timestamp: '2026-07-09T08:10:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            shipperId: 'shipper-1',
+            enterprise: {
+              shipperId: 'shipper-1',
+              enterpriseName: '深圳晨星贸易有限公司',
+              creditCode: '91440300MA5TEST001',
+              legalName: '张先生',
+              legalId: '44030019900101123X',
+              enterprisePhone: '13900139088',
+              licenseFileId: 'file-license',
+              status: 'rejected',
+              rejectionReason: '营业执照信息待补充',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+              updatedAtIso: '2026-07-09T08:15:00.000Z',
+            },
+          },
+          requestId: 'req-admin-profile-enterprise-review',
+          timestamp: '2026-07-09T08:15:00.000Z',
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminVerifications({
+        status: 'reviewing',
+        type: 'identity',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 10,
+      total: 12,
+      items: [
+        expect.objectContaining({
+          shipperId: 'shipper-1',
+        }),
+      ],
+    });
+
+    await expect(
+      api.reviewAdminIdentityVerification(' shipper-1 ', {
+        status: 'approved',
+      }),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      identity: expect.objectContaining({
+        status: 'approved',
+      }),
+    });
+
+    await expect(
+      api.reviewAdminEnterpriseVerification('shipper-1', {
+        status: 'rejected',
+        rejectionReason: ' 营业执照信息待补充 ',
+      }),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      enterprise: expect.objectContaining({
+        status: 'rejected',
+        rejectionReason: '营业执照信息待补充',
+      }),
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/shipper-verifications?status=reviewing&type=identity&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/shipper-verifications/shipper-1/identity/review',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          status: 'approved',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/admin/shipper-verifications/shipper-1/enterprise/review',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          status: 'rejected',
+          rejectionReason: '营业执照信息待补充',
+        }),
+      }),
+    );
+  });
+
   it('saves the shipper profile address book with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1270,4 +1441,46 @@ describe('platform profile api', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['null admin shipper verification query', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerifications(null as never)],
+    ['invalid admin shipper verification status', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerifications({ status: 'pending' as never })],
+    ['invalid admin shipper verification type', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerifications({ type: 'vehicle' as never })],
+    ['invalid admin shipper verification page', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerifications({ page: 0 })],
+    ['invalid admin shipper verification pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerifications({ pageSize: 51 })],
+    ['empty admin shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminIdentityVerification('   ', { status: 'approved' })],
+    ['invalid admin shipper verification review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminIdentityVerification('shipper-1', { status: 'reviewing' as never })],
+    ['missing admin rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminEnterpriseVerification('shipper-1', { status: 'rejected' } as never)],
+    ['blank admin rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminEnterpriseVerification('shipper-1', {
+        status: 'rejected',
+        rejectionReason: '   ',
+      })],
+    ['non-object admin review request', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminIdentityVerification('shipper-1', null as never)],
+  ])(
+    'rejects invalid admin shipper verification inputs before sending them: %s',
+    async (_label, run) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformProfileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(run(api)).rejects.toMatchObject({
+        code: 'PLATFORM_ADMIN_SHIPPER_VERIFICATION_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });

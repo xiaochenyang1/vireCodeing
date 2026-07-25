@@ -57,6 +57,10 @@ export type PlatformProfileVerificationStatus =
   | 'approved'
   | 'rejected';
 
+export type PlatformAdminShipperVerificationType =
+  | 'identity'
+  | 'enterprise';
+
 export type PlatformSaveProfileIdentityVerificationRequest = {
   realName: string;
   idNumber: string;
@@ -91,6 +95,38 @@ export type PlatformProfileEnterpriseVerification =
     createdAtIso: string;
     updatedAtIso: string;
   };
+
+export type PlatformAdminShipperVerificationReviewRequest =
+  | {
+      status: 'approved';
+    }
+  | {
+      status: 'rejected';
+      rejectionReason: string;
+    };
+
+export type PlatformListAdminShipperVerificationQuery = {
+  status?: Extract<
+    PlatformProfileVerificationStatus,
+    'reviewing' | 'approved' | 'rejected'
+  >;
+  type?: PlatformAdminShipperVerificationType;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PlatformAdminShipperVerificationSnapshot = {
+  shipperId: string;
+  identity?: PlatformProfileIdentityVerification;
+  enterprise?: PlatformProfileEnterpriseVerification;
+};
+
+export type PlatformAdminShipperVerificationListResult = {
+  items: PlatformAdminShipperVerificationSnapshot[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
 
 export type PlatformProfileInvoiceType = 'normal' | 'vat-special';
 
@@ -312,6 +348,48 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         config,
         '/shipper/profile/enterprise-verification',
         normalizedRequest,
+      );
+    },
+    async listAdminVerifications(
+      query: PlatformListAdminShipperVerificationQuery = {},
+    ) {
+      const normalizedQuery = normalizeListAdminShipperVerificationQuery(query);
+
+      return platformGet<PlatformAdminShipperVerificationListResult>(
+        config,
+        `/admin/shipper-verifications?${new URLSearchParams(
+          normalizedQuery,
+        ).toString()}`,
+      );
+    },
+    async reviewAdminIdentityVerification(
+      shipperId: string,
+      request: PlatformAdminShipperVerificationReviewRequest,
+    ) {
+      return platformPost<
+        PlatformAdminShipperVerificationReviewRequest,
+        PlatformAdminShipperVerificationSnapshot
+      >(
+        config,
+        `/admin/shipper-verifications/${encodeURIComponent(
+          normalizeAdminShipperVerificationShipperId(shipperId),
+        )}/identity/review`,
+        normalizeAdminShipperVerificationReviewRequest(request),
+      );
+    },
+    async reviewAdminEnterpriseVerification(
+      shipperId: string,
+      request: PlatformAdminShipperVerificationReviewRequest,
+    ) {
+      return platformPost<
+        PlatformAdminShipperVerificationReviewRequest,
+        PlatformAdminShipperVerificationSnapshot
+      >(
+        config,
+        `/admin/shipper-verifications/${encodeURIComponent(
+          normalizeAdminShipperVerificationShipperId(shipperId),
+        )}/enterprise/review`,
+        normalizeAdminShipperVerificationReviewRequest(request),
       );
     },
     getInvoices() {
@@ -583,6 +661,90 @@ function normalizeCreateProfileInvoiceApplicationRequest(
     receiverEmail: normalizedReceiverEmail,
     orderIds: normalizedOrderIds,
   };
+}
+
+function normalizeListAdminShipperVerificationQuery(
+  query: PlatformListAdminShipperVerificationQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification query must be an object',
+    );
+  }
+
+  const status = query.status ?? 'reviewing';
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (!['reviewing', 'approved', 'rejected'].includes(status)) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification status is invalid',
+    );
+  }
+
+  if (query.type !== undefined && !['identity', 'enterprise'].includes(query.type)) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification type is invalid',
+    );
+  }
+
+  if (!Number.isInteger(page) || page < 1) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification page is invalid',
+    );
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification pageSize is invalid',
+    );
+  }
+
+  return {
+    status,
+    ...(query.type ? { type: query.type } : {}),
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeAdminShipperVerificationReviewRequest(
+  request: PlatformAdminShipperVerificationReviewRequest,
+): PlatformAdminShipperVerificationReviewRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminShipperVerificationRequest(
+      'Admin shipper verification review must be an object',
+    );
+  }
+
+  if (request.status === 'approved') {
+    return { status: 'approved' };
+  }
+
+  if (request.status === 'rejected') {
+    return {
+      status: 'rejected',
+      rejectionReason: normalizeRequiredString(
+        request.rejectionReason,
+        200,
+        'Admin shipper verification rejection reason is invalid',
+        throwInvalidAdminShipperVerificationRequest,
+      ),
+    };
+  }
+
+  throwInvalidAdminShipperVerificationRequest(
+    'Admin shipper verification review status is invalid',
+  );
+}
+
+function normalizeAdminShipperVerificationShipperId(value: unknown) {
+  return normalizeRequiredString(
+    value,
+    120,
+    'Admin shipper verification shipper id is invalid',
+    throwInvalidAdminShipperVerificationRequest,
+  );
 }
 
 function normalizeSaveProfileAddressBookRequest(
@@ -954,6 +1116,14 @@ function throwInvalidInvoiceRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_PROFILE_INVOICE_REQUEST_INVALID',
+    0,
+  );
+}
+
+function throwInvalidAdminShipperVerificationRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_ADMIN_SHIPPER_VERIFICATION_REQUEST_INVALID',
     0,
   );
 }
