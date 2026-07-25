@@ -27,6 +27,12 @@ export type ShipperInvoiceApplicationRecord =
     updatedAtIso: string;
   };
 
+export type ShipperInvoiceDownloadFile = {
+  fileName: string;
+  contentType: string;
+  content: Buffer;
+};
+
 export type ShipperInvoiceOrderStatus =
   | 'waiting'
   | 'loading'

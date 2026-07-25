@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -65,6 +66,22 @@ export class ProfileInvoicesController {
       getRequestId(request),
     );
   }
+
+  @Get(':applicationId/download')
+  async downloadApplication(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    const result = await this.profileInvoicesService.downloadApplication(
+      getCurrentShipper(request),
+      applicationId,
+    );
+
+    return new StreamableFile(result.content, {
+      type: result.contentType,
+      disposition: `attachment; filename="${result.fileName}"`,
+    });
+  }
 }
 
 @Controller('admin/shipper-invoices')
@@ -117,6 +134,22 @@ export class AdminShipperInvoicesController {
       ),
       getRequestId(request),
     );
+  }
+
+  @Get(':applicationId/download')
+  async downloadAdminApplication(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    const result = await this.profileInvoicesService.downloadAdminApplication(
+      getCurrentAdmin(request),
+      applicationId,
+    );
+
+    return new StreamableFile(result.content, {
+      type: result.contentType,
+      disposition: `attachment; filename="${result.fileName}"`,
+    });
   }
 }
 

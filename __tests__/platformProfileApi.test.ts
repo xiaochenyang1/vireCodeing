@@ -932,6 +932,49 @@ describe('platform profile api', () => {
     );
   });
 
+  it('downloads the shipper invoice application text with bearer token', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '发票下载内容',
+      headers: {
+        get: (name: string) => {
+          if (name.toLowerCase() === 'content-type') {
+            return 'text/plain; charset=utf-8';
+          }
+          if (name.toLowerCase() === 'content-disposition') {
+            return 'attachment; filename="invoice-platform-1.txt"';
+          }
+
+          return null;
+        },
+      },
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.downloadInvoiceApplication(' invoice-platform-1 '),
+    ).resolves.toEqual({
+      filename: 'invoice-platform-1.txt',
+      contentType: 'text/plain; charset=utf-8',
+      content: '发票下载内容',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/invoices/invoice-platform-1/download',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('gets the shipper spending records with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1714,6 +1757,49 @@ describe('platform profile api', () => {
     );
   });
 
+  it('downloads the admin shipper invoice text with bearer token', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '后台发票下载内容',
+      headers: {
+        get: (name: string) => {
+          if (name.toLowerCase() === 'content-type') {
+            return 'text/plain; charset=utf-8';
+          }
+          if (name.toLowerCase() === 'content-disposition') {
+            return 'attachment; filename="invoice-platform-1.txt"';
+          }
+
+          return null;
+        },
+      },
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.downloadAdminInvoiceApplication(' invoice-platform-1 '),
+    ).resolves.toEqual({
+      filename: 'invoice-platform-1.txt',
+      contentType: 'text/plain; charset=utf-8',
+      content: '后台发票下载内容',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/shipper-invoices/invoice-platform-1/download',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid shipper invoice application requests before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -1755,6 +1841,21 @@ describe('platform profile api', () => {
       } satisfies Partial<PlatformApiError>);
     }
 
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid shipper invoice download ids before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.downloadInvoiceApplication('   ')).rejects.toMatchObject({
+      code: 'PLATFORM_PROFILE_INVOICE_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1937,6 +2038,8 @@ describe('platform profile api', () => {
       api.listAdminInvoiceApplications({ pageSize: 51 })],
     ['empty admin shipper invoice id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminInvoiceApplication('   ', { status: 'approved' })],
+    ['empty admin shipper invoice download id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.downloadAdminInvoiceApplication('   ')],
     ['invalid admin shipper invoice review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminInvoiceApplication('invoice-platform-1', { status: 'reviewing' as never })],
     ['missing admin shipper invoice rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>

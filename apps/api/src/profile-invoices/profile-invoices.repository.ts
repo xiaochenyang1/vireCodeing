@@ -14,6 +14,9 @@ export interface ProfileInvoicesRepository {
   listApplications(
     shipperId: string,
   ): Promise<ShipperInvoiceApplicationRecord[]>;
+  findApplicationById(
+    applicationId: string,
+  ): Promise<ShipperInvoiceApplicationRecord | undefined>;
   createEligibleApplication(
     shipperId: string,
     input: CreateShipperInvoiceApplicationRequest,
@@ -85,6 +88,18 @@ export class InMemoryProfileInvoicesRepository
     return [...(this.applications.get(shipperId) ?? [])].sort((left, right) =>
       right.createdAtIso.localeCompare(left.createdAtIso),
     );
+  }
+
+  async findApplicationById(applicationId: string) {
+    for (const applications of this.applications.values()) {
+      const application = applications.find(item => item.id === applicationId);
+
+      if (application) {
+        return application;
+      }
+    }
+
+    return undefined;
   }
 
   async createEligibleApplication(
@@ -352,6 +367,14 @@ export class PrismaProfileInvoicesRepository implements ProfileInvoicesRepositor
     });
 
     return applications.map(mapPrismaInvoiceApplication);
+  }
+
+  async findApplicationById(applicationId: string) {
+    const application = await this.prisma.shipperInvoiceApplication.findUnique({
+      where: { id: applicationId },
+    });
+
+    return application ? mapPrismaInvoiceApplication(application) : undefined;
   }
 
   async createEligibleApplication(

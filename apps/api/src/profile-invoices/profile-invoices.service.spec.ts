@@ -353,6 +353,172 @@ describe('ProfileInvoicesService', () => {
     );
   });
 
+  it('downloads an approved invoice application for the owning shipper', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(
+      () => new Date('2026-07-24T08:00:00.000Z'),
+      {
+        applications: [
+          {
+            id: 'invoice-1',
+            shipperId: 'shipper-1',
+            invoiceType: 'vat-special',
+            invoiceTitleType: 'enterprise',
+            invoiceTitle: '深圳晨星贸易有限公司',
+            receiverEmail: 'finance@chenxing.example',
+            orderIds: ['order-1'],
+            orderNos: ['HY202607240001'],
+            amountCents: 31000,
+            status: 'approved',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            updatedAtIso: '2026-07-24T08:30:00.000Z',
+          },
+        ],
+      },
+    );
+    const service = new ProfileInvoicesService(repository);
+
+    await expect(
+      service.downloadApplication(
+        { id: 'shipper-1', phone: '13900000000', userType: 'shipper' },
+        'invoice-1',
+      ),
+    ).resolves.toMatchObject({
+      fileName: 'invoice-invoice-1.txt',
+      contentType: 'text/plain; charset=utf-8',
+    });
+
+    const downloaded = await service.downloadApplication(
+      { id: 'shipper-1', phone: '13900000000', userType: 'shipper' },
+      'invoice-1',
+    );
+
+    expect(downloaded.content.toString('utf8')).toContain('申请编号：invoice-1');
+    expect(downloaded.content.toString('utf8')).toContain(
+      '发票抬头：深圳晨星贸易有限公司',
+    );
+    expect(downloaded.content.toString('utf8')).toContain(
+      '开票金额：¥310.00',
+    );
+  });
+
+  it('rejects invoice download when the application is not approved', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(
+      () => new Date('2026-07-24T08:00:00.000Z'),
+      {
+        applications: [
+          {
+            id: 'invoice-1',
+            shipperId: 'shipper-1',
+            invoiceType: 'normal',
+            invoiceTitleType: 'personal',
+            invoiceTitle: '晨星货主',
+            receiverEmail: 'finance@chenxing.example',
+            orderIds: ['order-1'],
+            orderNos: ['HY202607240001'],
+            amountCents: 31000,
+            status: 'reviewing',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            updatedAtIso: '2026-07-24T08:05:00.000Z',
+          },
+        ],
+      },
+    );
+    const service = new ProfileInvoicesService(repository);
+
+    await expect(
+      service.downloadApplication(
+        { id: 'shipper-1', phone: '13900000000', userType: 'shipper' },
+        'invoice-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+        '仅已通过的发票申请支持下载',
+      ),
+    );
+  });
+
+  it('rejects downloading another shipper invoice application', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(
+      () => new Date('2026-07-24T08:00:00.000Z'),
+      {
+        applications: [
+          {
+            id: 'invoice-1',
+            shipperId: 'shipper-2',
+            invoiceType: 'normal',
+            invoiceTitleType: 'personal',
+            invoiceTitle: '另一位货主',
+            receiverEmail: 'finance@chenxing.example',
+            orderIds: ['order-1'],
+            orderNos: ['HY202607240001'],
+            amountCents: 31000,
+            status: 'approved',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            updatedAtIso: '2026-07-24T08:05:00.000Z',
+          },
+        ],
+      },
+    );
+    const service = new ProfileInvoicesService(repository);
+
+    await expect(
+      service.downloadApplication(
+        { id: 'shipper-1', phone: '13900000000', userType: 'shipper' },
+        'invoice-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.AUTH_FORBIDDEN,
+        '当前发票申请不属于当前货主',
+      ),
+    );
+  });
+
+  it('allows only admins to download invoice applications through the admin flow', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(
+      () => new Date('2026-07-24T08:00:00.000Z'),
+      {
+        applications: [
+          {
+            id: 'invoice-1',
+            shipperId: 'shipper-1',
+            invoiceType: 'normal',
+            invoiceTitleType: 'personal',
+            invoiceTitle: '晨星货主',
+            receiverEmail: 'finance@chenxing.example',
+            orderIds: ['order-1'],
+            orderNos: ['HY202607240001'],
+            amountCents: 31000,
+            status: 'approved',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            updatedAtIso: '2026-07-24T08:30:00.000Z',
+          },
+        ],
+      },
+    );
+    const service = new ProfileInvoicesService(repository);
+
+    await expect(
+      service.downloadAdminApplication(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        'invoice-1',
+      ),
+    ).resolves.toMatchObject({
+      fileName: 'invoice-invoice-1.txt',
+      contentType: 'text/plain; charset=utf-8',
+    });
+
+    await expect(
+      service.downloadAdminApplication(
+        { id: 'shipper-1', phone: '13900000000', userType: 'shipper' },
+        'invoice-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+  });
+
   it('rejects non-admin users from invoice review', async () => {
     const repository = new InMemoryProfileInvoicesRepository();
     const service = new ProfileInvoicesService(repository);

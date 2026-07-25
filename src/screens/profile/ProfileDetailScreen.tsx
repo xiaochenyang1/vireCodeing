@@ -59,6 +59,7 @@ export type ProfilePlatformProfileApi = Pick<
   | 'saveEnterpriseVerification'
   | 'getInvoices'
   | 'createInvoiceApplication'
+  | 'downloadInvoiceApplication'
 >;
 export type ProfilePlatformNotificationsApi = Pick<
   ReturnType<typeof createPlatformNotificationsApi>,

@@ -70,7 +70,7 @@ function shouldShowInvoiceApplicationUpdatedAt(
 
 type InvoicePlatformProfileApi = Pick<
   ReturnType<typeof createPlatformProfileApi>,
-  'getInvoices' | 'createInvoiceApplication'
+  'getInvoices' | 'createInvoiceApplication' | 'downloadInvoiceApplication'
 >;
 
 export function InvoiceRecords({
@@ -138,6 +138,8 @@ export function InvoiceRecords({
     useState(false);
   const [isRefreshingPlatformInvoices, setIsRefreshingPlatformInvoices] =
     useState(false);
+  const [downloadingPlatformInvoiceId, setDownloadingPlatformInvoiceId] =
+    useState<string>();
   const currentTimeText = formatLocalDateTime(now);
   const currentTimeIso = new Date(now).toISOString();
   const isPlatformMode = Boolean(platformProfileApi);
@@ -405,6 +407,44 @@ export function InvoiceRecords({
       }),
     );
     setNotice(`发票下载凭证：INV-LOCAL-${invoiceId}`);
+  };
+
+  const downloadPlatformInvoice = async (invoiceId: string) => {
+    if (!platformProfileApi || downloadingPlatformInvoiceId) {
+      return;
+    }
+
+    setDownloadingPlatformInvoiceId(invoiceId);
+
+    try {
+      const downloaded = await platformProfileApi.downloadInvoiceApplication(
+        invoiceId,
+      );
+
+      onUpdateInvoiceDetails(
+        createDownloadedInvoiceDetails({
+          invoiceId,
+          invoiceDetails,
+          currentTimeText,
+          currentTimeIso,
+        }),
+      );
+      setNotice(`平台发票文件已拉取，已记录下载时间：${downloaded.filename}`);
+    } catch (error) {
+      const noticeText =
+        error instanceof PlatformApiError &&
+        error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+          ? '平台发票下载需要重新登录后再重试。'
+          : error instanceof PlatformApiError && error.code === 'NETWORK_ERROR'
+            ? '平台发票下载失败，请检查网络后重试。'
+            : error instanceof PlatformApiError &&
+              /[\u4e00-\u9fa5]/.test(error.message)
+              ? error.message
+              : '平台发票下载失败，请稍后重试。';
+      setNotice(noticeText);
+    } finally {
+      setDownloadingPlatformInvoiceId(undefined);
+    }
   };
 
   const refreshPlatformInvoiceRecords = async () => {
@@ -801,13 +841,37 @@ export function InvoiceRecords({
                 </Pressable>
               </>
             ) : null}
-            {!isPlatformMode && item.statusText === '已开票' ? (
+            {item.statusText === '已开票' ? (
               <Pressable
                 testID={`invoice-download-${item.id}`}
-                style={styles.detailSecondaryButton}
-                onPress={() => downloadInvoice(item.id)}
+                disabled={
+                  isPlatformMode && downloadingPlatformInvoiceId === item.id
+                }
+                style={({ pressed }) => [
+                  styles.detailSecondaryButton,
+                  isPlatformMode &&
+                    downloadingPlatformInvoiceId === item.id &&
+                    styles.buttonDisabled,
+                  pressed &&
+                    !(isPlatformMode && downloadingPlatformInvoiceId === item.id) &&
+                    styles.pressedButton,
+                ]}
+                onPress={() => {
+                  if (isPlatformMode) {
+                    downloadPlatformInvoice(item.id).catch(() => undefined);
+                    return;
+                  }
+
+                  downloadInvoice(item.id);
+                }}
               >
-                <Text style={styles.detailSecondaryButtonText}>下载凭证</Text>
+                <Text style={styles.detailSecondaryButtonText}>
+                  {isPlatformMode && downloadingPlatformInvoiceId === item.id
+                    ? '下载中...'
+                    : isPlatformMode
+                      ? '下载发票文件'
+                      : '下载凭证'}
+                </Text>
               </Pressable>
             ) : null}
           </View>

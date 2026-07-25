@@ -1294,6 +1294,30 @@ function createPlatformApiResponse<T>(data: T) {
   };
 }
 
+function createPlatformTextDownloadResponse(
+  content: string,
+  fileName: string,
+  contentType = 'text/plain; charset=utf-8',
+) {
+  return {
+    ok: true,
+    status: 200,
+    text: async () => content,
+    headers: {
+      get: (name: string) => {
+        if (name.toLowerCase() === 'content-type') {
+          return contentType;
+        }
+        if (name.toLowerCase() === 'content-disposition') {
+          return `attachment; filename="${fileName}"`;
+        }
+
+        return null;
+      },
+    },
+  };
+}
+
 async function publishDigitalPlatformOrderFromHome(app: AppRenderer) {
   await ReactTestRenderer.act(async () => {
     app.root.findByProps({ testID: 'home-create-order' }).props.onPress();
@@ -13591,6 +13615,156 @@ test('manual refreshes platform invoice records from profile', async () => {
         method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access.platform-invoice-manual-refresh',
+        }),
+      }),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('downloads a platform invoice file and records download time', async () => {
+  const originalFetch = globalThis.fetch;
+  const now = new Date('2026-07-16T18:30:00+08:00').getTime();
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice-download',
+    summary: {
+      completedTotalCents: 0,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [],
+  };
+  const approvedPlatformInvoice = {
+    id: 'invoice-platform-approved-1',
+    shipperId: 'user-platform-invoice-download',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台已开票申请',
+    receiverEmail: 'invoice-download@platform.test',
+    orderIds: ['platform-order-invoice-download-1'],
+    orderNos: ['HY202607160001'],
+    amountCents: 65000,
+    status: 'approved' as const,
+    createdAtIso: '2026-07-16T09:30:00.000Z',
+    updatedAtIso: '2026-07-16T10:00:00.000Z',
+  };
+  const fetchMock = jest.fn((url, init) => {
+    const requestUrl = String(url);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-invoice-download',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-invoice-download',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440135',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse([approvedPlatformInvoice]),
+      );
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/invoices/invoice-platform-approved-1/download' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformTextDownloadResponse(
+          '平台发票下载正文',
+          'invoice-invoice-platform-approved-1.txt',
+        ),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(now, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(
+      app.root.findByProps({
+        testID: 'invoice-download-invoice-platform-approved-1',
+      }),
+    ).toBeTruthy();
+
+    await ReactTestRenderer.act(async () => {
+      app.root
+        .findByProps({ testID: 'invoice-download-invoice-platform-approved-1' })
+        .props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    const renderedText = getRenderedText(app);
+
+    expect(renderedText).toContain(
+      '平台发票文件已拉取，已记录下载时间：invoice-invoice-platform-approved-1.txt',
+    );
+    expect(renderedText).toContain('下载时间：2026-07-16 18:30');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/shipper/profile/invoices/invoice-platform-approved-1/download',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access.platform-invoice-download',
         }),
       }),
     );

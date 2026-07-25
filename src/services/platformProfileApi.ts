@@ -1,5 +1,6 @@
 import {
   PlatformApiError,
+  type PlatformApiErrorBody,
   platformGet,
   platformPost,
   platformPut,
@@ -172,6 +173,12 @@ export type PlatformAdminShipperInvoiceListResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type PlatformProfileInvoiceDownloadFile = {
+  filename: string;
+  contentType: string;
+  content: string;
 };
 
 export type PlatformProfileSpendingStatus =
@@ -517,6 +524,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         '/shipper/profile/invoices',
       );
     },
+    async downloadInvoiceApplication(applicationId: string) {
+      return platformGetText(
+        config,
+        `/shipper/profile/invoices/${encodeURIComponent(
+          normalizeInvoiceApplicationId(applicationId),
+        )}/download`,
+      );
+    },
     getSpendingRecords() {
       return platformGet<PlatformProfileSpendingSnapshot>(
         config,
@@ -625,6 +640,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         normalizeAdminShipperInvoiceReviewRequest(request),
       );
     },
+    async downloadAdminInvoiceApplication(applicationId: string) {
+      return platformGetText(
+        config,
+        `/admin/shipper-invoices/${encodeURIComponent(
+          normalizeAdminShipperInvoiceApplicationId(applicationId),
+        )}/download`,
+      );
+    },
     getAddressBook() {
       return platformGet<PlatformProfileAddressBook | null>(
         config,
@@ -639,6 +662,66 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         PlatformProfileAddressBook
       >(config, '/shipper/profile/address-book', normalizedRequest);
     },
+  };
+}
+
+async function platformGetText(
+  config: PlatformApiConfig,
+  path: string,
+): Promise<PlatformProfileInvoiceDownloadFile> {
+  const accessToken = config.getAccessToken?.();
+  const requestId = config.getRequestId?.();
+
+  if (!accessToken) {
+    throw new PlatformApiError(
+      'Platform API access token is missing',
+      'AUTH_ACCESS_TOKEN_MISSING',
+      0,
+    );
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(createPlatformRequestUrl(config.baseUrl, path), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(requestId ? { 'x-request-id': requestId } : {}),
+      },
+    });
+  } catch {
+    throw new PlatformApiError(
+      'Platform API network request failed',
+      'NETWORK_ERROR',
+      0,
+    );
+  }
+
+  if (!response.ok) {
+    throw await createTextResponseApiError(response);
+  }
+
+  let content: string;
+
+  try {
+    content = await response.text();
+  } catch {
+    throw new PlatformApiError(
+      'Platform API response is invalid',
+      'PLATFORM_RESPONSE_INVALID',
+      response.status,
+    );
+  }
+
+  return {
+    filename: extractDownloadFilename(
+      response.headers.get('content-disposition'),
+      'invoice.txt',
+    ),
+    contentType:
+      response.headers.get('content-type') ?? 'text/plain; charset=utf-8',
+    content,
   };
 }
 
@@ -853,6 +936,15 @@ function normalizeCreateProfileInvoiceApplicationRequest(
     receiverEmail: normalizedReceiverEmail,
     orderIds: normalizedOrderIds,
   };
+}
+
+function normalizeInvoiceApplicationId(value: unknown) {
+  return normalizeRequiredString(
+    value,
+    120,
+    'Invoice application id is invalid',
+    throwInvalidInvoiceRequest,
+  );
 }
 
 function normalizeAdminIssueShipperCouponRequest(
@@ -1584,6 +1676,43 @@ function normalizeOptionalBoolean(value: unknown, message: string) {
   }
 
   return value;
+}
+
+async function createTextResponseApiError(response: Response) {
+  try {
+    const text = await response.text();
+    const payload = text ? (JSON.parse(text) as PlatformApiErrorBody) : undefined;
+
+    if (payload?.code && payload.message) {
+      return new PlatformApiError(
+        payload.message,
+        payload.code,
+        response.status,
+        payload.requestId,
+      );
+    }
+  } catch {
+    // Fall through to the generic error below.
+  }
+
+  return new PlatformApiError(
+    `Platform API request failed: ${response.status}`,
+    'HTTP_ERROR',
+    response.status,
+  );
+}
+
+function createPlatformRequestUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
+function extractDownloadFilename(
+  contentDisposition: string | null,
+  fallbackFileName: string,
+) {
+  const matched = /filename="?([^";]+)"?/i.exec(contentDisposition ?? '');
+
+  return matched ? matched[1] : fallbackFileName;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

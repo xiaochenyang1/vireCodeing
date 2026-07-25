@@ -220,11 +220,12 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     key: 'shipper_invoice_manage',
     title: '审核货主发票申请',
     moduleKey: 'shipper-invoice',
-    summary: '读取货主发票申请队列、审核事件，并能执行单条通过 / 驳回。',
+    summary: '读取货主发票申请队列、审核事件和已开票文本发票，并能执行单条通过 / 驳回。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/shipper-invoices',
+      '/admin/shipper-invoices/{applicationId}/download',
       '/admin/shipper-invoices/{applicationId}/review-events',
       '/admin/shipper-invoices/{applicationId}/review',
     ],

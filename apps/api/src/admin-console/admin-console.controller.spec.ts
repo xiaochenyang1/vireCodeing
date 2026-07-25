@@ -224,8 +224,13 @@ describe('shipper invoice admin console page', () => {
 
     expect(html).toContain('发票申请审核台');
     expect(html).toContain('/api/admin/shipper-invoices');
+    expect(html).toContain('/download');
     expect(html).toContain('/review-events');
     expect(html).toContain('/review');
+    expect(html).toContain('downloadButton');
+    expect(html).toContain('downloadStatus');
+    expect(html).toContain('downloadSelectedInvoice');
+    expect(html).toContain('extractDownloadFilename');
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
     expect(html).toContain('loadReviewEvents');

@@ -1,3 +1,4 @@
+import { StreamableFile } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import {
@@ -87,6 +88,33 @@ describe('ProfileInvoicesController', () => {
     expect(service.createApplication).toHaveBeenCalledWith('shipper-1', body);
   });
 
+  it('downloads the current shipper invoice file', async () => {
+    const service = {
+      downloadApplication: jest.fn().mockResolvedValue({
+        fileName: 'invoice-application-1.txt',
+        contentType: 'text/plain; charset=utf-8',
+        content: Buffer.from('invoice-content'),
+      }),
+    } as unknown as ProfileInvoicesService;
+    const controller = new ProfileInvoicesController(service);
+
+    const result = await controller.downloadApplication(
+      createRequest('shipper-1'),
+      'invoice-application-1',
+    );
+
+    expect(result).toBeInstanceOf(StreamableFile);
+    expect(result.getHeaders()).toEqual({
+      type: 'text/plain; charset=utf-8',
+      disposition: 'attachment; filename="invoice-application-1.txt"',
+      length: 15,
+    });
+    expect(service.downloadApplication).toHaveBeenCalledWith(
+      { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+      'invoice-application-1',
+    );
+  });
+
   it('rejects non-shipper users before reading invoice applications', async () => {
     const service = {
       listApplications: jest.fn(),
@@ -143,6 +171,33 @@ describe('AdminShipperInvoicesController', () => {
       }),
     );
     expect(service.listAdminApplicationReviewEvents).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'invoice-application-1',
+    );
+  });
+
+  it('downloads the current admin invoice file', async () => {
+    const service = {
+      downloadAdminApplication: jest.fn().mockResolvedValue({
+        fileName: 'invoice-application-1.txt',
+        contentType: 'text/plain; charset=utf-8',
+        content: Buffer.from('admin-invoice'),
+      }),
+    } as unknown as ProfileInvoicesService;
+    const controller = new AdminShipperInvoicesController(service);
+
+    const result = await controller.downloadAdminApplication(
+      createRequest('admin-1', 'admin'),
+      'invoice-application-1',
+    );
+
+    expect(result).toBeInstanceOf(StreamableFile);
+    expect(result.getHeaders()).toEqual({
+      type: 'text/plain; charset=utf-8',
+      disposition: 'attachment; filename="invoice-application-1.txt"',
+      length: 13,
+    });
+    expect(service.downloadAdminApplication).toHaveBeenCalledWith(
       { id: 'admin-1', phone: '13900139001', userType: 'admin' },
       'invoice-application-1',
     );

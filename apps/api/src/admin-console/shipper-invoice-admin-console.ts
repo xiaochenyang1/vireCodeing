@@ -105,7 +105,7 @@ export function renderShipperInvoiceAdminConsole() {
       <div class="topbar">
         <div>
           <h1>发票申请审核台</h1>
-          <p class="muted">第一片：列表筛选、单条通过/驳回，以及申请/审核事件审计。</p>
+          <p class="muted">第一片：列表筛选、单条通过/驳回、审核事件审计，以及已开票申请的文本发票下载。</p>
         </div>
         ${renderAdminSessionControls({
           currentRoute: '/api/admin/shipper-invoice-console',
@@ -132,6 +132,13 @@ export function renderShipperInvoiceAdminConsole() {
       <h2>申请详情</h2>
       <div id="detailStatus" class="status-line">请选择左侧发票申请。</div>
       <div id="detailBody" class="detail-grid"></div>
+      <div class="card">
+        <h2>发票文件</h2>
+        <div class="review-row">
+          <button type="button" id="downloadButton" class="secondary" disabled>下载发票文件</button>
+        </div>
+        <div id="downloadStatus" class="status-line">请选择左侧发票申请。</div>
+      </div>
       <div class="card">
         <h2>审核操作</h2>
         <label>
@@ -180,6 +187,11 @@ export function renderShipperInvoiceAdminConsole() {
 
     function formatAmount(cents) {
       return '¥' + (Number(cents || 0) / 100).toFixed(2);
+    }
+
+    function setDownloadState(statusText, disabled) {
+      setText('downloadStatus', statusText);
+      document.getElementById('downloadButton').disabled = disabled;
     }
 
     function resetReviewEvents(statusText) {
@@ -254,6 +266,7 @@ export function renderShipperInvoiceAdminConsole() {
       if (!item) {
         setText('detailStatus', '请选择左侧发票申请。');
         document.getElementById('detailBody').innerHTML = '';
+        setDownloadState('请选择左侧发票申请。', true);
         return;
       }
       setText('detailStatus', '当前申请：' + item.id);
@@ -266,6 +279,11 @@ export function renderShipperInvoiceAdminConsole() {
           ? '<div><strong>驳回原因</strong><div class="muted">' + escapeHtml(item.rejectionReason) + '</div></div>'
           : '',
       ].join('');
+      if (item.status === 'approved') {
+        setDownloadState('当前申请已开票，可下载文本发票凭证。', false);
+        return;
+      }
+      setDownloadState('仅已通过申请支持下载发票文件。', true);
     }
 
     function renderReviewEvents(events) {
@@ -316,6 +334,7 @@ export function renderShipperInvoiceAdminConsole() {
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
         resetReviewEvents('请先填写 admin token。');
+        setDownloadState('请先填写 admin token。', true);
         return;
       }
       setText('queueStatus', '加载中...');
@@ -330,6 +349,75 @@ export function renderShipperInvoiceAdminConsole() {
       } catch (error) {
         setText('queueStatus', error.message || '加载失败');
         resetReviewEvents('审核事件尚未加载');
+        setDownloadState('发票文件尚未加载。', true);
+      }
+    }
+
+    function extractDownloadFilename(contentDisposition, fallbackFileName) {
+      const matched = /filename="?([^";]+)"?/i.exec(contentDisposition || '');
+
+      return matched ? matched[1] : fallbackFileName;
+    }
+
+    async function downloadSelectedInvoice() {
+      const selectedItem = currentItems.find(entry => entry.id === selectedApplicationId);
+      if (!selectedItem) {
+        setDownloadState('请先选择发票申请。', true);
+        return;
+      }
+      if (!getToken()) {
+        setDownloadState('请先填写 admin token。', true);
+        return;
+      }
+      if (selectedItem.status !== 'approved') {
+        setDownloadState('仅已通过申请支持下载发票文件。', true);
+        return;
+      }
+
+      setDownloadState('下载发票文件中...', true);
+      try {
+        const response = await fetch(
+          apiBase + '/' + encodeURIComponent(selectedApplicationId) + '/download',
+          {
+            headers: { Authorization: 'Bearer ' + getToken() },
+          },
+        );
+        const responseText = await response.text();
+        if (!response.ok) {
+          let errorMessage = '发票文件下载失败';
+          if (responseText) {
+            try {
+              const payload = JSON.parse(responseText);
+              errorMessage = payload.message || errorMessage;
+            } catch {
+              errorMessage = responseText;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+
+        const fileName = extractDownloadFilename(
+          response.headers.get('content-disposition'),
+          'invoice-' + selectedApplicationId + '.txt',
+        );
+        const downloadUrl = URL.createObjectURL(
+          new Blob([responseText], {
+            type: response.headers.get('content-type') || 'text/plain; charset=utf-8',
+          }),
+        );
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(function() {
+          URL.revokeObjectURL(downloadUrl);
+        }, 0);
+
+        setDownloadState('发票文件下载已触发：' + fileName, false);
+      } catch (error) {
+        setDownloadState(error.message || '发票文件下载失败', false);
       }
     }
 
@@ -358,6 +446,7 @@ export function renderShipperInvoiceAdminConsole() {
 
     document.getElementById('refreshButton').addEventListener('click', loadQueue);
     document.getElementById('statusFilter').addEventListener('change', loadQueue);
+    document.getElementById('downloadButton').addEventListener('click', downloadSelectedInvoice);
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
     loadQueue();
