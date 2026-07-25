@@ -986,6 +986,21 @@ export function DriverHomeScreen({
             };
           }
 
+          if (
+            current.selectedBankCardSource === 'default' &&
+            defaultCard
+          ) {
+            withdrawalIdempotencyKeyRef.current = undefined;
+            return {
+              ...current,
+              bankAccountName: defaultCard.bankAccountName,
+              bankName: defaultCard.bankName,
+              bankAccountNo: '',
+              selectedBankCardId: defaultCard.id,
+              selectedBankCardSource: 'default',
+            };
+          }
+
           if (current.selectedBankCardSource === 'cleared') {
             return current;
           }
