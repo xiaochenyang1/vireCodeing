@@ -71,7 +71,7 @@ export function createEvaluationRecords(
         content: order.evaluation.content,
         photoText:
           evaluationPhotoCount > 0 ? `图片凭证 ${evaluationPhotoCount} 张` : '',
-        timeText: '刚刚提交',
+        timeText: order.evaluation.submittedAtText ?? '刚刚提交',
         driverReplyText: '',
         driverReplyTimeText: '',
         direction: 'shipper_to_driver',
@@ -94,7 +94,9 @@ export function createEvaluationRecords(
           shipperEvaluationPhotoCount > 0
             ? `图片凭证 ${shipperEvaluationPhotoCount} 张`
             : '',
-        timeText: '司机评价：刚刚提交',
+        timeText: order.shipperEvaluation.submittedAtText
+          ? `司机评价：${order.shipperEvaluation.submittedAtText}`
+          : '司机评价：刚刚提交',
         driverReplyText: '',
         driverReplyTimeText: '',
         direction: 'driver_to_shipper',

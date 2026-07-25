@@ -8296,7 +8296,8 @@ test('rejects a driver evaluation longer than 200 characters', async () => {
 });
 
 test('shows a submitted driver evaluation in the local profile evaluation records', async () => {
-  const app = await renderApp();
+  const now = Date.parse('2026-07-15T08:00:00.000Z');
+  const app = await renderApp(now);
 
   await loginToHome(app);
 
@@ -8351,6 +8352,7 @@ test('shows a submitted driver evaluation in the local profile evaluation record
   expect(renderedText).toContain('HY20260620003');
   expect(renderedText).toContain('李师傅');
   expect(renderedText).toContain('4 星');
+  expect(renderedText).toContain('2026-07-15 16:00');
   expect(renderedText).toContain('司机搬运配合度很好，沟通及时');
 });
 

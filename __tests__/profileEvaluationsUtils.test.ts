@@ -78,6 +78,7 @@ test('creates local profile evaluation records from evaluated orders before mock
         rating: 4,
         tags: ['沟通顺畅'],
         content: '沟通很顺畅，整体不错。',
+        submittedAtText: '2026-07-15 16:00',
         photoCount: 2,
       },
     }),
@@ -90,7 +91,7 @@ test('creates local profile evaluation records from evaluated orders before mock
     ratingText: '4 星',
     content: '沟通很顺畅，整体不错。',
     photoText: '图片凭证 2 张',
-    timeText: '刚刚提交',
+    timeText: '2026-07-15 16:00',
     driverReplyText: '',
     driverReplyTimeText: '',
     direction: 'shipper_to_driver',
@@ -141,6 +142,7 @@ test('includes local driver-to-shipper evaluations in profile records', () => {
         rating: 5,
         tags: ['沟通顺畅'],
         content: '货主配合高效，现场衔接顺畅。',
+        submittedAtText: '2026-07-16 10:30',
         photoCount: 1,
         photoFiles: [
           {
@@ -163,7 +165,7 @@ test('includes local driver-to-shipper evaluations in profile records', () => {
     ratingText: '5 星',
     content: '货主配合高效，现场衔接顺畅。',
     photoText: '图片凭证 1 张',
-    timeText: '司机评价：刚刚提交',
+    timeText: '司机评价：2026-07-16 10:30',
     driverReplyText: '',
     driverReplyTimeText: '',
     direction: 'driver_to_shipper',
