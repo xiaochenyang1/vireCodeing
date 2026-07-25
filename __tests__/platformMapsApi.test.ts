@@ -132,6 +132,8 @@ describe('maps navigation utils', () => {
       amapAndroid: expect.stringContaining('lat=22.6&lon=113.9'),
     });
     expect(formatCoordinateText(22.6, 113.9)).toBe('22.600000, 113.900000');
+    expect(formatCoordinateText(undefined, 113.9)).toBeUndefined();
+    expect(formatCoordinateText(22.6, undefined)).toBeUndefined();
   });
 
   it('formats distance and ETA estimates for tracking cards', () => {

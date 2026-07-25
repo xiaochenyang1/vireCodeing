@@ -1,4 +1,5 @@
 import {
+  aggregateIncomeRecordsByDay,
   canDriverReportException,
   createAcceptanceSettingsRequest,
   createDriverBankCardForm,
@@ -36,6 +37,7 @@ import {
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   sortDriverBankCards,
+  sortDriverIncomeRecords,
   sortDriverMyOrders,
   sortDriverOrderHallOrders,
   sortDriverWithdrawals,
@@ -725,6 +727,104 @@ test('formats driver currency and income time', () => {
   expect(formatDriverIncomeTime('2026-07-10T08:30:45.000Z')).toBe(
     '2026-07-10 16:30',
   );
+});
+
+test('sorts driver income records by completedAtIso descending', () => {
+  expect(
+    sortDriverIncomeRecords([
+      {
+        orderId: 'income-created-later',
+        orderNo: 'HY202607120002',
+        completedAtIso: '2026-07-12T10:30:00.000Z',
+        routeText: '路线二',
+        vehicleType: 'medium',
+        grossAmountCents: 52000,
+        platformFeeCents: 2600,
+        netIncomeCents: 49400,
+      },
+      {
+        orderId: 'income-latest',
+        orderNo: 'HY202607120003',
+        completedAtIso: '2026-07-12T11:30:00.000Z',
+        routeText: '路线三',
+        vehicleType: 'medium',
+        grossAmountCents: 56000,
+        platformFeeCents: 2800,
+        netIncomeCents: 53200,
+      },
+      {
+        orderId: 'income-earliest',
+        orderNo: 'HY202607110001',
+        completedAtIso: '2026-07-11T09:30:00.000Z',
+        routeText: '路线一',
+        vehicleType: 'medium',
+        grossAmountCents: 48000,
+        platformFeeCents: 2400,
+        netIncomeCents: 45600,
+      },
+    ]).map(record => record.orderNo),
+  ).toEqual(['HY202607120003', 'HY202607120002', 'HY202607110001']);
+});
+
+test('aggregates driver income records by day after normalizing mixed API order', () => {
+  expect(
+    aggregateIncomeRecordsByDay(
+      [
+        {
+          orderId: 'income-2',
+          orderNo: 'HY202607110002',
+          completedAtIso: '2026-07-11T10:30:00.000Z',
+          routeText: '路线二',
+          vehicleType: 'medium',
+          grossAmountCents: 52000,
+          platformFeeCents: 2600,
+          netIncomeCents: 49400,
+        },
+        {
+          orderId: 'income-1',
+          orderNo: 'HY202607100001',
+          completedAtIso: '2026-07-10T09:30:00.000Z',
+          routeText: '路线一',
+          vehicleType: 'medium',
+          grossAmountCents: 48000,
+          platformFeeCents: 2400,
+          netIncomeCents: 45600,
+        },
+        {
+          orderId: 'income-3',
+          orderNo: 'HY202607120003',
+          completedAtIso: '2026-07-12T11:30:00.000Z',
+          routeText: '路线三',
+          vehicleType: 'medium',
+          grossAmountCents: 56000,
+          platformFeeCents: 2800,
+          netIncomeCents: 53200,
+        },
+        {
+          orderId: 'income-4',
+          orderNo: 'HY202607120004',
+          completedAtIso: '2026-07-12T12:30:00.000Z',
+          routeText: '路线四',
+          vehicleType: 'medium',
+          grossAmountCents: 30000,
+          platformFeeCents: 1500,
+          netIncomeCents: 28500,
+        },
+      ],
+      2,
+    ),
+  ).toEqual([
+    {
+      dateText: '07-11',
+      incomeCents: 49400,
+      orderCount: 1,
+    },
+    {
+      dateText: '07-12',
+      incomeCents: 81700,
+      orderCount: 2,
+    },
+  ]);
 });
 
 test('filters the order hall by vehicle preferences and builds the notice', () => {

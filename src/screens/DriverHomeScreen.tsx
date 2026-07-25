@@ -94,6 +94,7 @@ import {
   emptyForm,
   emptyShipperEvaluationForm,
   emptyWithdrawalForm,
+  aggregateIncomeRecordsByDay,
   filterDriverOrderHallOrders,
   filterDriverOrderHallOrdersByLocalFilter,
   formatDriverBankCardNumberInput,
@@ -127,6 +128,7 @@ import {
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
   sortDriverBankCards,
+  sortDriverIncomeRecords,
   upsertOrder,
   type DriverAcceptanceSettingsFormState,
   type DriverBankCardFormState,
@@ -139,7 +141,6 @@ import {
   type DriverShipperEvaluationFormState,
   type DriverWithdrawalFormState,
 } from './driver-home/driverHomeUtils';
-import { aggregateIncomeRecordsByDay } from './driver-home/driverHomeUtils';
 
 type PlatformDriverOrderApi = ReturnType<typeof createPlatformDriverOrderApi>;
 type PlatformDriverCertificationApi = ReturnType<
@@ -220,6 +221,19 @@ function getDriverLocationSourceText(
   }
 
   return '手动上报';
+}
+
+function getDriverLocationMetaText(
+  snapshot: Pick<PlatformDriverLocationSnapshot, 'source'> &
+    Partial<Pick<PlatformDriverLocationSnapshot, 'recordedAtIso'>>,
+) {
+  const sourceText = `来源：${getDriverLocationSourceText(snapshot.source)}`;
+
+  if (!snapshot.recordedAtIso) {
+    return sourceText;
+  }
+
+  return `${sourceText} · 上报时间：${formatDriverIncomeTime(snapshot.recordedAtIso)}`;
 }
 
 function useDriverPngUpload(
@@ -1011,7 +1025,12 @@ export function DriverHomeScreen({
     const incomePromise = platformDriverOrderApi
       .getIncomeOverview()
       .then(result => {
-        setIncomeOverview(result);
+        setIncomeOverview({
+          ...result,
+          records: sortDriverIncomeRecords(
+            Array.isArray(result.records) ? result.records : [],
+          ),
+        });
         return true;
       })
       .catch(() => {
@@ -2892,6 +2911,9 @@ export function DriverHomeScreen({
         targetAddress: latestReportedHallLocation.targetAddress,
       })
     : undefined;
+  const latestReportedHallLocationMetaText = latestReportedHallLocation
+    ? getDriverLocationMetaText(latestReportedHallLocation)
+    : undefined;
   const latestReportedDriverLocationCoordinateText = latestReportedDriverLocation
     ? formatCoordinateText(
         latestReportedDriverLocation.latitude,
@@ -2906,6 +2928,9 @@ export function DriverHomeScreen({
         targetType: latestReportedDriverLocation.targetType,
         targetAddress: latestReportedDriverLocation.targetAddress,
       })
+    : undefined;
+  const latestReportedDriverLocationMetaText = latestReportedDriverLocation
+    ? getDriverLocationMetaText(latestReportedDriverLocation)
     : undefined;
   const createUploadedAttachmentMetaLines = (
     attachmentRef: DriverUploadedFileRef,
@@ -3164,21 +3189,19 @@ export function DriverHomeScreen({
         {latestReportedHallLocation ? (
           <View style={styles.detailInfoCard}>
             <Text style={styles.detailInfoLabel}>最新大厅位置</Text>
-            <Text
-              testID="driver-hall-location-coordinate"
-              style={styles.detailInfoValue}
-            >
-              {latestReportedHallLocationCoordinateText}
-            </Text>
+            {latestReportedHallLocationCoordinateText ? (
+              <Text
+                testID="driver-hall-location-coordinate"
+                style={styles.detailInfoValue}
+              >
+                {latestReportedHallLocationCoordinateText}
+              </Text>
+            ) : null}
             <Text
               testID="driver-hall-location-meta"
               style={styles.detailMeta}
             >
-              {`来源：${getDriverLocationSourceText(
-                latestReportedHallLocation.source,
-              )} · 上报时间：${formatDriverIncomeTime(
-                latestReportedHallLocation.recordedAtIso,
-              )}`}
+              {latestReportedHallLocationMetaText}
             </Text>
             {latestReportedHallLocationEstimateText ? (
               <Text
@@ -3274,7 +3297,11 @@ export function DriverHomeScreen({
         </Text>
         {incomeRecords.length ? (
           incomeRecords.slice(0, 3).map(record => (
-            <View key={record.orderId} style={styles.detailInlineGroup}>
+            <View
+              key={record.orderId}
+              testID={`driver-income-record-card-${record.orderNo}`}
+              style={styles.detailInlineGroup}
+            >
               <Text style={styles.detailRoute}>{record.routeText}</Text>
               <Text style={styles.detailMeta}>
                 {`${record.orderNo} · ${formatDriverIncomeTime(
@@ -4458,21 +4485,19 @@ export function DriverHomeScreen({
           {latestReportedDriverLocation ? (
             <View style={styles.detailInfoCard}>
               <Text style={styles.detailInfoLabel}>最新上报位置</Text>
-              <Text
-                testID={`driver-latest-location-coordinate-${selectedOrder.orderNo}`}
-                style={styles.detailInfoValue}
-              >
-                {latestReportedDriverLocationCoordinateText}
-              </Text>
+              {latestReportedDriverLocationCoordinateText ? (
+                <Text
+                  testID={`driver-latest-location-coordinate-${selectedOrder.orderNo}`}
+                  style={styles.detailInfoValue}
+                >
+                  {latestReportedDriverLocationCoordinateText}
+                </Text>
+              ) : null}
               <Text
                 testID={`driver-latest-location-meta-${selectedOrder.orderNo}`}
                 style={styles.detailMeta}
               >
-                {`来源：${getDriverLocationSourceText(
-                  latestReportedDriverLocation.source,
-                )} · 上报时间：${formatDriverIncomeTime(
-                  latestReportedDriverLocation.recordedAtIso,
-                )}`}
+                {latestReportedDriverLocationMetaText}
               </Text>
               {latestReportedDriverLocationEstimateText ? (
                 <Text

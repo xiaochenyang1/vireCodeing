@@ -49,8 +49,15 @@ export function buildExternalNavigationUrls(
   };
 }
 
-export function formatCoordinateText(latitude: number, longitude: number) {
-  return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+export function formatCoordinateText(latitude?: number, longitude?: number) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return undefined;
+  }
+
+  const resolvedLatitude = latitude as number;
+  const resolvedLongitude = longitude as number;
+
+  return `${resolvedLatitude.toFixed(6)}, ${resolvedLongitude.toFixed(6)}`;
 }
 
 export function formatDistanceMetersText(meters: number) {

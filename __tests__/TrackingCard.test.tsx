@@ -215,4 +215,35 @@ describe('TrackingCard', () => {
       renderer.unmount();
     });
   });
+
+  it('keeps platform tracking visible when the latest snapshot has no coordinates', async () => {
+    const dirtySnapshot = createLocationSnapshot({
+      latitude: undefined,
+      longitude: undefined,
+      recordedAtIso: undefined,
+    });
+    const platformMapsApi = {
+      getShipperDriverLocation: jest.fn().mockResolvedValueOnce(dirtySnapshot),
+      reverseGeocode: jest.fn(),
+    };
+    const order = createTrackingOrder({
+      platformOrderId: 'platform-order-1',
+    });
+    const renderer = await renderTrackingCard({
+      order,
+      driver: order.driverInfo!,
+      platformMapsApi,
+    });
+
+    expect(platformMapsApi.reverseGeocode).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain('司机位置：等待司机位置上报');
+    expect(getRenderedText(renderer)).toContain('等待司机位置快照');
+    expect(getRenderedText(renderer)).toContain(
+      '已读取司机最新上报位置，30 秒自动刷新中。',
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer.unmount();
+    });
+  });
 });

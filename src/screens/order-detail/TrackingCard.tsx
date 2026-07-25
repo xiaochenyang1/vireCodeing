@@ -91,7 +91,7 @@ function createPlatformTrackingLoadingState(
 
 function createPlatformTrackingState(
   snapshot: PlatformDriverLocationSnapshot,
-  coordinateText: string,
+  coordinateText: string | undefined,
   notice: string,
   formattedAddress?: string,
 ): TrackingState {
@@ -101,16 +101,22 @@ function createPlatformTrackingState(
     targetType: snapshot.targetType,
     targetAddress: snapshot.targetAddress,
   });
+  const updatedAtText = snapshot.recordedAtIso
+    ? formatPlatformIsoMinute(snapshot.recordedAtIso)
+    : '';
+  const coordinateDetailText = coordinateText ? `坐标：${coordinateText}` : '';
+  const timeDetailText = updatedAtText ? `更新时间：${updatedAtText}` : '';
+  const detailText = [coordinateDetailText, timeDetailText]
+    .filter(Boolean)
+    .join(' · ');
 
   return {
     locationText: formattedAddress
       ? `司机位置：${formattedAddress}`
-      : `司机位置：${coordinateText}`,
-    detailText: formattedAddress
-      ? `坐标：${coordinateText} · 更新时间：${formatPlatformIsoMinute(
-          snapshot.recordedAtIso,
-        )}`
-      : `更新时间：${formatPlatformIsoMinute(snapshot.recordedAtIso)}`,
+      : coordinateText
+        ? `司机位置：${coordinateText}`
+        : '司机位置：等待司机位置上报',
+    detailText: detailText || '等待司机位置快照',
     ...(estimateText ? { estimateText } : {}),
     sourceText: getTrackingSourceText(snapshot.source),
     notice,
@@ -246,7 +252,7 @@ export function TrackingCard({
         );
         const successNotice = getTrackingSuccessNotice(mode);
 
-        if (!platformMapsApi.reverseGeocode) {
+        if (!platformMapsApi.reverseGeocode || !coordinateText) {
           setTrackingState(
             createPlatformTrackingState(
               snapshot,

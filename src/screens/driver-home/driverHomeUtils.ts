@@ -115,6 +115,23 @@ export type DailyIncomePoint = {
   orderCount: number;
 };
 
+export function sortDriverIncomeRecords(
+  records: PlatformDriverIncomeOverview['records'],
+) {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((left, right) => {
+      if (left.record.completedAtIso !== right.record.completedAtIso) {
+        return right.record.completedAtIso.localeCompare(
+          left.record.completedAtIso,
+        );
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ record }) => record);
+}
+
 export function aggregateIncomeRecordsByDay(
   records: PlatformDriverIncomeOverview['records'],
   daysToShow = 7,
@@ -124,8 +141,9 @@ export function aggregateIncomeRecordsByDay(
   }
 
   const dayMap = new Map<string, { incomeCents: number; orderCount: number }>();
+  const chronologicalRecords = [...sortDriverIncomeRecords(records)].reverse();
 
-  for (const record of records.slice(-daysToShow * 2)) {
+  for (const record of chronologicalRecords) {
     const date = new Date(record.completedAtIso);
     const dateText = `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 

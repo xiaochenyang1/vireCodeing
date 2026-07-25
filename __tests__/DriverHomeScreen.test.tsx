@@ -228,6 +228,22 @@ function getWithdrawalRecordCardTestIds(
   );
 }
 
+function getIncomeRecordCardTestIds(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+) {
+  return Array.from(
+    new Set(
+      renderer.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('driver-income-record-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 function getDriverOrderCardTestIds(
   renderer: ReactTestRenderer.ReactTestRenderer,
 ) {
@@ -1077,6 +1093,37 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(
       renderer.root.findAllByProps({ testID: 'driver-hall-location-coordinate' }),
     ).toHaveLength(0);
+  });
+
+  it('keeps hall location feedback visible when the latest snapshot has no coordinates', async () => {
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverLocation.mockResolvedValue({
+      driverId: 'driver-1',
+      source: 'sandbox' as const,
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={createMockDriverOrderApi()}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
+    expect(
+      renderer.root.findAllByProps({ testID: 'driver-hall-location-coordinate' }),
+    ).toHaveLength(0);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
+        .children,
+    ).toBe('来源：sandbox 上报');
   });
 
   it('shows route and navigation target details in the selected driver order detail', async () => {
@@ -2246,6 +2293,78 @@ describe('DriverHomeScreen certification uploads', () => {
       'driver-withdrawal-record-card-withdrawal-updated-later',
       'driver-withdrawal-record-card-withdrawal-created-later',
     ]);
+  });
+
+  it('sorts income records by completedAtIso before rendering the latest three rows', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.getIncomeOverview.mockResolvedValue({
+      ...createDriverIncomeOverviewSnapshot(),
+      summary: {
+        ...createDriverIncomeOverviewSnapshot().summary,
+        completedOrderCount: 4,
+      },
+      records: [
+        {
+          orderId: 'income-earliest',
+          orderNo: 'HY202607110001',
+          completedAtIso: '2026-07-11T09:30:00.000Z',
+          routeText: '最早完成路线',
+          vehicleType: 'medium',
+          grossAmountCents: 48000,
+          platformFeeCents: 2400,
+          netIncomeCents: 45600,
+        },
+        {
+          orderId: 'income-middle',
+          orderNo: 'HY202607120002',
+          completedAtIso: '2026-07-12T10:30:00.000Z',
+          routeText: '中间完成路线',
+          vehicleType: 'medium',
+          grossAmountCents: 52000,
+          platformFeeCents: 2600,
+          netIncomeCents: 49400,
+        },
+        {
+          orderId: 'income-latest',
+          orderNo: 'HY202607120003',
+          completedAtIso: '2026-07-12T11:30:00.000Z',
+          routeText: '最新完成路线',
+          vehicleType: 'medium',
+          grossAmountCents: 56000,
+          platformFeeCents: 2800,
+          netIncomeCents: 53200,
+        },
+        {
+          orderId: 'income-third',
+          orderNo: 'HY202607120004',
+          completedAtIso: '2026-07-12T11:00:00.000Z',
+          routeText: '第三新路线',
+          vehicleType: 'medium',
+          grossAmountCents: 30000,
+          platformFeeCents: 1500,
+          netIncomeCents: 28500,
+        },
+      ],
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getIncomeRecordCardTestIds(renderer)).toEqual([
+      'driver-income-record-card-HY202607120003',
+      'driver-income-record-card-HY202607120004',
+      'driver-income-record-card-HY202607120002',
+    ]);
+    expect(getRenderedText(renderer)).not.toContain('最早完成路线');
   });
 
   it('restores the default withdrawal card after a successful withdrawal submit', async () => {
