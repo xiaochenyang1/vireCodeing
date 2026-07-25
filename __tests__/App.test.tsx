@@ -15234,6 +15234,18 @@ test('shows platform evaluation records when opening evaluations in platform mod
     shipperId: 'user-platform-evaluation',
     items: [
       {
+        id: 'evaluation-platform-2',
+        orderId: 'order-platform-2',
+        orderNo: 'HY202607090002',
+        driverName: '平台司机 driver-2',
+        rating: 4,
+        tags: ['沟通顺畅'],
+        content: '匿名平台评价同步内容',
+        anonymous: true,
+        photoCount: 0,
+        submittedAtIso: '2026-07-09T08:00:00.000Z',
+      },
+      {
         id: 'evaluation-platform-1',
         orderId: 'order-platform-1',
         orderNo: 'HY202607090001',
@@ -15245,18 +15257,6 @@ test('shows platform evaluation records when opening evaluations in platform mod
         photoCount: 2,
         photoFileIds: ['file-eval-1', 'file-eval-2'],
         submittedAtIso: '2026-07-09T09:00:00.000Z',
-      },
-      {
-        id: 'evaluation-platform-2',
-        orderId: 'order-platform-2',
-        orderNo: 'HY202607090002',
-        driverName: '平台司机 driver-2',
-        rating: 4,
-        tags: ['沟通顺畅'],
-        content: '匿名平台评价同步内容',
-        anonymous: true,
-        photoCount: 0,
-        submittedAtIso: '2026-07-09T08:00:00.000Z',
       },
     ],
   };
@@ -15415,6 +15415,12 @@ test('shows platform evaluation records when opening evaluations in platform mod
     expect(renderedText).toContain('文件 ID：file-eval-1');
     expect(renderedText).toContain('文件 ID：file-received-1');
     expect(renderedText).not.toContain('师傅准时，货物保护不错。');
+    expect(renderedText.indexOf('司机评价货主同步内容')).toBeLessThan(
+      renderedText.indexOf('平台评价同步内容'),
+    );
+    expect(renderedText.indexOf('平台评价同步内容')).toBeLessThan(
+      renderedText.indexOf('匿名平台评价同步内容'),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/profile/evaluations',
@@ -15680,6 +15686,9 @@ test('manual refreshes platform evaluation records from profile', async () => {
     expect(renderedText).toContain('文件 ID：file-received-refresh-2');
     expect(renderedText).not.toContain('首次平台评价同步内容');
     expect(renderedText).not.toContain('首次司机评价货主内容');
+    expect(renderedText.indexOf('手动刷新后的司机评价货主内容')).toBeLessThan(
+      renderedText.indexOf('手动刷新后的平台评价内容'),
+    );
     expect(evaluationRequestCount).toBe(2);
     expect(receivedEvaluationRequestCount).toBe(2);
 

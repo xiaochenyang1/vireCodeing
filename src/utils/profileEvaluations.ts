@@ -31,6 +31,11 @@ type ProfileEvaluationFileMetadataApi = Partial<
 
 export type EvaluationFilter = 'all' | 'high' | 'lower';
 
+type SubmittedAtSortableItem = {
+  submittedAtIso?: string;
+  fallbackIndex: number;
+};
+
 export function filterEvaluationRecords<T extends ProfileEvaluationRecordItem>(
   records: T[],
   filter: EvaluationFilter,
@@ -58,90 +63,80 @@ export function createEvaluationRecords(
         submittedAtIso?: string;
         fallbackIndex: number;
       }> = [];
-    const evaluationPhotoCount =
-      order.evaluation?.photoCount ?? order.evaluation?.photoFiles?.length ?? 0;
-    const shipperEvaluationPhotoCount =
-      order.shipperEvaluation?.photoCount ??
-      order.shipperEvaluation?.photoFiles?.length ??
-      0;
+      const evaluationPhotoCount =
+        order.evaluation?.photoCount ??
+        order.evaluation?.photoFiles?.length ??
+        0;
+      const shipperEvaluationPhotoCount =
+        order.shipperEvaluation?.photoCount ??
+        order.shipperEvaluation?.photoFiles?.length ??
+        0;
 
-    if (order.evaluation) {
-      records.push({
-        record: {
-          id: `evaluation-local-${order.id}`,
-          orderId: order.id,
-          driverName: order.evaluation.anonymous
-            ? '匿名评价'
-            : order.driverInfo?.driverName ?? '未知司机',
-          ratingText: `${order.evaluation.rating} 星`,
-          content: order.evaluation.content,
-          photoText:
-            evaluationPhotoCount > 0 ? `图片凭证 ${evaluationPhotoCount} 张` : '',
-          timeText: order.evaluation.submittedAtText ?? '刚刚提交',
-          driverReplyText: '',
-          driverReplyTimeText: '',
-          direction: 'shipper_to_driver',
-          ...(order.evaluation.photoFiles?.length
-            ? { photoFiles: order.evaluation.photoFiles }
-            : {}),
-        },
-        submittedAtIso:
-          order.evaluation.submittedAtIso ??
-          order.updatedAtIso ??
-          order.createdAtIso,
-        fallbackIndex: orderIndex * 2,
-      });
-    }
+      if (order.evaluation) {
+        records.push({
+          record: {
+            id: `evaluation-local-${order.id}`,
+            orderId: order.id,
+            driverName: order.evaluation.anonymous
+              ? '匿名评价'
+              : order.driverInfo?.driverName ?? '未知司机',
+            ratingText: `${order.evaluation.rating} 星`,
+            content: order.evaluation.content,
+            photoText:
+              evaluationPhotoCount > 0
+                ? `图片凭证 ${evaluationPhotoCount} 张`
+                : '',
+            timeText: order.evaluation.submittedAtText ?? '刚刚提交',
+            driverReplyText: '',
+            driverReplyTimeText: '',
+            direction: 'shipper_to_driver',
+            ...(order.evaluation.photoFiles?.length
+              ? { photoFiles: order.evaluation.photoFiles }
+              : {}),
+          },
+          submittedAtIso:
+            order.evaluation.submittedAtIso ??
+            order.updatedAtIso ??
+            order.createdAtIso,
+          fallbackIndex: orderIndex * 2,
+        });
+      }
 
-    if (order.shipperEvaluation) {
-      records.push({
-        record: {
-          id: `received-evaluation-local-${order.id}`,
-          orderId: order.id,
-          driverName: order.shipperEvaluation.anonymous
-            ? '匿名司机评价'
-            : order.driverInfo?.driverName ?? '未知司机',
-          ratingText: `${order.shipperEvaluation.rating} 星`,
-          content: order.shipperEvaluation.content,
-          photoText:
-            shipperEvaluationPhotoCount > 0
-              ? `图片凭证 ${shipperEvaluationPhotoCount} 张`
-              : '',
-          timeText: order.shipperEvaluation.submittedAtText
-            ? `司机评价：${order.shipperEvaluation.submittedAtText}`
-            : '司机评价：刚刚提交',
-          driverReplyText: '',
-          driverReplyTimeText: '',
-          direction: 'driver_to_shipper',
-          ...(order.shipperEvaluation.photoFiles?.length
-            ? { photoFiles: order.shipperEvaluation.photoFiles }
-            : {}),
-        },
-        submittedAtIso:
-          order.shipperEvaluation.submittedAtIso ??
-          order.updatedAtIso ??
-          order.createdAtIso,
-        fallbackIndex: orderIndex * 2 + 1,
-      });
-    }
+      if (order.shipperEvaluation) {
+        records.push({
+          record: {
+            id: `received-evaluation-local-${order.id}`,
+            orderId: order.id,
+            driverName: order.shipperEvaluation.anonymous
+              ? '匿名司机评价'
+              : order.driverInfo?.driverName ?? '未知司机',
+            ratingText: `${order.shipperEvaluation.rating} 星`,
+            content: order.shipperEvaluation.content,
+            photoText:
+              shipperEvaluationPhotoCount > 0
+                ? `图片凭证 ${shipperEvaluationPhotoCount} 张`
+                : '',
+            timeText: order.shipperEvaluation.submittedAtText
+              ? `司机评价：${order.shipperEvaluation.submittedAtText}`
+              : '司机评价：刚刚提交',
+            driverReplyText: '',
+            driverReplyTimeText: '',
+            direction: 'driver_to_shipper',
+            ...(order.shipperEvaluation.photoFiles?.length
+              ? { photoFiles: order.shipperEvaluation.photoFiles }
+              : {}),
+          },
+          submittedAtIso:
+            order.shipperEvaluation.submittedAtIso ??
+            order.updatedAtIso ??
+            order.createdAtIso,
+          fallbackIndex: orderIndex * 2 + 1,
+        });
+      }
 
-    return records;
+      return records;
     })
-    .sort((left, right) => {
-      if (left.submittedAtIso && right.submittedAtIso) {
-        return right.submittedAtIso.localeCompare(left.submittedAtIso);
-      }
-
-      if (left.submittedAtIso) {
-        return -1;
-      }
-
-      if (right.submittedAtIso) {
-        return 1;
-      }
-
-      return left.fallbackIndex - right.fallbackIndex;
-    })
+    .sort(compareSubmittedAtSortableItemsDesc)
     .map(item => item.record);
 
   return [...localRecords, ...evaluationRecordItems];
@@ -150,55 +145,43 @@ export function createEvaluationRecords(
 export function createLocalEvaluationRecordsFromPlatformSnapshot(
   snapshot: PlatformProfileEvaluationSnapshot,
 ): ProfileEvaluationRecordItem[] {
-  return snapshot.items.map(item => {
-    const photoFiles = createProfileEvaluationAttachmentRefs(
-      item.photoFileIds,
-      '评价图片凭证',
-    );
-
-    return {
-      id: `evaluation-platform-${item.id}`,
-      orderId: item.orderNo,
-      driverName: item.anonymous ? '匿名评价' : item.driverName,
-      ratingText: `${item.rating} 星`,
-      content: item.content,
-      photoText:
-        item.photoCount > 0 ? `图片凭证 ${item.photoCount} 张` : '',
-      timeText: `平台提交：${formatIsoMinute(item.submittedAtIso)}`,
-      driverReplyText: item.driverReplyText ?? '',
-      driverReplyTimeText: item.driverReplyAtIso
-        ? formatIsoMinute(item.driverReplyAtIso)
-        : '',
-      direction: 'shipper_to_driver',
-      ...(photoFiles.length > 0 ? { photoFiles } : {}),
-    };
-  });
+  return sortPlatformEvaluationItemsBySubmittedAt(snapshot.items).map(item =>
+    createPlatformEvaluationRecord(item),
+  );
 }
 
 export function createLocalReceivedEvaluationRecordsFromPlatformSnapshot(
   snapshot: PlatformProfileReceivedEvaluationSnapshot,
 ): ProfileEvaluationRecordItem[] {
-  return snapshot.items.map(item => {
-    const photoFiles = createProfileEvaluationAttachmentRefs(
-      item.photoFileIds,
-      '司机评价图片凭证',
-    );
+  return sortPlatformEvaluationItemsBySubmittedAt(snapshot.items).map(item =>
+    createPlatformReceivedEvaluationRecord(item),
+  );
+}
 
-    return {
-      id: `received-evaluation-platform-${item.id}`,
-      orderId: item.orderNo,
-      driverName: item.anonymous ? '匿名司机评价' : item.driverName,
-      ratingText: `${item.rating} 星`,
-      content: item.content,
-      photoText:
-        item.photoCount > 0 ? `图片凭证 ${item.photoCount} 张` : '',
-      timeText: `司机评价：${formatIsoMinute(item.submittedAtIso)}`,
-      driverReplyText: '',
-      driverReplyTimeText: '',
-      direction: 'driver_to_shipper',
-      ...(photoFiles.length > 0 ? { photoFiles } : {}),
-    };
-  });
+export function createLocalEvaluationRecordsFromPlatformSnapshots(
+  evaluationSnapshot: PlatformProfileEvaluationSnapshot,
+  receivedEvaluationSnapshot: PlatformProfileReceivedEvaluationSnapshot,
+): ProfileEvaluationRecordItem[] {
+  return [
+    ...evaluationSnapshot.items.map((item, index) => ({
+      item,
+      direction: 'shipper_to_driver' as const,
+      submittedAtIso: item.submittedAtIso,
+      fallbackIndex: index,
+    })),
+    ...receivedEvaluationSnapshot.items.map((item, index) => ({
+      item,
+      direction: 'driver_to_shipper' as const,
+      submittedAtIso: item.submittedAtIso,
+      fallbackIndex: evaluationSnapshot.items.length + index,
+    })),
+  ]
+    .sort(compareSubmittedAtSortableItemsDesc)
+    .map(entry =>
+      entry.direction === 'shipper_to_driver'
+        ? createPlatformEvaluationRecord(entry.item)
+        : createPlatformReceivedEvaluationRecord(entry.item),
+    );
 }
 
 export async function hydrateProfileEvaluationRecords(
@@ -234,6 +217,90 @@ export async function hydrateProfileEvaluationRecords(
 
 function formatIsoMinute(isoText: string) {
   return formatPlatformIsoMinute(isoText);
+}
+
+function compareSubmittedAtSortableItemsDesc(
+  left: SubmittedAtSortableItem,
+  right: SubmittedAtSortableItem,
+) {
+  if (left.submittedAtIso && right.submittedAtIso) {
+    const submittedAtCompare = right.submittedAtIso.localeCompare(
+      left.submittedAtIso,
+    );
+
+    if (submittedAtCompare !== 0) {
+      return submittedAtCompare;
+    }
+  } else if (left.submittedAtIso) {
+    return -1;
+  } else if (right.submittedAtIso) {
+    return 1;
+  }
+
+  return left.fallbackIndex - right.fallbackIndex;
+}
+
+function sortPlatformEvaluationItemsBySubmittedAt<
+  T extends {
+    submittedAtIso?: string;
+  },
+>(items: T[]) {
+  return items
+    .map((item, index) => ({
+      item,
+      submittedAtIso: item.submittedAtIso,
+      fallbackIndex: index,
+    }))
+    .sort(compareSubmittedAtSortableItemsDesc)
+    .map(entry => entry.item);
+}
+
+function createPlatformEvaluationRecord(
+  item: PlatformProfileEvaluationSnapshot['items'][number],
+): ProfileEvaluationRecordItem {
+  const photoFiles = createProfileEvaluationAttachmentRefs(
+    item.photoFileIds,
+    '评价图片凭证',
+  );
+
+  return {
+    id: `evaluation-platform-${item.id}`,
+    orderId: item.orderNo,
+    driverName: item.anonymous ? '匿名评价' : item.driverName,
+    ratingText: `${item.rating} 星`,
+    content: item.content,
+    photoText: item.photoCount > 0 ? `图片凭证 ${item.photoCount} 张` : '',
+    timeText: `平台提交：${formatIsoMinute(item.submittedAtIso)}`,
+    driverReplyText: item.driverReplyText ?? '',
+    driverReplyTimeText: item.driverReplyAtIso
+      ? formatIsoMinute(item.driverReplyAtIso)
+      : '',
+    direction: 'shipper_to_driver',
+    ...(photoFiles.length > 0 ? { photoFiles } : {}),
+  };
+}
+
+function createPlatformReceivedEvaluationRecord(
+  item: PlatformProfileReceivedEvaluationSnapshot['items'][number],
+): ProfileEvaluationRecordItem {
+  const photoFiles = createProfileEvaluationAttachmentRefs(
+    item.photoFileIds,
+    '司机评价图片凭证',
+  );
+
+  return {
+    id: `received-evaluation-platform-${item.id}`,
+    orderId: item.orderNo,
+    driverName: item.anonymous ? '匿名司机评价' : item.driverName,
+    ratingText: `${item.rating} 星`,
+    content: item.content,
+    photoText: item.photoCount > 0 ? `图片凭证 ${item.photoCount} 张` : '',
+    timeText: `司机评价：${formatIsoMinute(item.submittedAtIso)}`,
+    driverReplyText: '',
+    driverReplyTimeText: '',
+    direction: 'driver_to_shipper',
+    ...(photoFiles.length > 0 ? { photoFiles } : {}),
+  };
 }
 
 function createProfileEvaluationAttachmentRefs(

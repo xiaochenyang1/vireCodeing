@@ -33,9 +33,8 @@ import {
 } from '../utils/profileAddressBook';
 import {
   createEvaluationRecords,
+  createLocalEvaluationRecordsFromPlatformSnapshots,
   hydrateProfileEvaluationRecords,
-  createLocalEvaluationRecordsFromPlatformSnapshot,
-  createLocalReceivedEvaluationRecordsFromPlatformSnapshot,
   type ProfileEvaluationRecordItem,
 } from '../utils/profileEvaluations';
 import { createLocalCouponsFromPlatformWallet } from '../utils/profileCoupons';
@@ -1135,14 +1134,10 @@ export function ProfileCenterScreen({
           }
 
           const nextEvaluationRecords = await hydrateProfileEvaluationRecords(
-            [
-              ...createLocalEvaluationRecordsFromPlatformSnapshot(
-                evaluationSnapshot,
-              ),
-              ...createLocalReceivedEvaluationRecordsFromPlatformSnapshot(
-                receivedEvaluationSnapshot,
-              ),
-            ],
+            createLocalEvaluationRecordsFromPlatformSnapshots(
+              evaluationSnapshot,
+              receivedEvaluationSnapshot,
+            ),
             platformFileApi,
           );
 

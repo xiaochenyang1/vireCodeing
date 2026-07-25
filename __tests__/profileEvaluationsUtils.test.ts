@@ -2,6 +2,7 @@ import type { RecentOrder } from '../src/types';
 import {
   createLocalReceivedEvaluationRecordsFromPlatformSnapshot,
   createLocalEvaluationRecordsFromPlatformSnapshot,
+  createLocalEvaluationRecordsFromPlatformSnapshots,
   createEvaluationRecords,
   filterEvaluationRecords,
   type ProfileEvaluationRecordItem,
@@ -219,23 +220,10 @@ test('sorts local evaluation records by submittedAtIso descending before mock it
   expect(records[2].id).toBe('evaluation-1');
 });
 
-test('creates local profile evaluation records from platform snapshot', () => {
+test('sorts local profile evaluation records from platform snapshot by submitted time', () => {
   const records = createLocalEvaluationRecordsFromPlatformSnapshot({
     shipperId: 'shipper-1',
     items: [
-      {
-        id: 'evaluation-platform-1',
-        orderId: 'order-platform-1',
-        orderNo: 'HY202607090001',
-        driverName: '平台司机 driver-1',
-        rating: 5,
-        tags: ['准时送达', '服务好'],
-        content: '平台评价内容',
-        anonymous: false,
-        photoCount: 2,
-        photoFileIds: ['file-eval-1', 'file-eval-2'],
-        submittedAtIso: '2026-07-09T09:00:00.000Z',
-      },
       {
         id: 'evaluation-platform-anonymous',
         orderId: 'order-platform-2',
@@ -249,6 +237,19 @@ test('creates local profile evaluation records from platform snapshot', () => {
         submittedAtIso: '2026-07-09T08:00:00.000Z',
         driverReplyText: '感谢反馈',
         driverReplyAtIso: '2026-07-09T08:30:00.000Z',
+      },
+      {
+        id: 'evaluation-platform-1',
+        orderId: 'order-platform-1',
+        orderNo: 'HY202607090001',
+        driverName: '平台司机 driver-1',
+        rating: 5,
+        tags: ['准时送达', '服务好'],
+        content: '平台评价内容',
+        anonymous: false,
+        photoCount: 2,
+        photoFileIds: ['file-eval-1', 'file-eval-2'],
+        submittedAtIso: '2026-07-09T09:00:00.000Z',
       },
     ],
   });
@@ -295,10 +296,22 @@ test('creates local profile evaluation records from platform snapshot', () => {
   ]);
 });
 
-test('creates local received evaluation records from platform snapshot', () => {
+test('sorts local received evaluation records from platform snapshot by submitted time', () => {
   const records = createLocalReceivedEvaluationRecordsFromPlatformSnapshot({
     shipperId: 'shipper-1',
     items: [
+      {
+        id: 'received-platform-anonymous',
+        orderId: 'order-platform-2',
+        orderNo: 'HY202607090004',
+        driverName: '平台司机 driver-2',
+        rating: 4,
+        tags: ['付款及时'],
+        content: '匿名司机评价内容',
+        anonymous: true,
+        photoCount: 0,
+        submittedAtIso: '2026-07-09T09:30:00.000Z',
+      },
       {
         id: 'received-platform-1',
         orderId: 'order-platform-1',
@@ -311,18 +324,6 @@ test('creates local received evaluation records from platform snapshot', () => {
         photoCount: 1,
         photoFileIds: ['file-received-1'],
         submittedAtIso: '2026-07-09T10:00:00.000Z',
-      },
-      {
-        id: 'received-platform-anonymous',
-        orderId: 'order-platform-2',
-        orderNo: 'HY202607090004',
-        driverName: '平台司机 driver-2',
-        rating: 4,
-        tags: ['付款及时'],
-        content: '匿名司机评价内容',
-        anonymous: true,
-        photoCount: 0,
-        submittedAtIso: '2026-07-09T09:30:00.000Z',
       },
     ],
   });
@@ -360,5 +361,75 @@ test('creates local received evaluation records from platform snapshot', () => {
       driverReplyTimeText: '',
       direction: 'driver_to_shipper',
     },
+  ]);
+});
+
+test('merges platform sent and received evaluation records by submitted time', () => {
+  const records = createLocalEvaluationRecordsFromPlatformSnapshots(
+    {
+      shipperId: 'shipper-1',
+      items: [
+        {
+          id: 'evaluation-platform-older',
+          orderId: 'order-platform-1',
+          orderNo: 'HY202607090001',
+          driverName: '平台司机 driver-1',
+          rating: 4,
+          tags: ['沟通顺畅'],
+          content: '较早的货主评价',
+          anonymous: false,
+          photoCount: 0,
+          submittedAtIso: '2026-07-09T08:00:00.000Z',
+        },
+        {
+          id: 'evaluation-platform-newer',
+          orderId: 'order-platform-2',
+          orderNo: 'HY202607090002',
+          driverName: '平台司机 driver-2',
+          rating: 5,
+          tags: ['服务好'],
+          content: '较新的货主评价',
+          anonymous: false,
+          photoCount: 0,
+          submittedAtIso: '2026-07-09T09:00:00.000Z',
+        },
+      ],
+    },
+    {
+      shipperId: 'shipper-1',
+      items: [
+        {
+          id: 'received-platform-newest',
+          orderId: 'order-platform-3',
+          orderNo: 'HY202607090003',
+          driverName: '平台司机 driver-3',
+          rating: 5,
+          tags: ['配合高效'],
+          content: '最新的司机评价货主记录',
+          anonymous: false,
+          photoCount: 0,
+          submittedAtIso: '2026-07-09T10:00:00.000Z',
+        },
+        {
+          id: 'received-platform-mid',
+          orderId: 'order-platform-4',
+          orderNo: 'HY202607090004',
+          driverName: '平台司机 driver-4',
+          rating: 4,
+          tags: ['沟通顺畅'],
+          content: '中间时间的司机评价货主记录',
+          anonymous: true,
+          photoCount: 0,
+          submittedAtIso: '2026-07-09T08:30:00.000Z',
+        },
+      ],
+    },
+  );
+
+  expect(records.map(item => item.id)).toEqual([
+    'received-evaluation-platform-received-platform-newest',
+    'evaluation-platform-evaluation-platform-newer',
+    'received-evaluation-platform-received-platform-mid',
+    'evaluation-platform-evaluation-platform-older',
   ]);
 });
