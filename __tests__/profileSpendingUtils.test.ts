@@ -214,7 +214,7 @@ test('maps platform payment, settlement and refund facts without order-status gu
   expect(records[0]).toMatchObject({
     methodText: '在线支付 · 支付宝',
     statusText: '已结算',
-    paymentTimeText: '支付时间：2026-07-15 16:00',
+    paymentTimeText: '结算时间：2026-07-15 16:10',
     paymentStatusText: '资金状态：已结算',
     settlementText: '结算金额：￥310',
     flowText: '资金依据：平台支付与结算记录',
@@ -223,7 +223,7 @@ test('maps platform payment, settlement and refund facts without order-status gu
   expect(records[1]).toMatchObject({
     methodText: '在线支付 · 微信支付',
     statusText: '已退款',
-    paymentTimeText: '支付时间：2026-07-15 16:20',
+    paymentTimeText: '退款时间：2026-07-15 17:00',
     paymentStatusText: '退款状态：已退款',
     settlementText: '退款金额：￥30',
     flowText: '资金依据：平台支付与退款记录',
@@ -261,6 +261,37 @@ test('uses order financial facts when falling back to local spending records', (
   expect(records.map(record => record.flowText).join(' ')).not.toContain(
     '本地演示',
   );
+});
+
+test('uses refund update timing when platform refund snapshot has no final refund timestamp yet', () => {
+  const records = createSpendingRecords([], {
+    platformOnly: true,
+    platformRecords: [
+      {
+        orderId: 'order-refund-processing-1',
+        orderNo: 'HY202607150003',
+        status: 'cancelled',
+        paymentMethod: 'online',
+        paymentStatus: 'refund_pending',
+        paymentChannel: 'wechat',
+        paymentOrderStatus: 'refunding',
+        refundStatus: 'processing',
+        amountCents: 12000,
+        refundAmountCents: 12000,
+        occurredAtIso: '2026-07-15T09:40:00.000Z',
+        paidAtIso: '2026-07-15T09:00:00.000Z',
+        routeText: '坪山仓 → 龙华门店',
+      },
+    ] as never,
+  });
+
+  expect(records[0]).toMatchObject({
+    paymentTimeText: '退款更新时间：2026-07-15 17:40',
+    paymentStatusText: '退款状态：处理中',
+    settlementText: '退款金额：￥120',
+    flowText: '资金依据：平台支付与退款记录',
+    statusCategory: 'refund',
+  });
 });
 
 function createOrder(overrides: Partial<RecentOrder>): RecentOrder {

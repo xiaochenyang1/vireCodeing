@@ -492,12 +492,7 @@ function getPlatformSpendingMethodText(
 function getPlatformSpendingStatusCategory(
   record: PlatformProfileSpendingRecord,
 ) {
-  if (
-    record.refundStatus ||
-    record.paymentStatus === 'refund_pending' ||
-    record.paymentStatus === 'refunded' ||
-    record.paymentStatus === 'refund_failed'
-  ) {
+  if (isPlatformRefundRecord(record)) {
     return 'refund' as const;
   }
   if (record.paymentStatus === 'settled') {
@@ -532,6 +527,20 @@ function getSpendingStatusCategory(
 }
 
 function getPlatformPaymentTimeText(record: PlatformProfileSpendingRecord) {
+  if (isPlatformRefundRecord(record)) {
+    if (record.refundedAtIso) {
+      return `退款时间：${formatPlatformIsoDateTime(record.refundedAtIso)}`;
+    }
+
+    return `退款更新时间：${formatPlatformIsoDateTime(record.occurredAtIso)}`;
+  }
+
+  if (record.paymentStatus === 'settled') {
+    return record.settledAtIso
+      ? `结算时间：${formatPlatformIsoDateTime(record.settledAtIso)}`
+      : `结算更新时间：${formatPlatformIsoDateTime(record.occurredAtIso)}`;
+  }
+
   if (record.paymentMethod === 'online') {
     return record.paidAtIso
       ? `支付时间：${formatPlatformIsoDateTime(record.paidAtIso)}`
@@ -566,12 +575,7 @@ function getPlatformSettlementText(
   record: PlatformProfileSpendingRecord,
   amountText: string,
 ) {
-  if (
-    record.refundStatus ||
-    record.paymentStatus === 'refund_pending' ||
-    record.paymentStatus === 'refunded' ||
-    record.paymentStatus === 'refund_failed'
-  ) {
+  if (isPlatformRefundRecord(record)) {
     const refundAmountText = formatLocalCurrency(
       convertCentsToYuan(record.refundAmountCents ?? 0),
     );
@@ -589,12 +593,7 @@ function getPlatformSettlementText(
 function getPlatformFinancialSourceText(
   record: PlatformProfileSpendingRecord,
 ) {
-  if (
-    record.refundStatus ||
-    record.paymentStatus === 'refund_pending' ||
-    record.paymentStatus === 'refunded' ||
-    record.paymentStatus === 'refund_failed'
-  ) {
+  if (isPlatformRefundRecord(record)) {
     return record.paymentMethod === 'online'
       ? '资金依据：平台支付与退款记录'
       : '资金依据：平台结算与退款记录';
@@ -607,6 +606,15 @@ function getPlatformFinancialSourceText(
   return record.paymentMethod === 'online'
     ? '资金依据：平台支付记录'
     : '资金依据：平台结算记录';
+}
+
+function isPlatformRefundRecord(record: PlatformProfileSpendingRecord) {
+  return (
+    Boolean(record.refundStatus) ||
+    record.paymentStatus === 'refund_pending' ||
+    record.paymentStatus === 'refunded' ||
+    record.paymentStatus === 'refund_failed'
+  );
 }
 
 function convertCentsToYuan(cents: number) {

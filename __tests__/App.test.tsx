@@ -12446,6 +12446,7 @@ test('shows platform spending snapshot when opening spending in platform mode', 
     expect(renderedText).toContain('在线支付 · 微信支付');
     expect(renderedText).toContain('资金状态：已托管');
     expect(renderedText).toContain('退款状态：已退款');
+    expect(renderedText).toContain('退款时间：2026-07-09 02:30');
     expect(renderedText).toContain('已完成消费：￥310');
     expect(renderedText).toContain('托管中金额：￥520');
     expect(renderedText).toContain('已退款金额：￥260');
@@ -12629,6 +12630,7 @@ test('manual refreshes platform spending records from profile', async () => {
     expect(renderedText).toContain('HY202607110010');
     expect(renderedText).toContain('南山转运仓 → 盐田码头');
     expect(renderedText).toContain('龙岗分拨中心 → 宝安主仓');
+    expect(renderedText).toContain('退款时间：2026-07-11 17:30');
     expect(renderedText).not.toContain('HY202607100001');
     expect(renderedText).toContain('已完成消费：￥880');
     expect(renderedText).toContain('托管中金额：￥0');
