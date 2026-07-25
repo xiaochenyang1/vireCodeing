@@ -292,6 +292,66 @@ describe('platform profile api', () => {
           requestId: 'req-admin-profile-enterprise-review',
           timestamp: '2026-07-09T08:15:00.000Z',
         }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: [
+            {
+              eventId: 'shipper-1:identity:submitted',
+              verificationType: 'identity',
+              actorUserId: 'shipper-1',
+              eventType: 'shipper_identity_verification_submitted',
+              stage: 'submitted',
+              noteText: '提交身份证正反面和人脸核验',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            },
+          ],
+          requestId: 'req-admin-profile-review-events',
+          timestamp: '2026-07-09T08:20:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            shipperId: 'shipper-1',
+            identity: {
+              identityFront: {
+                id: 'file-front',
+                ownerUserId: 'shipper-1',
+                purpose: 'identity',
+                objectKey: 'shipper-1/identity/front.png',
+                publicUrl: 'https://cdn.example.com/front.png',
+                status: 'uploaded',
+                createdAtIso: '2026-07-09T08:00:00.000Z',
+                attachmentType: 'identityFront',
+                previewUrl: 'http://localhost:3000/api/files/previews/front',
+                previewExpiresAtIso: '2026-07-09T08:30:00.000Z',
+              },
+            },
+            enterprise: {
+              license: {
+                id: 'file-license',
+                ownerUserId: 'shipper-1',
+                purpose: 'enterprise',
+                objectKey: 'shipper-1/enterprise/license.png',
+                publicUrl: 'https://cdn.example.com/license.png',
+                status: 'uploaded',
+                createdAtIso: '2026-07-09T08:00:00.000Z',
+                attachmentType: 'license',
+              },
+            },
+          },
+          requestId: 'req-admin-profile-attachments',
+          timestamp: '2026-07-09T08:25:00.000Z',
+        }),
       });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = createPlatformProfileApi({
@@ -341,6 +401,33 @@ describe('platform profile api', () => {
       }),
     });
 
+    await expect(
+      api.listAdminVerificationReviewEvents(' shipper-1 '),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        verificationType: 'identity',
+        stage: 'submitted',
+      }),
+    ]);
+
+    await expect(
+      api.listAdminVerificationAttachments('shipper-1'),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      identity: {
+        identityFront: expect.objectContaining({
+          id: 'file-front',
+          attachmentType: 'identityFront',
+        }),
+      },
+      enterprise: {
+        license: expect.objectContaining({
+          id: 'file-license',
+          attachmentType: 'license',
+        }),
+      },
+    });
+
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3000/api/admin/shipper-verifications?status=reviewing&type=identity&page=2&pageSize=10',
@@ -375,6 +462,26 @@ describe('platform profile api', () => {
         body: JSON.stringify({
           status: 'rejected',
           rejectionReason: '营业执照信息待补充',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'http://localhost:3000/api/admin/shipper-verifications/shipper-1/review-events',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      'http://localhost:3000/api/admin/shipper-verifications/shipper-1/attachments',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
         }),
       }),
     );
@@ -1629,6 +1736,26 @@ describe('platform profile api', () => {
           requestId: 'req-admin-invoice-review',
           timestamp: '2026-07-09T08:10:00.000Z',
         }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: [
+            {
+              eventId: 'invoice-platform-1:submitted',
+              actorUserId: 'shipper-1',
+              eventType: 'invoice_application_submitted',
+              stage: 'submitted',
+              noteText: '申请开票 ¥1110.00，订单 HY202607090001',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+            },
+          ],
+          requestId: 'req-admin-invoice-review-events',
+          timestamp: '2026-07-09T08:15:00.000Z',
+        }),
       });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = createPlatformProfileApi({
@@ -1665,6 +1792,15 @@ describe('platform profile api', () => {
       rejectionReason: '企业认证信息待补充',
     });
 
+    await expect(
+      api.listAdminInvoiceApplicationReviewEvents(' invoice-platform-1 '),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        actorUserId: 'shipper-1',
+        stage: 'submitted',
+      }),
+    ]);
+
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       'http://localhost:3000/api/admin/shipper-invoices?status=reviewing&page=2&pageSize=10',
@@ -1686,6 +1822,16 @@ describe('platform profile api', () => {
         body: JSON.stringify({
           status: 'rejected',
           rejectionReason: '企业认证信息待补充',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/admin/shipper-invoices/invoice-platform-1/review-events',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
         }),
       }),
     );
@@ -1996,6 +2142,10 @@ describe('platform profile api', () => {
       api.listAdminVerifications({ page: 0 })],
     ['invalid admin shipper verification pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.listAdminVerifications({ pageSize: 51 })],
+    ['empty admin shipper review-events id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerificationReviewEvents('   ')],
+    ['empty admin shipper attachments id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminVerificationAttachments('   ')],
     ['empty admin shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminIdentityVerification('   ', { status: 'approved' })],
     ['invalid admin shipper verification review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
@@ -2036,6 +2186,8 @@ describe('platform profile api', () => {
       api.listAdminInvoiceApplications({ page: 0 })],
     ['invalid admin shipper invoice pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.listAdminInvoiceApplications({ pageSize: 51 })],
+    ['empty admin shipper invoice review-events id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminInvoiceApplicationReviewEvents('   ')],
     ['empty admin shipper invoice id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminInvoiceApplication('   ', { status: 'approved' })],
     ['empty admin shipper invoice download id', (api: ReturnType<typeof createPlatformProfileApi>) =>

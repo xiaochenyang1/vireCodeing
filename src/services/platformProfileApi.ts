@@ -6,6 +6,7 @@ import {
   platformPut,
   type PlatformApiConfig,
 } from './platformApiClient';
+import type { PlatformFileUploadRecord } from './platformFileApi';
 import type { PlatformPaymentStatus } from './platformPaymentApi';
 import type { OrderPaymentStatus, PaymentChannel } from '../types';
 
@@ -129,6 +130,52 @@ export type PlatformAdminShipperVerificationListResult = {
   total: number;
 };
 
+export type PlatformAdminShipperVerificationAttachmentType =
+  | 'identityFront'
+  | 'identityBack'
+  | 'license';
+
+export type PlatformAdminShipperVerificationAttachmentRecord =
+  PlatformFileUploadRecord & {
+    attachmentType: PlatformAdminShipperVerificationAttachmentType;
+    previewUrl?: string;
+    previewExpiresAtIso?: string;
+  };
+
+export type PlatformAdminShipperVerificationAttachmentPreview = {
+  shipperId: string;
+  identity: {
+    identityFront?: PlatformAdminShipperVerificationAttachmentRecord;
+    identityBack?: PlatformAdminShipperVerificationAttachmentRecord;
+  };
+  enterprise: {
+    license?: PlatformAdminShipperVerificationAttachmentRecord;
+  };
+};
+
+export type PlatformAdminShipperVerificationReviewEventType =
+  | 'shipper_identity_verification_submitted'
+  | 'shipper_identity_verification_approved'
+  | 'shipper_identity_verification_rejected'
+  | 'shipper_enterprise_verification_submitted'
+  | 'shipper_enterprise_verification_approved'
+  | 'shipper_enterprise_verification_rejected';
+
+export type PlatformAdminShipperVerificationReviewEventStage =
+  | 'submitted'
+  | 'approved'
+  | 'rejected';
+
+export type PlatformAdminShipperVerificationReviewEvent = {
+  eventId: string;
+  verificationType: PlatformAdminShipperVerificationType;
+  actorUserId?: string;
+  eventType: PlatformAdminShipperVerificationReviewEventType;
+  stage: PlatformAdminShipperVerificationReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
+};
+
 export type PlatformProfileInvoiceType = 'normal' | 'vat-special';
 
 export type PlatformProfileInvoiceTitleType = 'personal' | 'enterprise';
@@ -173,6 +220,25 @@ export type PlatformAdminShipperInvoiceListResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type PlatformAdminShipperInvoiceReviewEventType =
+  | 'invoice_application_submitted'
+  | 'invoice_application_approved'
+  | 'invoice_application_rejected';
+
+export type PlatformAdminShipperInvoiceReviewEventStage =
+  | 'submitted'
+  | 'approved'
+  | 'rejected';
+
+export type PlatformAdminShipperInvoiceReviewEvent = {
+  eventId: string;
+  actorUserId?: string;
+  eventType: PlatformAdminShipperInvoiceReviewEventType;
+  stage: PlatformAdminShipperInvoiceReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
 };
 
 export type PlatformProfileInvoiceDownloadFile = {
@@ -488,6 +554,22 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         ).toString()}`,
       );
     },
+    async listAdminVerificationReviewEvents(shipperId: string) {
+      return platformGet<PlatformAdminShipperVerificationReviewEvent[]>(
+        config,
+        `/admin/shipper-verifications/${encodeURIComponent(
+          normalizeAdminShipperVerificationShipperId(shipperId),
+        )}/review-events`,
+      );
+    },
+    async listAdminVerificationAttachments(shipperId: string) {
+      return platformGet<PlatformAdminShipperVerificationAttachmentPreview>(
+        config,
+        `/admin/shipper-verifications/${encodeURIComponent(
+          normalizeAdminShipperVerificationShipperId(shipperId),
+        )}/attachments`,
+      );
+    },
     async reviewAdminIdentityVerification(
       shipperId: string,
       request: PlatformAdminShipperVerificationReviewRequest,
@@ -623,6 +705,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         `/admin/shipper-invoices?${new URLSearchParams(
           normalizedQuery,
         ).toString()}`,
+      );
+    },
+    async listAdminInvoiceApplicationReviewEvents(applicationId: string) {
+      return platformGet<PlatformAdminShipperInvoiceReviewEvent[]>(
+        config,
+        `/admin/shipper-invoices/${encodeURIComponent(
+          normalizeAdminShipperInvoiceApplicationId(applicationId),
+        )}/review-events`,
       );
     },
     async reviewAdminInvoiceApplication(
