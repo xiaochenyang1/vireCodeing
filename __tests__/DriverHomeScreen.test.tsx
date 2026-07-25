@@ -908,6 +908,108 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('联系人：钱店长 13900139002');
   });
 
+  it('switches the visible driver order detail context immediately before getOrder resolves', async () => {
+    const firstOrder = {
+      id: 'order-1',
+      orderNo: 'HY202607090020',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const secondOrder = {
+      ...firstOrder,
+      id: 'order-2',
+      orderNo: 'HY202607090021',
+      pickupAddress: '南山区科技园',
+      deliveryAddress: '宝安机场仓',
+      pickupContact: '王主管',
+      pickupPhone: '13900139008',
+      deliveryContact: '刘经理',
+      deliveryPhone: '13900139007',
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [firstOrder, secondOrder],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    let resolveSecondOrderDetail:
+      | ((value: typeof secondOrder) => void)
+      | undefined;
+    const pendingSecondOrderDetail = new Promise<typeof secondOrder>(resolve => {
+      resolveSecondOrderDetail = resolve;
+    });
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(firstOrder)
+      .mockReturnValueOnce(pendingSecondOrderDetail);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090020' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-order-route-HY202607090020',
+      }).props.children,
+    ).toBe('路线：宝安区福永物流园 → 龙岗区坂田仓');
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090021' })
+        .props.onPress();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-order-route-HY202607090021',
+      }).props.children,
+    ).toBe('路线：南山区科技园 → 宝安机场仓');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-order-route-HY202607090020',
+      }),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      resolveSecondOrderDetail?.(secondOrder);
+      await flushMicrotasks();
+    });
+  });
+
   it('shows the latest reported driver location snapshot after reporting sandbox order location', async () => {
     const order = {
       id: 'order-1',

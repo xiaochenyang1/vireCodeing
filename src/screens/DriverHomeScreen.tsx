@@ -1735,6 +1735,8 @@ export function DriverHomeScreen({
     setAppealDrafts({});
     setAppealingCaseId(undefined);
     setNavigationTargets([]);
+    setSelectedOrder(order);
+    setMyOrders(currentOrders => upsertOrder(currentOrders, order));
     setLatestReportedDriverLocation(undefined);
     setIsLoadingExceptionCases(true);
     refreshLatestReportedDriverLocation(order.id, { silentError: true }).catch(
