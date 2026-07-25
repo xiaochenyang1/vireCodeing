@@ -89,6 +89,7 @@ import {
   emptyWithdrawalForm,
   filterDriverOrderHallOrders,
   filterDriverOrderHallOrdersByLocalFilter,
+  formatDriverBankCardNumberInput,
   formatDriverCurrency,
   formatDriverIncomeTime,
   getCertificationStatusText,
@@ -2308,7 +2309,7 @@ export function DriverHomeScreen({
     const hasBankAccountName =
       withdrawalForm.bankAccountName.trim().length >= 2;
     const hasBankName = withdrawalForm.bankName.trim().length >= 2;
-    const bankAccountNo = withdrawalForm.bankAccountNo.replace(/\s+/g, '');
+    const bankAccountNo = withdrawalForm.bankAccountNo.replace(/\D+/g, '');
     const hasBankAccountNo = bankAccountNo.length > 0;
     const request = createDriverWithdrawalRequest(withdrawalForm);
 
@@ -2417,7 +2418,7 @@ export function DriverHomeScreen({
 
     const hasBankAccountName = bankCardForm.bankAccountName.trim().length >= 2;
     const hasBankName = bankCardForm.bankName.trim().length >= 2;
-    const hasBankAccountNo = bankCardForm.bankAccountNo.trim().length > 0;
+    const hasBankAccountNo = bankCardForm.bankAccountNo.replace(/\D+/g, '').length > 0;
 
     const submitPromise = editingBankCardId
       ? (() => {
@@ -3055,7 +3056,10 @@ export function DriverHomeScreen({
           keyboardType="numeric"
           value={withdrawalForm.bankAccountNo}
           onChangeText={bankAccountNo =>
-            updateWithdrawalForm(current => ({ ...current, bankAccountNo }))
+            updateWithdrawalForm(current => ({
+              ...current,
+              bankAccountNo: formatDriverBankCardNumberInput(bankAccountNo),
+            }))
           }
         />
         {selectedWithdrawalBankCard ? (
@@ -3153,7 +3157,9 @@ export function DriverHomeScreen({
                     onChangeText={bankAccountNo =>
                       setBankCardForm(current => ({
                         ...current,
-                        bankAccountNo: bankAccountNo,
+                        bankAccountNo: formatDriverBankCardNumberInput(
+                          bankAccountNo,
+                        ),
                       }))
                     }
                   />
@@ -3307,7 +3313,9 @@ export function DriverHomeScreen({
               onChangeText={bankAccountNo =>
                 setBankCardForm(current => ({
                   ...current,
-                  bankAccountNo: bankAccountNo,
+                  bankAccountNo: formatDriverBankCardNumberInput(
+                    bankAccountNo,
+                  ),
                 }))
               }
             />

@@ -1043,6 +1043,60 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('提现申请已提交审核。');
   });
 
+  it('sanitizes a pasted withdrawal bank card number before submit', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.createWithdrawal.mockResolvedValue({
+      id: 'withdrawal-sanitized',
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-name' })
+        .props.onChangeText('招商银行');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.onChangeText('李师傅');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText(' 6225-0000 abc0002 1234 ');
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('6225 0000 0002 1234');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.createWithdrawal).toHaveBeenCalledWith(
+      {
+        amountCents: 12000,
+        bankAccountName: '李师傅',
+        bankName: '招商银行',
+        bankAccountNo: '6225000000021234',
+      },
+      expect.stringMatching(uuidV4Pattern),
+    );
+  });
+
   it('restores the default withdrawal card after a successful withdrawal submit', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards.mockResolvedValue(
@@ -2223,6 +2277,67 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
     expect(getRenderedText(renderer)).toContain('银行卡已添加。');
     expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 5678');
+  });
+
+  it('sanitizes bank card number inputs in add and edit forms', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards.mockResolvedValue(
+      createDriverBankCardsPage(),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-bank-card-add' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-account-no' })
+        .props.onChangeText(' 6225-9999 xxxx0000 5678 ');
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: 'driver-bank-card-account-no' }).props
+        .value,
+    ).toBe('6225 9999 0000 5678');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-cancel' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-bank-card-1' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-edit-account-no-bank-card-1' })
+        .props.onChangeText('6225_0000 0002-1234');
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-edit-account-no-bank-card-1',
+      }).props.value,
+    ).toBe('6225 0000 0002 1234');
   });
 
   it('rejects adding a bank card when the card number fails checksum validation', async () => {

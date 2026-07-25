@@ -12,6 +12,7 @@ import {
   createShipperEvaluationRequest,
   driverExceptionTypeOptions,
   filterDriverOrderHallOrders,
+  formatDriverBankCardNumberInput,
   formatDriverCurrency,
   formatDriverIncomeTime,
   getCertificationStatusText,
@@ -269,6 +270,15 @@ test('validates driver bank card numbers with checksum and repeated-digit guards
   expect(isDriverBankCardNumberValid('6225 9999 0000 5678')).toBe(true);
   expect(isDriverBankCardNumberValid('6225 0000 0002 1235')).toBe(false);
   expect(isDriverBankCardNumberValid('1111 1111 1111 1111')).toBe(false);
+});
+
+test('formats driver bank card input by stripping non-digits, capping length and grouping digits', () => {
+  expect(formatDriverBankCardNumberInput(' 6225-0000 abc0002 1234 ')).toBe(
+    '6225 0000 0002 1234',
+  );
+  expect(
+    formatDriverBankCardNumberInput('1234-5678-9012-3456-7890-1234-5678-9012'),
+  ).toBe('1234 5678 9012 3456 7890 1234 5678 90');
 });
 
 test('detects whether the driver withdrawal form is still pristine', () => {

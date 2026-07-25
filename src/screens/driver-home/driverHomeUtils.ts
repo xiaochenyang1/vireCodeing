@@ -423,7 +423,13 @@ export function createAcceptanceSettingsRequest(
 }
 
 function normalizeDriverBankCardNumber(value: string) {
-  return value.replace(/\s+/g, '');
+  return value.replace(/\D+/g, '');
+}
+
+export function formatDriverBankCardNumberInput(value: string) {
+  const digits = normalizeDriverBankCardNumber(value).slice(0, 30);
+
+  return digits.match(/.{1,4}/g)?.join(' ') ?? '';
 }
 
 export function isDriverBankCardNumberValid(value: string) {
