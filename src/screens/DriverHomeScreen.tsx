@@ -887,9 +887,9 @@ export function DriverHomeScreen({
 
     return platformDriverOrderApi
       .listMyOrders({
-        statuses: ['loading', 'transporting', 'confirming'],
+        statuses: ['loading', 'transporting', 'confirming', 'completed'],
         page: 1,
-        pageSize: 20,
+        pageSize: 40,
       })
       .then(result => {
         setMyOrders(

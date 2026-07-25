@@ -969,6 +969,11 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
+    expect(platformDriverOrderApi.listMyOrders).toHaveBeenCalledWith({
+      statuses: ['loading', 'transporting', 'confirming', 'completed'],
+      page: 1,
+      pageSize: 40,
+    });
     expect(getDriverMyOrderCardTestIds(renderer)).toEqual([
       'driver-my-order-card-HY202607090013',
       'driver-my-order-card-HY202607090012',

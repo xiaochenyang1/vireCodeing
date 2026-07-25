@@ -31,8 +31,13 @@ export type PlatformDriverExecutingOrderStatus = Extract<
   'loading' | 'transporting' | 'confirming'
 >;
 
+export type PlatformDriverMyOrderStatus = Extract<
+  PlatformShipperOrderStatus,
+  'loading' | 'transporting' | 'confirming' | 'completed'
+>;
+
 export type PlatformDriverMyOrdersQuery = {
-  statuses?: PlatformDriverExecutingOrderStatus[];
+  statuses?: PlatformDriverMyOrderStatus[];
   page?: number;
   pageSize?: number;
 };
@@ -201,6 +206,10 @@ const DRIVER_EXECUTING_ORDER_STATUSES: PlatformDriverExecutingOrderStatus[] = [
   'loading',
   'transporting',
   'confirming',
+];
+const DRIVER_MY_ORDER_STATUSES: PlatformDriverMyOrderStatus[] = [
+  ...DRIVER_EXECUTING_ORDER_STATUSES,
+  'completed',
 ];
 
 const DRIVER_ADVANCE_ORDER_STATUSES: PlatformDriverAdvanceOrderStatusRequest['nextStatus'][] = [
@@ -504,7 +513,7 @@ function createMyOrdersPath(query: PlatformDriverMyOrdersQuery) {
   const searchParams = new URLSearchParams();
 
   if (query.statuses !== undefined) {
-    assertValidDriverExecutingStatuses(query.statuses);
+    assertValidDriverMyOrderStatuses(query.statuses);
     searchParams.set('statuses', query.statuses.join(','));
   }
 
@@ -1399,7 +1408,7 @@ function normalizeDriverOrderMutationBaseUpdatedAtIso(
   return normalizedValue;
 }
 
-function assertValidDriverExecutingStatuses(value: unknown) {
+function assertValidDriverMyOrderStatuses(value: unknown) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new PlatformApiError(
       'Platform driver statuses are invalid',
@@ -1412,7 +1421,7 @@ function assertValidDriverExecutingStatuses(value: unknown) {
 
   if (
     uniqueStatuses.size !== value.length ||
-    !value.every(status => DRIVER_EXECUTING_ORDER_STATUSES.includes(status))
+    !value.every(status => DRIVER_MY_ORDER_STATUSES.includes(status))
   ) {
     throw new PlatformApiError(
       'Platform driver statuses are invalid',

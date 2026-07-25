@@ -217,7 +217,7 @@ describe('platform driver order api', () => {
 
     await expect(
       api.listMyOrders({
-        statuses: ['loading', 'transporting'],
+        statuses: ['loading', 'transporting', 'completed'],
         page: 1,
         pageSize: 20,
       }),
@@ -226,7 +226,7 @@ describe('platform driver order api', () => {
       total: 1,
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/driver/orders?statuses=loading%2Ctransporting&page=1&pageSize=20',
+      'http://localhost:3000/api/driver/orders?statuses=loading%2Ctransporting%2Ccompleted&page=1&pageSize=20',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -968,6 +968,7 @@ describe('platform driver order api', () => {
   it.each([
     [[], 'empty statuses'],
     [['waiting'], 'non-executing status'],
+    [['cancelled'], 'non-driver my-order status'],
     [['loading', 'loading'], 'duplicate statuses'],
   ])(
     'rejects invalid driver my-orders statuses before sending them: %s',
@@ -983,7 +984,7 @@ describe('platform driver order api', () => {
       await expect(
         api.listMyOrders({
           statuses:
-            statuses as unknown as import('../src/services/platformDriverOrderApi').PlatformDriverExecutingOrderStatus[],
+            statuses as unknown as import('../src/services/platformDriverOrderApi').PlatformDriverMyOrderStatus[],
         }),
       ).rejects.toMatchObject({
         code: 'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID',
