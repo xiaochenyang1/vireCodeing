@@ -1365,6 +1365,19 @@ function installPlatformFetchMock(fetchMock: jest.Mock) {
       );
     }
 
+    if (
+      requestUrl.endsWith('/driver/location') &&
+      (!init?.method || init.method === 'GET')
+    ) {
+      return Promise.resolve(
+        createPlatformApiErrorResponse(
+          404,
+          'DRIVER_LOCATION_NOT_FOUND',
+          'driver location not found',
+        ),
+      );
+    }
+
     return fetchMock(input, init);
   }) as typeof fetch;
 }
@@ -2401,7 +2414,7 @@ test('syncs the platform authenticated phone into local profile account state', 
     });
 
     expect(getRenderedText(app)).toContain(
-      '验证码已发送到 138****8000，请输入收到的验证码完成验证。 开发环境验证码：888888。',
+      '验证码已发送到 139****9999，请输入收到的验证码完成验证。 开发环境验证码：999999。',
     );
     expect(getRenderedText(app)).not.toContain('等待平台接口验证');
 
@@ -4922,12 +4935,16 @@ test('publishes a local order with an expected delivery time preference', async 
   const storedState = await getStoredSnapshot<{
     state: {
       orders: Array<{
+        id: string;
         expectedDeliveryTimeText?: string;
       }>;
     };
   }>('@vireCodeing/app-runtime-state');
 
-  expect(storedState.state.orders[0].expectedDeliveryTimeText).toBe('尽快送达');
+  expect(
+    storedState.state.orders.find(order => order.id === 'HYLOCAL001')
+      ?.expectedDeliveryTimeText,
+  ).toBe('尽快送达');
 });
 
 test('publishes a local order with cargo volume', async () => {
@@ -27810,13 +27827,16 @@ test('persists local profile settings and verification records to device storage
       .props.onPress();
   });
 
-  expect(getProfileLocalState().identityVerification).toEqual({
+  expect(getProfileLocalState().identityVerification).toMatchObject({
     realName: '张先生',
     idNumber: '440300199001011234',
     identityPhotoCount: 2,
     faceVerified: true,
     status: 'reviewing',
   });
+  expect(getProfileLocalState().identityVerification?.updatedAtIso).toEqual(
+    expect.any(String),
+  );
 
   await flushMicrotasks();
 
@@ -27832,6 +27852,8 @@ test('persists local profile settings and verification records to device storage
         idNumber: string;
         identityPhotoCount: number;
         faceVerified: boolean;
+        status: string;
+        updatedAtIso?: string;
       };
     };
   }>('@vireCodeing/profile-local-state');
@@ -27841,13 +27863,16 @@ test('persists local profile settings and verification records to device storage
     boundPhone: '13900139999',
     avatarPhotoCount: 1,
   });
-  expect(storedState.state.identityVerification).toEqual({
+  expect(storedState.state.identityVerification).toMatchObject({
     realName: '张先生',
     idNumber: '440300199001011234',
     identityPhotoCount: 2,
     faceVerified: true,
     status: 'reviewing',
   });
+  expect(storedState.state.identityVerification?.updatedAtIso).toEqual(
+    expect.any(String),
+  );
 });
 
 test('attaches platform file objects to identity verification photos', async () => {
