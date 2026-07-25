@@ -35,6 +35,7 @@ import {
   getNextInvoiceOrderSelection,
   getOccupiedInvoiceOrderIds,
   getSelectedInvoiceSummary,
+  sortInvoicesByLatestActivity,
   invoiceTitleOptions,
   invoiceTypeOptions,
   validateInvoiceSubmission,
@@ -151,6 +152,10 @@ export function InvoiceRecords({
   const visibleInvoices = isPlatformMode
     ? invoices.filter(item => invoiceDetails[item.id]?.platformSynced)
     : invoices;
+  const sortedVisibleInvoices = sortInvoicesByLatestActivity(
+    visibleInvoices,
+    invoiceDetails,
+  );
   const invoiceableOrders = getAvailableInvoiceableOrders(
     createInvoiceableOrders(orders, {
       platformOnly: isPlatformMode,
@@ -601,17 +606,21 @@ export function InvoiceRecords({
       {isPlatformMode ? (
         <Text style={styles.draftSectionTitle}>平台申请记录</Text>
       ) : null}
-      {visibleInvoices.length === 0 && isPlatformMode ? (
+      {sortedVisibleInvoices.length === 0 && isPlatformMode ? (
         <Text style={styles.routeMeta}>暂无平台发票申请记录</Text>
       ) : null}
-      {visibleInvoices.map(item => {
+      {sortedVisibleInvoices.map(item => {
         const details = invoiceDetails[item.id];
         const rejectionReason = invoiceRejectionReasons[item.id];
         const latestHistoryEntry =
           details?.historyEntries?.[details.historyEntries.length - 1];
 
         return (
-          <View key={item.id} style={styles.driverInfoCard}>
+          <View
+            key={item.id}
+            testID={`invoice-card-${item.id}`}
+            style={styles.driverInfoCard}
+          >
             <View style={styles.routeHeader}>
               <Text style={styles.routeName}>{item.title}</Text>
               <Text style={styles.routeAction}>{item.statusText}</Text>

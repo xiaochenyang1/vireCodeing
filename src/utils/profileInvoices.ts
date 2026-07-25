@@ -32,6 +32,11 @@ export type PlatformInvoiceApplicationSnapshot = {
   updatedAtIso: string;
 };
 
+type InvoiceActivitySnapshot = Pick<
+  InvoiceApplicationDetails,
+  'updatedAtIso' | 'submittedAtIso'
+>;
+
 export const invoiceTypeOptions: Array<{
   id: InvoiceTypeOption;
   label: string;
@@ -182,6 +187,65 @@ export function createPlatformInvoiceOrderSelectionId(orderId: string) {
   return `invoice-order-platform-${orderId}`;
 }
 
+function getPlatformInvoiceApplicationSortIso(
+  application: PlatformInvoiceApplicationSnapshot,
+) {
+  return application.updatedAtIso ?? application.createdAtIso;
+}
+
+function sortPlatformInvoiceApplications(
+  applications: PlatformInvoiceApplicationSnapshot[],
+) {
+  return applications
+    .map((application, index) => ({
+      application,
+      index,
+      sortIso: getPlatformInvoiceApplicationSortIso(application),
+    }))
+    .sort((left, right) => {
+      const diff = right.sortIso.localeCompare(left.sortIso);
+
+      if (diff !== 0) {
+        return diff;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({application}) => application);
+}
+
+function getInvoiceActivitySortIso(details?: InvoiceActivitySnapshot) {
+  return details?.updatedAtIso ?? details?.submittedAtIso;
+}
+
+export function sortInvoicesByLatestActivity<T extends {id: string}>(
+  invoices: T[],
+  invoiceDetails: Partial<Record<string, InvoiceActivitySnapshot | undefined>>,
+) {
+  return invoices
+    .map((item, index) => ({
+      item,
+      index,
+      sortIso: getInvoiceActivitySortIso(invoiceDetails[item.id]),
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = right.sortIso.localeCompare(left.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({item}) => item);
+}
+
 export function isPlatformInvoiceApplicationSnapshot(
   value: unknown,
 ): value is PlatformInvoiceApplicationSnapshot {
@@ -246,9 +310,7 @@ export function getInvoiceTitleText({
 export function createLocalInvoiceStateFromPlatformApplications(
   applications: PlatformInvoiceApplicationSnapshot[],
 ) {
-  const sortedApplications = [...applications].sort((left, right) =>
-    right.createdAtIso.localeCompare(left.createdAtIso),
-  );
+  const sortedApplications = sortPlatformInvoiceApplications(applications);
   const invoices: InvoiceItem[] = [];
   const invoiceDetails: Record<string, InvoiceApplicationDetails> = {};
   const invoiceRejectionReasons: InvoiceRejectionReasons = {};
@@ -344,7 +406,7 @@ export function createLocalInvoiceStateFromPlatformApplications(
   const latestApplication = sortedApplications[0];
 
   return {
-    invoices,
+    invoices: sortInvoicesByLatestActivity(invoices, invoiceDetails),
     invoiceDetails,
     invoiceRejectionReasons,
     ...(latestApplication
@@ -458,60 +520,63 @@ export function createSubmittedInvoiceChanges({
 
   delete nextRejectionReasons[invoiceId];
 
-  return {
-    invoices: invoices.map(item =>
-      item.id === invoiceId
-        ? {
-            ...item,
-            title: invoiceTitleText,
-            statusText: '申请中',
-            typeText: invoiceTypeText,
-            amountText: `待开票 ${invoiceAmountText}`,
-          }
-        : item,
-    ),
-    invoiceRejectionReasons: nextRejectionReasons,
-    invoiceDetails: {
-      ...invoiceDetails,
-      [invoiceId]: {
-        invoiceTypeText,
-        invoiceTitleText,
-        receiverEmail,
-        selectedOrderIds: selectedOrders.map(item => item.id),
-        selectedOrderText,
-        invoiceAmountText,
-        submittedAtText: currentTimeText,
-        submittedAtIso: currentTimeIso,
-        updatedAtText: currentTimeText,
-        updatedAtIso: currentTimeIso,
-        approvedAtText: undefined,
-        approvedAtIso: undefined,
-        rejectedAtText: undefined,
-        rejectedAtIso: undefined,
-        downloadedAtText: undefined,
-        downloadedAtIso: undefined,
-        statusHistory: appendInvoiceHistory(currentDetails?.statusHistory, {
-          actionText:
-            targetInvoice.statusText === '已驳回' ? '重新提交' : '申请提交',
-          timestampText: currentTimeText,
-          timestampIso: currentTimeIso,
+  const nextInvoiceDetails = {
+    ...invoiceDetails,
+    [invoiceId]: {
+      invoiceTypeText,
+      invoiceTitleText,
+      receiverEmail,
+      selectedOrderIds: selectedOrders.map(item => item.id),
+      selectedOrderText,
+      invoiceAmountText,
+      submittedAtText: currentTimeText,
+      submittedAtIso: currentTimeIso,
+      updatedAtText: currentTimeText,
+      updatedAtIso: currentTimeIso,
+      approvedAtText: undefined,
+      approvedAtIso: undefined,
+      rejectedAtText: undefined,
+      rejectedAtIso: undefined,
+      downloadedAtText: undefined,
+      downloadedAtIso: undefined,
+      statusHistory: appendInvoiceHistory(currentDetails?.statusHistory, {
+        actionText:
+          targetInvoice.statusText === '已驳回' ? '重新提交' : '申请提交',
+        timestampText: currentTimeText,
+        timestampIso: currentTimeIso,
+      }),
+      historyEntries: [
+        ...(currentDetails?.historyEntries ?? []),
+        createInvoiceHistoryEntry({
+          invoiceId,
+          sequenceNumber: (currentDetails?.historyEntries?.length ?? 0) + 1,
+          titleText: invoiceTitleText,
+          typeText: invoiceTypeText,
+          amountText: invoiceAmountText,
+          orderText: selectedOrderText,
+          submittedAtText: currentTimeText,
+          submittedAtIso: currentTimeIso,
+          receiverEmail,
         }),
-        historyEntries: [
-          ...(currentDetails?.historyEntries ?? []),
-          createInvoiceHistoryEntry({
-            invoiceId,
-            sequenceNumber: (currentDetails?.historyEntries?.length ?? 0) + 1,
-            titleText: invoiceTitleText,
-            typeText: invoiceTypeText,
-            amountText: invoiceAmountText,
-            orderText: selectedOrderText,
-            submittedAtText: currentTimeText,
-            submittedAtIso: currentTimeIso,
-            receiverEmail,
-          }),
-        ],
-      },
+      ],
     },
+  };
+  const nextInvoices = invoices.map(item =>
+    item.id === invoiceId
+      ? {
+          ...item,
+          title: invoiceTitleText,
+          statusText: '申请中',
+          typeText: invoiceTypeText,
+          amountText: `待开票 ${invoiceAmountText}`,
+        }
+      : item,
+  );
+
+  return {
+    invoices: sortInvoicesByLatestActivity(nextInvoices, nextInvoiceDetails),
+    invoiceRejectionReasons: nextRejectionReasons,
+    invoiceDetails: nextInvoiceDetails,
     selectedInvoiceOrderIds: selectedInvoiceOrderIds.filter(
       orderId => !selectedOrderIdSet.has(orderId),
     ),
@@ -533,47 +598,49 @@ export function createApprovedInvoiceChanges({
 }) {
   const currentDetails = invoiceDetails[invoiceId];
   const invoiceAmountText = currentDetails?.invoiceAmountText;
+  const nextInvoiceDetails = currentDetails
+    ? {
+        ...invoiceDetails,
+        [invoiceId]: {
+          ...currentDetails,
+          updatedAtText: currentTimeText,
+          updatedAtIso: currentTimeIso,
+          approvedAtText: currentTimeText,
+          approvedAtIso: currentTimeIso,
+          statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
+            actionText: '审核通过',
+            timestampText: currentTimeText,
+            timestampIso: currentTimeIso,
+          }),
+          historyEntries: updateLatestInvoiceHistoryEntry(
+            currentDetails.historyEntries,
+            currentEntry => ({
+              ...currentEntry,
+              updatedAtText: currentTimeText,
+              updatedAtIso: currentTimeIso,
+              statusText: '已开票',
+              approvedAtText: currentTimeText,
+              approvedAtIso: currentTimeIso,
+            }),
+          ),
+        },
+      }
+    : invoiceDetails;
+  const nextInvoices = invoices.map(item =>
+    item.id === invoiceId
+      ? {
+          ...item,
+          statusText: '已开票',
+          amountText: invoiceAmountText
+            ? `已开票 ${invoiceAmountText}`
+            : item.amountText,
+        }
+      : item,
+  );
 
   return {
-    invoices: invoices.map(item =>
-      item.id === invoiceId
-        ? {
-            ...item,
-            statusText: '已开票',
-            amountText: invoiceAmountText
-              ? `已开票 ${invoiceAmountText}`
-              : item.amountText,
-          }
-        : item,
-    ),
-    invoiceDetails: currentDetails
-      ? {
-          ...invoiceDetails,
-          [invoiceId]: {
-            ...currentDetails,
-            updatedAtText: currentTimeText,
-            updatedAtIso: currentTimeIso,
-            approvedAtText: currentTimeText,
-            approvedAtIso: currentTimeIso,
-            statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
-              actionText: '审核通过',
-              timestampText: currentTimeText,
-              timestampIso: currentTimeIso,
-            }),
-            historyEntries: updateLatestInvoiceHistoryEntry(
-              currentDetails.historyEntries,
-              currentEntry => ({
-                ...currentEntry,
-                updatedAtText: currentTimeText,
-                updatedAtIso: currentTimeIso,
-                statusText: '已开票',
-                approvedAtText: currentTimeText,
-                approvedAtIso: currentTimeIso,
-              }),
-            ),
-          },
-        }
-      : invoiceDetails,
+    invoices: sortInvoicesByLatestActivity(nextInvoices, nextInvoiceDetails),
+    invoiceDetails: nextInvoiceDetails,
   };
 }
 
@@ -595,53 +662,55 @@ export function createRejectedInvoiceChanges({
   currentTimeIso?: string;
 }) {
   const currentDetails = invoiceDetails[invoiceId];
+  const nextInvoiceDetails = currentDetails
+    ? {
+        ...invoiceDetails,
+        [invoiceId]: {
+          ...currentDetails,
+          updatedAtText: currentTimeText,
+          updatedAtIso: currentTimeIso,
+          rejectedAtText: currentTimeText,
+          rejectedAtIso: currentTimeIso,
+          approvedAtText: undefined,
+          approvedAtIso: undefined,
+          downloadedAtText: undefined,
+          downloadedAtIso: undefined,
+          statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
+            actionText: '审核驳回',
+            timestampText: currentTimeText,
+            timestampIso: currentTimeIso,
+            noteText: `驳回说明：${rejectionReason}`,
+          }),
+          historyEntries: updateLatestInvoiceHistoryEntry(
+            currentDetails.historyEntries,
+            currentEntry => ({
+              ...currentEntry,
+              updatedAtText: currentTimeText,
+              updatedAtIso: currentTimeIso,
+              statusText: '已驳回',
+              rejectionReasonText: rejectionReason,
+              rejectedAtText: currentTimeText,
+              rejectedAtIso: currentTimeIso,
+              approvedAtText: undefined,
+              approvedAtIso: undefined,
+              downloadedAtText: undefined,
+              downloadedAtIso: undefined,
+            }),
+          ),
+        },
+      }
+    : invoiceDetails;
+  const nextInvoices = invoices.map(item =>
+    item.id === invoiceId ? {...item, statusText: '已驳回'} : item,
+  );
 
   return {
-    invoices: invoices.map(item =>
-      item.id === invoiceId ? {...item, statusText: '已驳回'} : item,
-    ),
+    invoices: sortInvoicesByLatestActivity(nextInvoices, nextInvoiceDetails),
     invoiceRejectionReasons: {
       ...invoiceRejectionReasons,
       [invoiceId]: rejectionReason,
     },
-    invoiceDetails: currentDetails
-      ? {
-          ...invoiceDetails,
-          [invoiceId]: {
-            ...currentDetails,
-            updatedAtText: currentTimeText,
-            updatedAtIso: currentTimeIso,
-            rejectedAtText: currentTimeText,
-            rejectedAtIso: currentTimeIso,
-            approvedAtText: undefined,
-            approvedAtIso: undefined,
-            downloadedAtText: undefined,
-            downloadedAtIso: undefined,
-            statusHistory: appendInvoiceHistory(currentDetails.statusHistory, {
-              actionText: '审核驳回',
-              timestampText: currentTimeText,
-              timestampIso: currentTimeIso,
-              noteText: `驳回说明：${rejectionReason}`,
-            }),
-            historyEntries: updateLatestInvoiceHistoryEntry(
-              currentDetails.historyEntries,
-              currentEntry => ({
-                ...currentEntry,
-                updatedAtText: currentTimeText,
-                updatedAtIso: currentTimeIso,
-                statusText: '已驳回',
-                rejectionReasonText: rejectionReason,
-                rejectedAtText: currentTimeText,
-                rejectedAtIso: currentTimeIso,
-                approvedAtText: undefined,
-                approvedAtIso: undefined,
-                downloadedAtText: undefined,
-                downloadedAtIso: undefined,
-              }),
-            ),
-          },
-        }
-      : invoiceDetails,
+    invoiceDetails: nextInvoiceDetails,
   };
 }
 

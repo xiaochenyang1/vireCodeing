@@ -1668,6 +1668,20 @@ function getSupportTicketCardTestIds(app: AppRenderer) {
   );
 }
 
+function getInvoiceCardTestIds(app: AppRenderer) {
+  return Array.from(
+    new Set(
+      app.root
+        .findAll(
+          node =>
+            typeof node.props.testID === 'string' &&
+            node.props.testID.startsWith('invoice-card-'),
+        )
+        .map(node => node.props.testID),
+    ),
+  );
+}
+
 async function getStoredSnapshot<T>(key: string): Promise<T> {
   const storedValue = await AsyncStorage.getItem(key);
 
@@ -13505,6 +13519,140 @@ test('manual refreshes platform invoice records from profile', async () => {
         }),
       }),
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sorts platform invoice records by latest update time after loading profile invoices', async () => {
+  const platformInvoiceSpendingSnapshot = {
+    shipperId: 'user-platform-invoice-sorted-load',
+    summary: {
+      completedTotalCents: 0,
+      activeTotalCents: 0,
+      refundTotalCents: 0,
+    },
+    items: [],
+  };
+  const createdLaterButUpdatedEarlierInvoice = {
+    id: 'invoice-platform-created-first',
+    shipperId: 'user-platform-invoice-sorted-load',
+    invoiceType: 'normal' as const,
+    invoiceTitleType: 'personal' as const,
+    invoiceTitle: '平台发票 A',
+    receiverEmail: 'invoice-a@platform.test',
+    orderIds: ['platform-order-invoice-sorted-1'],
+    orderNos: ['HY202607100001'],
+    amountCents: 43000,
+    status: 'reviewing' as const,
+    createdAtIso: '2026-07-10T08:00:00.000Z',
+    updatedAtIso: '2026-07-10T08:05:00.000Z',
+  };
+  const createdEarlierButUpdatedLaterInvoice = {
+    id: 'invoice-platform-updated-first',
+    shipperId: 'user-platform-invoice-sorted-load',
+    invoiceType: 'vat-special' as const,
+    invoiceTitleType: 'enterprise' as const,
+    invoiceTitle: '平台发票 B',
+    receiverEmail: 'invoice-b@platform.test',
+    orderIds: ['platform-order-invoice-sorted-2'],
+    orderNos: ['HY202607090001'],
+    amountCents: 65000,
+    status: 'approved' as const,
+    createdAtIso: '2026-07-09T08:00:00.000Z',
+    updatedAtIso: '2026-07-11T09:00:00.000Z',
+  };
+  const originalFetch = globalThis.fetch;
+  const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (requestUrl === 'http://localhost:3000/api/auth/send-code') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          expireSeconds: 300,
+          devCode: '999999',
+        }),
+      );
+    }
+
+    if (requestUrl === 'http://localhost:3000/api/auth/login') {
+      return Promise.resolve(
+        createPlatformApiResponse({
+          user: {
+            id: 'user-platform-invoice-sorted-load',
+            phone: '13800138000',
+            userType: 'shipper',
+          },
+          tokens: {
+            accessToken: 'access.platform-invoice-sorted-load',
+            refreshToken: 'refresh.550e8400-e29b-41d4-a716-446655440136',
+            expiresIn: 3600,
+          },
+        }),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/address-book' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(createPlatformApiResponse(null));
+    }
+
+    if (
+      requestUrl ===
+        'http://localhost:3000/api/shipper/profile/spending-records' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse(platformInvoiceSpendingSnapshot),
+      );
+    }
+
+    if (
+      requestUrl === 'http://localhost:3000/api/shipper/profile/invoices' &&
+      init?.method === 'GET'
+    ) {
+      return Promise.resolve(
+        createPlatformApiResponse([
+          createdLaterButUpdatedEarlierInvoice,
+          createdEarlierButUpdatedLaterInvoice,
+        ]),
+      );
+    }
+
+    throw new Error(`Unexpected request: ${requestUrl}`);
+  });
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(1000, {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+
+    await loginToHomeWithPlatformAuth(app);
+
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'profile-entry-invoices' }).props.onPress();
+      await flushMicrotasks();
+      await flushMacrotask();
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(app)).toContain('平台发票 A');
+    expect(getRenderedText(app)).toContain('平台发票 B');
+    expect(getProfileLocalState().invoices.map(item => item.id)).toEqual([
+      'invoice-platform-updated-first',
+      'invoice-platform-created-first',
+    ]);
+    expect(getInvoiceCardTestIds(app)).toEqual([
+      'invoice-card-invoice-platform-updated-first',
+      'invoice-card-invoice-platform-created-first',
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }

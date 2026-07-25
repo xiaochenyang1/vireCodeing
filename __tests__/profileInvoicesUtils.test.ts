@@ -18,6 +18,7 @@ import {
   getOccupiedInvoiceOrderIds,
   getSelectedInvoiceSummary,
   isPlatformInvoiceApplicationSnapshot,
+  sortInvoicesByLatestActivity,
   validateInvoiceSubmission,
   type ProfileInvoiceableOrderItem,
 } from '../src/utils/profileInvoices';
@@ -485,6 +486,75 @@ describe('profile invoice utils', () => {
     expect(nextState.receiverEmail).toBe('vat@example.com');
   });
 
+  it('sorts platform invoice applications by latest updatedAtIso before deriving local state', () => {
+    const olderCreatedButLaterUpdatedApplication = {
+      id: 'invoice-platform-updated-first',
+      invoiceType: 'vat-special' as const,
+      invoiceTitleType: 'enterprise' as const,
+      invoiceTitle: '深圳晨星贸易有限公司',
+      receiverEmail: 'latest@example.com',
+      orderIds: ['platform-order-latest'],
+      orderNos: ['HY202607110001'],
+      amountCents: 88000,
+      status: 'approved' as const,
+      createdAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-11T09:00:00.000Z',
+    };
+    const newerCreatedButEarlierUpdatedApplication = {
+      id: 'invoice-platform-created-first',
+      invoiceType: 'normal' as const,
+      invoiceTitleType: 'personal' as const,
+      invoiceTitle: '张先生',
+      receiverEmail: 'older@example.com',
+      orderIds: ['platform-order-older'],
+      orderNos: ['HY202607100001'],
+      amountCents: 26000,
+      status: 'reviewing' as const,
+      createdAtIso: '2026-07-10T08:00:00.000Z',
+      updatedAtIso: '2026-07-10T08:05:00.000Z',
+    };
+
+    const nextState = createLocalInvoiceStateFromPlatformApplications([
+      newerCreatedButEarlierUpdatedApplication,
+      olderCreatedButLaterUpdatedApplication,
+    ]);
+
+    expect(nextState.invoices.map(item => item.id)).toEqual([
+      'invoice-platform-updated-first',
+      'invoice-platform-created-first',
+    ]);
+    expect(nextState.invoiceType).toBe('vat-special');
+    expect(nextState.invoiceTitle).toBe('enterprise');
+    expect(nextState.receiverEmail).toBe('latest@example.com');
+  });
+
+  it('sorts invoice items by latest updatedAtIso or submittedAtIso descending', () => {
+    expect(
+      sortInvoicesByLatestActivity(
+        [
+          baseInvoices[1],
+          baseInvoices[0],
+          {
+            id: 'invoice-legacy',
+            title: '旧发票',
+            typeText: '电子普通发票',
+            amountText: '待开票 ￥1',
+            statusText: '待提交',
+          },
+        ],
+        {
+          'invoice-1': {
+            submittedAtIso: '2026-06-30T02:00:00.000Z',
+            updatedAtIso: '2026-06-30T02:05:00.000Z',
+          },
+          'invoice-2': {
+            submittedAtIso: '2026-06-30T01:30:00.000Z',
+          },
+        },
+      ).map(item => item.id),
+    ).toEqual(['invoice-1', 'invoice-2', 'invoice-legacy']);
+  });
+
   it('creates submitted invoice state and clears stale rejection reason', () => {
     const rejectionReasons: InvoiceRejectionReasons = {
       'invoice-1': '企业认证信息待补充',
@@ -565,6 +635,42 @@ describe('profile invoice utils', () => {
         },
       ],
     });
+  });
+
+  it('resorts invoices after submitting a newer local invoice application', () => {
+    const existingDetails: Record<string, InvoiceApplicationDetails> = {
+      'invoice-2': {
+        invoiceTypeText: '电子普通发票',
+        invoiceTitleText: '旧抬头',
+        receiverEmail: 'old@example.com',
+        selectedOrderIds: ['invoice-order-2'],
+        selectedOrderText: 'HY20260618002',
+        invoiceAmountText: '￥260',
+        submittedAtIso: '2026-06-30T01:00:00.000Z',
+        updatedAtIso: '2026-06-30T01:00:00.000Z',
+      },
+    };
+
+    const changes = createSubmittedInvoiceChanges({
+      invoiceId: 'invoice-1',
+      invoices: [baseInvoices[1], baseInvoices[0]],
+      invoiceDetails: existingDetails,
+      invoiceRejectionReasons: {},
+      selectedOrders: [invoiceableOrders[0]],
+      selectedInvoiceOrderIds: ['invoice-order-1'],
+      invoiceTypeText: '电子普通发票',
+      invoiceTitleText: '新抬头',
+      receiverEmail: 'new@example.com',
+      selectedOrderText: 'HY20260620003',
+      invoiceAmountText: '￥310',
+      currentTimeText: '2026-06-30 10:00',
+      currentTimeIso: '2026-06-30T02:00:00.000Z',
+    });
+
+    expect(changes?.invoices.map(item => item.id)).toEqual([
+      'invoice-1',
+      'invoice-2',
+    ]);
   });
 
   it('keeps history when resubmitting a rejected invoice', () => {
