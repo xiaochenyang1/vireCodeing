@@ -1458,6 +1458,180 @@ describe('DriverHomeScreen certification uploads', () => {
     );
   });
 
+  it('clears an auto-selected withdrawal card when the platform no longer has any default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(createDriverBankCardsPage())
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'bank-card-1',
+            bankAccountName: '李师傅',
+            bankName: '招商银行',
+            bankAccountMasked: '**** **** **** 1234',
+            isDefault: false,
+            createdAtIso: '2026-07-09T02:20:00.000Z',
+            updatedAtIso: '2026-07-09T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 8888 0000 1234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
+        .value,
+    ).toBe('120');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-withdrawal-selected-bank-card',
+      }),
+    ).toHaveLength(0);
+  });
+
+  it('resumes following a new default withdrawal card after the auto-default selection temporarily loses any default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards
+      .mockResolvedValueOnce(createDriverBankCardsPage())
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'bank-card-1',
+            bankAccountName: '李师傅',
+            bankName: '招商银行',
+            bankAccountMasked: '**** **** **** 1234',
+            isDefault: false,
+            createdAtIso: '2026-07-09T02:20:00.000Z',
+            updatedAtIso: '2026-07-09T03:00:00.000Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'bank-card-2',
+            bankAccountName: '王师傅',
+            bankName: '平安银行',
+            bankAccountMasked: '**** **** **** 5678',
+            isDefault: true,
+            createdAtIso: '2026-07-09T03:20:00.000Z',
+            updatedAtIso: '2026-07-09T03:20:00.000Z',
+          },
+          {
+            id: 'bank-card-1',
+            bankAccountName: '李师傅',
+            bankName: '招商银行',
+            bankAccountMasked: '**** **** **** 1234',
+            isDefault: false,
+            createdAtIso: '2026-07-09T02:20:00.000Z',
+            updatedAtIso: '2026-07-09T03:20:00.000Z',
+          },
+        ],
+        total: 2,
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 8888 0000 1234');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-withdrawal-selected-bank-card',
+      }),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(3);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
+        .value,
+    ).toBe('120');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('平安银行');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('王师傅');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('');
+    expect(getRenderedText(renderer)).toContain(
+      '当前提现银行卡：平安银行 · **** **** **** 5678',
+    );
+  });
+
   it('keeps a manually selected withdrawal card when the platform default card changes', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards

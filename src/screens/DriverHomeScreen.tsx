@@ -954,6 +954,11 @@ export function DriverHomeScreen({
           const selectedCard = current.selectedBankCardId
             ? items.find(item => item.id === current.selectedBankCardId)
             : undefined;
+          const hasWithdrawalBankCardSnapshot =
+            Boolean(current.selectedBankCardId) ||
+            current.bankAccountName.trim().length > 0 ||
+            current.bankName.trim().length > 0 ||
+            current.bankAccountNo.replace(/\s+/g, '').length > 0;
           if (selectedCard) {
             if (
               current.selectedBankCardSource === 'default' &&
@@ -967,6 +972,21 @@ export function DriverHomeScreen({
                 bankName: defaultCard.bankName,
                 bankAccountNo: '',
                 selectedBankCardId: defaultCard.id,
+                selectedBankCardSource: 'default',
+              };
+            }
+
+            if (
+              current.selectedBankCardSource === 'default' &&
+              !defaultCard
+            ) {
+              withdrawalIdempotencyKeyRef.current = undefined;
+              return {
+                ...current,
+                bankAccountName: '',
+                bankName: '',
+                bankAccountNo: '',
+                selectedBankCardId: undefined,
                 selectedBankCardSource: 'default',
               };
             }
@@ -997,6 +1017,22 @@ export function DriverHomeScreen({
               bankName: defaultCard.bankName,
               bankAccountNo: '',
               selectedBankCardId: defaultCard.id,
+              selectedBankCardSource: 'default',
+            };
+          }
+
+          if (current.selectedBankCardSource === 'default') {
+            if (!hasWithdrawalBankCardSnapshot) {
+              return current;
+            }
+
+            withdrawalIdempotencyKeyRef.current = undefined;
+            return {
+              ...current,
+              bankAccountName: '',
+              bankName: '',
+              bankAccountNo: '',
+              selectedBankCardId: undefined,
               selectedBankCardSource: 'default',
             };
           }
