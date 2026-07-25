@@ -1557,6 +1557,113 @@ describe('platform order api', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('lists admin order attachment audits with normalized query filters', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse({
+        items: [createAdminOrderAttachmentAuditSummary()],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminOrderAttachmentAudits({
+        status: 'waiting',
+        keyword: '  南山门店  ',
+        shipperId: ' shipper-1 ',
+        createdFromIso: ' 2026-07-01T00:00:00.000Z ',
+        createdToIso: ' 2026-07-03T00:00:00.000Z ',
+        hasMissingFiles: true,
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ orderId: 'order-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/attachments?status=waiting&keyword=%E5%8D%97%E5%B1%B1%E9%97%A8%E5%BA%97&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=1&pageSize=20&shipperId=shipper-1&hasMissingFiles=true',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('gets admin order attachment audit detail by normalized order id', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(createAdminOrderAttachmentAudit()),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminOrderAttachmentAudit(' order-1 '),
+    ).resolves.toMatchObject({
+      orderId: 'order-1',
+      cargo: {
+        fileIds: ['cargo-file-1'],
+      },
+      events: [expect.objectContaining({ eventId: 'event-1' })],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/orders/order-1/attachments',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    );
+  });
+
+  it('rejects invalid admin order attachment queries before sending them', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const invalidHasMissingFilesQuery = {
+      hasMissingFiles: 'true',
+      page: 1,
+      pageSize: 20,
+    } as unknown as Parameters<typeof api.listAdminOrderAttachmentAudits>[0];
+    const invalidShipperIdQuery = {
+      shipperId: 123,
+      page: 1,
+      pageSize: 20,
+    } as unknown as Parameters<typeof api.listAdminOrderAttachmentAudits>[0];
+
+    await expect(
+      api.listAdminOrderAttachmentAudits(invalidHasMissingFilesQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.listAdminOrderAttachmentAudits(invalidShipperIdQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('normalizes blank-padded order id before sending a detail request', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -2618,6 +2725,76 @@ function createAdminOrderReport(overrides: Record<string, unknown> = {}) {
         cancelledOrderCount: 0,
         payablePriceTotalCents: 228000,
         latestOrderCreatedAtIso: '2026-07-02T08:00:00.000Z',
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function createAdminOrderAttachmentAuditSummary(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    orderId: 'order-1',
+    orderNo: 'HY202607010001',
+    shipperId: 'shipper-1',
+    status: 'waiting',
+    createdAtIso: '2026-07-01T08:00:00.000Z',
+    cargoFileCount: 1,
+    eventAttachmentFileCount: 2,
+    totalFileIdCount: 3,
+    resolvedFileCount: 2,
+    missingFileIds: ['missing-file-1'],
+    hasMissingFiles: true,
+    ...overrides,
+  };
+}
+
+function createAdminOrderAttachmentAudit(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    orderId: 'order-1',
+    orderNo: 'HY202607010001',
+    shipperId: 'shipper-1',
+    cargo: {
+      fileIds: ['cargo-file-1'],
+      files: [
+        {
+          id: 'cargo-file-1',
+          ownerUserId: 'shipper-1',
+          purpose: 'cargo',
+          contentType: 'image/jpeg',
+          byteSize: 1024,
+          objectKey: 'cargo/1.jpg',
+          status: 'uploaded',
+          createdAtIso: '2026-07-01T08:00:00.000Z',
+          previewUrl: 'https://cdn.example.com/cargo/1.jpg',
+          previewExpiresAtIso: '2026-07-02T08:00:00.000Z',
+        },
+      ],
+      missingFileIds: [],
+    },
+    events: [
+      {
+        eventId: 'event-1',
+        eventType: 'order_exception_reported',
+        noteText: '补充异常照片',
+        createdAtIso: '2026-07-01T09:00:00.000Z',
+        attachmentFileIds: ['event-file-1'],
+        files: [
+          {
+            id: 'event-file-1',
+            ownerUserId: 'shipper-1',
+            purpose: 'exception',
+            contentType: 'image/jpeg',
+            byteSize: 2048,
+            objectKey: 'exception/1.jpg',
+            status: 'uploaded',
+            createdAtIso: '2026-07-01T09:00:00.000Z',
+          },
+        ],
+        missingFileIds: ['missing-file-1'],
       },
     ],
     ...overrides,

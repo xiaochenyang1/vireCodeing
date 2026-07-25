@@ -336,6 +336,75 @@ export type PlatformAdminBatchCancelOrdersResult = {
   items: PlatformShipperOrder[];
 };
 
+export type PlatformAdminOrderAttachmentAuditListQuery =
+  PlatformAdminOrderFilters & {
+    shipperId?: string;
+    hasMissingFiles?: boolean;
+    page?: number;
+    pageSize?: number;
+  };
+
+export type PlatformAdminOrderAttachmentAuditSummary = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  status: PlatformShipperOrderStatus;
+  createdAtIso: string;
+  cargoFileCount: number;
+  eventAttachmentFileCount: number;
+  totalFileIdCount: number;
+  resolvedFileCount: number;
+  missingFileIds: string[];
+  hasMissingFiles: boolean;
+};
+
+export type PlatformListAdminOrderAttachmentAuditsResult = {
+  items: PlatformAdminOrderAttachmentAuditSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export type PlatformAdminOrderAttachmentFileRecord = {
+  id: string;
+  ownerUserId: string;
+  purpose: string;
+  contentType: string;
+  byteSize: number;
+  objectKey: string;
+  publicUrl?: string;
+  etag?: string;
+  versionId?: string;
+  status: string;
+  createdAtIso: string;
+  previewUrl?: string;
+  previewExpiresAtIso?: string;
+};
+
+export type PlatformAdminOrderAttachmentFileGroup = {
+  fileIds: string[];
+  files: PlatformAdminOrderAttachmentFileRecord[];
+  missingFileIds: string[];
+};
+
+export type PlatformAdminOrderAttachmentAuditEvent = {
+  eventId: string;
+  eventType: string;
+  noteText?: string;
+  createdAtIso: string;
+  attachmentFileIds: string[];
+  files: PlatformAdminOrderAttachmentFileRecord[];
+  missingFileIds: string[];
+};
+
+export type PlatformAdminOrderAttachmentAudit = {
+  orderId: string;
+  orderNo: string;
+  shipperId: string;
+  cargo: PlatformAdminOrderAttachmentFileGroup;
+  events: PlatformAdminOrderAttachmentAuditEvent[];
+};
+
 export function createPlatformOrderApi(config: PlatformApiConfig) {
   return {
     createOrder(
@@ -403,6 +472,24 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
       return platformGet<PlatformShipperOrder>(
         config,
         `/admin/orders/${normalizedOrderId}`,
+      );
+    },
+    async listAdminOrderAttachmentAudits(
+      query: PlatformAdminOrderAttachmentAuditListQuery = {},
+    ) {
+      assertValidAdminOrderAttachmentAuditListQuery(query);
+
+      return platformGet<PlatformListAdminOrderAttachmentAuditsResult>(
+        config,
+        createAdminOrderAttachmentAuditListPath(query),
+      );
+    },
+    async getAdminOrderAttachmentAudit(orderId: string) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+
+      return platformGet<PlatformAdminOrderAttachmentAudit>(
+        config,
+        `/admin/orders/${normalizedOrderId}/attachments`,
       );
     },
     async listExceptionCases(orderId: string) {
@@ -1926,6 +2013,49 @@ function assertValidAdminOrderReportQuery(query: PlatformAdminOrderReportQuery) 
   }
 }
 
+function assertValidAdminOrderAttachmentAuditListQuery(
+  query: PlatformAdminOrderAttachmentAuditListQuery,
+) {
+  const queryInput = query as unknown;
+
+  if (
+    queryInput === null ||
+    typeof queryInput !== 'object' ||
+    Array.isArray(queryInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order attachment query must be an object',
+      'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  assertValidListOrdersQuery(query);
+
+  if (
+    query.shipperId !== undefined &&
+    (typeof query.shipperId !== 'string' ||
+      query.shipperId.trim().length > 120)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order attachment shipperId is invalid',
+      'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+      0,
+    );
+  }
+
+  if (
+    query.hasMissingFiles !== undefined &&
+    typeof query.hasMissingFiles !== 'boolean'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order attachment hasMissingFiles is invalid',
+      'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+      0,
+    );
+  }
+}
+
 function isPlatformShipperOrderStatus(
   value: unknown,
 ): value is PlatformShipperOrderStatus {
@@ -2028,6 +2158,32 @@ function createAdminOrdersExportPath(query: PlatformAdminOrderFilters) {
   return queryString
     ? `/admin/orders/export?${queryString}`
     : '/admin/orders/export';
+}
+
+function createAdminOrderAttachmentAuditListPath(
+  query: PlatformAdminOrderAttachmentAuditListQuery,
+) {
+  const searchParams = createOrderListSearchParams(query);
+  const shipperId = normalizeOptionalTrimmedString(
+    query.shipperId,
+    120,
+    'Platform admin order attachment shipperId is invalid',
+    'PLATFORM_ADMIN_ORDER_ATTACHMENT_REQUEST_INVALID',
+  );
+
+  if (shipperId) {
+    searchParams.set('shipperId', shipperId);
+  }
+
+  if (query.hasMissingFiles !== undefined) {
+    searchParams.set('hasMissingFiles', String(query.hasMissingFiles));
+  }
+
+  const queryString = searchParams.toString();
+
+  return queryString
+    ? `/admin/orders/attachments?${queryString}`
+    : '/admin/orders/attachments';
 }
 
 function normalizeRequiredTrimmedString(
