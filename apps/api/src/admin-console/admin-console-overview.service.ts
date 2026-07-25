@@ -105,9 +105,9 @@ function createModules(
       route: '/api/admin/shipper-verification-console',
       stage: 'first_slice',
       summary:
-        '货主实名/企业认证后台列表与通过驳回第一片已接上，还没做人脸核验、证照 OCR 和审核事件审计。',
+        '货主实名/企业认证后台列表、通过驳回和审核事件审计第一片已接上，还没做附件预览、证照 OCR 和人脸核验。',
       metrics: [],
-      pendingGaps: ['审核事件审计', '附件预览', 'OCR / 人脸核验'],
+      pendingGaps: ['附件预览', 'OCR / 人脸核验'],
     },
     {
       key: 'shipper-invoice',

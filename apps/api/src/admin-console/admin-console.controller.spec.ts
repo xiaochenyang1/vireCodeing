@@ -17,6 +17,7 @@ import { renderAccountManagementAdminConsole } from './account-management-admin-
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
 import { renderShipperInvoiceAdminConsole } from './shipper-invoice-admin-console';
+import { renderShipperVerificationAdminConsole } from './shipper-verification-admin-console';
 import { renderSupportTicketAdminConsole } from './support-ticket-admin-console';
 
 describe('driver certification admin console page', () => {
@@ -225,6 +226,27 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain('/api/admin/shipper-invoices');
     expect(html).toContain('/review-events');
     expect(html).toContain('/review');
+    expect(html).toContain('reviewEventStatus');
+    expect(html).toContain('reviewEventList');
+    expect(html).toContain('loadReviewEvents');
+    expect(html).toContain('formatReviewEventStage');
+    expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('暂无审核事件');
+    expect(html).not.toContain('hero');
+  });
+});
+
+describe('shipper verification admin console page', () => {
+  it('renders the verification queue, review actions and audit-event panel', () => {
+    const html = renderShipperVerificationAdminConsole();
+
+    expect(html).toContain('货主认证审核台');
+    expect(html).toContain('/api/admin/shipper-verifications');
+    expect(html).toContain('/review-events');
+    expect(html).toContain('approveIdentityButton');
+    expect(html).toContain('approveEnterpriseButton');
+    expect(html).toContain("review('identity', 'approved')");
+    expect(html).toContain("review('enterprise', 'approved')");
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
     expect(html).toContain('loadReviewEvents');

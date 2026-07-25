@@ -205,11 +205,12 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '审核货主实名认证与企业认证',
     moduleKey: 'shipper-verification',
     summary:
-      '读取货主实名/企业认证队列，并能执行实名、企业认证的单条通过 / 驳回。',
+      '读取货主实名/企业认证队列、审核事件，并能执行实名、企业认证的单条通过 / 驳回。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/shipper-verifications',
+      '/admin/shipper-verifications/{shipperId}/review-events',
       '/admin/shipper-verifications/{shipperId}/identity/review',
       '/admin/shipper-verifications/{shipperId}/enterprise/review',
     ],

@@ -88,6 +88,13 @@ export function renderShipperVerificationAdminConsole() {
       border-radius: 8px;
       padding: 10px;
     }
+    .event-list { display: grid; gap: 8px; }
+    .event-item {
+      background: #f8fafb;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
     textarea { width: 100%; min-height: 80px; resize: vertical; }
     ${renderAdminConsoleNavStyles()}
   </style>
@@ -98,7 +105,7 @@ export function renderShipperVerificationAdminConsole() {
       <div class="topbar">
         <div>
           <h1>货主认证审核台</h1>
-          <p class="muted">第一片：列表筛选 + 单条通过/驳回实名/企业认证。</p>
+          <p class="muted">第一片：列表筛选、单条通过/驳回，以及实名/企业认证审核事件审计。</p>
         </div>
         ${renderAdminSessionControls({
           currentRoute: '/api/admin/shipper-verification-console',
@@ -147,6 +154,13 @@ export function renderShipperVerificationAdminConsole() {
         </div>
         <div id="reviewStatus" class="status-line"></div>
       </div>
+      <div class="card">
+        <h2>审核事件</h2>
+        <div id="reviewEventStatus" class="status-line">请选择左侧货主。</div>
+        <div id="reviewEventList" class="event-list">
+          <div class="muted">暂无审核事件。</div>
+        </div>
+      </div>
     </section>
   </div>
   ${renderAdminSessionScript({
@@ -156,6 +170,7 @@ export function renderShipperVerificationAdminConsole() {
     const apiBase = document.querySelector('meta[name="admin-shipper-verification-api"]').content;
     let selectedShipperId = '';
     let currentItems = [];
+    let latestReviewEventsRequestId = 0;
 
     function getToken() {
       return window.__adminSession?.getAccessToken?.() || localStorage.getItem('adminAccessToken') || '';
@@ -171,6 +186,19 @@ export function renderShipperVerificationAdminConsole() {
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;');
+    }
+
+    function resetReviewEvents(statusText) {
+      setText('reviewEventStatus', statusText);
+      document.getElementById('reviewEventList').innerHTML = '<div class="muted">暂无审核事件。</div>';
+    }
+
+    function formatReviewEventStage(event) {
+      const typeText = event.verificationType === 'enterprise' ? '企业认证' : '实名认证';
+      if (event.stage === 'submitted') return '货主提交' + typeText;
+      if (event.stage === 'approved') return '后台通过' + typeText;
+      if (event.stage === 'rejected') return '后台驳回' + typeText;
+      return '未知事件';
     }
 
     async function apiGet(path) {
@@ -205,7 +233,11 @@ export function renderShipperVerificationAdminConsole() {
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
         root.innerHTML = '<div class="muted">当前筛选下没有认证记录。</div>';
+        resetReviewEvents('请选择左侧货主。');
         return;
+      }
+      if (!currentItems.some(item => item.shipperId === selectedShipperId)) {
+        selectedShipperId = currentItems[0].shipperId;
       }
       root.innerHTML = currentItems.map(item => {
         const identity = item.identity ? item.identity.status : '无';
@@ -221,6 +253,7 @@ export function renderShipperVerificationAdminConsole() {
           selectedShipperId = node.getAttribute('data-shipper-id') || '';
           renderQueue(currentItems);
           renderDetail();
+          loadReviewEvents();
         });
       });
     }
@@ -253,9 +286,54 @@ export function renderShipperVerificationAdminConsole() {
       ].join('');
     }
 
+    function renderReviewEvents(events) {
+      const root = document.getElementById('reviewEventList');
+      if (!events.length) {
+        root.innerHTML = '<div class="muted">暂无审核事件。</div>';
+        return;
+      }
+      root.innerHTML = events.map(event => {
+        return '<div class="event-item">' +
+          '<strong>' + escapeHtml(formatReviewEventStage(event)) + '</strong>' +
+          '<div class="muted">操作者：' + escapeHtml(event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
+          '<div class="muted">' + escapeHtml(event.noteText || '无附加说明') + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function loadReviewEvents() {
+      const requestId = ++latestReviewEventsRequestId;
+      if (!selectedShipperId) {
+        resetReviewEvents('请选择左侧货主。');
+        return;
+      }
+      if (!getToken()) {
+        resetReviewEvents('请先填写 admin token。');
+        return;
+      }
+      setText('reviewEventStatus', '加载审核事件中...');
+      try {
+        const events = await apiGet('/' + encodeURIComponent(selectedShipperId) + '/review-events');
+        if (requestId !== latestReviewEventsRequestId) {
+          return;
+        }
+        renderReviewEvents(Array.isArray(events) ? events : []);
+        setText(
+          'reviewEventStatus',
+          '共 ' + (Array.isArray(events) ? events.length : 0) + ' 条审核事件',
+        );
+      } catch (error) {
+        if (requestId !== latestReviewEventsRequestId) {
+          return;
+        }
+        resetReviewEvents(error.message || '审核事件加载失败');
+      }
+    }
+
     async function loadQueue() {
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
+        resetReviewEvents('请先填写 admin token。');
         return;
       }
       setText('queueStatus', '加载中...');
@@ -268,8 +346,10 @@ export function renderShipperVerificationAdminConsole() {
         renderQueue(data.items || []);
         setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
         renderDetail();
+        await loadReviewEvents();
       } catch (error) {
         setText('queueStatus', error.message || '加载失败');
+        resetReviewEvents('审核事件尚未加载');
       }
     }
 

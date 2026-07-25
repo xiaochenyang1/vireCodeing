@@ -1,5 +1,6 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type {
+  AdminShipperVerificationReviewEvent,
   ListShipperVerificationQuery,
   ReviewShipperVerificationRequest,
   SaveShipperEnterpriseVerificationRequest,
@@ -28,6 +29,9 @@ export interface ProfileVerificationRepository {
   listVerifications(
     query: ListShipperVerificationQuery,
   ): Promise<ShipperVerificationListResult>;
+  listReviewEvents(
+    shipperId: string,
+  ): Promise<AdminShipperVerificationReviewEvent[]>;
   reviewIdentity(
     shipperId: string,
     input: ReviewShipperVerificationRequest,
@@ -138,6 +142,26 @@ export class InMemoryProfileVerificationRepository
       pageSize: query.pageSize,
       total: orderedShipperIds.length,
     };
+  }
+
+  async listReviewEvents(
+    shipperId: string,
+  ): Promise<AdminShipperVerificationReviewEvent[]> {
+    const identity = this.identities.get(shipperId);
+    const enterprise = this.enterprises.get(shipperId);
+
+    if (!identity && !enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主认证记录不存在',
+      );
+    }
+
+    return listAdminShipperVerificationReviewEvents(
+      shipperId,
+      identity,
+      enterprise,
+    );
   }
 
   async reviewIdentity(
@@ -456,6 +480,32 @@ export class PrismaProfileVerificationRepository
     };
   }
 
+  async listReviewEvents(
+    shipperId: string,
+  ): Promise<AdminShipperVerificationReviewEvent[]> {
+    const [identity, enterprise] = await Promise.all([
+      this.prisma.shipperIdentityVerification.findUnique({
+        where: { shipperId },
+      }),
+      this.prisma.shipperEnterpriseVerification.findUnique({
+        where: { shipperId },
+      }),
+    ]);
+
+    if (!identity && !enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主认证记录不存在',
+      );
+    }
+
+    return listAdminShipperVerificationReviewEvents(
+      shipperId,
+      identity ? mapPrismaIdentityVerification(identity) : undefined,
+      enterprise ? mapPrismaEnterpriseVerification(enterprise) : undefined,
+    );
+  }
+
   async reviewIdentity(
     shipperId: string,
     input: ReviewShipperVerificationRequest,
@@ -530,6 +580,76 @@ function createShipperVerificationSnapshot(
     ...(identity ? { identity } : {}),
     ...(enterprise ? { enterprise } : {}),
   };
+}
+
+function listAdminShipperVerificationReviewEvents(
+  shipperId: string,
+  identity?: ShipperIdentityVerificationRecord,
+  enterprise?: ShipperEnterpriseVerificationRecord,
+): AdminShipperVerificationReviewEvent[] {
+  const events: AdminShipperVerificationReviewEvent[] = [];
+
+  if (identity) {
+    events.push({
+      eventId: `${shipperId}:identity:submitted`,
+      verificationType: 'identity',
+      actorUserId: shipperId,
+      eventType: 'shipper_identity_verification_submitted',
+      stage: 'submitted',
+      noteText: `提交实名认证：${identity.realName} · ${identity.idNumber}`,
+      createdAtIso: identity.createdAtIso,
+    });
+
+    if (identity.status === 'approved' || identity.status === 'rejected') {
+      events.push({
+        eventId: `${shipperId}:identity:${identity.status}`,
+        verificationType: 'identity',
+        eventType:
+          identity.status === 'approved'
+            ? 'shipper_identity_verification_approved'
+            : 'shipper_identity_verification_rejected',
+        stage: identity.status,
+        noteText:
+          identity.status === 'approved'
+            ? '实名认证已通过'
+            : identity.rejectionReason || '实名认证已驳回',
+        createdAtIso: identity.updatedAtIso,
+      });
+    }
+  }
+
+  if (enterprise) {
+    events.push({
+      eventId: `${shipperId}:enterprise:submitted`,
+      verificationType: 'enterprise',
+      actorUserId: shipperId,
+      eventType: 'shipper_enterprise_verification_submitted',
+      stage: 'submitted',
+      noteText: `提交企业认证：${enterprise.enterpriseName} · ${enterprise.creditCode}`,
+      createdAtIso: enterprise.createdAtIso,
+    });
+
+    if (enterprise.status === 'approved' || enterprise.status === 'rejected') {
+      events.push({
+        eventId: `${shipperId}:enterprise:${enterprise.status}`,
+        verificationType: 'enterprise',
+        eventType:
+          enterprise.status === 'approved'
+            ? 'shipper_enterprise_verification_approved'
+            : 'shipper_enterprise_verification_rejected',
+        stage: enterprise.status,
+        noteText:
+          enterprise.status === 'approved'
+            ? '企业认证已通过'
+            : enterprise.rejectionReason || '企业认证已驳回',
+        createdAtIso: enterprise.updatedAtIso,
+      });
+    }
+  }
+
+  return events.sort((left, right) =>
+    right.createdAtIso.localeCompare(left.createdAtIso),
+  );
 }
 
 function mapPrismaIdentityVerification(

@@ -53,6 +53,11 @@ export class ProfileVerificationService {
     return this.repository.listVerifications(query);
   }
 
+  async listReviewEvents(currentUser: AuthenticatedUser, shipperId: string) {
+    this.assertAdmin(currentUser);
+    return this.repository.listReviewEvents(shipperId);
+  }
+
   async reviewIdentity(
     currentUser: AuthenticatedUser,
     shipperId: string,

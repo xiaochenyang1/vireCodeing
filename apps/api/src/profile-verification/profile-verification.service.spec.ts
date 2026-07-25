@@ -256,6 +256,16 @@ describe('ProfileVerificationService', () => {
       faceVerified: true,
     });
 
+    await expect(service.listReviewEvents(admin, 'shipper-1')).resolves.toEqual([
+      expect.objectContaining({
+        verificationType: 'identity',
+        eventType: 'shipper_identity_verification_submitted',
+        stage: 'submitted',
+        actorUserId: 'shipper-1',
+        noteText: '提交实名认证：张先生 · 44030019900101123X',
+      }),
+    ]);
+
     await expect(
       service.reviewIdentity(admin, 'shipper-1', { status: 'approved' }),
     ).resolves.toMatchObject({
@@ -281,6 +291,22 @@ describe('ProfileVerificationService', () => {
       status: 'rejected',
       rejectionReason: '证件照片不清晰',
     });
+
+    await expect(service.listReviewEvents(admin, 'shipper-1')).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          verificationType: 'identity',
+          eventType: 'shipper_identity_verification_rejected',
+          stage: 'rejected',
+          noteText: '证件照片不清晰',
+        }),
+        expect.objectContaining({
+          verificationType: 'identity',
+          eventType: 'shipper_identity_verification_submitted',
+          stage: 'submitted',
+        }),
+      ]),
+    );
   });
 
   it('rejects non-admin users from shipper verification review', async () => {

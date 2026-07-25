@@ -123,6 +123,20 @@ export class AdminShipperVerificationController {
     );
   }
 
+  @Get(':shipperId/review-events')
+  async listReviewEvents(
+    @Req() request: AuthenticatedRequest,
+    @Param('shipperId') shipperId: string,
+  ) {
+    return ok(
+      await this.profileVerificationService.listReviewEvents(
+        getCurrentAdmin(request),
+        shipperId,
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Post(':shipperId/identity/review')
   async reviewIdentity(
     @Req() request: AuthenticatedRequest,

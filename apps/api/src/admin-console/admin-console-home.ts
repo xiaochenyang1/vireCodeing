@@ -18,7 +18,7 @@ const defaultModules = [
     key: 'shipper-verification',
     title: '货主认证审核台',
     route: '/api/admin/shipper-verification-console',
-    summary: '查看货主实名/企业认证队列，并执行单条通过或驳回。',
+    summary: '查看货主实名/企业认证队列、审核事件，并执行单条通过或驳回。',
   },
   {
     key: 'shipper-invoice',

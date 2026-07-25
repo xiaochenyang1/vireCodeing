@@ -69,3 +69,26 @@ export type ShipperVerificationListResult = {
   pageSize: number;
   total: number;
 };
+
+export type AdminShipperVerificationReviewEventType =
+  | 'shipper_identity_verification_submitted'
+  | 'shipper_identity_verification_approved'
+  | 'shipper_identity_verification_rejected'
+  | 'shipper_enterprise_verification_submitted'
+  | 'shipper_enterprise_verification_approved'
+  | 'shipper_enterprise_verification_rejected';
+
+export type AdminShipperVerificationReviewEventStage =
+  | 'submitted'
+  | 'approved'
+  | 'rejected';
+
+export type AdminShipperVerificationReviewEvent = {
+  eventId: string;
+  verificationType: ShipperVerificationType;
+  actorUserId?: string;
+  eventType: AdminShipperVerificationReviewEventType;
+  stage: AdminShipperVerificationReviewEventStage;
+  noteText?: string;
+  createdAtIso: string;
+};
