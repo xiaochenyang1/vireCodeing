@@ -109,7 +109,17 @@ export class MapsService {
   async getDriverLocation(
     driverId: string,
   ): Promise<DriverLocationSnapshotRecord | null> {
-    return this.repository.findDriverLocation(driverId);
+    const snapshot = await this.repository.findDriverLocation(driverId);
+    if (!snapshot?.orderId) {
+      return snapshot;
+    }
+
+    const order = await this.repository.findOrderLocationContext(snapshot.orderId);
+    if (!order || order.assignedDriverId !== driverId) {
+      return snapshot;
+    }
+
+    return enrichSnapshotWithTargetEstimate(snapshot, order, this.mapProvider);
   }
 
   async getDriverNavigationTargets(

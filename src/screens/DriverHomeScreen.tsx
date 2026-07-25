@@ -962,6 +962,39 @@ export function DriverHomeScreen({
       });
   };
 
+  const refreshLatestReportedDriverLocation = (
+    orderId: string | undefined,
+    options: { silentError?: boolean } = {},
+  ) => {
+    if (!orderId || !platformMapsApi) {
+      setLatestReportedDriverLocation(undefined);
+      return Promise.resolve(true);
+    }
+
+    return platformMapsApi
+      .getDriverLocation()
+      .then(snapshot => {
+        setLatestReportedDriverLocation(
+          snapshot.orderId === orderId ? snapshot : undefined,
+        );
+        return true;
+      })
+      .catch(error => {
+        if (
+          error instanceof PlatformApiError &&
+          error.code === 'DRIVER_LOCATION_NOT_FOUND'
+        ) {
+          setLatestReportedDriverLocation(undefined);
+          return true;
+        }
+
+        if (!options.silentError) {
+          setNotice('最新司机位置加载失败，请稍后重试。');
+        }
+        return false;
+      });
+  };
+
   const refreshIncome = () => {
     if (!platformDriverOrderApi) {
       setIncomeOverview(undefined);
@@ -1167,6 +1200,9 @@ export function DriverHomeScreen({
           ? Promise.resolve(true)
           : refreshAcceptanceSettings(),
         refreshLatestHallLocation({ silentNotFound: true }),
+        selectedOrder
+          ? refreshLatestReportedDriverLocation(selectedOrder.id)
+          : Promise.resolve(true),
         refreshIncome(),
         refreshBankCards(),
         hasDirtyCertificationDraft ? Promise.resolve(true) : refreshCertification(),
@@ -1626,6 +1662,9 @@ export function DriverHomeScreen({
     setNavigationTargets([]);
     setLatestReportedDriverLocation(undefined);
     setIsLoadingExceptionCases(true);
+    refreshLatestReportedDriverLocation(order.id, { silentError: true }).catch(
+      () => undefined,
+    );
     platformDriverOrderApi
       .getOrder(order.id)
       .then(orderDetail => {

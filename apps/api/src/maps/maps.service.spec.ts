@@ -67,6 +67,8 @@ describe('MapsService', () => {
       driverId: 'driver-1',
       latitude: 22.61,
       longitude: 113.91,
+      targetType: 'delivery',
+      targetAddress: '龙岗区坂田仓',
     });
   });
 
@@ -86,6 +88,28 @@ describe('MapsService', () => {
       targetType: 'pickup',
       targetAddress: '宝安区福永物流园',
     });
+  });
+
+  it('keeps hall location snapshots raw when they are not bound to an order', async () => {
+    const service = createService(createOrderContext());
+
+    await service.reportDriverLocation('driver-1', {
+      latitude: 22.61,
+      longitude: 113.91,
+      source: 'sandbox',
+    });
+
+    const snapshot = await service.getDriverLocation('driver-1');
+
+    expect(snapshot).toMatchObject({
+      driverId: 'driver-1',
+      latitude: 22.61,
+      longitude: 113.91,
+      source: 'sandbox',
+    });
+    expect(snapshot?.distanceToTargetMeters).toBeUndefined();
+    expect(snapshot?.etaMinutes).toBeUndefined();
+    expect(snapshot?.targetAddress).toBeUndefined();
   });
 
   it('rejects driver location reports for foreign orders', async () => {

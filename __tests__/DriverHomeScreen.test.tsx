@@ -872,6 +872,193 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('当前目标：龙岗区坂田仓');
   });
 
+  it('hydrates the latest reported driver location when reopening an executing order detail', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090012',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverNavigationTargets.mockResolvedValue({
+      orderId: 'order-1',
+      orderNo: 'HY202607090012',
+      targets: [
+        {
+          type: 'pickup',
+          address: '宝安区福永物流园 1 号门',
+          contactName: '赵经理',
+          contactPhone: '13900139001',
+        },
+      ],
+    });
+    platformMapsApi.getDriverLocation
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          'driver location not found',
+          'DRIVER_LOCATION_NOT_FOUND',
+          404,
+        ),
+      )
+      .mockResolvedValueOnce({
+        driverId: 'driver-1',
+        orderId: 'order-1',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'device' as const,
+        recordedAtIso: '2026-07-09T02:30:00.000Z',
+        updatedAtIso: '2026-07-09T02:30:00.000Z',
+        distanceToTargetMeters: 860,
+        etaMinutes: 2,
+        targetType: 'pickup' as const,
+        targetAddress: '宝安区福永物流园 1 号门',
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090012' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-coordinate-HY202607090012',
+      }).props.children,
+    ).toBe('22.610000, 113.910000');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-meta-HY202607090012',
+      }).props.children,
+    ).toBe('来源：设备定位 · 上报时间：2026-07-09 02:30');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-latest-location-estimate-HY202607090012',
+      }).props.children,
+    ).toBe('距装货点（宝安区福永物流园 1 号门） 860 米 · 预计 约 2 分钟');
+  });
+
+  it('ignores another order latest location snapshot when opening driver order detail', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090013',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const platformMapsApi = createMockDriverMapsApi();
+    platformMapsApi.getDriverLocation
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          'driver location not found',
+          'DRIVER_LOCATION_NOT_FOUND',
+          404,
+        ),
+      )
+      .mockResolvedValueOnce({
+        driverId: 'driver-1',
+        orderId: 'order-2',
+        latitude: 22.61,
+        longitude: 113.91,
+        source: 'sandbox' as const,
+        recordedAtIso: '2026-07-09T02:30:00.000Z',
+        updatedAtIso: '2026-07-09T02:30:00.000Z',
+      });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformMapsApi={platformMapsApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({ testID: 'driver-open-order-HY202607090013' })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-latest-location-coordinate-HY202607090013',
+      }),
+    ).toHaveLength(0);
+  });
+
   it('blocks quoting when saved acceptance settings are offline', async () => {
     const hallOrder = {
       id: 'order-1',
