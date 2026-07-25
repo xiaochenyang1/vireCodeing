@@ -152,6 +152,28 @@ export type PlatformProfileInvoiceApplication =
     updatedAtIso: string;
   };
 
+export type PlatformAdminShipperInvoiceReviewRequest =
+  | {
+      status: 'approved';
+    }
+  | {
+      status: 'rejected';
+      rejectionReason: string;
+    };
+
+export type PlatformListAdminShipperInvoiceQuery = {
+  status?: PlatformProfileVerificationStatus;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PlatformAdminShipperInvoiceListResult = {
+  items: PlatformProfileInvoiceApplication[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
 export type PlatformProfileSpendingStatus =
   | 'waiting'
   | 'loading'
@@ -432,6 +454,33 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         PlatformCreateProfileInvoiceApplicationRequest,
         PlatformProfileInvoiceApplication
       >(config, '/shipper/profile/invoices', normalizedRequest);
+    },
+    async listAdminInvoiceApplications(
+      query: PlatformListAdminShipperInvoiceQuery = {},
+    ) {
+      const normalizedQuery = normalizeListAdminShipperInvoiceQuery(query);
+
+      return platformGet<PlatformAdminShipperInvoiceListResult>(
+        config,
+        `/admin/shipper-invoices?${new URLSearchParams(
+          normalizedQuery,
+        ).toString()}`,
+      );
+    },
+    async reviewAdminInvoiceApplication(
+      applicationId: string,
+      request: PlatformAdminShipperInvoiceReviewRequest,
+    ) {
+      return platformPost<
+        PlatformAdminShipperInvoiceReviewRequest,
+        PlatformProfileInvoiceApplication
+      >(
+        config,
+        `/admin/shipper-invoices/${encodeURIComponent(
+          normalizeAdminShipperInvoiceApplicationId(applicationId),
+        )}/review`,
+        normalizeAdminShipperInvoiceReviewRequest(request),
+      );
     },
     getAddressBook() {
       return platformGet<PlatformProfileAddressBook | null>(
@@ -788,6 +837,83 @@ function normalizeSaveProfileAddressBookRequest(
   return normalizedRequest;
 }
 
+function normalizeListAdminShipperInvoiceQuery(
+  query: PlatformListAdminShipperInvoiceQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminShipperInvoiceRequest(
+      'Admin shipper invoice query must be an object',
+    );
+  }
+
+  const status = query.status ?? 'reviewing';
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+
+  if (!['reviewing', 'approved', 'rejected'].includes(status)) {
+    throwInvalidAdminShipperInvoiceRequest(
+      'Admin shipper invoice status is invalid',
+    );
+  }
+
+  if (!Number.isInteger(page) || page < 1) {
+    throwInvalidAdminShipperInvoiceRequest(
+      'Admin shipper invoice page is invalid',
+    );
+  }
+
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
+    throwInvalidAdminShipperInvoiceRequest(
+      'Admin shipper invoice pageSize is invalid',
+    );
+  }
+
+  return {
+    status,
+    page: String(page),
+    pageSize: String(pageSize),
+  };
+}
+
+function normalizeAdminShipperInvoiceReviewRequest(
+  request: PlatformAdminShipperInvoiceReviewRequest,
+): PlatformAdminShipperInvoiceReviewRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminShipperInvoiceRequest(
+      'Admin shipper invoice review must be an object',
+    );
+  }
+
+  if (request.status === 'approved') {
+    return { status: 'approved' };
+  }
+
+  if (request.status === 'rejected') {
+    return {
+      status: 'rejected',
+      rejectionReason: normalizeRequiredString(
+        request.rejectionReason,
+        200,
+        'Admin shipper invoice rejection reason is invalid',
+        throwInvalidAdminShipperInvoiceRequest,
+      ),
+    };
+  }
+
+  throwInvalidAdminShipperInvoiceRequest(
+    'Admin shipper invoice review status is invalid',
+  );
+}
+
+function normalizeAdminShipperInvoiceApplicationId(value: unknown) {
+  return normalizeRequiredString(
+    value,
+    120,
+    'Admin shipper invoice application id is invalid',
+    throwInvalidAdminShipperInvoiceRequest,
+  );
+}
+
 function normalizeAddressBookAddress(
   address: PlatformProfileAddressBookAddress,
 ): PlatformProfileAddressBookAddress {
@@ -1124,6 +1250,14 @@ function throwInvalidAdminShipperVerificationRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_ADMIN_SHIPPER_VERIFICATION_REQUEST_INVALID',
+    0,
+  );
+}
+
+function throwInvalidAdminShipperInvoiceRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_ADMIN_SHIPPER_INVOICE_REQUEST_INVALID',
     0,
   );
 }

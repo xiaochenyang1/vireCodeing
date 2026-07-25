@@ -1206,6 +1206,126 @@ describe('platform profile api', () => {
     );
   });
 
+  it('lists admin shipper invoices and reviews invoice payloads', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            items: [
+              {
+                id: 'invoice-platform-1',
+                shipperId: 'shipper-1',
+                invoiceType: 'vat-special',
+                invoiceTitleType: 'enterprise',
+                invoiceTitle: '深圳晨星贸易有限公司',
+                receiverEmail: 'finance@example.com',
+                orderIds: ['order-platform-1'],
+                orderNos: ['HY202607090001'],
+                amountCents: 111000,
+                status: 'reviewing',
+                createdAtIso: '2026-07-09T08:00:00.000Z',
+                updatedAtIso: '2026-07-09T08:05:00.000Z',
+              },
+            ],
+            page: 2,
+            pageSize: 10,
+            total: 12,
+          },
+          requestId: 'req-admin-invoice-list',
+          timestamp: '2026-07-09T08:05:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            id: 'invoice-platform-1',
+            shipperId: 'shipper-1',
+            invoiceType: 'vat-special',
+            invoiceTitleType: 'enterprise',
+            invoiceTitle: '深圳晨星贸易有限公司',
+            receiverEmail: 'finance@example.com',
+            orderIds: ['order-platform-1'],
+            orderNos: ['HY202607090001'],
+            amountCents: 111000,
+            status: 'rejected',
+            rejectionReason: '企业认证信息待补充',
+            createdAtIso: '2026-07-09T08:00:00.000Z',
+            updatedAtIso: '2026-07-09T08:10:00.000Z',
+          },
+          requestId: 'req-admin-invoice-review',
+          timestamp: '2026-07-09T08:10:00.000Z',
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminInvoiceApplications({
+        status: 'reviewing',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      page: 2,
+      pageSize: 10,
+      total: 12,
+      items: [
+        expect.objectContaining({
+          id: 'invoice-platform-1',
+          status: 'reviewing',
+        }),
+      ],
+    });
+
+    await expect(
+      api.reviewAdminInvoiceApplication(' invoice-platform-1 ', {
+        status: 'rejected',
+        rejectionReason: ' 企业认证信息待补充 ',
+      }),
+    ).resolves.toMatchObject({
+      id: 'invoice-platform-1',
+      status: 'rejected',
+      rejectionReason: '企业认证信息待补充',
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/shipper-invoices?status=reviewing&page=2&pageSize=10',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/shipper-invoices/invoice-platform-1/review',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          status: 'rejected',
+          rejectionReason: '企业认证信息待补充',
+        }),
+      }),
+    );
+  });
+
   it('creates the shipper invoice application with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1478,6 +1598,46 @@ describe('platform profile api', () => {
 
       await expect(run(api)).rejects.toMatchObject({
         code: 'PLATFORM_ADMIN_SHIPPER_VERIFICATION_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['null admin shipper invoice query', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminInvoiceApplications(null as never)],
+    ['invalid admin shipper invoice status', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminInvoiceApplications({ status: 'pending' as never })],
+    ['invalid admin shipper invoice page', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminInvoiceApplications({ page: 0 })],
+    ['invalid admin shipper invoice pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.listAdminInvoiceApplications({ pageSize: 51 })],
+    ['empty admin shipper invoice id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminInvoiceApplication('   ', { status: 'approved' })],
+    ['invalid admin shipper invoice review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminInvoiceApplication('invoice-platform-1', { status: 'reviewing' as never })],
+    ['missing admin shipper invoice rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminInvoiceApplication('invoice-platform-1', { status: 'rejected' } as never)],
+    ['blank admin shipper invoice rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminInvoiceApplication('invoice-platform-1', {
+        status: 'rejected',
+        rejectionReason: '   ',
+      })],
+    ['non-object admin shipper invoice review request', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.reviewAdminInvoiceApplication('invoice-platform-1', null as never)],
+  ])(
+    'rejects invalid admin shipper invoice inputs before sending them: %s',
+    async (_label, run) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformProfileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(run(api)).rejects.toMatchObject({
+        code: 'PLATFORM_ADMIN_SHIPPER_INVOICE_REQUEST_INVALID',
         status: 0,
       } satisfies Partial<PlatformApiError>);
       expect(fetchMock).not.toHaveBeenCalled();
