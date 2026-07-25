@@ -115,6 +115,9 @@ export type DailyIncomePoint = {
   orderCount: number;
 };
 
+type DriverIncomeRecord = PlatformDriverIncomeOverview['records'][number];
+type DriverIncomeSummary = PlatformDriverIncomeOverview['summary'];
+
 export function sortDriverIncomeRecords(
   records: PlatformDriverIncomeOverview['records'],
 ) {
@@ -983,6 +986,66 @@ export function getDriverAcceptanceVehicleTypesText(
 
 export function formatDriverCurrency(valueCents: number) {
   return `￥${(valueCents / 100).toFixed(2)}`;
+}
+
+function normalizeDriverIncomeAmount(valueCents?: number) {
+  return typeof valueCents === 'number' && Number.isFinite(valueCents) && valueCents >= 0
+    ? valueCents
+    : 0;
+}
+
+function normalizeDriverIncomeCount(value?: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
+}
+
+function getDriverIncomeVehicleTypeText(vehicleType: string) {
+  const normalizedVehicleType = vehicleType.trim();
+
+  if (!normalizedVehicleType) {
+    return undefined;
+  }
+
+  return (
+    vehicleRequirementOptions.find(option => option.id === normalizedVehicleType)
+      ?.label ?? normalizedVehicleType
+  );
+}
+
+export function getDriverIncomeSummaryText(summary?: DriverIncomeSummary) {
+  return `累计历史收入：${formatDriverCurrency(
+    normalizeDriverIncomeAmount(summary?.historyIncomeCents),
+  )} · 已完成 ${normalizeDriverIncomeCount(summary?.completedOrderCount)} 单`;
+}
+
+export function getDriverIncomeRecordSummaryText(
+  record: DriverIncomeRecord,
+) {
+  const facts: string[] = [];
+  const vehicleTypeText = getDriverIncomeVehicleTypeText(record.vehicleType);
+
+  if (vehicleTypeText) {
+    facts.push(`车型：${vehicleTypeText}`);
+  }
+
+  facts.push(
+    `结算总额：${formatDriverCurrency(
+      normalizeDriverIncomeAmount(record.grossAmountCents),
+    )}`,
+  );
+
+  return facts.join(' · ');
+}
+
+export function getDriverIncomeRecordBreakdownText(
+  record: DriverIncomeRecord,
+) {
+  return `平台服务费：${formatDriverCurrency(
+    normalizeDriverIncomeAmount(record.platformFeeCents),
+  )} · 司机净收入：${formatDriverCurrency(
+    normalizeDriverIncomeAmount(record.netIncomeCents),
+  )}`;
 }
 
 export function formatDriverIncomeTime(value: string) {

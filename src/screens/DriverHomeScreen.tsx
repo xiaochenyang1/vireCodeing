@@ -104,6 +104,9 @@ import {
   getDriverAcceptanceVehicleTypesText,
   getDriverAdvanceButtonText,
   getDriverBankCardLastUsedText,
+  getDriverIncomeRecordBreakdownText,
+  getDriverIncomeRecordSummaryText,
+  getDriverIncomeSummaryText,
   getDriverExecutionReceiptFileIds,
   getDriverOrderHallBonusText,
   getDriverOrderActionFailureNotice,
@@ -3292,8 +3295,8 @@ export function DriverHomeScreen({
             incomeOverview?.summary?.withdrawnCents ?? 0,
           )}`}
         </Text>
-        <Text style={styles.detailMeta}>
-          {`已完成 ${incomeOverview?.summary?.completedOrderCount ?? 0} 单`}
+        <Text testID="driver-income-history" style={styles.detailMeta}>
+          {getDriverIncomeSummaryText(incomeOverview?.summary)}
         </Text>
         {incomeRecords.length ? (
           incomeRecords.slice(0, 3).map(record => (
@@ -3308,12 +3311,17 @@ export function DriverHomeScreen({
                   record.completedAtIso,
                 )}`}
               </Text>
-              <Text style={styles.detailMeta}>
-                {`司机净收入 ${formatDriverCurrency(
-                  record.netIncomeCents,
-                )} · 平台服务费 ${formatDriverCurrency(
-                  record.platformFeeCents,
-                )}`}
+              <Text
+                testID={`driver-income-record-summary-${record.orderNo}`}
+                style={styles.detailMeta}
+              >
+                {getDriverIncomeRecordSummaryText(record)}
+              </Text>
+              <Text
+                testID={`driver-income-record-breakdown-${record.orderNo}`}
+                style={styles.detailMeta}
+              >
+                {getDriverIncomeRecordBreakdownText(record)}
               </Text>
             </View>
           ))

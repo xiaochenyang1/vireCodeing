@@ -2101,6 +2101,17 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('今日收入：￥361.00');
     expect(getRenderedText(renderer)).toContain('可提现：￥241.00');
     expect(getRenderedText(renderer)).toContain('已提现：￥80.00');
+    expect(getRenderedText(renderer)).toContain('累计历史收入：￥361.00 · 已完成 1 单');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-income-record-summary-HY202607090001',
+      }).props.children,
+    ).toBe('车型：中型货车 · 结算总额：￥380.00');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-income-record-breakdown-HY202607090001',
+      }).props.children,
+    ).toBe('平台服务费：￥19.00 · 司机净收入：￥361.00');
 
     ReactTestRenderer.act(() => {
       renderer.root

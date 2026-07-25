@@ -21,6 +21,9 @@ import {
   getDriverAdvanceButtonText,
   getDriverExecutionReceiptFileIds,
   getDriverBankCardLastUsedText,
+  getDriverIncomeRecordBreakdownText,
+  getDriverIncomeRecordSummaryText,
+  getDriverIncomeSummaryText,
   getDriverOrderActionFailureNotice,
   getDriverOrderPickupDistanceText,
   getDriverReceiptUploadButtonText,
@@ -825,6 +828,46 @@ test('aggregates driver income records by day after normalizing mixed API order'
       orderCount: 2,
     },
   ]);
+});
+
+test('builds driver income history and settlement breakdown texts', () => {
+  expect(
+    getDriverIncomeSummaryText({
+      todayIncomeCents: 36100,
+      weekIncomeCents: 36100,
+      monthIncomeCents: 36100,
+      historyIncomeCents: 85500,
+      pendingSettlementCents: 12000,
+      availableWithdrawalCents: 24100,
+      reviewingWithdrawalCents: 12000,
+      withdrawnCents: 8000,
+      completedOrderCount: 3,
+    }),
+  ).toBe('累计历史收入：￥855.00 · 已完成 3 单');
+  expect(
+    getDriverIncomeRecordSummaryText({
+      orderId: 'income-1',
+      orderNo: 'HY202607120003',
+      completedAtIso: '2026-07-12T11:30:00.000Z',
+      routeText: '路线三',
+      vehicleType: 'medium',
+      grossAmountCents: 56000,
+      platformFeeCents: 2800,
+      netIncomeCents: 53200,
+    }),
+  ).toBe('车型：中型货车 · 结算总额：￥560.00');
+  expect(
+    getDriverIncomeRecordBreakdownText({
+      orderId: 'income-1',
+      orderNo: 'HY202607120003',
+      completedAtIso: '2026-07-12T11:30:00.000Z',
+      routeText: '路线三',
+      vehicleType: 'medium',
+      grossAmountCents: 56000,
+      platformFeeCents: 2800,
+      netIncomeCents: 53200,
+    }),
+  ).toBe('平台服务费：￥28.00 · 司机净收入：￥532.00');
 });
 
 test('filters the order hall by vehicle preferences and builds the notice', () => {
