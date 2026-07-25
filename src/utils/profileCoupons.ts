@@ -21,7 +21,7 @@ export type OrderCouponUsageInput = {
 export function createLocalCouponsFromPlatformWallet(
   wallet: PlatformProfileCouponWallet,
 ): CouponItem[] {
-  return wallet.items.map(item => ({
+  return sortPlatformCouponItemsByLatestActivity(wallet.items).map(item => ({
     id: item.id,
     title: item.title,
     statusText: getLocalCouponStatusText(item.status),
@@ -116,6 +116,39 @@ function getLocalCouponStatusText(
   }
 
   return '可使用';
+}
+
+function sortPlatformCouponItemsByLatestActivity(
+  items: PlatformProfileCouponWallet['items'],
+) {
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      sortIso: getPlatformCouponSortIso(item),
+    }))
+    .sort((left, right) => {
+      if (left.sortIso && right.sortIso) {
+        const diff = right.sortIso.localeCompare(left.sortIso);
+
+        if (diff !== 0) {
+          return diff;
+        }
+      } else if (left.sortIso) {
+        return -1;
+      } else if (right.sortIso) {
+        return 1;
+      }
+
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+function getPlatformCouponSortIso(
+  item: PlatformProfileCouponWallet['items'][number],
+) {
+  return item.usedAtIso ?? item.lockedAtIso ?? item.issuedAtIso;
 }
 
 function getLocalCouponValidityText(

@@ -15033,6 +15033,9 @@ test('shows platform coupon wallet when opening coupons in platform mode', async
     expect(renderedText).toContain('平台新客立减 20');
     expect(renderedText).toContain('已用于订单 HY202607090009');
     expect(renderedText).not.toContain('满 300 减 30');
+    expect(renderedText.indexOf('平台新客立减 20')).toBeLessThan(
+      renderedText.indexOf('平台满 500 减 50'),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/profile/coupons',
@@ -15212,6 +15215,9 @@ test('manual refreshes platform coupon wallet from profile', async () => {
     expect(renderedText).toContain('平台锁定券');
     expect(renderedText).toContain('已锁定订单 HY202607110015');
     expect(renderedText).not.toContain('平台满 200 减 20');
+    expect(renderedText.indexOf('平台锁定券')).toBeLessThan(
+      renderedText.indexOf('平台夜间运输券'),
+    );
     expect(couponRequestCount).toBe(2);
 
     expect(fetchMock).toHaveBeenCalledWith(

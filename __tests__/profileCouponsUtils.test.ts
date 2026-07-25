@@ -110,7 +110,7 @@ test('creates order coupon usage changes for selecting and removing coupons', ()
   });
 });
 
-test('maps platform coupon wallet into local coupon records', () => {
+test('sorts platform coupon wallet by latest activity before mapping into local coupon records', () => {
   expect(
     createLocalCouponsFromPlatformWallet({
       shipperId: 'shipper-1',
@@ -121,6 +121,19 @@ test('maps platform coupon wallet into local coupon records', () => {
         expiredCount: 1,
       },
       items: [
+        {
+          id: 'coupon-platform-expired',
+          shipperId: 'shipper-1',
+          title: '夜间运输券',
+          status: 'expired',
+          conditionText: '20:00-06:00 发单可用',
+          discountCents: 1500,
+          minOrderAmountCents: 10000,
+          validFromIso: '2026-05-01T00:00:00.000Z',
+          validUntilIso: '2026-05-31T15:59:59.000Z',
+          sourceText: '夜间专享',
+          issuedAtIso: '2026-07-09T07:00:00.000Z',
+        },
         {
           id: 'coupon-platform-usable',
           shipperId: 'shipper-1',
@@ -162,30 +175,18 @@ test('maps platform coupon wallet into local coupon records', () => {
           sourceText: '新客礼包',
           issuedAtIso: '2026-07-09T08:00:00.000Z',
           usedOrderNo: 'HY202607090001',
-        },
-        {
-          id: 'coupon-platform-expired',
-          shipperId: 'shipper-1',
-          title: '夜间运输券',
-          status: 'expired',
-          conditionText: '20:00-06:00 发单可用',
-          discountCents: 1500,
-          minOrderAmountCents: 10000,
-          validFromIso: '2026-05-01T00:00:00.000Z',
-          validUntilIso: '2026-05-31T15:59:59.000Z',
-          sourceText: '夜间专享',
-          issuedAtIso: '2026-07-09T08:00:00.000Z',
+          usedAtIso: '2026-07-09T10:00:00.000Z',
         },
       ],
     }),
   ).toEqual([
     createCoupon({
-      id: 'coupon-platform-usable',
-      title: '满 300 减 30',
-      statusText: '可使用',
-      conditionText: '发单满 300 元可用',
-      validUntilText: '有效期至 2026-07-31',
-      sourceText: '平台活动发放',
+      id: 'coupon-platform-used',
+      title: '新客立减 20',
+      statusText: '已使用',
+      conditionText: '首单发单可用',
+      validUntilText: '已用于订单 HY202607090001',
+      sourceText: '新客礼包',
     }),
     createCoupon({
       id: 'coupon-platform-locked',
@@ -196,12 +197,12 @@ test('maps platform coupon wallet into local coupon records', () => {
       sourceText: '平台锁定',
     }),
     createCoupon({
-      id: 'coupon-platform-used',
-      title: '新客立减 20',
-      statusText: '已使用',
-      conditionText: '首单发单可用',
-      validUntilText: '已用于订单 HY202607090001',
-      sourceText: '新客礼包',
+      id: 'coupon-platform-usable',
+      title: '满 300 减 30',
+      statusText: '可使用',
+      conditionText: '发单满 300 元可用',
+      validUntilText: '有效期至 2026-07-31',
+      sourceText: '平台活动发放',
     }),
     createCoupon({
       id: 'coupon-platform-expired',
