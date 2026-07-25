@@ -15107,7 +15107,8 @@ test('shows platform evaluation records when opening evaluations in platform mod
     expect(renderedText).toContain('匿名评价');
     expect(renderedText).toContain('匿名平台评价同步内容');
     expect(renderedText).toContain('司机评价货主同步内容');
-    expect(renderedText).toContain('司机评价：2026-07-09 10:00');
+    expect(renderedText).toContain('平台提交：2026-07-09 17:00');
+    expect(renderedText).toContain('司机评价：2026-07-09 18:00');
     expect(renderedText).toContain('评价图片凭证 清单');
     expect(renderedText).toContain('司机评价图片凭证 清单');
     expect(renderedText).toContain('文件 ID：file-eval-1');

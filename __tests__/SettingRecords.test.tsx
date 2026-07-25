@@ -998,6 +998,8 @@ describe('SettingRecords platform account profile', () => {
       '风险提示：检测到 2 台其它设备保持登录，如非本人请立即退出其它设备。',
     );
     expect(renderedText).toContain('当前设备：当前安装设备（已匹配平台会话）');
+    expect(renderedText).toContain('登录时间：2026-07-22 16:00');
+    expect(renderedText).toContain('会话有效期至：2026-07-29 16:00');
 
     await ReactTestRenderer.act(async () => {
       await renderer.root

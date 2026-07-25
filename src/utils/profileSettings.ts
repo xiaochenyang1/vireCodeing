@@ -5,6 +5,7 @@ import type {
 } from './profileLocalState';
 import type { AuthSessionSnapshot } from './authSession';
 import type { PushNotificationPermissionStatus } from '../hooks/usePushNotifications';
+import { formatPlatformIsoMinute } from './dateTime';
 
 export type LocalPermissionId =
   | 'location'
@@ -843,7 +844,7 @@ function getToggleStatusText(enabled: boolean) {
 }
 
 function formatIsoMinute(isoText: string) {
-  return isoText.slice(0, 16).replace('T', ' ');
+  return formatPlatformIsoMinute(isoText);
 }
 
 function formatTimestampMinute(timestamp: number) {

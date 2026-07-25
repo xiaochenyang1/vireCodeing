@@ -5,6 +5,7 @@ import type {
 } from '../services/platformProfileApi';
 import type { createPlatformFileApi } from '../services/platformFileApi';
 import type { FileAttachmentRef, RecentOrder } from '../types';
+import { formatPlatformIsoMinute } from './dateTime';
 
 export type ProfileEvaluationDirection =
   | 'shipper_to_driver'
@@ -195,7 +196,7 @@ export async function hydrateProfileEvaluationRecords(
 }
 
 function formatIsoMinute(isoText: string) {
-  return isoText.slice(0, 16).replace('T', ' ');
+  return formatPlatformIsoMinute(isoText);
 }
 
 function createProfileEvaluationAttachmentRefs(
