@@ -986,6 +986,10 @@ export function DriverHomeScreen({
             };
           }
 
+          if (current.selectedBankCardSource === 'cleared') {
+            return current;
+          }
+
           const nextForm =
             current.selectedBankCardId || current.selectedBankCardSource
             ? {
@@ -2231,7 +2235,7 @@ export function DriverHomeScreen({
         bankName: '',
         bankAccountNo: '',
         selectedBankCardId: undefined,
-        selectedBankCardSource: undefined,
+        selectedBankCardSource: 'cleared',
       };
     });
   };

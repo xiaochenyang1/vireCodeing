@@ -1164,6 +1164,65 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toHaveLength(0);
   });
 
+  it('keeps an explicitly cleared withdrawal card empty after refreshing the same default card', async () => {
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listBankCards.mockResolvedValue(
+      createDriverBankCardsPage(),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-amount' })
+        .props.onChangeText('120');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.onChangeText('6225 8888 0000 1234');
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-clear-bank-card' })
+        .props.onPress();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
+        .value,
+    ).toBe('120');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-name' }).props
+        .value,
+    ).toBe('');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
+        .props.value,
+    ).toBe('');
+    expect(
+      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
+        .props.value,
+    ).toBe('');
+    expect(
+      renderer.root.findAllByProps({
+        testID: 'driver-withdrawal-selected-bank-card',
+      }),
+    ).toHaveLength(0);
+  });
+
   it('clears the selected bank card when withdrawal payee info changes', async () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listBankCards.mockResolvedValue(

@@ -62,7 +62,7 @@ export type DriverWithdrawalFormState = {
   bankName: string;
   bankAccountNo: string;
   selectedBankCardId?: string;
-  selectedBankCardSource?: 'manual' | 'default';
+  selectedBankCardSource?: 'manual' | 'default' | 'cleared';
 };
 
 export type DriverBankCardFormState = {
