@@ -1076,6 +1076,226 @@ describe('platform profile api', () => {
     );
   });
 
+  it('issues admin shipper coupons, batch issues them, and gets the coupon report', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            id: 'coupon-platform-issue-1',
+            shipperId: 'shipper-1',
+            title: '后台满 500 减 50',
+            status: 'usable',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+            sourceText: '运营补偿',
+            issuedAtIso: '2026-07-09T08:00:00.000Z',
+          },
+          requestId: 'req-admin-coupon-issue',
+          timestamp: '2026-07-09T08:00:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            requestedCount: 2,
+            issuedCount: 2,
+            coupons: [
+              {
+                id: 'coupon-platform-batch-1',
+                shipperId: 'shipper-1',
+                title: '后台满 500 减 50',
+                status: 'usable',
+                conditionText: '平台订单满 500 元可用',
+                discountCents: 5000,
+                minOrderAmountCents: 50000,
+                validFromIso: '2026-07-09T00:00:00.000Z',
+                validUntilIso: '2026-08-09T00:00:00.000Z',
+                sourceText: '运营补偿',
+                issuedAtIso: '2026-07-09T08:05:00.000Z',
+              },
+              {
+                id: 'coupon-platform-batch-2',
+                shipperId: 'shipper-2',
+                title: '后台满 500 减 50',
+                status: 'usable',
+                conditionText: '平台订单满 500 元可用',
+                discountCents: 5000,
+                minOrderAmountCents: 50000,
+                validFromIso: '2026-07-09T00:00:00.000Z',
+                validUntilIso: '2026-08-09T00:00:00.000Z',
+                sourceText: '运营补偿',
+                issuedAtIso: '2026-07-09T08:05:00.000Z',
+              },
+            ],
+          },
+          requestId: 'req-admin-coupon-batch',
+          timestamp: '2026-07-09T08:05:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            generatedAtIso: '2026-07-09T08:10:00.000Z',
+            summary: {
+              totalCount: 3,
+              usableCount: 3,
+              lockedCount: 0,
+              usedCount: 0,
+              expiredCount: 0,
+              totalDiscountCents: 15000,
+              redeemedDiscountCents: 0,
+            },
+            sourceBreakdown: [
+              {
+                sourceText: '运营补偿',
+                totalCount: 3,
+                usedCount: 0,
+                redeemedDiscountCents: 0,
+              },
+            ],
+            topShippers: [
+              {
+                shipperId: 'shipper-1',
+                totalCount: 2,
+                usableCount: 2,
+                lockedCount: 0,
+                usedCount: 0,
+                expiredCount: 0,
+                totalDiscountCents: 10000,
+                redeemedDiscountCents: 0,
+                latestIssuedAtIso: '2026-07-09T08:05:00.000Z',
+              },
+            ],
+          },
+          requestId: 'req-admin-coupon-report',
+          timestamp: '2026-07-09T08:10:00.000Z',
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.issueAdminCoupon({
+        shipperId: ' shipper-1 ',
+        title: ' 后台满 500 减 50 ',
+        conditionText: ' 平台订单满 500 元可用 ',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+        sourceText: ' 运营补偿 ',
+      }),
+    ).resolves.toMatchObject({
+      id: 'coupon-platform-issue-1',
+      shipperId: 'shipper-1',
+      title: '后台满 500 减 50',
+    });
+
+    await expect(
+      api.batchIssueAdminCoupons({
+        shipperIds: [' shipper-1 ', 'shipper-2', ' shipper-1 '],
+        title: ' 后台满 500 减 50 ',
+        conditionText: ' 平台订单满 500 元可用 ',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+        sourceText: ' 运营补偿 ',
+      }),
+    ).resolves.toMatchObject({
+      requestedCount: 2,
+      issuedCount: 2,
+      coupons: [
+        expect.objectContaining({ shipperId: 'shipper-1' }),
+        expect.objectContaining({ shipperId: 'shipper-2' }),
+      ],
+    });
+
+    await expect(
+      api.getAdminCouponReport({ topShippersLimit: 8 }),
+    ).resolves.toMatchObject({
+      generatedAtIso: '2026-07-09T08:10:00.000Z',
+      summary: expect.objectContaining({
+        totalCount: 3,
+      }),
+      topShippers: [
+        expect.objectContaining({
+          shipperId: 'shipper-1',
+        }),
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/shipper-coupons',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          shipperId: 'shipper-1',
+          title: '后台满 500 减 50',
+          conditionText: '平台订单满 500 元可用',
+          discountCents: 5000,
+          minOrderAmountCents: 50000,
+          validFromIso: '2026-07-09T00:00:00.000Z',
+          validUntilIso: '2026-08-09T00:00:00.000Z',
+          sourceText: '运营补偿',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/shipper-coupons/batch-issue',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          shipperIds: ['shipper-1', 'shipper-2'],
+          title: '后台满 500 减 50',
+          conditionText: '平台订单满 500 元可用',
+          discountCents: 5000,
+          minOrderAmountCents: 50000,
+          validFromIso: '2026-07-09T00:00:00.000Z',
+          validUntilIso: '2026-08-09T00:00:00.000Z',
+          sourceText: '运营补偿',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:3000/api/admin/shipper-coupons/report?topShippersLimit=8',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('gets the shipper profile evaluation snapshot with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -1638,6 +1858,83 @@ describe('platform profile api', () => {
 
       await expect(run(api)).rejects.toMatchObject({
         code: 'PLATFORM_ADMIN_SHIPPER_INVOICE_REQUEST_INVALID',
+        status: 0,
+      } satisfies Partial<PlatformApiError>);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['null admin shipper coupon issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.issueAdminCoupon(null as never)],
+    ['blank admin shipper coupon shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.issueAdminCoupon({
+        shipperId: '   ',
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+      })],
+    ['invalid admin shipper coupon discount', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.issueAdminCoupon({
+        shipperId: 'shipper-1',
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 0,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+      })],
+    ['invalid admin shipper coupon time window', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.issueAdminCoupon({
+        shipperId: 'shipper-1',
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-08-09T00:00:00.000Z',
+        validUntilIso: '2026-07-09T00:00:00.000Z',
+      })],
+    ['null admin shipper coupon batch issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.batchIssueAdminCoupons(null as never)],
+    ['empty admin shipper coupon shipperIds', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.batchIssueAdminCoupons({
+        shipperIds: [],
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+      })],
+    ['invalid admin shipper coupon batch issue count', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.batchIssueAdminCoupons({
+        shipperIds: Array.from({ length: 51 }, (_, index) => `shipper-${index}`),
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+      })],
+    ['invalid admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.getAdminCouponReport({ topShippersLimit: 21 })],
+    ['null admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.getAdminCouponReport(null as never)],
+  ])(
+    'rejects invalid admin shipper coupon inputs before sending them: %s',
+    async (_label, run) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      const api = createPlatformProfileApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(run(api)).rejects.toMatchObject({
+        code: 'PLATFORM_ADMIN_SHIPPER_COUPON_REQUEST_INVALID',
         status: 0,
       } satisfies Partial<PlatformApiError>);
       expect(fetchMock).not.toHaveBeenCalled();

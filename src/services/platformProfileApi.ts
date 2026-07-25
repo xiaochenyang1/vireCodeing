@@ -261,6 +261,66 @@ export type PlatformProfileCouponWallet = {
   items: PlatformProfileCouponRecord[];
 };
 
+export type PlatformAdminIssueShipperCouponTemplate = {
+  title: string;
+  conditionText: string;
+  discountCents: number;
+  minOrderAmountCents: number;
+  validFromIso: string;
+  validUntilIso: string;
+  sourceText?: string;
+};
+
+export type PlatformAdminIssueShipperCouponRequest =
+  PlatformAdminIssueShipperCouponTemplate & {
+    shipperId: string;
+  };
+
+export type PlatformAdminBatchIssueShipperCouponsRequest =
+  PlatformAdminIssueShipperCouponTemplate & {
+    shipperIds: string[];
+  };
+
+export type PlatformAdminBatchIssueShipperCouponsResult = {
+  requestedCount: number;
+  issuedCount: number;
+  coupons: PlatformProfileCouponRecord[];
+};
+
+export type PlatformAdminShipperCouponReportQuery = {
+  topShippersLimit?: number;
+};
+
+export type PlatformAdminShipperCouponReportSummary = {
+  totalCount: number;
+  usableCount: number;
+  lockedCount: number;
+  usedCount: number;
+  expiredCount: number;
+  totalDiscountCents: number;
+  redeemedDiscountCents: number;
+};
+
+export type PlatformAdminShipperCouponReportSourceBreakdownItem = {
+  sourceText: string;
+  totalCount: number;
+  usedCount: number;
+  redeemedDiscountCents: number;
+};
+
+export type PlatformAdminShipperCouponReportTopShipperItem =
+  PlatformAdminShipperCouponReportSummary & {
+    shipperId: string;
+    latestIssuedAtIso: string;
+  };
+
+export type PlatformAdminShipperCouponReport = {
+  generatedAtIso: string;
+  summary: PlatformAdminShipperCouponReportSummary;
+  sourceBreakdown: PlatformAdminShipperCouponReportSourceBreakdownItem[];
+  topShippers: PlatformAdminShipperCouponReportTopShipperItem[];
+};
+
 export type PlatformProfileEvaluationRecord = {
   id: string;
   orderId: string;
@@ -430,6 +490,42 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       return platformGet<PlatformProfileCouponWallet>(
         config,
         '/shipper/profile/coupons',
+      );
+    },
+    async issueAdminCoupon(
+      request: PlatformAdminIssueShipperCouponRequest,
+    ) {
+      return platformPost<
+        PlatformAdminIssueShipperCouponRequest,
+        PlatformProfileCouponRecord
+      >(
+        config,
+        '/admin/shipper-coupons',
+        normalizeAdminIssueShipperCouponRequest(request),
+      );
+    },
+    async batchIssueAdminCoupons(
+      request: PlatformAdminBatchIssueShipperCouponsRequest,
+    ) {
+      return platformPost<
+        PlatformAdminBatchIssueShipperCouponsRequest,
+        PlatformAdminBatchIssueShipperCouponsResult
+      >(
+        config,
+        '/admin/shipper-coupons/batch-issue',
+        normalizeAdminBatchIssueShipperCouponsRequest(request),
+      );
+    },
+    async getAdminCouponReport(
+      query: PlatformAdminShipperCouponReportQuery = {},
+    ) {
+      const normalizedQuery = normalizeAdminShipperCouponReportQuery(query);
+
+      return platformGet<PlatformAdminShipperCouponReport>(
+        config,
+        `/admin/shipper-coupons/report?${new URLSearchParams(
+          normalizedQuery,
+        ).toString()}`,
       );
     },
     getEvaluations() {
@@ -709,6 +805,165 @@ function normalizeCreateProfileInvoiceApplicationRequest(
     ),
     receiverEmail: normalizedReceiverEmail,
     orderIds: normalizedOrderIds,
+  };
+}
+
+function normalizeAdminIssueShipperCouponRequest(
+  request: PlatformAdminIssueShipperCouponRequest,
+): PlatformAdminIssueShipperCouponRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon issue request must be an object',
+    );
+  }
+
+  return {
+    shipperId: normalizeRequiredString(
+      request.shipperId,
+      120,
+      'Admin shipper coupon shipperId is invalid',
+      throwInvalidAdminShipperCouponRequest,
+    ),
+    ...normalizeAdminCouponIssueTemplate(request),
+  };
+}
+
+function normalizeAdminBatchIssueShipperCouponsRequest(
+  request: PlatformAdminBatchIssueShipperCouponsRequest,
+): PlatformAdminBatchIssueShipperCouponsRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon batch issue request must be an object',
+    );
+  }
+
+  if (!Array.isArray(request.shipperIds)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon shipperIds are invalid',
+    );
+  }
+
+  const normalizedShipperIds = request.shipperIds.map(shipperId =>
+    normalizeRequiredString(
+      shipperId,
+      120,
+      'Admin shipper coupon shipperId is invalid',
+      throwInvalidAdminShipperCouponRequest,
+    ),
+  );
+
+  if (
+    normalizedShipperIds.length === 0 ||
+    normalizedShipperIds.length > 50
+  ) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon shipperIds are invalid',
+    );
+  }
+
+  return {
+    shipperIds: [...new Set(normalizedShipperIds)],
+    ...normalizeAdminCouponIssueTemplate(request),
+  };
+}
+
+function normalizeAdminCouponIssueTemplate(
+  template: PlatformAdminIssueShipperCouponTemplate,
+): PlatformAdminIssueShipperCouponTemplate {
+  const validFromIso = normalizeRequiredString(
+    template.validFromIso,
+    40,
+    'Admin shipper coupon validFromIso is invalid',
+    throwInvalidAdminShipperCouponRequest,
+  );
+  const validUntilIso = normalizeRequiredString(
+    template.validUntilIso,
+    40,
+    'Admin shipper coupon validUntilIso is invalid',
+    throwInvalidAdminShipperCouponRequest,
+  );
+  const validFromTimestamp = Date.parse(validFromIso);
+  const validUntilTimestamp = Date.parse(validUntilIso);
+
+  if (Number.isNaN(validFromTimestamp)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon validFromIso is invalid',
+    );
+  }
+
+  if (Number.isNaN(validUntilTimestamp)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon validUntilIso is invalid',
+    );
+  }
+
+  if (validUntilTimestamp <= validFromTimestamp) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon validUntilIso is invalid',
+    );
+  }
+
+  const discountCents = normalizePositiveInteger(
+    template.discountCents,
+    'Admin shipper coupon discountCents is invalid',
+    throwInvalidAdminShipperCouponRequest,
+  );
+  const minOrderAmountCents = normalizeNonNegativeInteger(
+    template.minOrderAmountCents,
+    'Admin shipper coupon minOrderAmountCents is invalid',
+    throwInvalidAdminShipperCouponRequest,
+  );
+  const sourceText = normalizeOptionalString(
+    template.sourceText,
+    80,
+    'Admin shipper coupon sourceText is invalid',
+    throwInvalidAdminShipperCouponRequest,
+  );
+
+  return {
+    title: normalizeRequiredString(
+      template.title,
+      60,
+      'Admin shipper coupon title is invalid',
+      throwInvalidAdminShipperCouponRequest,
+    ),
+    conditionText: normalizeRequiredString(
+      template.conditionText,
+      120,
+      'Admin shipper coupon conditionText is invalid',
+      throwInvalidAdminShipperCouponRequest,
+    ),
+    discountCents,
+    minOrderAmountCents,
+    validFromIso,
+    validUntilIso,
+    ...(sourceText ? { sourceText } : {}),
+  };
+}
+
+function normalizeAdminShipperCouponReportQuery(
+  query: PlatformAdminShipperCouponReportQuery,
+) {
+  if (!isPlainObject(query)) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon report query must be an object',
+    );
+  }
+
+  const topShippersLimit = query.topShippersLimit ?? 5;
+
+  if (
+    !Number.isInteger(topShippersLimit) ||
+    topShippersLimit < 1 ||
+    topShippersLimit > 20
+  ) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon topShippersLimit is invalid',
+    );
+  }
+
+  return {
+    topShippersLimit: String(topShippersLimit),
   };
 }
 
@@ -1161,6 +1416,30 @@ function normalizePhone(value: unknown) {
   return normalizedValue;
 }
 
+function normalizePositiveInteger(
+  value: unknown,
+  message: string,
+  thrower: (message: string) => never,
+) {
+  if (!Number.isInteger(value) || Number(value) <= 0) {
+    thrower(message);
+  }
+
+  return Number(value);
+}
+
+function normalizeNonNegativeInteger(
+  value: unknown,
+  message: string,
+  thrower: (message: string) => never,
+) {
+  if (!Number.isInteger(value) || Number(value) < 0) {
+    thrower(message);
+  }
+
+  return Number(value);
+}
+
 function normalizeOptionalIsoString(value: unknown, message: string) {
   return normalizeOptionalIsoStringWithThrower(
     value,
@@ -1258,6 +1537,14 @@ function throwInvalidAdminShipperInvoiceRequest(message: string): never {
   throw new PlatformApiError(
     message,
     'PLATFORM_ADMIN_SHIPPER_INVOICE_REQUEST_INVALID',
+    0,
+  );
+}
+
+function throwInvalidAdminShipperCouponRequest(message: string): never {
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_ADMIN_SHIPPER_COUPON_REQUEST_INVALID',
     0,
   );
 }
