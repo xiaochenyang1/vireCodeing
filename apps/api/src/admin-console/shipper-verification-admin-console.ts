@@ -438,6 +438,7 @@ export function renderShipperVerificationAdminConsole() {
     }
 
     async function selectShipper(shipperId) {
+      const requestId = ++latestReviewEventsRequestId;
       selectedShipperId = shipperId;
       syncShipperVerificationRouteState(selectedShipperId);
       renderQueue(currentItems);
@@ -454,7 +455,6 @@ export function renderShipperVerificationAdminConsole() {
         return;
       }
 
-      const requestId = ++latestReviewEventsRequestId;
       setText('attachmentStatus', '加载附件中...');
       setText('reviewEventStatus', '加载审核事件中...');
 
@@ -480,6 +480,7 @@ export function renderShipperVerificationAdminConsole() {
     }
 
     async function loadQueue() {
+      latestReviewEventsRequestId += 1;
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
         resetDetail('请先填写 admin token。');

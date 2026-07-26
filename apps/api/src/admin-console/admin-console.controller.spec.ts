@@ -407,6 +407,27 @@ describe('shipper verification admin console page', () => {
     expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
     expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
   });
+
+  it('invalidates shipper detail requests before queue and selection early returns', () => {
+    const html = renderShipperVerificationAdminConsole();
+    const selectStart = html.indexOf('async function selectShipper(shipperId)');
+    const selectRequestIndex = html.indexOf(
+      'const requestId = ++latestReviewEventsRequestId',
+      selectStart,
+    );
+    const emptySelectionIndex = html.indexOf('if (!shipperId)', selectStart);
+    const queueStart = html.indexOf('async function loadQueue()');
+    const queueInvalidationIndex = html.indexOf(
+      'latestReviewEventsRequestId += 1',
+      queueStart,
+    );
+    const missingTokenIndex = html.indexOf('if (!getToken())', queueStart);
+
+    expect(selectRequestIndex).toBeGreaterThan(selectStart);
+    expect(selectRequestIndex).toBeLessThan(emptySelectionIndex);
+    expect(queueInvalidationIndex).toBeGreaterThan(queueStart);
+    expect(queueInvalidationIndex).toBeLessThan(missingTokenIndex);
+  });
 });
 
 describe('support ticket admin console page', () => {
