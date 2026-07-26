@@ -388,7 +388,9 @@ describe('shipper verification admin console page', () => {
 
     expect(html).toContain('applyShipperVerificationRouteState');
     expect(html).toContain('syncShipperVerificationRouteState');
-    expect(html).toContain("query.get('status') || 'pending'");
+    expect(html).toContain("query.get('status') || 'reviewing'");
+    expect(html).toContain("status !== 'reviewing'");
+    expect(html).not.toContain("query.get('status') || 'pending'");
     expect(html).toContain("query.get('type')");
     expect(html).toContain("query.get('shipperId')");
     expect(html).toContain("query.set('shipperId', shipperId)");

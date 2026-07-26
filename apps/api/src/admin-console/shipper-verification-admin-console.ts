@@ -233,7 +233,7 @@ export function renderShipperVerificationAdminConsole() {
           : '',
       );
       return {
-        status: query.get('status') || 'pending',
+        status: query.get('status') || 'reviewing',
         type: query.get('type') || '',
         shipperId: query.get('shipperId') || '',
       };
@@ -260,7 +260,7 @@ export function renderShipperVerificationAdminConsole() {
           ? shipperIdOverride
           : selectedShipperId || '',
       ).trim();
-      if (status && status !== 'pending') {
+      if (status && status !== 'reviewing') {
         query.set('status', status);
       }
       if (type) {
