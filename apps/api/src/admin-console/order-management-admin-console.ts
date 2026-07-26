@@ -1372,10 +1372,19 @@ export function renderOrderManagementAdminConsole() {
       return '/api/admin/finance-console?' + query.toString();
     }
 
-    function buildOrderExceptionCaseConsoleHref(caseNo) {
+    function buildOrderExceptionCaseConsoleHref(caseId, caseNo) {
       const query = new URLSearchParams();
-      query.set('keyword', caseNo);
-      return '/api/admin/order-exception-case-console?' + query.toString();
+      const nextCaseId = String(caseId || '').trim();
+      const nextCaseNo = String(caseNo || '').trim();
+      if (nextCaseId) {
+        query.set('caseId', nextCaseId);
+      }
+      if (nextCaseNo) {
+        query.set('keyword', nextCaseNo);
+      }
+      const nextQuery = query.toString();
+      return '/api/admin/order-exception-case-console' +
+        (nextQuery ? '?' + nextQuery : '');
     }
 
     function openOrderFinanceConsole(tab, orderId) {
@@ -1406,14 +1415,15 @@ export function renderOrderManagementAdminConsole() {
       openOrderFinanceConsole(tab, orderId);
     }
 
-    function openOrderExceptionCaseConsole(caseNo) {
+    function openOrderExceptionCaseConsole(caseId, caseNo) {
+      const nextCaseId = String(caseId || '').trim();
       const nextCaseNo = String(caseNo || '').trim();
-      if (!nextCaseNo) {
+      if (!nextCaseId && !nextCaseNo) {
         setNotice('当前订单还没有异常工单，别硬往客服台跳。');
         return;
       }
 
-      const href = buildOrderExceptionCaseConsoleHref(nextCaseNo);
+      const href = buildOrderExceptionCaseConsoleHref(nextCaseId, nextCaseNo);
       if (globalThis.location && typeof globalThis.location.assign === 'function') {
         globalThis.location.assign(href);
         return;
@@ -1428,9 +1438,10 @@ export function renderOrderManagementAdminConsole() {
         state.selectedOrder && state.selectedOrder.latestExceptionCase
           ? state.selectedOrder.latestExceptionCase
           : null;
+      const caseId = latestExceptionCase ? latestExceptionCase.id : '';
       const caseNo = latestExceptionCase ? latestExceptionCase.caseNo : '';
 
-      openOrderExceptionCaseConsole(caseNo);
+      openOrderExceptionCaseConsole(caseId, caseNo);
     }
 
     function buildOrderFinanceQuery(orderId) {

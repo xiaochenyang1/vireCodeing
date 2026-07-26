@@ -325,7 +325,12 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('syncSupportTicketRouteState');
     expect(html).toContain("query.get('slaStatus')");
     expect(html).toContain("query.set('slaStatus', slaStatus)");
-    expect(html).toContain('clearSupportTicketSelection()');
+    expect(html).toContain("query.get('ticketId')");
+    expect(html).toContain("query.set('ticketId', ticketId)");
+    expect(html).toContain('pendingRouteTicketId');
+    expect(html).toContain('pendingRouteTicketId = supportTicketRouteState.ticketId');
+    expect(html).toContain('await loadSupportTicketDetail(');
+    expect(html).toContain('clearSupportTicketSelection(options = {})');
   });
 });
 
@@ -648,7 +653,9 @@ describe('order management admin console page', () => {
     expect(html).toContain('viewSelectedOrderExceptionCaseButton');
     expect(html).toContain('openSelectedOrderExceptionCaseConsole');
     expect(html).toContain('/api/admin/order-exception-case-console');
-    expect(html).toContain("query.set('keyword', caseNo)");
+    expect(html).toContain("query.set('caseId', nextCaseId)");
+    expect(html).toContain("query.set('keyword', nextCaseNo)");
+    expect(html).toContain('latestExceptionCase.id');
     expect(html).toContain('formatCompensationSummary');
     expect(html).toContain('latestExceptionCase.compensationStatus');
   });
@@ -745,6 +752,20 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('解决 SLA');
     expect(html).toContain('认领状态和认领客服筛队列');
     expect(html).toContain('可手动扫描 + 可选定时扫');
+  });
+
+  it('persists selected case deep-links in route state and restores them after reload', () => {
+    const html = renderOrderExceptionCaseAdminConsole();
+
+    expect(html).toContain("query.get('caseId')");
+    expect(html).toContain("query.set('caseId', caseId)");
+    expect(html).toContain('pendingRouteCaseId');
+    expect(html).toContain('pendingRouteCaseId = caseRouteState.caseId');
+    expect(html).toContain('renderCaseListSelection');
+    expect(html).toContain('clearCaseSelection(options = {})');
+    expect(html).toContain('routeRestoreCaseId !== selectedCaseId');
+    expect(html).toContain("await loadCase(routeRestoreCaseId, { fromRouteRestore: true })");
+    expect(html).toContain('syncOrderExceptionCaseRouteState(currentPage, selectedCaseId)');
   });
 });
 

@@ -97,6 +97,7 @@ export function renderSupportTicketAdminConsole() {
     let latestSupportTicketRequestId = 0;
     let latestSupportTicketDetailRequestId = 0;
     let currentAdminUserId = '';
+    let pendingRouteTicketId = '';
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/support-ticket-console',
     })}
@@ -173,15 +174,22 @@ export function renderSupportTicketAdminConsole() {
       return formatSupportTicketSlaStage(sla.stage) + ' · ' + formatSupportTicketSlaStatus(sla.status);
     }
 
-    function clearSupportTicketSelection() {
+    function clearSupportTicketSelection(options = {}) {
       selectedTicketId = '';
       selectedTicketStatus = '';
       selectedTicketClaimedByAdminUserId = '';
+      if (options.clearPendingRoute !== false) {
+        pendingRouteTicketId = '';
+      }
       document.getElementById('supportTicketBaseUpdatedAtIso').value = '';
       document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
       document.getElementById('supportTicketActions').innerHTML = '';
-      document.getElementById('supportTicketDetail').textContent = '请选择工单';
-      document.getElementById('supportTicketMutationNotice').textContent = '';
+      document.getElementById('supportTicketDetail').textContent = options.detailText || '请选择工单';
+      document.getElementById('supportTicketMutationNotice').textContent = options.notice || '';
+      if (options.syncRoute !== false) {
+        syncSupportTicketRouteState(currentPage, '');
+      }
+      renderSupportTicketListFromSelection();
     }
 
     function readSupportTicketRouteState() {
@@ -196,6 +204,7 @@ export function renderSupportTicketAdminConsole() {
         claimStatus: query.get('claimStatus') || '',
         claimedByAdminUserId: query.get('claimedByAdminUserId') || '',
         keyword: query.get('keyword') || '',
+        ticketId: query.get('ticketId') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
       };
@@ -219,7 +228,7 @@ export function renderSupportTicketAdminConsole() {
       return routeState;
     }
 
-    function syncSupportTicketRouteState(pageOverride) {
+    function syncSupportTicketRouteState(pageOverride, ticketIdOverride) {
       if (!globalThis.history || !globalThis.location) {
         return;
       }
@@ -230,6 +239,11 @@ export function renderSupportTicketAdminConsole() {
       const claimStatus = document.getElementById('supportTicketClaimStatusInput').value;
       const claimedByAdminUserId = document.getElementById('supportTicketClaimedByAdminUserIdInput').value.trim();
       const keyword = document.getElementById('supportTicketKeywordInput').value.trim();
+      const ticketId = String(
+        typeof ticketIdOverride === 'string'
+          ? ticketIdOverride
+          : selectedTicketId || pendingRouteTicketId || '',
+      ).trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('supportTicketPageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
       if (status) query.set('status', status);
@@ -237,6 +251,7 @@ export function renderSupportTicketAdminConsole() {
       if (claimStatus) query.set('claimStatus', claimStatus);
       if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
       if (keyword) query.set('keyword', keyword);
+      if (ticketId) query.set('ticketId', ticketId);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
       const nextQuery = query.toString();
@@ -390,6 +405,8 @@ export function renderSupportTicketAdminConsole() {
         renderSupportTicketHistory(ticket.statusHistory),
       ].join('');
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions(ticket);
+      syncSupportTicketRouteState(currentPage, selectedTicketId);
+      renderSupportTicketListFromSelection();
     }
 
     function renderSupportTicketList(items) {
@@ -421,6 +438,7 @@ export function renderSupportTicketAdminConsole() {
     async function loadSupportTickets(page) {
       currentPage = Math.max(1, Number.parseInt(page || 1, 10) || 1);
       syncSupportTicketRouteState(currentPage);
+      const routeRestoreTicketId = pendingRouteTicketId;
       const requestId = ++latestSupportTicketRequestId;
       document.getElementById('supportTicketListNotice').textContent = '加载中...';
       document.getElementById('supportTicketMutationNotice').textContent = '';
@@ -447,17 +465,38 @@ export function renderSupportTicketAdminConsole() {
         renderSupportTicketList(Array.isArray(data.items) ? data.items : []);
         const loadedCount = Array.isArray(data.items) ? data.items.length : 0;
         document.getElementById('supportTicketListNotice').textContent = '当前已加载 ' + loadedCount + ' 条，共 ' + total + ' 条';
+        renderSupportTicketListFromSelection();
+
+        if (
+          routeRestoreTicketId &&
+          pendingRouteTicketId === routeRestoreTicketId &&
+          routeRestoreTicketId !== selectedTicketId
+        ) {
+          pendingRouteTicketId = '';
+          await loadSupportTicketDetail(
+            encodeURIComponent(routeRestoreTicketId),
+            { fromRouteRestore: true },
+          );
+        }
       } catch (error) {
         if (requestId !== latestSupportTicketRequestId) return;
         document.getElementById('supportTicketList').innerHTML = '<p class="muted">暂无工单</p>';
         document.getElementById('supportTicketListNotice').textContent = error.message || '查询工单失败';
-        clearSupportTicketSelection();
+        clearSupportTicketSelection({
+          syncRoute: false,
+          clearPendingRoute: false,
+        });
       }
     }
 
-    async function loadSupportTicketDetail(encodedTicketId) {
+    async function loadSupportTicketDetail(encodedTicketId, options = {}) {
       const ticketId = decodeURIComponent(encodedTicketId);
+      if (!options.fromRouteRestore) {
+        pendingRouteTicketId = '';
+      }
       selectedTicketId = ticketId;
+      syncSupportTicketRouteState(currentPage, selectedTicketId);
+      renderSupportTicketListFromSelection();
       const requestId = ++latestSupportTicketDetailRequestId;
       document.getElementById('supportTicketDetail').textContent = '工单详情加载中...';
       document.getElementById('supportTicketMutationNotice').textContent = '';
@@ -466,10 +505,12 @@ export function renderSupportTicketAdminConsole() {
         const ticket = await api('/admin/support-tickets/' + encodeURIComponent(ticketId));
         if (requestId !== latestSupportTicketDetailRequestId) return;
         renderSupportTicketDetail(ticket);
-        renderSupportTicketListFromSelection();
       } catch (error) {
         if (requestId !== latestSupportTicketDetailRequestId) return;
-        clearSupportTicketSelection();
+        clearSupportTicketSelection({
+          detailText: '请选择工单',
+          notice: '',
+        });
         document.getElementById('supportTicketListNotice').textContent = error.message || '读取工单详情失败';
       }
     }
@@ -848,7 +889,8 @@ export function renderSupportTicketAdminConsole() {
       loadSupportTickets(nextPage);
     }
 
-    applySupportTicketRouteState();
+    const supportTicketRouteState = applySupportTicketRouteState();
+    pendingRouteTicketId = supportTicketRouteState.ticketId;
     const currentAdminSession = initializeAdminSession();
     currentAdminUserId =
       currentAdminSession &&

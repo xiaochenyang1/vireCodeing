@@ -29,6 +29,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     .inline-button { width: auto; }
     .secondary-button { width: auto; background: #fff; color: #1769aa; border: 1px solid #d8dee4; }
     .case-row { border-top: 1px solid #edf0f2; padding: 12px 0; cursor: pointer; }
+    .case-row.active { background: #eff6ff; border-radius: 8px; padding: 12px; margin-top: 8px; }
     .muted { color: #667085; font-size: 13px; }
     .error { color: #b42318; white-space: pre-wrap; }
     .action { border-left: 3px solid #98a2b3; padding-left: 10px; margin: 10px 0; }
@@ -97,6 +98,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     let caseSweepPending = false;
     let latestCaseListRequestId = 0;
     let latestCaseDetailRequestId = 0;
+    let pendingRouteCaseId = '';
     const mutationPaths = ['/process', '/resolve', '/close'];
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-exception-case-console',
@@ -238,6 +240,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         claimStatus: query.get('claimStatus') || '',
         claimedByAdminUserId: query.get('claimedByAdminUserId') || '',
         keyword: query.get('keyword') || '',
+        caseId: query.get('caseId') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
       };
@@ -264,7 +267,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       return routeState;
     }
 
-    function syncOrderExceptionCaseRouteState(pageOverride) {
+    function syncOrderExceptionCaseRouteState(pageOverride, caseIdOverride) {
       if (!globalThis.history || !globalThis.location) {
         return;
       }
@@ -278,6 +281,11 @@ export function renderOrderExceptionCaseAdminConsole() {
       const claimStatus = document.getElementById('caseClaimStatusInput').value;
       const claimedByAdminUserId = document.getElementById('caseClaimedByAdminUserIdInput').value.trim();
       const keyword = document.getElementById('caseKeywordInput').value.trim();
+      const caseId = String(
+        typeof caseIdOverride === 'string'
+          ? caseIdOverride
+          : selectedCaseId || pendingRouteCaseId || '',
+      ).trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('casePageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
       if (status) query.set('status', status);
@@ -288,11 +296,45 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (claimStatus) query.set('claimStatus', claimStatus);
       if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
       if (keyword) query.set('keyword', keyword);
+      if (caseId) query.set('caseId', caseId);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
       const nextQuery = query.toString();
       const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
       globalThis.history.replaceState(null, '', nextPath);
+    }
+
+    function clearCaseSelection(options = {}) {
+      selectedCaseId = '';
+      selectedCaseClaimedByAdminUserId = '';
+      selectedCaseAppealStatus = 'none';
+      if (options.clearPendingRoute !== false) {
+        pendingRouteCaseId = '';
+      }
+      document.getElementById('baseUpdatedAtIso').value = '';
+      document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
+      document.getElementById('caseActions').innerHTML = '';
+      document.getElementById('caseDetail').textContent = options.detailText || '请选择工单';
+      document.getElementById('caseMutationNotice').textContent = options.notice || '';
+      resetCompensationInputs();
+      if (options.syncRoute !== false) {
+        syncOrderExceptionCaseRouteState(currentPage, '');
+      }
+      renderCaseListSelection();
+    }
+
+    function renderCaseListSelection() {
+      Array.from(document.querySelectorAll('.case-row[data-case-id]')).forEach(function(row) {
+        if (!(row instanceof HTMLElement)) {
+          return;
+        }
+
+        row.classList.toggle(
+          'active',
+          typeof row.dataset.caseId === 'string' &&
+            row.dataset.caseId === selectedCaseId,
+        );
+      });
     }
 
     function resetCompensationInputs() {
@@ -452,6 +494,7 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     async function loadCases(page) {
       const requestId = ++latestCaseListRequestId;
+      const routeRestoreCaseId = pendingRouteCaseId;
 
       try {
         currentPage = Math.max(1, page);
@@ -481,6 +524,16 @@ export function renderOrderExceptionCaseAdminConsole() {
         document.getElementById('caseList').innerHTML = result.items.length
           ? result.items.map(renderCaseListItem).join('')
           : '<p class="muted">暂无异常工单</p>';
+        renderCaseListSelection();
+
+        if (
+          routeRestoreCaseId &&
+          pendingRouteCaseId === routeRestoreCaseId &&
+          routeRestoreCaseId !== selectedCaseId
+        ) {
+          pendingRouteCaseId = '';
+          await loadCase(routeRestoreCaseId, { fromRouteRestore: true });
+        }
       } catch (error) {
         if (requestId !== latestCaseListRequestId) return;
         document.getElementById('caseListNotice').textContent = error.message;
@@ -493,11 +546,16 @@ export function renderOrderExceptionCaseAdminConsole() {
       loadCases(Math.min(maxPage, Math.max(1, currentPage + offset)));
     }
 
-    async function loadCase(caseId) {
+    async function loadCase(caseId, options = {}) {
       const requestId = ++latestCaseDetailRequestId;
 
       try {
+        if (!options.fromRouteRestore) {
+          pendingRouteCaseId = '';
+        }
         selectedCaseId = caseId;
+        syncOrderExceptionCaseRouteState(currentPage, selectedCaseId);
+        renderCaseListSelection();
         document.getElementById('caseDetail').textContent = '工单详情加载中...';
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
@@ -515,9 +573,14 @@ export function renderOrderExceptionCaseAdminConsole() {
         document.getElementById('caseCompensationTargetRoleInput').value = item.compensationTargetRole || '';
         document.getElementById('caseCompensationAmountInput').value = item.compensationAmountCents ? String(item.compensationAmountCents) : '';
         renderMutationButtons(item);
+        syncOrderExceptionCaseRouteState(currentPage, selectedCaseId);
+        renderCaseListSelection();
       } catch (error) {
         if (requestId !== latestCaseDetailRequestId) return;
-        document.getElementById('caseMutationNotice').textContent = error.message;
+        clearCaseSelection({
+          detailText: '请选择工单',
+          notice: error.message,
+        });
       }
     }
 
@@ -854,6 +917,7 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     resetCompensationInputs();
     const caseRouteState = applyOrderExceptionCaseRouteState();
+    pendingRouteCaseId = caseRouteState.caseId;
     const currentAdminSession = initializeAdminSession();
     currentAdminUserId =
       currentAdminSession &&
