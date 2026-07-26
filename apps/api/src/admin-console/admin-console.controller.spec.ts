@@ -95,6 +95,22 @@ describe('driver certification admin console page', () => {
     expect(html).toContain('const requestId = ++latestDriverDetailRequestId');
     expect(html).toContain('if (requestId !== latestDriverDetailRequestId) return');
   });
+
+  it('invalidates pending driver details when the queue context refreshes', () => {
+    const html = renderDriverCertificationAdminConsole();
+    const queueStart = html.indexOf('async function loadQueue()');
+    const detailInvalidationIndex = html.indexOf(
+      'latestDriverDetailRequestId += 1',
+      queueStart,
+    );
+    const queueRequestIndex = html.indexOf(
+      'const requestId = ++latestQueueRequestId',
+      queueStart,
+    );
+
+    expect(detailInvalidationIndex).toBeGreaterThan(queueStart);
+    expect(detailInvalidationIndex).toBeLessThan(queueRequestIndex);
+  });
 });
 
 describe('evaluation audit admin console page', () => {

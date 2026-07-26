@@ -405,6 +405,7 @@ export function renderDriverCertificationAdminConsole() {
     }
 
     async function loadQueue() {
+      latestDriverDetailRequestId += 1;
       const requestId = ++latestQueueRequestId;
       try {
         setNotice('');
