@@ -825,17 +825,66 @@ describe('account management admin console page', () => {
     expect(exportScript).not.toContain('let query;');
   });
 
+  it('loads routed account details outside the current page and invalidates resets', () => {
+    const html = renderAccountManagementAdminConsole();
+    const resetStart = html.indexOf('function resetAccountDetail()');
+    const resetEnd = html.indexOf('function renderAccountDetail(', resetStart);
+    const resetScript = html.slice(resetStart, resetEnd);
+    const listStart = html.indexOf('async function loadAdminAuthAccounts(');
+    const listEnd = html.indexOf(
+      'async function loadAdminAuthAccountDetail(',
+      listStart,
+    );
+    const listScript = html.slice(listStart, listEnd);
+
+    expect(resetScript).toContain(
+      'function resetAccountDetail() {\n      latestAccountDetailRequestId += 1;',
+    );
+    expect(listScript).toContain(
+      "if (pendingAccountDetailUserId) {\n          const nextUserId = pendingAccountDetailUserId;\n          pendingAccountDetailUserId = '';\n          await loadAdminAuthAccountDetail(nextUserId);",
+    );
+    expect(listScript).not.toContain('pendingAccountDetailUserId &&');
+    expect(listScript).toContain(
+      'const detailUserId = currentAccountDetailUserId();\n        if (detailUserId) {\n          renderAccountListFromCurrentPage();',
+    );
+  });
+
   it('syncs account filters, pagination and selected account detail into route state', () => {
     const html = renderAccountManagementAdminConsole();
+    const reportStart = html.indexOf('async function loadAccountReport()');
+    const reportEnd = html.indexOf(
+      'async function exportAdminAuthAccountsCsv()',
+      reportStart,
+    );
+    const reportScript = html.slice(reportStart, reportEnd);
 
     expect(html).toContain('applyAccountManagementRouteState');
     expect(html).toContain('syncAccountManagementRouteState');
     expect(html).toContain("query.get('userType')");
     expect(html).toContain("query.get('riskOnly')");
     expect(html).toContain("query.get('userId')");
+    expect(html).toContain("query.get('topAccountsLimit')");
+    expect(html).toContain("query.get('auditEventLimit')");
+    expect(html).toContain(
+      'Number.parseInt(routeState.topAccountsLimit, 10) || 5',
+    );
+    expect(html).toContain(
+      'Number.parseInt(routeState.auditEventLimit, 10) || 10',
+    );
     expect(html).toContain("query.set('userId', userId)");
     expect(html).toContain("query.set('page', String(page))");
     expect(html).toContain("query.set('pageSize', String(pageSize))");
+    expect(html).toContain(
+      "query.set('topAccountsLimit', String(topAccountsLimit))",
+    );
+    expect(html).toContain(
+      "query.set('auditEventLimit', String(auditEventLimit))",
+    );
+    expect(html).toContain('topAccountsLimit !== 5');
+    expect(html).toContain('auditEventLimit !== 10');
+    expect(reportScript).toContain(
+      'const query = buildAccountReportQuery();\n        syncAccountManagementRouteState();',
+    );
     expect(html).toContain('refreshAccountWorkspace(currentAccountPage)');
   });
 });

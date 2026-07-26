@@ -639,6 +639,8 @@ export function renderAccountManagementAdminConsole() {
         userId: query.get('userId') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
+        topAccountsLimit: query.get('topAccountsLimit') || '',
+        auditEventLimit: query.get('auditEventLimit') || '',
       };
     }
 
@@ -657,6 +659,22 @@ export function renderAccountManagementAdminConsole() {
       if (routeState.pageSize) {
         document.getElementById('accountPageSizeInput').value = String(
           Math.min(50, Math.max(1, Number.parseInt(routeState.pageSize, 10) || 20)),
+        );
+      }
+      if (routeState.topAccountsLimit) {
+        document.getElementById('accountReportTopAccountsLimitInput').value = String(
+          Math.min(
+            20,
+            Math.max(1, Number.parseInt(routeState.topAccountsLimit, 10) || 5),
+          ),
+        );
+      }
+      if (routeState.auditEventLimit) {
+        document.getElementById('accountReportAuditEventLimitInput').value = String(
+          Math.min(
+            20,
+            Math.max(1, Number.parseInt(routeState.auditEventLimit, 10) || 10),
+          ),
         );
       }
       pendingAccountDetailUserId = routeState.userId.trim();
@@ -690,6 +708,28 @@ export function renderAccountManagementAdminConsole() {
       }
       if (pageSize !== 20) {
         query.set('pageSize', String(pageSize));
+      }
+      const topAccountsLimit = Number(
+        document.getElementById('accountReportTopAccountsLimitInput').value || 5,
+      );
+      if (
+        Number.isInteger(topAccountsLimit) &&
+        topAccountsLimit >= 1 &&
+        topAccountsLimit <= 20 &&
+        topAccountsLimit !== 5
+      ) {
+        query.set('topAccountsLimit', String(topAccountsLimit));
+      }
+      const auditEventLimit = Number(
+        document.getElementById('accountReportAuditEventLimitInput').value || 10,
+      );
+      if (
+        Number.isInteger(auditEventLimit) &&
+        auditEventLimit >= 1 &&
+        auditEventLimit <= 20 &&
+        auditEventLimit !== 10
+      ) {
+        query.set('auditEventLimit', String(auditEventLimit));
       }
       const nextQuery = query.toString();
       const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
@@ -726,6 +766,7 @@ export function renderAccountManagementAdminConsole() {
       setAccountReportControlsDisabled(true);
       try {
         const query = buildAccountReportQuery();
+        syncAccountManagementRouteState();
         const report = await api('/admin/auth/accounts/report?' + query.toString());
         if (requestId !== latestAccountReportRequestId) return;
         renderAccountReport(report);
@@ -1294,6 +1335,7 @@ export function renderAccountManagementAdminConsole() {
     }
 
     function resetAccountDetail() {
+      latestAccountDetailRequestId += 1;
       currentAccountDetail = null;
       document.getElementById('accountDetailStatus').textContent = '点左边一条账号再看详情，不然这块儿只能空着。';
       document.getElementById('accountDetailShell').innerHTML =
@@ -1384,12 +1426,7 @@ export function renderAccountManagementAdminConsole() {
         syncAccountManagementRouteState(currentAccountPage);
         updateAccountBulkSelectionUi();
 
-        if (
-          pendingAccountDetailUserId &&
-          currentAccountItems.some(function(account) {
-            return account.userId === pendingAccountDetailUserId;
-          })
-        ) {
+        if (pendingAccountDetailUserId) {
           const nextUserId = pendingAccountDetailUserId;
           pendingAccountDetailUserId = '';
           await loadAdminAuthAccountDetail(nextUserId);
@@ -1397,20 +1434,8 @@ export function renderAccountManagementAdminConsole() {
         }
 
         const detailUserId = currentAccountDetailUserId();
-        if (
-          detailUserId &&
-          currentAccountItems.some(function(account) {
-            return account.userId === detailUserId;
-          })
-        ) {
+        if (detailUserId) {
           renderAccountListFromCurrentPage();
-          return;
-        }
-
-        if (detailUserId || pendingAccountDetailUserId) {
-          pendingAccountDetailUserId = '';
-          resetAccountDetail();
-          syncAccountManagementRouteState(currentAccountPage, '');
         }
       } catch (error) {
         if (requestId !== latestAccountRequestId) return;
