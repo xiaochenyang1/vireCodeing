@@ -338,7 +338,9 @@ describe('shipper invoice admin console page', () => {
 
     expect(html).toContain('applyShipperInvoiceRouteState');
     expect(html).toContain('syncShipperInvoiceRouteState');
-    expect(html).toContain("query.get('status') || 'pending'");
+    expect(html).toContain("query.get('status') || 'reviewing'");
+    expect(html).toContain("status !== 'reviewing'");
+    expect(html).not.toContain("query.get('status') || 'pending'");
     expect(html).toContain("query.get('applicationId')");
     expect(html).toContain("query.set('applicationId', applicationId)");
     expect(html).toContain('history.replaceState');

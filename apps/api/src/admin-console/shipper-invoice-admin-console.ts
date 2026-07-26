@@ -193,7 +193,7 @@ export function renderShipperInvoiceAdminConsole() {
           : '',
       );
       return {
-        status: query.get('status') || 'pending',
+        status: query.get('status') || 'reviewing',
         applicationId: query.get('applicationId') || '',
       };
     }
@@ -217,7 +217,7 @@ export function renderShipperInvoiceAdminConsole() {
           ? applicationIdOverride
           : selectedApplicationId || '',
       ).trim();
-      if (status && status !== 'pending') {
+      if (status && status !== 'reviewing') {
         query.set('status', status);
       }
       if (applicationId) {
