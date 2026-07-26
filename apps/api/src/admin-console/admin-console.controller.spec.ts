@@ -589,6 +589,18 @@ describe('permission matrix admin console page', () => {
     expect(html).toContain('currentPermissionMatrix = null');
     expect(html).toContain('后台权限矩阵拉取失败，别拿猜的当权限系统。');
   });
+
+  it('syncs permission filters into route state', () => {
+    const html = renderAdminPermissionMatrixConsole();
+
+    expect(html).toContain('applyPermissionMatrixRouteState');
+    expect(html).toContain('syncPermissionMatrixRouteState');
+    expect(html).toContain("query.get('action')");
+    expect(html).toContain("query.get('risk')");
+    expect(html).toContain("query.set('action', action)");
+    expect(html).toContain("query.set('risk', risk)");
+    expect(html).toContain('history.replaceState');
+  });
 });
 
 describe('file maintenance admin console page', () => {

@@ -131,6 +131,44 @@ export function renderAdminPermissionMatrixConsole() {
       return level === 'high' ? '高风险' : level === 'sensitive' ? '敏感只读' : '普通';
     }
 
+    function readPermissionMatrixRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        action: query.get('action') || '',
+        risk: query.get('risk') || '',
+      };
+    }
+
+    function applyPermissionMatrixRouteState() {
+      const routeState = readPermissionMatrixRouteState();
+      document.getElementById('permissionActionInput').value = routeState.action;
+      document.getElementById('permissionRiskInput').value = routeState.risk;
+      return routeState;
+    }
+
+    function syncPermissionMatrixRouteState() {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const action = document.getElementById('permissionActionInput').value;
+      const risk = document.getElementById('permissionRiskInput').value;
+      if (action) {
+        query.set('action', action);
+      }
+      if (risk) {
+        query.set('risk', risk);
+      }
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     function renderPermissionSummary(matrix) {
       const grid = document.getElementById('permissionSummaryGrid');
       grid.innerHTML = [
@@ -193,6 +231,7 @@ export function renderAdminPermissionMatrixConsole() {
     }
 
     function renderPermissionCapabilities() {
+      syncPermissionMatrixRouteState();
       const list = document.getElementById('permissionCapabilityList');
       const status = document.getElementById('permissionCapabilityStatus');
       const capabilities = Array.isArray(currentPermissionMatrix?.capabilities)
@@ -251,6 +290,7 @@ export function renderAdminPermissionMatrixConsole() {
       }
     }
 
+    applyPermissionMatrixRouteState();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadPermissionMatrix();
