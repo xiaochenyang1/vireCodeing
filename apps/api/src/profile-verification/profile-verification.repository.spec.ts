@@ -176,7 +176,7 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
     });
   });
 
-  it('lists persisted review decisions with their real admin actors', async () => {
+  it('reads verification snapshots before persisted decisions with their real admin actors', async () => {
     const identity: PrismaShipperIdentityVerificationRecord = {
       shipperId: 'shipper-1',
       realName: '张先生',
@@ -211,16 +211,32 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         createdAt: reviewedAt,
       },
     ];
-    const findMany = jest.fn().mockResolvedValue(reviewEvents);
-    const repository = new PrismaProfileVerificationRepository({
+    let identityReadCompleted = false;
+    let enterpriseReadCompleted = false;
+    const identityFindUnique = jest.fn(async () => {
+      await Promise.resolve();
+      identityReadCompleted = true;
+      return identity;
+    });
+    const enterpriseFindUnique = jest.fn(async () => {
+      await Promise.resolve();
+      enterpriseReadCompleted = true;
+      return null;
+    });
+    const findMany = jest.fn(async () => {
+      expect(identityReadCompleted).toBe(true);
+      expect(enterpriseReadCompleted).toBe(true);
+      return reviewEvents;
+    });
+    const transaction = {
       shipperIdentityVerification: {
-        findUnique: jest.fn().mockResolvedValue(identity),
+        findUnique: identityFindUnique,
         findMany: jest.fn(),
         upsert: jest.fn(),
         updateManyAndReturn: jest.fn(),
       },
       shipperEnterpriseVerification: {
-        findUnique: jest.fn().mockResolvedValue(null),
+        findUnique: enterpriseFindUnique,
         findMany: jest.fn(),
         upsert: jest.fn(),
         updateManyAndReturn: jest.fn(),
@@ -230,9 +246,34 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         create: jest.fn(),
       },
       $transaction: jest.fn(),
+    };
+    const rootIdentityFindUnique = jest.fn();
+    const rootEnterpriseFindUnique = jest.fn();
+    const rootReviewEventFindMany = jest.fn();
+    const runTransaction = jest.fn(async callback => callback(transaction));
+    const repository = new PrismaProfileVerificationRepository({
+      shipperIdentityVerification: {
+        findUnique: rootIdentityFindUnique,
+        findMany: jest.fn(),
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperEnterpriseVerification: {
+        findUnique: rootEnterpriseFindUnique,
+        findMany: jest.fn(),
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperVerificationReviewEvent: {
+        findMany: rootReviewEventFindMany,
+        create: jest.fn(),
+      },
+      $transaction: runTransaction,
     });
 
-    await expect(repository.listReviewEvents('shipper-1')).resolves.toEqual([
+    const events = await repository.listReviewEvents('shipper-1');
+
+    expect(events).toEqual([
       expect.objectContaining({
         eventId: 'review-event-2',
         actorUserId: 'admin-2',
@@ -255,10 +296,23 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         stage: 'submitted',
       }),
     ]);
+    expect(events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventId: 'shipper-1:identity:rejected',
+        }),
+      ]),
+    );
     expect(findMany).toHaveBeenCalledWith({
       where: { shipperId: 'shipper-1' },
       orderBy: { createdAt: 'desc' },
     });
+    expect(runTransaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(rootIdentityFindUnique).not.toHaveBeenCalled();
+    expect(rootEnterpriseFindUnique).not.toHaveBeenCalled();
+    expect(rootReviewEventFindMany).not.toHaveBeenCalled();
   });
 });
 

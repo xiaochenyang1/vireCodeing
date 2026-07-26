@@ -313,6 +313,7 @@ export type PrismaShipperVerificationReviewEventRecord = {
 export type PrismaProfileVerificationClient = {
   $transaction<T>(
     callback: (prisma: PrismaProfileVerificationClient) => Promise<T>,
+    options?: { isolationLevel: 'RepeatableRead' },
   ): Promise<T>;
   shipperIdentityVerification: {
     findUnique(args: {
@@ -561,18 +562,30 @@ export class PrismaProfileVerificationRepository
   async listReviewEvents(
     shipperId: string,
   ): Promise<AdminShipperVerificationReviewEvent[]> {
-    const [identity, enterprise, reviewEvents] = await Promise.all([
-      this.prisma.shipperIdentityVerification.findUnique({
-        where: { shipperId },
-      }),
-      this.prisma.shipperEnterpriseVerification.findUnique({
-        where: { shipperId },
-      }),
-      this.prisma.shipperVerificationReviewEvent.findMany({
-        where: { shipperId },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
+    const [identity, enterprise, reviewEvents] = await this.prisma.$transaction(
+      async prisma => {
+        const [currentIdentity, currentEnterprise] = await Promise.all([
+          prisma.shipperIdentityVerification.findUnique({
+            where: { shipperId },
+          }),
+          prisma.shipperEnterpriseVerification.findUnique({
+            where: { shipperId },
+          }),
+        ]);
+        const persistedReviewEvents =
+          await prisma.shipperVerificationReviewEvent.findMany({
+            where: { shipperId },
+            orderBy: { createdAt: 'desc' },
+          });
+
+        return [
+          currentIdentity,
+          currentEnterprise,
+          persistedReviewEvents,
+        ] as const;
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
 
     if (!identity && !enterprise && reviewEvents.length === 0) {
       throw new BusinessError(
