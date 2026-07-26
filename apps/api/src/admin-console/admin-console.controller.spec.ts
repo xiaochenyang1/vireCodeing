@@ -72,6 +72,18 @@ describe('driver certification admin console page', () => {
     expect(html).toContain("const apiBase = '/api'");
     expect(html).not.toContain('http://localhost');
   });
+
+  it('syncs queue filters and selected driver detail into route state', () => {
+    const html = renderDriverCertificationAdminConsole();
+
+    expect(html).toContain('applyDriverCertificationRouteState');
+    expect(html).toContain('syncDriverCertificationRouteState');
+    expect(html).toContain("query.get('status') || 'reviewing'");
+    expect(html).toContain("query.get('driverId')");
+    expect(html).toContain("query.set('driverId', driverId)");
+    expect(html).toContain('history.replaceState');
+    expect(html).toContain('loadQueue()');
+  });
 });
 
 describe('evaluation audit admin console page', () => {

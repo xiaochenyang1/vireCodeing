@@ -219,6 +219,7 @@ export function renderDriverCertificationAdminConsole() {
   <script>
     const state = { token: '', items: [], selected: null, attachments: null, events: [] };
     const selectedDriverIds = new Set();
+    let selectedDriverId = '';
     const apiBase = '/api';
     const apiPaths = {
       list: '/admin/driver-certifications',
@@ -260,6 +261,48 @@ export function renderDriverCertificationAdminConsole() {
       })[character]);
     }
 
+    function readDriverCertificationRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        status: query.get('status') || 'reviewing',
+        driverId: query.get('driverId') || '',
+      };
+    }
+
+    function applyDriverCertificationRouteState() {
+      const routeState = readDriverCertificationRouteState();
+      document.getElementById('statusFilter').value = routeState.status;
+      selectedDriverId = routeState.driverId;
+      return routeState;
+    }
+
+    function syncDriverCertificationRouteState(driverIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const status = document.getElementById('statusFilter').value;
+      const driverId = String(
+        typeof driverIdOverride === 'string'
+          ? driverIdOverride
+          : selectedDriverId || '',
+      ).trim();
+      if (status && status !== 'reviewing') {
+        query.set('status', status);
+      }
+      if (driverId) {
+        query.set('driverId', driverId);
+      }
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     function setNotice(message) {
       document.getElementById('notice').textContent = message || '';
     }
@@ -286,11 +329,13 @@ export function renderDriverCertificationAdminConsole() {
         }
       });
 
-      if (state.selected && !currentDriverIds.has(getDriverId(state.selected))) {
+      if (selectedDriverId && !currentDriverIds.has(selectedDriverId)) {
+        selectedDriverId = '';
         state.selected = null;
         state.attachments = null;
         state.events = [];
         renderEmptyDetail();
+        syncDriverCertificationRouteState('');
       }
     }
 
@@ -361,11 +406,17 @@ export function renderDriverCertificationAdminConsole() {
       try {
         setNotice('');
         const status = document.getElementById('statusFilter').value;
+        syncDriverCertificationRouteState();
         const data = await request(apiPaths.list + '?status=' + encodeURIComponent(status) + '&page=1&pageSize=20');
         state.items = data.items || [];
         syncSelectedDriversToCurrentQueue();
         renderQueue();
         updateBulkSelectionUi();
+        if (selectedDriverId && state.items.some(item => getDriverId(item) === selectedDriverId)) {
+          await selectDriver(selectedDriverId);
+        } else if (!selectedDriverId) {
+          renderEmptyDetail();
+        }
       } catch (error) {
         setNotice(error.message);
       }
@@ -378,13 +429,19 @@ export function renderDriverCertificationAdminConsole() {
     function renderQueue() {
       const queue = document.getElementById('queue');
       if (state.items.length === 0) {
+        selectedDriverId = '';
+        state.selected = null;
+        state.attachments = null;
+        state.events = [];
+        syncDriverCertificationRouteState('');
+        renderEmptyDetail();
         queue.innerHTML = '<div class="card meta">暂无认证记录</div>';
         return;
       }
       queue.innerHTML = state.items.map(item => {
         const driverId = getDriverId(item);
         const phone = item.driver && item.driver.phone ? item.driver.phone : '手机号待补充';
-        const active = state.selected && getDriverId(state.selected) === driverId ? ' active' : '';
+        const active = selectedDriverId === driverId ? ' active' : '';
         const selected = selectedDriverIds.has(driverId);
         return '<article class="card queue-item-shell' + active + '">' +
           '<div class="queue-item-top">' +
@@ -417,6 +474,8 @@ export function renderDriverCertificationAdminConsole() {
     async function selectDriver(driverId) {
       try {
         setNotice('');
+        selectedDriverId = driverId;
+        syncDriverCertificationRouteState(selectedDriverId);
         state.selected = state.items.find(item => getDriverId(item) === driverId);
         const [attachments, events] = await Promise.all([
           request(apiPaths.list + '/' + encodeURIComponent(driverId) + apiPaths.attachments),
@@ -502,12 +561,8 @@ export function renderDriverCertificationAdminConsole() {
           method: 'POST',
           body: JSON.stringify(payload)
         });
+        selectedDriverId = driverId;
         await loadQueue();
-        if (state.items.some(item => getDriverId(item) === driverId)) {
-          await selectDriver(driverId);
-        } else {
-          renderEmptyDetail();
-        }
       } catch (error) {
         setNotice(error.message);
       }
@@ -535,7 +590,7 @@ export function renderDriverCertificationAdminConsole() {
         certificationType === 'identity'
           ? (status === 'approved' ? '实名批量通过' : '实名批量驳回')
           : (status === 'approved' ? '车辆批量通过' : '车辆批量驳回');
-      const selectedDriverId = state.selected ? getDriverId(state.selected) : '';
+      const selectedDriverIdBeforeBatch = selectedDriverId;
       const payload =
         status === 'approved'
           ? {
@@ -565,12 +620,8 @@ export function renderDriverCertificationAdminConsole() {
 
         document.getElementById('batchActionStatus').textContent =
           actionLabel + '完成：一次性更新 ' + result.updatedCount + ' 个司机。';
+        selectedDriverId = selectedDriverIdBeforeBatch;
         await loadQueue();
-        if (selectedDriverId && state.items.some(item => getDriverId(item) === selectedDriverId)) {
-          await selectDriver(selectedDriverId);
-        } else {
-          renderEmptyDetail();
-        }
       } catch (error) {
         document.getElementById('batchActionStatus').textContent =
           actionLabel + '失败：整批未写入。';
@@ -582,7 +633,11 @@ export function renderDriverCertificationAdminConsole() {
     document.getElementById('statusFilter').addEventListener('change', loadQueue);
     updateBulkSelectionUi();
     renderEmptyDetail();
-    initializeAdminSession();
+    applyDriverCertificationRouteState();
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadQueue();
+    }
   </script>
 </body>
 </html>`;
