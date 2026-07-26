@@ -192,9 +192,6 @@ export function renderShipperVerificationAdminConsole() {
       </div>
     </section>
   </div>
-  ${renderAdminSessionScript({
-    currentRoute: '/api/admin/shipper-verification-console',
-  })}
   <script>
     const apiBase = document.querySelector('meta[name="admin-shipper-verification-api"]').content;
     let selectedShipperId = '';
@@ -203,6 +200,9 @@ export function renderShipperVerificationAdminConsole() {
     let currentReviewEvents = [];
     let latestQueueRequestId = 0;
     let latestReviewEventsRequestId = 0;
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/shipper-verification-console',
+    })}
     const attachmentText = {
       identityFront: '身份证正面',
       identityBack: '身份证反面',
@@ -210,7 +210,8 @@ export function renderShipperVerificationAdminConsole() {
     };
 
     function getToken() {
-      return window.__adminSession?.getAccessToken?.() || localStorage.getItem('adminAccessToken') || '';
+      const stored = readStoredAdminSession();
+      return stored.session?.accessToken || localStorage.getItem('adminAccessToken') || '';
     }
 
     function setText(id, text) {
@@ -548,7 +549,10 @@ export function renderShipperVerificationAdminConsole() {
     document.getElementById('approveEnterpriseButton').addEventListener('click', () => review('enterprise', 'approved'));
     document.getElementById('rejectEnterpriseButton').addEventListener('click', () => review('enterprise', 'rejected'));
     applyShipperVerificationRouteState();
-    loadQueue();
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadQueue();
+    }
   </script>
 </body>
 </html>`;

@@ -444,6 +444,24 @@ describe('shipper verification admin console page', () => {
     expect(queueInvalidationIndex).toBeGreaterThan(queueStart);
     expect(queueInvalidationIndex).toBeLessThan(missingTokenIndex);
   });
+
+  it('executes the shared admin session bootstrap before auto-loading the verification queue', () => {
+    const html = renderShipperVerificationAdminConsole();
+    const applicationScriptStart = html.lastIndexOf('<script>');
+    const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
+    const sessionBootstrapIndex = html.indexOf(
+      "const adminSessionStorageKey = 'stage1AdminSession'",
+    );
+
+    expect(sessionBootstrapIndex).toBeGreaterThan(applicationScriptStart);
+    expect(sessionBootstrapIndex).toBeLessThan(applicationScriptEnd);
+    expect(html).toContain('const stored = readStoredAdminSession()');
+    expect(html).toContain('stored.session?.accessToken');
+    expect(html).toContain('const currentAdminSession = initializeAdminSession()');
+    expect(html).toContain(
+      'if (currentAdminSession && currentAdminSession.accessToken)',
+    );
+  });
 });
 
 describe('support ticket admin console page', () => {
