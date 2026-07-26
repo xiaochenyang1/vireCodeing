@@ -47,6 +47,54 @@ describe('OrderExceptionCasesService', () => {
     );
   });
 
+  it('surfaces recently updated exception cases first in the shipper progress list', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const service = new OrderExceptionCasesService(repository);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '第一张异常工单等待客服处理。',
+    });
+    const first = (await repository.listOrderExceptionCases(order.id)).items[0];
+
+    currentTime = new Date('2026-07-12T08:05:00.000Z');
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '第二张异常工单仍在待处理状态。',
+    });
+    const second = (await repository.listOrderExceptionCases(order.id)).items.find(
+      item => item.id !== first.id,
+    );
+
+    if (!second) {
+      throw new Error('second exception case missing');
+    }
+
+    currentTime = new Date('2026-07-12T08:10:00.000Z');
+    await service.processCase('admin-1', first.id, {
+      baseUpdatedAtIso: first.updatedAtIso,
+      content: '客服已经联系司机核实异常情况。',
+    });
+
+    await expect(service.listForShipper('shipper-1', order.id)).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({
+          id: first.id,
+          status: 'processing',
+          updatedAtIso: '2026-07-12T08:10:00.000Z',
+        }),
+        expect.objectContaining({
+          id: second.id,
+          status: 'pending',
+          updatedAtIso: '2026-07-12T08:05:00.000Z',
+        }),
+      ],
+    });
+  });
+
   it('processes, resolves and closes a case with public action history', async () => {
     const { exceptionCase, service } = await createCase();
 

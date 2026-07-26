@@ -586,7 +586,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async listOrderExceptionCases(orderId: string) {
     const items = this.exceptionCases
       .filter(exceptionCase => exceptionCase.orderId === orderId)
-      .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso));
+      .sort(
+        (left, right) =>
+          right.updatedAtIso.localeCompare(left.updatedAtIso) ||
+          right.createdAtIso.localeCompare(left.createdAtIso),
+      );
 
     return { items, total: items.length };
   }
@@ -607,7 +611,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const start = (query.page - 1) * query.pageSize;
 
     return {
-      items: matched.slice(start, start + query.pageSize),
+      items: matched
+        .sort(
+          (left, right) =>
+            right.updatedAtIso.localeCompare(left.updatedAtIso) ||
+            right.createdAtIso.localeCompare(left.createdAtIso),
+        )
+        .slice(start, start + query.pageSize),
       total: matched.length,
     };
   }
@@ -4137,7 +4147,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
         order: { select: { orderNo: true } },
         actions: { orderBy: { createdAt: 'asc' } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     const latestByOrderId = new Map<string, OrderExceptionCaseRecord>();
 
@@ -4175,7 +4185,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
         order: { select: { orderNo: true } },
         actions: { orderBy: { createdAt: 'asc' } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     const items = records.map(mapPrismaExceptionCase);
 
@@ -4192,7 +4202,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
         order: { select: { orderNo: true } },
         actions: { orderBy: { createdAt: 'asc' } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
     const keyword = query.keyword?.toLocaleLowerCase();
     const matched = records.filter(record => {

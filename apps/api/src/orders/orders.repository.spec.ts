@@ -1235,6 +1235,85 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 });
 
 describe('InMemoryOrdersRepository exception cases', () => {
+  it('sorts shipper and admin exception case lists by most recent updatedAt first', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '第一张异常工单等待客服处理。',
+    });
+    const first = (await repository.listOrderExceptionCases(order.id)).items[0];
+
+    currentTime = new Date('2026-07-12T08:05:00.000Z');
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '第二张异常工单仍在待处理状态。',
+    });
+    const second = (await repository.listOrderExceptionCases(order.id)).items.find(
+      item => item.id !== first.id,
+    );
+
+    if (!second) {
+      throw new Error('second exception case missing');
+    }
+
+    currentTime = new Date('2026-07-12T08:10:00.000Z');
+    const processing = await repository.transitionOrderExceptionCase(
+      first.id,
+      'admin-1',
+      'pending',
+      'processing',
+      {
+        baseUpdatedAtIso: first.updatedAtIso,
+        content: '客服已经联系双方核实异常情况。',
+      },
+    );
+
+    expect(processing).toMatchObject({
+      id: first.id,
+      status: 'processing',
+      updatedAtIso: '2026-07-12T08:10:00.000Z',
+    });
+    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({
+          id: first.id,
+          status: 'processing',
+          updatedAtIso: '2026-07-12T08:10:00.000Z',
+        }),
+        expect.objectContaining({
+          id: second.id,
+          status: 'pending',
+          updatedAtIso: '2026-07-12T08:05:00.000Z',
+        }),
+      ],
+    });
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+        keyword: order.orderNo,
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({
+          id: first.id,
+          status: 'processing',
+          updatedAtIso: '2026-07-12T08:10:00.000Z',
+        }),
+        expect.objectContaining({
+          id: second.id,
+          status: 'pending',
+          updatedAtIso: '2026-07-12T08:05:00.000Z',
+        }),
+      ],
+    });
+  });
+
   it('filters admin case lists and preserves case action ordering', async () => {
     const repository = new InMemoryOrdersRepository(
       () => new Date('2026-07-12T08:00:00.000Z'),
@@ -1328,6 +1407,54 @@ describe('InMemoryOrdersRepository exception cases', () => {
         compensationAmountCents: 3600,
       },
     });
+  });
+});
+
+describe('PrismaOrdersRepository exception case lists', () => {
+  it('requests recent-activity ordering for shipper and admin exception case queries', async () => {
+    const findMany = jest.fn().mockResolvedValue([
+      createPrismaExceptionCaseListRecord({
+        id: 'case-2',
+        caseNo: 'CASE202607120002',
+        orderId: 'order-1',
+        orderNo: 'HY202607120001',
+        createdAt: new Date('2026-07-12T08:05:00.000Z'),
+        updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+      }),
+    ]);
+    const repository = new PrismaOrdersRepository(
+      {
+        orderExceptionCase: { findMany },
+      } as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:10:00.000Z'),
+    );
+
+    await expect(repository.listOrderExceptionCases('order-1')).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 'case-2' })],
+    });
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 'case-2' })],
+    });
+    expect(findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { orderId: 'order-1' },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+    );
+    expect(findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+    );
   });
 });
 
@@ -2142,6 +2269,57 @@ function createCouponBase() {
     validUntilIso: '2026-08-01T00:00:00.000Z',
     sourceText: '测试发放',
     issuedAtIso: '2026-07-01T00:00:00.000Z',
+  };
+}
+
+function createPrismaExceptionCaseListRecord(
+  overrides: Partial<{
+    id: string;
+    caseNo: string;
+    orderId: string;
+    orderNo: string;
+    sourceEventId: string;
+    reporterUserId: string;
+    sourceRole: 'shipper' | 'driver';
+    typeLabel: string;
+    description: string;
+    status: 'pending' | 'processing' | 'resolved' | 'closed';
+    createdAt: Date;
+    updatedAt: Date;
+  }> = {},
+) {
+  const orderNo = overrides.orderNo ?? 'HY202607120001';
+
+  return {
+    id: 'case-1',
+    caseNo: 'CASE202607120001',
+    orderId: 'order-1',
+    sourceEventId: 'event-1',
+    reporterUserId: 'shipper-1',
+    sourceRole: 'shipper' as const,
+    typeLabel: '司机延误',
+    description: '司机反馈高速拥堵，预计晚到 40 分钟',
+    attachmentFileIds: [],
+    status: 'pending' as const,
+    resolutionText: null,
+    compensationStatus: null,
+    compensationTargetRole: null,
+    compensationAmountCents: null,
+    compensationUpdatedAt: null,
+    compensationTransactionId: null,
+    compensationExecutedAt: null,
+    appealStatus: 'none' as const,
+    appealReason: null,
+    appealRequestedAt: null,
+    resolvedAt: null,
+    closedAt: null,
+    createdAt: new Date('2026-07-12T08:00:00.000Z'),
+    updatedAt: new Date('2026-07-12T08:00:00.000Z'),
+    actions: [],
+    ...overrides,
+    order: {
+      orderNo,
+    },
   };
 }
 
