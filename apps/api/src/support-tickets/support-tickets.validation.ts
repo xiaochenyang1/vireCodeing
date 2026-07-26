@@ -29,6 +29,10 @@ export const adminSupportTicketListQuerySchema = z.object({
       'resolved_overdue',
     ])
     .optional(),
+  claimStatus: z.enum(['claimed', 'unclaimed']).optional(),
+  claimedByAdminUserId: optionalTrimmedString.pipe(
+    z.string().max(120).optional(),
+  ),
   keyword: optionalTrimmedString.pipe(z.string().max(80).optional()),
 });
 

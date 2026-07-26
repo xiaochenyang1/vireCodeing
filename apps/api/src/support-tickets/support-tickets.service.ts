@@ -39,14 +39,19 @@ export class SupportTicketsService {
   async listSupportTicketsForAdmin(query: AdminSupportTicketListQuery) {
     const currentTime = this.now();
 
-    if (query.slaStatus) {
+    if (query.slaStatus || query.claimStatus || query.claimedByAdminUserId) {
       const filteredItems = (
         await this.repository.listSupportTicketsForAdminMatching(
           toAdminSupportTicketMatchQuery(query),
         )
       )
         .map(ticket => mapSupportTicketWithSla(ticket, currentTime))
-        .filter(ticket => ticket.sla?.status === query.slaStatus);
+        .filter(ticket => matchesSupportTicketClaimFilters(ticket, query))
+        .filter(
+          ticket =>
+            query.slaStatus === undefined ||
+            ticket.sla?.status === query.slaStatus,
+        );
 
       return createAdminSupportTicketPage(
         filteredItems,
@@ -290,4 +295,32 @@ function createAdminSupportTicketPage(
     pageSize,
     total: items.length,
   };
+}
+
+function matchesSupportTicketClaimFilters(
+  ticket: ShipperSupportTicketRecord,
+  query: AdminSupportTicketListQuery,
+) {
+  if (
+    query.claimStatus === 'claimed' &&
+    !ticket.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  if (
+    query.claimStatus === 'unclaimed' &&
+    ticket.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  if (
+    query.claimedByAdminUserId &&
+    ticket.claimedByAdminUserId !== query.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  return true;
 }

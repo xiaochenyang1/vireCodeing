@@ -13,6 +13,8 @@ export type ShipperSupportTicketSlaStatus =
   | 'resolved_within_target'
   | 'resolved_overdue';
 
+export type SupportTicketClaimStatus = 'claimed' | 'unclaimed';
+
 export type ShipperSupportTicketSlaSnapshot = {
   policyKey: ShipperSupportTicketSlaPolicyKey;
   stage: ShipperSupportTicketSlaStage;
@@ -45,6 +47,8 @@ export type AdminSupportTicketListQuery = AdminSupportTicketMatchQuery & {
   page: number;
   pageSize: number;
   slaStatus?: ShipperSupportTicketSlaStatus;
+  claimStatus?: SupportTicketClaimStatus;
+  claimedByAdminUserId?: string;
 };
 
 export type UpdateShipperSupportTicketRequest = {

@@ -54,6 +54,8 @@ describe('support tickets validation', () => {
         pageSize: '10',
         status: 'processing',
         slaStatus: 'within_target',
+        claimStatus: 'claimed',
+        claimedByAdminUserId: ' admin-1 ',
         keyword: ' 投诉建议 ',
       }),
     ).toEqual({
@@ -61,6 +63,8 @@ describe('support tickets validation', () => {
       pageSize: 10,
       status: 'processing',
       slaStatus: 'within_target',
+      claimStatus: 'claimed',
+      claimedByAdminUserId: 'admin-1',
       keyword: '投诉建议',
     });
   });
@@ -69,6 +73,14 @@ describe('support tickets validation', () => {
     expect(() =>
       parseAdminSupportTicketListQuery({
         slaStatus: 'bad-status',
+      }),
+    ).toThrow(ZodError);
+  });
+
+  it('rejects invalid admin support ticket claim status filters', () => {
+    expect(() =>
+      parseAdminSupportTicketListQuery({
+        claimStatus: 'mine',
       }),
     ).toThrow(ZodError);
   });

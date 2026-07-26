@@ -63,6 +63,8 @@ export type PlatformListAdminSupportTicketsQuery = {
   pageSize?: number;
   status?: PlatformSupportTicketStatus;
   slaStatus?: PlatformSupportTicketSlaStatus;
+  claimStatus?: 'claimed' | 'unclaimed';
+  claimedByAdminUserId?: string;
   keyword?: string;
 };
 
@@ -256,6 +258,26 @@ function normalizeAdminSupportTicketListQuery(
     }
 
     normalizedQuery.slaStatus = query.slaStatus;
+  }
+
+  if (query.claimStatus !== undefined) {
+    if (!['claimed', 'unclaimed'].includes(query.claimStatus)) {
+      throwInvalidSupportTicketRequest(
+        'Support ticket claimStatus is invalid',
+      );
+    }
+
+    normalizedQuery.claimStatus = query.claimStatus;
+  }
+
+  const claimedByAdminUserId = normalizeOptionalString(
+    query.claimedByAdminUserId,
+    120,
+    'Support ticket claimedByAdminUserId is invalid',
+  );
+
+  if (claimedByAdminUserId) {
+    normalizedQuery.claimedByAdminUserId = claimedByAdminUserId;
   }
 
   const keyword = normalizeOptionalString(

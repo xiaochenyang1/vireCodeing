@@ -2157,13 +2157,15 @@ paths:
   /admin/support-tickets:
     get:
       summary: List help-center support tickets for admin handling
-      description: Lists help-center support tickets for administrators ordered by latest updatedAt first. Supports paging, status filtering and keyword search across ticket id, shipper id, channel name and description. Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.
+      description: Lists help-center support tickets for administrators ordered by latest updatedAt first. Supports paging, status filtering, claim-status filtering, exact claiming-admin filtering, and keyword search across ticket id, shipper id, channel name and description. Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/ShipperSupportTicketStatus' } }
         - { name: slaStatus, in: query, schema: { $ref: '#/components/schemas/ShipperSupportTicketSlaStatus' } }
+        - { name: claimStatus, in: query, schema: { $ref: '#/components/schemas/SupportTicketClaimStatus' } }
+        - { name: claimedByAdminUserId, in: query, schema: { type: string, maxLength: 120 } }
         - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
       security:
         - bearerAuth: []
@@ -12615,6 +12617,10 @@ components:
       type: string
       enum: [within_target, overdue, resolved_within_target, resolved_overdue]
       example: within_target
+    SupportTicketClaimStatus:
+      type: string
+      enum: [claimed, unclaimed]
+      example: claimed
     ShipperSupportTicketSla:
       type: object
       required: [policyKey, stage, status, targetAtIso]

@@ -296,7 +296,7 @@ function createModules(
       route: '/api/admin/support-ticket-console',
       stage: 'first_slice',
       summary:
-        '帮助中心工单后台列表、详情、认领、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒和按 SLA 状态筛选已经能跑，也支持手动/定时超时升级扫描并向货主回流超时升级消息；更完整的坐席分配和在线会话还没补上。',
+        '帮助中心工单后台列表、详情、认领、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒，以及按 SLA / 认领状态筛队列已经能跑，也支持手动/定时超时升级扫描并向货主回流超时升级消息；更完整的坐席分配和在线会话还没补上。',
       metrics: [
         {
           label: '待处理工单',

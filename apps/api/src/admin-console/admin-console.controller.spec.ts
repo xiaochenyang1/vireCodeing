@@ -300,7 +300,7 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('supportTicketSweepNotice');
     expect(html).toContain('sweepSupportTicketOverdueButton');
     expect(html).toContain('首响 / 解决 SLA 提醒');
-    expect(html).toContain('按 SLA 状态筛队列');
+    expect(html).toContain('按 SLA 状态、认领状态和认领客服筛队列');
     expect(html).toContain('可手动扫描 + 可选定时扫');
     expect(html).toContain('SLA：');
     expect(html).toContain('/api/admin/order-exception-case-console');
@@ -1066,6 +1066,8 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
     expect(html).toContain('supportTicketStatusInput');
+    expect(html).toContain('supportTicketClaimStatusInput');
+    expect(html).toContain('supportTicketClaimedByAdminUserIdInput');
     expect(html).toContain('supportTicketKeywordInput');
     expect(html).toContain('supportTicketPageSizeInput');
     expect(html).toContain('supportTicketActionContent');
@@ -1075,6 +1077,10 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('认领到我');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');
+    expect(html).toContain("query.get('claimStatus')");
+    expect(html).toContain("query.get('claimedByAdminUserId')");
+    expect(html).toContain("query.set('claimStatus', claimStatus)");
+    expect(html).toContain("query.set('claimedByAdminUserId', claimedByAdminUserId)");
     expect(html).toContain('sweepSupportTicketOverdueEscalations');
     expect(html).toContain('applySupportTicketRouteState');
     expect(html).toContain('/api/admin/order-exception-case-console');

@@ -1881,6 +1881,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ClaimSupportTicketRequest');
     expect(source).toContain('SupportTicketOverdueEscalationSweep');
     expect(source).toContain('SupportTicketOverdueEscalationSweepResponse');
+    expect(source).toContain('SupportTicketClaimStatus');
     expect(source).toContain('SUPPORT_TICKET_NOT_FOUND');
     expect(source).toContain('SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT');
     expect(source).toContain('baseUpdatedAtIso');
@@ -1889,6 +1890,8 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('operatorUserId');
     expect(source).toContain('content');
     expect(source).toContain('name: slaStatus');
+    expect(source).toContain('name: claimStatus');
+    expect(source).toContain('name: claimedByAdminUserId');
     expect(source).toContain(
       'Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.',
     );

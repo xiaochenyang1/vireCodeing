@@ -717,6 +717,100 @@ describe('SupportTicketsService', () => {
     });
   });
 
+  it('filters admin support tickets by derived claim status before paging', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const first = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '还未认领的工单',
+    });
+    currentTime = new Date('2026-07-22T08:32:00.000Z');
+    const second = await service.createSupportTicket('shipper-2', {
+      channelName: '订单咨询',
+      description: 'admin-2 认领的工单',
+    });
+    currentTime = new Date('2026-07-22T08:34:00.000Z');
+    await service.claimSupportTicket('admin-2', second.id, {
+      baseUpdatedAtIso: second.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const third = await service.createSupportTicket('shipper-3', {
+      channelName: '售后服务',
+      description: 'admin-3 认领的工单',
+    });
+    currentTime = new Date('2026-07-22T08:38:00.000Z');
+    await service.claimSupportTicket('admin-3', third.id, {
+      baseUpdatedAtIso: third.updatedAtIso,
+      content: '白班客服接手跟进。',
+    });
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimStatus: 'claimed',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: third.id,
+          claimedByAdminUserId: 'admin-3',
+        }),
+        expect.objectContaining({
+          id: second.id,
+          claimedByAdminUserId: 'admin-2',
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 2,
+    });
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimStatus: 'unclaimed',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: first.id,
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 1,
+    });
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimedByAdminUserId: 'admin-2',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: second.id,
+          claimedByAdminUserId: 'admin-2',
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 1,
+    });
+  });
+
   it('rejects admin support ticket transitions when the ticket state no longer matches', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({

@@ -160,6 +160,8 @@ describe('SupportTicketsController', () => {
         pageSize: '10',
         status: 'processing',
         slaStatus: 'within_target',
+        claimStatus: 'claimed',
+        claimedByAdminUserId: 'admin-1',
         keyword: '投诉',
       }),
     ).resolves.toMatchObject({
@@ -185,6 +187,8 @@ describe('SupportTicketsController', () => {
       pageSize: 10,
       status: 'processing',
       slaStatus: 'within_target',
+      claimStatus: 'claimed',
+      claimedByAdminUserId: 'admin-1',
       keyword: '投诉',
     });
   });

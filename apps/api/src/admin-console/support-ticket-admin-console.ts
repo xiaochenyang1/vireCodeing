@@ -18,8 +18,8 @@ export function renderSupportTicketAdminConsole() {
     body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #17202a; }
     .console-shell { display: grid; grid-template-columns: minmax(360px, 42%) 1fr; gap: 16px; padding: 16px; }
     .panel { background: #fff; border: 1px solid #d8dee4; border-radius: 12px; padding: 16px; }
-    .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .full-span { grid-column: 1 / span 3; }
+    .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .full-span { grid-column: 1 / span 4; }
     input, select, textarea, button { box-sizing: border-box; width: 100%; padding: 9px; margin: 4px 0; }
     textarea { min-height: 88px; resize: vertical; }
     button { cursor: pointer; background: #1769aa; color: #fff; border: 0; border-radius: 8px; }
@@ -49,7 +49,7 @@ export function renderSupportTicketAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
-      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，支持按 SLA 状态筛队列，并可先把 open 工单认领到当前客服名下；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，更完整的坐席分配和在线会话还没补上。</p>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，支持按 SLA 状态、认领状态和认领客服筛队列，并可先把 open 工单认领到当前客服名下；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，更完整的坐席分配和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -60,7 +60,9 @@ export function renderSupportTicketAdminConsole() {
       <div class="filters">
         <label>状态<select id="supportTicketStatusInput"><option value="">全部</option><option value="pending">待受理</option><option value="processing">处理中</option><option value="resolved">已处理</option></select></label>
         <label>SLA 状态<select id="supportTicketSlaStatusInput"><option value="">全部</option><option value="within_target">时限内</option><option value="overdue">已超时</option><option value="resolved_within_target">按时完成</option><option value="resolved_overdue">超时完成</option></select></label>
+        <label>认领状态<select id="supportTicketClaimStatusInput"><option value="">全部</option><option value="claimed">已认领</option><option value="unclaimed">未认领</option></select></label>
         <label>每页<input id="supportTicketPageSizeInput" type="number" value="20" min="1" max="50" /></label>
+        <label class="full-span">认领客服 ID<input id="supportTicketClaimedByAdminUserIdInput" placeholder="例如 admin-1" /></label>
         <label class="full-span">工单号/货主/渠道/内容<input id="supportTicketKeywordInput" /></label>
       </div>
       <div class="session-row">
@@ -185,6 +187,8 @@ export function renderSupportTicketAdminConsole() {
       return {
         status: query.get('status') || '',
         slaStatus: query.get('slaStatus') || '',
+        claimStatus: query.get('claimStatus') || '',
+        claimedByAdminUserId: query.get('claimedByAdminUserId') || '',
         keyword: query.get('keyword') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
@@ -195,6 +199,8 @@ export function renderSupportTicketAdminConsole() {
       const routeState = readSupportTicketRouteState();
       document.getElementById('supportTicketStatusInput').value = routeState.status;
       document.getElementById('supportTicketSlaStatusInput').value = routeState.slaStatus;
+      document.getElementById('supportTicketClaimStatusInput').value = routeState.claimStatus;
+      document.getElementById('supportTicketClaimedByAdminUserIdInput').value = routeState.claimedByAdminUserId;
       document.getElementById('supportTicketKeywordInput').value = routeState.keyword;
       if (routeState.pageSize) {
         document.getElementById('supportTicketPageSizeInput').value = String(
@@ -215,11 +221,15 @@ export function renderSupportTicketAdminConsole() {
       const query = new URLSearchParams();
       const status = document.getElementById('supportTicketStatusInput').value;
       const slaStatus = document.getElementById('supportTicketSlaStatusInput').value;
+      const claimStatus = document.getElementById('supportTicketClaimStatusInput').value;
+      const claimedByAdminUserId = document.getElementById('supportTicketClaimedByAdminUserIdInput').value.trim();
       const keyword = document.getElementById('supportTicketKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('supportTicketPageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
       if (status) query.set('status', status);
       if (slaStatus) query.set('slaStatus', slaStatus);
+      if (claimStatus) query.set('claimStatus', claimStatus);
+      if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
       if (keyword) query.set('keyword', keyword);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
@@ -357,12 +367,16 @@ export function renderSupportTicketAdminConsole() {
       const query = new URLSearchParams();
       const status = document.getElementById('supportTicketStatusInput').value;
       const slaStatus = document.getElementById('supportTicketSlaStatusInput').value;
+      const claimStatus = document.getElementById('supportTicketClaimStatusInput').value;
+      const claimedByAdminUserId = document.getElementById('supportTicketClaimedByAdminUserIdInput').value.trim();
       const keyword = document.getElementById('supportTicketKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('supportTicketPageSizeInput').value || '20', 10) || 20));
       query.set('page', String(currentPage));
       query.set('pageSize', String(pageSize));
       if (status) query.set('status', status);
       if (slaStatus) query.set('slaStatus', slaStatus);
+      if (claimStatus) query.set('claimStatus', claimStatus);
+      if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
       if (keyword) query.set('keyword', keyword);
 
       try {
