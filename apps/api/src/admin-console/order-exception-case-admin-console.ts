@@ -304,11 +304,17 @@ export function renderOrderExceptionCaseAdminConsole() {
       return document.getElementById('caseClaimButton');
     }
 
+    function getCaseReleaseClaimButton() {
+      return document.getElementById('caseReleaseClaimButton');
+    }
+
     function setCaseActionButtonsDisabled(disabled) {
       const button = getCaseMutationButton();
       if (button) button.disabled = disabled;
       const claimButton = getCaseClaimButton();
       if (claimButton) claimButton.disabled = disabled;
+      const releaseClaimButton = getCaseReleaseClaimButton();
+      if (releaseClaimButton) releaseClaimButton.disabled = disabled;
       const executeButton = document.getElementById('caseExecuteCompensationButton');
       if (executeButton) executeButton.disabled = disabled;
     }
@@ -502,6 +508,9 @@ export function renderOrderExceptionCaseAdminConsole() {
       let buttons = '';
       if (status === 'pending' || status === 'processing') {
         buttons += '<button id="caseClaimButton" class="secondary-button" onclick="claimCase()">认领到我</button>';
+        if (item.claimedByAdminUserId) {
+          buttons += '<button id="caseReleaseClaimButton" class="secondary-button" onclick="releaseCaseClaim()">释放认领</button>';
+        }
       }
       if (action) {
         buttons += '<button id="caseMutationButton" data-action="' + action + '" onclick="mutateCase(this.dataset.action)">' + labelByStatus[status] + '</button>';
@@ -573,6 +582,43 @@ export function renderOrderExceptionCaseAdminConsole() {
         });
         document.getElementById('caseActionContent').value = '';
         document.getElementById('caseMutationNotice').textContent = '工单已认领，当前客服可继续跟进。';
+        await loadCase(selectedCaseId);
+        await loadCases(currentPage);
+      } catch (error) {
+        if (error.code === 'EXCEPTION_CASE_CONFLICT') {
+          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
+          await loadCase(selectedCaseId);
+        } else {
+          document.getElementById('caseMutationNotice').textContent = error.message;
+        }
+      } finally {
+        mutationPending = false;
+        setCaseActionButtonsDisabled(false);
+        syncCompensationInputsFromStatus();
+      }
+    }
+
+    async function releaseCaseClaim() {
+      if (!selectedCaseId || mutationPending) return;
+      const content = document.getElementById('caseActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('caseMutationNotice').textContent = '释放认领备注最多 200 字';
+        return;
+      }
+      mutationPending = true;
+      document.getElementById('caseMutationNotice').textContent = '';
+      setCaseActionButtonsDisabled(true);
+      try {
+        const payload = {
+          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
+          ...(content ? { content } : {}),
+        };
+        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/unclaim', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        document.getElementById('caseActionContent').value = '';
+        document.getElementById('caseMutationNotice').textContent = '工单认领已释放，已回到未认领队列。';
         await loadCase(selectedCaseId);
         await loadCases(currentPage);
       } catch (error) {

@@ -283,10 +283,14 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('/admin/support-tickets/overdue-escalations/sweep');
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
+    expect(html).toContain('/unclaim');
     expect(html).toContain('loadSupportTickets');
     expect(html).toContain('loadSupportTicketDetail');
     expect(html).toContain('mutateSupportTicket');
     expect(html).toContain('sweepSupportTicketOverdueEscalations');
+    expect(html).toContain('releaseSupportTicketClaim');
+    expect(html).toContain('releaseSupportTicketClaimButton');
+    expect(html).toContain('释放认领');
     expect(html).toContain('formatSupportTicketSlaStage');
     expect(html).toContain('formatSupportTicketSlaStatus');
     expect(html).toContain('renderSupportTicketSla');
@@ -682,10 +686,14 @@ describe('order exception case admin console page', () => {
 
     expect(html).toContain('/admin/order-exception-cases/overdue-escalations/sweep');
     expect(html).toContain('/claim');
+    expect(html).toContain('/unclaim');
     expect(html).toContain('sweepOverdueExceptionCases');
     expect(html).toContain('claimCase');
     expect(html).toContain('caseClaimButton');
+    expect(html).toContain('releaseCaseClaim');
+    expect(html).toContain('caseReleaseClaimButton');
     expect(html).toContain('认领到我');
+    expect(html).toContain('释放认领');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');
     expect(html).toContain('caseSweepNotice');
@@ -743,6 +751,8 @@ describe('admin console home page', () => {
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/evaluation-audit-console');
     expect(html).toContain('/api/admin/finance-console');
+    expect(html).toContain('认领或释放认领');
+    expect(html).toContain('认领到当前客服或释放认领');
     expect(html).toContain('统一入口 + 实时概览');
     expect(html).toContain('stage1AdminSession');
     expect(html).toContain('clearStoredAdminSession');
@@ -1076,6 +1086,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/admin/support-tickets');
     expect(html).toContain('/admin/support-tickets/overdue-escalations/sweep');
     expect(html).toContain('/claim');
+    expect(html).toContain('/unclaim');
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
     expect(html).toContain('supportTicketStatusInput');
@@ -1087,6 +1098,9 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
     expect(html).toContain('claimSupportTicket');
     expect(html).toContain('claimSupportTicketButton');
+    expect(html).toContain('releaseSupportTicketClaim');
+    expect(html).toContain('releaseSupportTicketClaimButton');
+    expect(html).toContain('释放认领');
     expect(html).toContain('认领到我');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');

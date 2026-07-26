@@ -11,7 +11,10 @@ const EXCEPTION_CASE_ACCEPTANCE_TARGET_MS = 15 * 60 * 1000;
 const EXCEPTION_CASE_RESOLUTION_TARGET_MS = 4 * 60 * 60 * 1000;
 const MILLIS_PER_MINUTE = 60 * 1000;
 const EXCEPTION_CASE_CLAIM_CONTENT_PREFIX = '客服认领：';
+const EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX = '客服释放认领：';
 const EXCEPTION_CASE_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
+const EXCEPTION_CASE_DEFAULT_UNCLAIM_NOTE =
+  '当前客服已释放认领，工单回到未认领队列。';
 
 export function mapOrderExceptionCaseListWithSla(
   result: { items: OrderExceptionCaseRecord[]; total: number },
@@ -43,6 +46,16 @@ export function createOrderExceptionCaseClaimContent(content?: string) {
     normalizedNote && normalizedNote.length > 0
       ? normalizedNote
       : EXCEPTION_CASE_DEFAULT_CLAIM_NOTE
+  }`;
+}
+
+export function createOrderExceptionCaseUnclaimContent(content?: string) {
+  const normalizedNote = content?.trim();
+
+  return `${EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX}${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : EXCEPTION_CASE_DEFAULT_UNCLAIM_NOTE
   }`;
 }
 
@@ -122,6 +135,15 @@ export function isOrderExceptionCaseClaimContent(content: string | undefined) {
   return (
     typeof content === 'string' &&
     content.startsWith(EXCEPTION_CASE_CLAIM_CONTENT_PREFIX)
+  );
+}
+
+export function isOrderExceptionCaseUnclaimContent(
+  content: string | undefined,
+) {
+  return (
+    typeof content === 'string' &&
+    content.startsWith(EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX)
   );
 }
 
@@ -217,9 +239,16 @@ function buildOrderExceptionCaseClaimSnapshot(
 
     if (
       !action ||
-      isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId) ||
-      !isOrderExceptionCaseClaimContent(action.content)
+      isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId)
     ) {
+      continue;
+    }
+
+    if (isOrderExceptionCaseUnclaimContent(action.content)) {
+      return {};
+    }
+
+    if (!isOrderExceptionCaseClaimContent(action.content)) {
       continue;
     }
 
@@ -246,6 +275,7 @@ function shouldIgnoreOrderExceptionCaseActionForSlaAnchor(
 ) {
   return (
     isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId) ||
-    isOrderExceptionCaseClaimContent(action.content)
+    isOrderExceptionCaseClaimContent(action.content) ||
+    isOrderExceptionCaseUnclaimContent(action.content)
   );
 }

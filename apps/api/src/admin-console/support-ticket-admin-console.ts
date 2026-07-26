@@ -89,6 +89,7 @@ export function renderSupportTicketAdminConsole() {
     let total = 0;
     let selectedTicketId = '';
     let selectedTicketStatus = '';
+    let selectedTicketClaimedByAdminUserId = '';
     let mutationPending = false;
     let supportTicketSweepPending = false;
     let latestSupportTicketRequestId = 0;
@@ -172,6 +173,7 @@ export function renderSupportTicketAdminConsole() {
     function clearSupportTicketSelection() {
       selectedTicketId = '';
       selectedTicketStatus = '';
+      selectedTicketClaimedByAdminUserId = '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = '';
       document.getElementById('supportTicketActions').innerHTML = '';
       document.getElementById('supportTicketDetail').textContent = '请选择工单';
@@ -283,10 +285,16 @@ export function renderSupportTicketAdminConsole() {
       const actions = [];
       if (ticket.status === 'pending') {
         actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
+        if (ticket.claimedByAdminUserId) {
+          actions.push('<button id="releaseSupportTicketClaimButton" class="secondary-button" onclick="releaseSupportTicketClaim()"' + (mutationPending ? ' disabled' : '') + '>释放认领</button>');
+        }
         actions.push('<button id="processSupportTicketButton" onclick="mutateSupportTicket(\\'process\\')"' + (mutationPending ? ' disabled' : '') + '>客服受理</button>');
       }
       if (ticket.status === 'processing') {
         actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
+        if (ticket.claimedByAdminUserId) {
+          actions.push('<button id="releaseSupportTicketClaimButton" class="secondary-button" onclick="releaseSupportTicketClaim()"' + (mutationPending ? ' disabled' : '') + '>释放认领</button>');
+        }
         actions.push('<button id="resolveSupportTicketButton" onclick="mutateSupportTicket(\\'resolve\\')"' + (mutationPending ? ' disabled' : '') + '>处理完成</button>');
       }
       if (actions.length === 0) {
@@ -312,6 +320,7 @@ export function renderSupportTicketAdminConsole() {
     function renderSupportTicketDetail(ticket) {
       selectedTicketId = ticket.id;
       selectedTicketStatus = ticket.status || '';
+      selectedTicketClaimedByAdminUserId = ticket.claimedByAdminUserId || '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = ticket.updatedAtIso || '';
       document.getElementById('supportTicketDetail').innerHTML = [
         '<div><span class="badge ' + escapeHtml(formatSupportTicketStatusClass(ticket.status)) + '">' + escapeHtml(formatSupportTicketStatus(ticket.status)) + '</span></div>',
@@ -479,6 +488,7 @@ export function renderSupportTicketAdminConsole() {
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
         id: selectedTicketId,
         status: selectedTicketStatus,
+        claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
       });
 
       const path = action === 'process' ? '/process' : '/resolve';
@@ -551,6 +561,57 @@ export function renderSupportTicketAdminConsole() {
       } catch (error) {
         document.getElementById('supportTicketMutationNotice').textContent =
           error.message || '认领工单失败';
+        if (selectedTicketId) {
+          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        }
+      } finally {
+        mutationPending = false;
+      }
+    }
+
+    async function releaseSupportTicketClaim() {
+      if (!selectedTicketId) {
+        document.getElementById('supportTicketMutationNotice').textContent = '请选择工单';
+        return;
+      }
+      if (mutationPending) {
+        return;
+      }
+      const content = document.getElementById('supportTicketActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('supportTicketMutationNotice').textContent = '释放认领备注最多 200 字';
+        return;
+      }
+      const baseUpdatedAtIso = document.getElementById('supportTicketBaseUpdatedAtIso').value;
+      if (!baseUpdatedAtIso) {
+        document.getElementById('supportTicketMutationNotice').textContent = '当前工单缺少版本时间，请刷新后重试';
+        return;
+      }
+
+      mutationPending = true;
+      document.getElementById('supportTicketMutationNotice').textContent = '';
+      document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
+        id: selectedTicketId,
+        status: selectedTicketStatus,
+        claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
+      });
+
+      try {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/unclaim', {
+          method: 'POST',
+          body: JSON.stringify({
+            baseUpdatedAtIso,
+            ...(content ? { content } : {}),
+          }),
+        });
+        renderSupportTicketDetail(ticket);
+        document.getElementById('supportTicketMutationNotice').textContent =
+          '工单认领已释放，已回到未认领队列。';
+        document.getElementById('supportTicketActionContent').value = '';
+        loadSupportTickets(currentPage);
+      } catch (error) {
+        document.getElementById('supportTicketMutationNotice').textContent =
+          error.message || '释放认领失败';
         if (selectedTicketId) {
           loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
         }

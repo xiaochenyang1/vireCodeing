@@ -15,6 +15,7 @@ import type {
 } from './dto';
 import {
   createOrderExceptionCaseClaimContent,
+  createOrderExceptionCaseUnclaimContent,
   mapOrderExceptionCaseListWithSla,
   mapOrderExceptionCaseWithSla,
 } from './order-exception-case-helpers';
@@ -147,6 +148,77 @@ export class OrderExceptionCasesService {
       {
         baseUpdatedAtIso: input.baseUpdatedAtIso,
         content: createOrderExceptionCaseClaimContent(input.content),
+      },
+    );
+
+    if (!result) {
+      throw notFoundError();
+    }
+
+    if (result === 'state-invalid') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    if (result === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+        '异常工单已被其他管理员更新，请刷新后重试',
+      );
+    }
+
+    return mapOrderExceptionCaseWithSla(result, this.now());
+  }
+
+  async unclaimCase(
+    adminUserId: string,
+    caseId: string,
+    input: ClaimOrderExceptionCaseRequest,
+  ) {
+    const exceptionCase = await this.repository.findOrderExceptionCaseById(caseId);
+
+    if (!exceptionCase) {
+      throw notFoundError();
+    }
+
+    if (
+      exceptionCase.status !== 'pending' &&
+      exceptionCase.status !== 'processing'
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    const currentSnapshot = mapOrderExceptionCaseWithSla(
+      exceptionCase,
+      this.now(),
+    );
+
+    if (!currentSnapshot.claimedByAdminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单尚未被认领，无需释放认领',
+      );
+    }
+
+    if (currentSnapshot.claimedByAdminUserId !== adminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员不是该异常工单的认领人，不能释放认领',
+      );
+    }
+
+    const result = await this.repository.appendOrderExceptionCaseAction(
+      caseId,
+      adminUserId,
+      exceptionCase.status,
+      {
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        content: createOrderExceptionCaseUnclaimContent(input.content),
       },
     );
 

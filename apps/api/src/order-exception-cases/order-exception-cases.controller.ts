@@ -197,6 +197,23 @@ export class AdminOrderExceptionCasesController {
     return ok(result, getRequestId(request));
   }
 
+  @Post(':caseId/unclaim')
+  async unclaimCase(
+    @Req() request: AuthenticatedRequest,
+    @Param('caseId') caseId: string,
+    @Body(new ZodValidationPipe(claimOrderExceptionCaseSchema))
+    body: ClaimOrderExceptionCaseRequest,
+  ) {
+    const adminUserId = getCurrentUserId(request, 'admin');
+    const result = await this.service.unclaimCase(
+      adminUserId,
+      parseOrderExceptionCaseId(caseId),
+      parseClaimOrderExceptionCaseRequest(body),
+    );
+
+    return ok(result, getRequestId(request));
+  }
+
   @Post(':caseId/resolve')
   async resolveCase(
     @Req() request: AuthenticatedRequest,

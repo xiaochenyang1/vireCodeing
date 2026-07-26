@@ -465,6 +465,78 @@ describe('OrderExceptionCasesService', () => {
     );
   });
 
+  it('lets the current claimer release an open case and clears the claim snapshot', async () => {
+    const { exceptionCase, service } = await createCase();
+
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    await expect(
+      service.unclaimCase('admin-2', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '当前班次切换，先释放给公共队列。',
+      }),
+    ).resolves.toMatchObject({
+      id: exceptionCase.id,
+      status: 'pending',
+      actions: expect.arrayContaining([
+        expect.objectContaining({
+          adminUserId: 'admin-2',
+          fromStatus: 'pending',
+          toStatus: 'pending',
+          content: '客服释放认领：当前班次切换，先释放给公共队列。',
+        }),
+      ]),
+    });
+
+    await expect(service.getForAdmin(exceptionCase.id)).resolves.not.toHaveProperty(
+      'claimedByAdminUserId',
+    );
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimStatus: 'unclaimed',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: exceptionCase.id })],
+    });
+  });
+
+  it('rejects releasing an unclaimed case or a case claimed by another admin', async () => {
+    const { exceptionCase, service } = await createCase();
+
+    await expect(
+      service.unclaimCase('admin-2', exceptionCase.id, {
+        baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单尚未被认领，无需释放认领',
+      ),
+    );
+
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    await expect(
+      service.unclaimCase('admin-3', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员不是该异常工单的认领人，不能释放认领',
+      ),
+    );
+  });
+
   it('does not reset the resolution SLA anchor when a processing case is claimed', async () => {
     let currentTime = new Date('2026-07-12T08:00:00.000Z');
     const repository = new InMemoryOrdersRepository(() => currentTime);
@@ -506,6 +578,56 @@ describe('OrderExceptionCasesService', () => {
         overdueMinutes: 30,
       },
     });
+  });
+
+  it('does not reset the resolution SLA anchor when a processing case is released back to the queue', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const service = new OrderExceptionCasesService(repository);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+    });
+    const exceptionCase = (await repository.listOrderExceptionCases(order.id)).items[0];
+
+    currentTime = new Date('2026-07-12T08:30:00.000Z');
+    const processing = await service.processCase('admin-1', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '客服已经联系司机核实异常情况。',
+    });
+
+    currentTime = new Date('2026-07-12T09:00:00.000Z');
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '夜班客服接手继续跟进。',
+    });
+
+    currentTime = new Date('2026-07-12T09:10:00.000Z');
+    await service.unclaimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: claimed.updatedAtIso,
+      content: '当前班次切换，先释放给公共队列。',
+    });
+
+    const currentSnapshotService = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => new Date('2026-07-12T13:00:00.000Z'),
+    );
+
+    await expect(currentSnapshotService.getForAdmin(exceptionCase.id)).resolves.toMatchObject({
+      sla: {
+        policyKey: 'exception_case_default_v1',
+        stage: 'resolution',
+        status: 'overdue',
+        targetAtIso: '2026-07-12T12:30:00.000Z',
+        overdueMinutes: 30,
+      },
+    });
+    await expect(currentSnapshotService.getForAdmin(exceptionCase.id)).resolves.not.toHaveProperty(
+      'claimedByAdminUserId',
+    );
   });
 
   async function resolvePendingCompensation() {

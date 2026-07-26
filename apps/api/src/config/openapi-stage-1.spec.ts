@@ -1093,6 +1093,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/claim:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/unclaim:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/resolve:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/close:');
@@ -1158,6 +1159,21 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases/{caseId}/claim',
       "$ref: '#/components/schemas/ClaimOrderExceptionCaseRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/claim',
+      'support cross-seat assignment or transfer rules.',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/unclaim',
+      "$ref: '#/components/schemas/ClaimOrderExceptionCaseRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/unclaim',
+      'Case claim released',
     );
   });
 
@@ -1879,12 +1895,14 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/support-tickets/overdue-escalations/sweep:');
     expect(source).toContain('/admin/support-tickets/{ticketId}:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/claim:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}/unclaim:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/resolve:');
     expect(source).toContain('List help-center support tickets for admin handling');
     expect(source).toContain('Run overdue support-ticket escalation sweep');
     expect(source).toContain('Get help-center support ticket detail');
     expect(source).toContain('Claim an open help-center support ticket');
+    expect(source).toContain('Release a claimed help-center support ticket');
     expect(source).toContain('Accept a pending help-center support ticket');
     expect(source).toContain('Resolve a processing help-center support ticket');
     expect(source).toContain('AdminSupportTicketList');
@@ -1918,6 +1936,21 @@ describe('stage 1 OpenAPI contract', () => {
     );
     expectPathBlockToContain(
       source,
+      '/admin/support-tickets/{ticketId}/claim',
+      'latest claim or unclaim history item',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/unclaim',
+      "$ref: '#/components/schemas/ClaimSupportTicketRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/unclaim',
+      'Support ticket claim released',
+    );
+    expectPathBlockToContain(
+      source,
       '/admin/support-tickets/{ticketId}/process',
       "$ref: '#/components/schemas/UpdateShipperSupportTicketRequest'",
     );
@@ -1925,6 +1958,16 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/support-tickets/overdue-escalations/sweep',
       "$ref: '#/components/schemas/SupportTicketOverdueEscalationSweepResponse'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ClaimSupportTicketRequest',
+      'Optional claim or release note shown in admin history and the derived claim snapshot.',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ClaimOrderExceptionCaseRequest',
+      'Optional claim or release note shown in admin audit history and the derived claim snapshot.',
     );
     expect(source).toContain('AdminOnlyError:');
   });

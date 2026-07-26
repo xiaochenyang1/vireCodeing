@@ -390,6 +390,113 @@ describe('SupportTicketsService', () => {
     );
   });
 
+  it('lets the current claimer release an open support ticket and clears the claim snapshot', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    currentTime = new Date('2026-07-22T08:38:00.000Z');
+    await expect(
+      service.unclaimSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '当前班次切换，先释放给公共队列。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已释放认领',
+          operatorUserId: 'admin-2',
+          content: '当前班次切换，先释放给公共队列。',
+        }),
+      ]),
+      updatedAtIso: '2026-07-22T08:38:00.000Z',
+    });
+
+    await expect(
+      service.getSupportTicketForAdmin(created.id),
+    ).resolves.not.toHaveProperty('claimedByAdminUserId');
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimStatus: 'unclaimed',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: created.id,
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 1,
+    });
+  });
+
+  it('rejects releasing an unclaimed support ticket or a ticket claimed by another admin', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    await expect(
+      service.unclaimSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: created.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单尚未被认领，无需释放认领',
+      ),
+    );
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    await expect(
+      service.unclaimSupportTicket('admin-3', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前管理员不是该工单的认领人，不能释放认领',
+      ),
+    );
+  });
+
   it('does not reset the resolution SLA anchor when a processing ticket is claimed', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({

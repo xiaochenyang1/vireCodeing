@@ -152,6 +152,23 @@ export class AdminSupportTicketsController {
     );
   }
 
+  @Post(':ticketId/unclaim')
+  async unclaimSupportTicket(
+    @Req() request: AuthenticatedRequest,
+    @Param('ticketId') ticketId: string,
+    @Body(new ZodValidationPipe(claimSupportTicketSchema))
+    body: ClaimSupportTicketRequest,
+  ) {
+    return ok(
+      await this.supportTicketsService.unclaimSupportTicket(
+        getCurrentUserId(request, 'admin'),
+        parseSupportTicketId(ticketId),
+        parseClaimSupportTicketRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Post(':ticketId/resolve')
   async resolveSupportTicket(
     @Req() request: AuthenticatedRequest,

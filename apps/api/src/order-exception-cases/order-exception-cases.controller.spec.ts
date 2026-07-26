@@ -15,6 +15,7 @@ describe('order exception case controllers', () => {
     claimCase: jest
       .fn()
       .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-1' }),
+    unclaimCase: jest.fn().mockResolvedValue({ id: 'case-1' }),
     processCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'processing' }),
     resolveCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'resolved' }),
     closeCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'closed' }),
@@ -97,6 +98,31 @@ describe('order exception case controllers', () => {
       id: 'case-1',
       claimedByAdminUserId: 'admin-1',
     });
+  });
+
+  it('releases a case claim for the authenticated administrator', async () => {
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
+    const result = await controller.unclaimCase(
+      createRequest('admin-1', 'admin'),
+      ' case-1 ',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:20:00.000Z',
+        content: '  当前班次切换，先释放给公共队列。  ',
+      },
+    );
+
+    expect(service.unclaimCase).toHaveBeenCalledWith('admin-1', 'case-1', {
+      baseUpdatedAtIso: '2026-07-12T08:20:00.000Z',
+      content: '当前班次切换，先释放给公共队列。',
+    });
+    expect(result.data).toMatchObject({
+      id: 'case-1',
+    });
+    expect(result.data).not.toHaveProperty('claimedByAdminUserId');
+    expect(result.data).not.toHaveProperty('claimNote');
   });
 
   it.each([

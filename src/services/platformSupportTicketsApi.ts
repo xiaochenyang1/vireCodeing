@@ -174,6 +174,21 @@ export function createPlatformSupportTicketsApi(config: PlatformApiConfig) {
         normalizeClaimSupportTicketRequest(request),
       );
     },
+    async unclaimAdminSupportTicket(
+      ticketId: string,
+      request: PlatformClaimSupportTicketRequest,
+    ) {
+      return platformPost<
+        PlatformClaimSupportTicketRequest,
+        PlatformSupportTicket
+      >(
+        config,
+        `/admin/support-tickets/${encodeURIComponent(
+          normalizeSupportTicketId(ticketId),
+        )}/unclaim`,
+        normalizeClaimSupportTicketRequest(request),
+      );
+    },
     async resolveAdminSupportTicket(
       ticketId: string,
       request: PlatformUpdateSupportTicketRequest,

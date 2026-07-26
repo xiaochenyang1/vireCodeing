@@ -321,6 +321,50 @@ describe('platform support tickets api', () => {
             shipperId: 'shipper-1',
             channelName: '投诉建议',
             description: '司机沟通不及时，希望客服协助跟进',
+            status: 'pending',
+            statusHistory: [
+              {
+                actionText: '工单已提交',
+                timestampIso: '2026-07-22T08:30:00.000Z',
+              },
+              {
+                actionText: '客服已认领',
+                timestampIso: '2026-07-22T08:32:00.000Z',
+                operatorUserId: 'admin-2',
+                content: '夜班客服先认领跟进。',
+              },
+              {
+                actionText: '客服已释放认领',
+                timestampIso: '2026-07-22T08:34:00.000Z',
+                operatorUserId: 'admin-2',
+                content: '当前班次切换，工单先回到公共队列。',
+              },
+            ],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'first_response',
+              status: 'within_target',
+              targetAtIso: '2026-07-22T09:00:00.000Z',
+              remainingMinutes: 26,
+            },
+            createdAtIso: '2026-07-22T08:30:00.000Z',
+            updatedAtIso: '2026-07-22T08:34:00.000Z',
+          },
+          requestId: 'req-admin-unclaim',
+          timestamp: '2026-07-22T08:34:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            id: 'ticket-1',
+            shipperId: 'shipper-1',
+            channelName: '投诉建议',
+            description: '司机沟通不及时，希望客服协助跟进',
             status: 'processing',
             claimedByAdminUserId: 'admin-2',
             claimedAtIso: '2026-07-22T08:32:00.000Z',
@@ -469,6 +513,24 @@ describe('platform support tickets api', () => {
       claimNote: '夜班客服先认领跟进。',
     });
 
+    const unclaimedTicket = await api.unclaimAdminSupportTicket(' ticket-1 ', {
+      baseUpdatedAtIso: ' 2026-07-22T08:32:00.000Z ',
+      content: ' 当前班次切换，工单先回到公共队列。 ',
+    });
+
+    expect(unclaimedTicket).toMatchObject({
+      id: 'ticket-1',
+      status: 'pending',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已释放认领',
+          operatorUserId: 'admin-2',
+        }),
+      ]),
+    });
+    expect(unclaimedTicket).not.toHaveProperty('claimedByAdminUserId');
+    expect(unclaimedTicket).not.toHaveProperty('claimNote');
+
     await expect(
       api.processAdminSupportTicket(' ticket-1 ', {
         baseUpdatedAtIso: ' 2026-07-22T08:32:00.000Z ',
@@ -552,6 +614,20 @@ describe('platform support tickets api', () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
+      'http://localhost:3000/api/admin/support-tickets/ticket-1/unclaim',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-22T08:32:00.000Z',
+          content: '当前班次切换，工单先回到公共队列。',
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
       'http://localhost:3000/api/admin/support-tickets/ticket-1/process',
       expect.objectContaining({
         method: 'POST',
@@ -565,7 +641,7 @@ describe('platform support tickets api', () => {
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
-      5,
+      6,
       'http://localhost:3000/api/admin/support-tickets/ticket-1/resolve',
       expect.objectContaining({
         method: 'POST',
@@ -635,6 +711,10 @@ describe('platform support tickets api', () => {
       api.claimAdminSupportTicket('ticket-1', {
         baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
         content: '问'.repeat(201),
+      })],
+    ['invalid admin unclaim request', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>
+      api.unclaimAdminSupportTicket('ticket-1', {
+        baseUpdatedAtIso: 'bad-date',
       })],
     ['non-object admin claim request', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>
       api.claimAdminSupportTicket('ticket-1', null as never)],
@@ -708,6 +788,16 @@ describe('platform support tickets api', () => {
     await expect(
       api.claimAdminSupportTicket('ticket-1', {
         baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+      }),
+    ).rejects.toEqual(
+      expect.objectContaining({
+        code: 'AUTH_ACCESS_TOKEN_MISSING',
+        status: 0,
+      }),
+    );
+    await expect(
+      api.unclaimAdminSupportTicket('ticket-1', {
+        baseUpdatedAtIso: '2026-07-22T08:32:00.000Z',
       }),
     ).rejects.toEqual(
       expect.objectContaining({

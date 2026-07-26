@@ -81,6 +81,17 @@ describe('AdminPermissionMatrixService', () => {
             capabilityCount: 1,
             writeCapabilityCount: 1,
             highRiskCapabilityCount: 1,
+            summary:
+              '查看帮助中心工单列表/详情、SLA 提醒，并执行认领、释放认领和 pending / processing / resolved 流程推进。',
+          }),
+          expect.objectContaining({
+            key: 'order-exception-case',
+            route: '/api/admin/order-exception-case-console',
+            capabilityCount: 1,
+            writeCapabilityCount: 1,
+            highRiskCapabilityCount: 1,
+            summary:
+              '读取异常工单、查看详情，并能认领到当前客服、释放认领后继续推进 processing / resolved / closed 流程。',
           }),
           expect.objectContaining({
             key: 'order-management',
@@ -167,11 +178,34 @@ describe('AdminPermissionMatrixService', () => {
             consoleRoute: '/api/admin/support-ticket-console',
             actions: ['read', 'write'],
             riskLevel: 'high',
+            summary:
+              '读取帮助中心工单列表/详情、SLA 提醒，并能执行 claim、unclaim、process、resolve 状态流转与超时升级扫描。',
             apiPaths: expect.arrayContaining([
               '/admin/support-tickets',
               '/admin/support-tickets/overdue-escalations/sweep',
               '/admin/support-tickets/{ticketId}/claim',
+              '/admin/support-tickets/{ticketId}/unclaim',
               '/admin/support-tickets/{ticketId}/process',
+            ]),
+          }),
+          expect.objectContaining({
+            key: 'order_exception_case_manage',
+            moduleKey: 'order-exception-case',
+            moduleTitle: '异常客服工单台',
+            consoleRoute: '/api/admin/order-exception-case-console',
+            actions: ['read', 'write'],
+            riskLevel: 'high',
+            summary:
+              '读取异常工单列表/详情，并能执行 claim、unclaim、process、resolve、close 状态流转与超时升级扫描。',
+            apiPaths: expect.arrayContaining([
+              '/admin/order-exception-cases',
+              '/admin/order-exception-cases/{caseId}',
+              '/admin/order-exception-cases/overdue-escalations/sweep',
+              '/admin/order-exception-cases/{caseId}/claim',
+              '/admin/order-exception-cases/{caseId}/unclaim',
+              '/admin/order-exception-cases/{caseId}/process',
+              '/admin/order-exception-cases/{caseId}/resolve',
+              '/admin/order-exception-cases/{caseId}/close',
             ]),
           }),
           expect.objectContaining({

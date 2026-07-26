@@ -9,7 +9,10 @@ const SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS = 30 * 60 * 1000;
 const SUPPORT_TICKET_RESOLUTION_TARGET_MS = 24 * 60 * 60 * 1000;
 const MILLIS_PER_MINUTE = 60 * 1000;
 const SUPPORT_TICKET_CLAIM_ACTION_TEXT = '客服已认领';
+const SUPPORT_TICKET_UNCLAIM_ACTION_TEXT = '客服已释放认领';
 const SUPPORT_TICKET_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
+const SUPPORT_TICKET_DEFAULT_UNCLAIM_NOTE =
+  '当前客服已释放认领，工单回到未认领队列。';
 
 export function mapSupportTicketWithSla(
   ticket: ShipperSupportTicketRecord,
@@ -32,6 +35,19 @@ export function createSupportTicketClaimHistoryItem(
     timestampIso,
     operatorUserId: adminUserId,
     content: createSupportTicketClaimContent(content),
+  };
+}
+
+export function createSupportTicketUnclaimHistoryItem(
+  adminUserId: string,
+  timestampIso: string,
+  content?: string,
+): ShipperSupportTicketStatusHistoryItem {
+  return {
+    actionText: SUPPORT_TICKET_UNCLAIM_ACTION_TEXT,
+    timestampIso,
+    operatorUserId: adminUserId,
+    content: createSupportTicketUnclaimContent(content),
   };
 }
 
@@ -92,6 +108,14 @@ export function createSupportTicketClaimContent(content?: string) {
   return normalizedNote && normalizedNote.length > 0
     ? normalizedNote
     : SUPPORT_TICKET_DEFAULT_CLAIM_NOTE;
+}
+
+export function createSupportTicketUnclaimContent(content?: string) {
+  const normalizedNote = content?.trim();
+
+  return normalizedNote && normalizedNote.length > 0
+    ? normalizedNote
+    : SUPPORT_TICKET_DEFAULT_UNCLAIM_NOTE;
 }
 
 export function findSupportTicketStatusTransitionIso(
@@ -180,6 +204,13 @@ function buildSupportTicketClaimSnapshot(
 ) {
   for (let index = statusHistory.length - 1; index >= 0; index -= 1) {
     const historyItem = statusHistory[index];
+
+    if (
+      historyItem &&
+      historyItem.actionText === SUPPORT_TICKET_UNCLAIM_ACTION_TEXT
+    ) {
+      return {};
+    }
 
     if (
       !historyItem ||

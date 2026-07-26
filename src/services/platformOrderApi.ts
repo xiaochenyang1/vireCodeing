@@ -748,6 +748,23 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
         normalizeAdminOrderExceptionCaseClaimRequest(request),
       );
     },
+    async unclaimAdminOrderExceptionCase(
+      caseId: string,
+      request: PlatformAdminClaimOrderExceptionCaseRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminClaimOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/unclaim`,
+        normalizeAdminOrderExceptionCaseClaimRequest(request),
+      );
+    },
     async resolveAdminOrderExceptionCase(
       caseId: string,
       request: PlatformAdminResolveOrderExceptionCaseRequest,

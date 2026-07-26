@@ -353,6 +353,68 @@ describe('SupportTicketsController', () => {
     );
   });
 
+  it('releases an admin support ticket claim', async () => {
+    const service = {
+      unclaimSupportTicket: jest.fn().mockResolvedValue({
+        id: 'ticket-1',
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        description: '司机沟通不及时，希望客服协助跟进',
+        status: 'processing',
+        statusHistory: [
+          {
+            actionText: '客服已释放认领',
+            timestampIso: '2026-07-22T08:38:00.000Z',
+            operatorUserId: 'admin-1',
+            content: '当前班次切换，工单先回到公共队列。',
+          },
+        ],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1437,
+        },
+        createdAtIso: '2026-07-22T08:30:00.000Z',
+        updatedAtIso: '2026-07-22T08:38:00.000Z',
+      }),
+    } as unknown as SupportTicketsService;
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
+    const body = {
+      baseUpdatedAtIso: '2026-07-22T08:36:00.000Z',
+      content: ' 当前班次切换，工单先回到公共队列。 ',
+    };
+
+    const result = await controller.unclaimSupportTicket(
+      createRequest('admin-1', 'admin'),
+      'ticket-1',
+      body,
+    );
+
+    expect(result).toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'ticket-1',
+        status: 'processing',
+      },
+      requestId: 'req_support_tickets_test',
+    });
+    expect(result.data).not.toHaveProperty('claimedByAdminUserId');
+    expect(result.data).not.toHaveProperty('claimNote');
+    expect(service.unclaimSupportTicket).toHaveBeenCalledWith(
+      'admin-1',
+      'ticket-1',
+      {
+        baseUpdatedAtIso: '2026-07-22T08:36:00.000Z',
+        content: '当前班次切换，工单先回到公共队列。',
+      },
+    );
+  });
+
   it('resolves an admin support ticket', async () => {
     const service = {
       resolveSupportTicket: jest.fn().mockResolvedValue({

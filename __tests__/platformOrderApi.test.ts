@@ -1982,6 +1982,59 @@ describe('platform order api', () => {
     );
   });
 
+  it('releases an admin order exception case claim with a normalized optional note', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(
+        createAdminOrderExceptionCase({
+          status: 'processing',
+          actions: [
+            {
+              id: 'action-1',
+              adminUserId: 'admin-1',
+              fromStatus: 'processing',
+              toStatus: 'processing',
+              content: '客服认领：夜班客服先认领跟进。',
+              createdAtIso: '2026-07-25T08:20:00.000Z',
+            },
+            {
+              id: 'action-2',
+              adminUserId: 'admin-1',
+              fromStatus: 'processing',
+              toStatus: 'processing',
+              content: '客服释放认领：当前班次切换，先释放给公共队列。',
+              createdAtIso: '2026-07-25T08:30:00.000Z',
+            },
+          ],
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    const unclaimedCase = await api.unclaimAdminOrderExceptionCase(' case-1 ', {
+      baseUpdatedAtIso: '2026-07-25T08:20:00.000Z',
+      content: '  当前班次切换，先释放给公共队列。  ',
+    });
+
+    expect(unclaimedCase).not.toHaveProperty('claimedByAdminUserId');
+    expect(unclaimedCase).not.toHaveProperty('claimNote');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/unclaim',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T08:20:00.000Z',
+          content: '当前班次切换，先释放给公共队列。',
+        }),
+      }),
+    );
+  });
+
   it('processes resolves closes and executes admin order exception cases with normalized payloads', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(
@@ -2265,6 +2318,12 @@ describe('platform order api', () => {
     } satisfies Partial<PlatformApiError>);
     await expect(
       api.claimAdminOrderExceptionCase('case-1', invalidClaimRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.unclaimAdminOrderExceptionCase('case-1', invalidClaimRequest),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
       status: 0,
