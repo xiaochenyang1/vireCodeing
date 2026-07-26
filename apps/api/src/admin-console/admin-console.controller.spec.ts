@@ -342,6 +342,17 @@ describe('shipper verification admin console page', () => {
     expect(html).toContain("query.set('shipperId', shipperId)");
     expect(html).toContain('history.replaceState');
   });
+
+  it('ignores stale shipper verification queue responses and keeps the latest detail context', () => {
+    const html = renderShipperVerificationAdminConsole();
+
+    expect(html).toContain('let latestQueueRequestId = 0');
+    expect(html).toContain('let latestReviewEventsRequestId = 0');
+    expect(html).toContain('const requestId = ++latestQueueRequestId');
+    expect(html).toContain('if (requestId !== latestQueueRequestId) {');
+    expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
+    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+  });
 });
 
 describe('support ticket admin console page', () => {

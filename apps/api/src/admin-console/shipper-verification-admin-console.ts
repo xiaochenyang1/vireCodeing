@@ -201,6 +201,7 @@ export function renderShipperVerificationAdminConsole() {
     let currentItems = [];
     let currentAttachments = null;
     let currentReviewEvents = [];
+    let latestQueueRequestId = 0;
     let latestReviewEventsRequestId = 0;
     const attachmentText = {
       identityFront: '身份证正面',
@@ -486,6 +487,7 @@ export function renderShipperVerificationAdminConsole() {
         resetReviewEvents('请先填写 admin token。');
         return;
       }
+      const requestId = ++latestQueueRequestId;
       setText('queueStatus', '加载中...');
       syncShipperVerificationRouteState(selectedShipperId);
       try {
@@ -494,6 +496,9 @@ export function renderShipperVerificationAdminConsole() {
         const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
         if (type) query.set('type', type);
         const data = await apiGet('?' + query.toString());
+        if (requestId !== latestQueueRequestId) {
+          return;
+        }
         renderQueue(data.items || []);
         setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
         renderDetail();
@@ -501,6 +506,9 @@ export function renderShipperVerificationAdminConsole() {
           await selectShipper(selectedShipperId);
         }
       } catch (error) {
+        if (requestId !== latestQueueRequestId) {
+          return;
+        }
         setText('queueStatus', error.message || '加载失败');
         resetDetail('认证详情尚未加载');
         resetAttachments('附件尚未加载');
