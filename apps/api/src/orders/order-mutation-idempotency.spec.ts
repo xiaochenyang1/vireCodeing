@@ -69,8 +69,11 @@ describe('order mutation idempotency', () => {
       'shipper_cancel',
       'shipper_status',
       'shipper_complete',
+      'shipper_accept_quote',
+      'shipper_add_bonus',
       'driver_accept',
       'driver_status',
+      'driver_cancel',
     ]);
   });
 
@@ -81,8 +84,11 @@ describe('order mutation idempotency', () => {
       'shipper_cancel',
       'shipper_status',
       'shipper_complete',
+      'shipper_accept_quote',
+      'shipper_add_bonus',
       'driver_accept',
       'driver_status',
+      'driver_cancel',
     ]);
   });
 
