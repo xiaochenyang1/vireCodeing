@@ -270,8 +270,15 @@ export class OrderExceptionCasesService {
 
     if (nextStatus === 'resolved') {
       const order = await this.repository.findOrderById(result.orderId);
+      const appealDecision =
+        'appealDecision' in input ? input.appealDecision : undefined;
       await this.safeNotifyExceptionEvent({
-        event: 'exception_case_resolved',
+        event:
+          appealDecision === 'accepted'
+            ? 'exception_appeal_accepted'
+            : appealDecision === 'rejected'
+              ? 'exception_appeal_rejected'
+              : 'exception_case_resolved',
         caseId: result.id,
         caseNo: result.caseNo,
         orderId: result.orderId,
@@ -289,7 +296,9 @@ export class OrderExceptionCasesService {
       | 'exception_case_created'
       | 'exception_case_resolved'
       | 'exception_compensation_executed'
-      | 'exception_appeal_requested';
+      | 'exception_appeal_requested'
+      | 'exception_appeal_accepted'
+      | 'exception_appeal_rejected';
     caseId: string;
     caseNo?: string;
     orderId: string;

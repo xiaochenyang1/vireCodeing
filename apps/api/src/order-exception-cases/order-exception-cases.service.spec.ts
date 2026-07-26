@@ -5,7 +5,9 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
 describe('OrderExceptionCasesService', () => {
   const now = new Date('2026-07-12T08:00:00.000Z');
 
-  async function createCase() {
+  async function createCase(notificationsService?: {
+    notifyExceptionEvent: jest.Mock;
+  }) {
     const repository = new InMemoryOrdersRepository(() => now);
     const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
     await repository.acceptDriverOrder(order.id, 'driver-1', {});
@@ -19,7 +21,7 @@ describe('OrderExceptionCasesService', () => {
       repository,
       order,
       exceptionCase: snapshot.items[0],
-      service: new OrderExceptionCasesService(repository),
+      service: new OrderExceptionCasesService(repository, notificationsService as never),
     };
   }
 
@@ -338,6 +340,55 @@ describe('OrderExceptionCasesService', () => {
       compensationTargetRole: 'shipper',
       compensationAmountCents: 4200,
     });
+  });
+
+  it('notifies related users when an appealed case is accepted on re-review', async () => {
+    const notificationsService = {
+      notifyExceptionEvent: jest.fn().mockResolvedValue(undefined),
+    };
+    const { order, exceptionCase, service } = await createCase(
+      notificationsService,
+    );
+    const processing = await service.processCase('admin-1', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '客服已经联系司机核实异常情况。',
+    });
+    const resolved = await service.resolveCase('admin-1', exceptionCase.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '双方确认货物受损，需向货主赔付。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 3600,
+    });
+    const appealed = await service.appealForShipper(
+      'shipper-1',
+      order.id,
+      exceptionCase.id,
+      {
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        reason: '货主认为赔付金额过低，申请重新核定。',
+      },
+    );
+
+    await service.resolveCase('admin-1', exceptionCase.id, {
+      baseUpdatedAtIso: appealed.updatedAtIso,
+      content: '客服复核后改为待赔付跟进。',
+      compensationStatus: 'pending',
+      appealDecision: 'accepted',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 4200,
+    });
+
+    expect(notificationsService.notifyExceptionEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'exception_appeal_accepted',
+        caseId: exceptionCase.id,
+        orderId: order.id,
+        orderNo: order.orderNo,
+        shipperId: order.shipperId,
+        driverId: order.assignedDriverId,
+      }),
+    );
   });
 
   it('rejects an appeal from an unrelated driver with not found', async () => {

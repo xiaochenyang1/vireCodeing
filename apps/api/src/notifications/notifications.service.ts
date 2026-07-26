@@ -40,7 +40,9 @@ export type NotifyExceptionEventInput = {
     | 'exception_case_created'
     | 'exception_case_resolved'
     | 'exception_compensation_executed'
-    | 'exception_appeal_requested';
+    | 'exception_appeal_requested'
+    | 'exception_appeal_accepted'
+    | 'exception_appeal_rejected';
   caseId: string;
   caseNo?: string;
   orderId: string;
@@ -541,6 +543,48 @@ function buildExceptionEventRecipients(
       }
       return [];
     }
+    case 'exception_appeal_accepted':
+      return uniqueRecipients([
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '异常工单申诉已受理',
+          content: `订单 ${orderLabel} 的异常工单 ${caseLabel} 申诉已受理，客服已完成二次复核。`,
+        },
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                category: 'service' as const,
+                title: '异常工单申诉已受理',
+                content: `订单 ${orderLabel} 的异常工单 ${caseLabel} 申诉已受理，客服已完成二次复核。`,
+              },
+            ]
+          : []),
+      ]);
+    case 'exception_appeal_rejected':
+      return uniqueRecipients([
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '异常工单申诉已驳回',
+          content: `订单 ${orderLabel} 的异常工单 ${caseLabel} 申诉已驳回，请查看最新处理结果。`,
+        },
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                category: 'service' as const,
+                title: '异常工单申诉已驳回',
+                content: `订单 ${orderLabel} 的异常工单 ${caseLabel} 申诉已驳回，请查看最新处理结果。`,
+              },
+            ]
+          : []),
+      ]);
   }
 }
 

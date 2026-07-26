@@ -1538,6 +1538,81 @@ describe('PrismaOrdersRepository exception case lists', () => {
       items: [expect.objectContaining({ id: 'case-1', appealStatus: 'requested' })],
     });
   });
+
+  it('writes an order event when resolving an appealed case with an appeal decision', async () => {
+    const current = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'processing',
+      appealStatus: 'requested',
+      updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    const updated = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'resolved',
+      appealStatus: 'accepted',
+      resolutionText: '客服复核后改为待赔付跟进。',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 4200,
+      compensationUpdatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      resolvedAt: new Date('2026-07-12T08:20:00.000Z'),
+      updatedAt: new Date('2026-07-12T08:20:00.000Z'),
+    });
+    const transaction = {
+      orderExceptionCaseAction: {
+        create: jest.fn().mockResolvedValue({ id: 'action-1' }),
+      },
+      orderExceptionCase: {
+        update: jest.fn().mockResolvedValue(updated),
+      },
+      orderEvent: {
+        create: jest.fn().mockResolvedValue({ id: 'event-1' }),
+      },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(current),
+      },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const repository = new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:20:00.000Z'),
+    );
+
+    await expect(
+      repository.transitionOrderExceptionCase(
+        'case-1',
+        'admin-1',
+        'processing',
+        'resolved',
+        {
+          baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+          content: '客服复核后改为待赔付跟进。',
+          compensationStatus: 'pending',
+          appealDecision: 'accepted',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 4200,
+        },
+      ),
+    ).resolves.toMatchObject({
+      id: 'case-1',
+      status: 'resolved',
+      appealStatus: 'accepted',
+      compensationStatus: 'pending',
+    });
+    expect(transaction.orderEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: current.orderId,
+        actorUserId: 'admin-1',
+        eventType: 'exception_appeal_accepted',
+        noteText: '异常工单申诉已受理：客服复核后改为待赔付跟进。',
+      }),
+    });
+  });
 });
 
 describe('InMemoryOrdersRepository exception compensation execution', () => {
@@ -1965,6 +2040,14 @@ describe('InMemoryOrdersRepository exception appeal', () => {
       compensationStatus: 'pending',
       compensationTargetRole: 'shipper',
       compensationAmountCents: 4200,
+    });
+    await expect(repository.findOrderById(order.id)).resolves.toMatchObject({
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'exception_appeal_accepted',
+          noteText: '异常工单申诉已受理：客服复核后改为待赔付跟进。',
+        }),
+      ]),
     });
   });
 
@@ -2445,7 +2528,9 @@ function createPrismaExceptionCaseListRecord(
     sourceRole: 'shipper' | 'driver';
     typeLabel: string;
     description: string;
+    attachmentFileIds: string[];
     status: 'pending' | 'processing' | 'resolved' | 'closed';
+    resolutionText: string | null;
     compensationStatus:
       | 'not_required'
       | 'pending'
@@ -2458,6 +2543,10 @@ function createPrismaExceptionCaseListRecord(
     compensationTransactionId: string | null;
     compensationExecutedAt: Date | null;
     appealStatus: 'none' | 'requested' | 'rejected' | 'accepted';
+    appealReason: string | null;
+    appealRequestedAt: Date | null;
+    resolvedAt: Date | null;
+    closedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }> = {},

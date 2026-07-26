@@ -314,6 +314,66 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('notifies both related parties when an exception appeal is accepted or rejected', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-26T11:00:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const pushProvider = new FakePushProvider();
+    const service = new NotificationsService(repository, pushProvider);
+
+    await service.notifyExceptionEvent({
+      event: 'exception_appeal_accepted',
+      caseId: 'case-1',
+      caseNo: 'YC202607260001',
+      orderId: 'order-1',
+      orderNo: 'HY202607260001',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+    });
+    await service.notifyExceptionEvent({
+      event: 'exception_appeal_rejected',
+      caseId: 'case-2',
+      caseNo: 'YC202607260002',
+      orderId: 'order-2',
+      orderNo: 'HY202607260002',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const driverMessages = await service.listMessages('driver-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(pushProvider.sends).toHaveLength(4);
+    expect(shipperMessages.items.map(item => item.title)).toEqual(
+      expect.arrayContaining(['异常工单申诉已受理', '异常工单申诉已驳回']),
+    );
+    expect(driverMessages.items.map(item => item.title)).toEqual(
+      expect.arrayContaining(['异常工单申诉已受理', '异常工单申诉已驳回']),
+    );
+    expect(shipperMessages.items.find(item => item.title === '异常工单申诉已受理')).toMatchObject({
+      content:
+        '订单 HY202607260001 的异常工单 YC202607260001 申诉已受理，客服已完成二次复核。',
+      referenceType: 'exception_case',
+      referenceId: 'exception_appeal_accepted:case-1:shipper',
+    });
+    expect(driverMessages.items.find(item => item.title === '异常工单申诉已驳回')).toMatchObject({
+      content:
+        '订单 HY202607260002 的异常工单 YC202607260002 申诉已驳回，请查看最新处理结果。',
+      referenceType: 'exception_case',
+      referenceId: 'exception_appeal_rejected:case-2:driver',
+    });
+  });
+
   it('returns not found when marking a foreign message', async () => {
     const repository = new InMemoryNotificationsRepository();
     const service = new NotificationsService(repository, new FakePushProvider());

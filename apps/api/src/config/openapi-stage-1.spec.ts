@@ -1142,6 +1142,8 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('appealReason');
     expect(source).toContain('exception_compensation_executed');
     expect(source).toContain('exception_appeal_requested');
+    expect(source).toContain('exception_appeal_accepted');
+    expect(source).toContain('exception_appeal_rejected');
     expect(source).toContain('EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE');
     expect(source).toContain('EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED');
     expect(source).toContain('EXCEPTION_CASE_APPEAL_NOT_ALLOWED');

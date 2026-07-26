@@ -698,6 +698,15 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
     const order = this.orders.find(currentOrder => currentOrder.id === exceptionCase.orderId);
     if (order) {
+      if (nextStatus === 'resolved' && appealDecision) {
+        order.events.push({
+          id: `event-${this.orders.length}-${order.events.length + 1}`,
+          actorUserId: adminUserId,
+          eventType: `exception_appeal_${appealDecision}`,
+          noteText: createExceptionAppealDecisionNote(appealDecision, input.content),
+          createdAtIso: updatedAtIso,
+        });
+      }
       order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
     }
 
@@ -4320,7 +4329,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
         },
       });
 
-      return transaction.orderExceptionCase.update({
+      const result = await transaction.orderExceptionCase.update({
         where: { id: caseId },
         data: {
           status: nextStatus,
@@ -4350,6 +4359,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
           actions: { orderBy: { createdAt: 'asc' } },
         },
       });
+
+      if (nextStatus === 'resolved' && appealDecision) {
+        await transaction.orderEvent.create({
+          data: {
+            orderId: current.orderId,
+            actorUserId: adminUserId,
+            eventType: `exception_appeal_${appealDecision}`,
+            noteText: createExceptionAppealDecisionNote(
+              appealDecision,
+              input.content,
+            ),
+            attachmentFileIds: [],
+            createdAt: now,
+          },
+        });
+      }
+
+      return result;
     });
 
     return mapPrismaExceptionCase(updated);
@@ -6768,6 +6795,17 @@ function createExceptionCompensationNote(
   const amountYuan = (amountCents / 100).toFixed(2);
 
   return `平台向${COMPENSATION_TARGET_LABEL[targetRole]}赔付 ${amountYuan} 元已入账`;
+}
+
+function createExceptionAppealDecisionNote(
+  decision: 'accepted' | 'rejected',
+  content: string,
+): string {
+  const prefix =
+    decision === 'accepted' ? '异常工单申诉已受理' : '异常工单申诉已驳回';
+  const normalizedContent = content.trim();
+
+  return normalizedContent ? `${prefix}：${normalizedContent}` : prefix;
 }
 
 function formatOrderAmountCents(amountCents: number) {

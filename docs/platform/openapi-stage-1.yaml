@@ -7852,6 +7852,8 @@ components:
             - shipper_evaluation_submitted
             - exception_compensation_executed
             - exception_appeal_requested
+            - exception_appeal_accepted
+            - exception_appeal_rejected
           example: driver_quote_submitted
         actorUserId:
           type: string
