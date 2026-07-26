@@ -1107,6 +1107,22 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('history.replaceState');
   });
 
+  it('ignores stale order attachment detail and list responses', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getOrderAttachmentAuditConsole: () => string;
+      }
+    ).getOrderAttachmentAuditConsole();
+
+    expect(html).toContain('let latestAuditDetailRequestId = 0');
+    expect(html).toContain('const requestId = ++latestAuditDetailRequestId');
+    expect(html).toContain('if (requestId !== latestAuditDetailRequestId) return');
+    expect(html).toContain('let latestAuditListRequestId = 0');
+    expect(html).toContain('const requestId = ++latestAuditListRequestId');
+    expect(html).toContain('if (requestId !== latestAuditListRequestId) return');
+  });
+
   it('serves the order management console html', () => {
     const controller = new AdminConsoleController();
     const html = (

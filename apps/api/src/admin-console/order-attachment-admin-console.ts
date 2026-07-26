@@ -295,6 +295,8 @@ export function renderOrderAttachmentAdminConsole() {
   <script>
     const apiBase = '/api';
     const state = { audit: null, summaries: [] };
+    let latestAuditDetailRequestId = 0;
+    let latestAuditListRequestId = 0;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-attachment-console',
     })}
@@ -415,6 +417,7 @@ export function renderOrderAttachmentAdminConsole() {
     }
 
     async function loadAudit() {
+      const requestId = ++latestAuditDetailRequestId;
       try {
         setNotice('');
         const orderId = document.getElementById('orderIdInput').value.trim();
@@ -425,15 +428,19 @@ export function renderOrderAttachmentAdminConsole() {
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body.code !== 'OK') throw new Error(body.message || body.code || '请求失败');
+        if (requestId !== latestAuditDetailRequestId) return;
+
         state.audit = body.data;
         renderAudit();
         syncAuditSummarySelection();
       } catch (error) {
+        if (requestId !== latestAuditDetailRequestId) return;
         setNotice(error.message);
       }
     }
 
     async function loadAuditList(pageOverride) {
+      const requestId = ++latestAuditListRequestId;
       try {
         setNotice('');
         const keyword = document.getElementById('auditKeywordInput').value.trim();
@@ -458,11 +465,14 @@ export function renderOrderAttachmentAdminConsole() {
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body.code !== 'OK') throw new Error(body.message || body.code || '请求失败');
+        if (requestId !== latestAuditListRequestId) return;
+
         state.summaries = body.data.items || [];
         renderAuditSummaries(body.data);
         renderAuditPagination(body.data);
         syncOrderAttachmentRouteState(body.data.page || page);
       } catch (error) {
+        if (requestId !== latestAuditListRequestId) return;
         setNotice(error.message);
       }
     }
