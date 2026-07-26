@@ -80,6 +80,21 @@ export type PlatformUpdateSupportTicketRequest = {
   content: string;
 };
 
+export type PlatformSupportTicketOverdueEscalationSweepTrigger =
+  | 'admin'
+  | 'scheduler';
+
+export type PlatformSupportTicketOverdueEscalationSweepResult = {
+  trigger: PlatformSupportTicketOverdueEscalationSweepTrigger;
+  triggeredAtIso: string;
+  scannedCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  skippedCount: number;
+  conflictCount: number;
+  escalatedTicketIds: string[];
+};
+
 const SUPPORT_TICKET_REQUEST_INVALID =
   'PLATFORM_SUPPORT_TICKET_REQUEST_INVALID';
 
@@ -148,6 +163,12 @@ export function createPlatformSupportTicketsApi(config: PlatformApiConfig) {
         )}/resolve`,
         normalizeUpdateSupportTicketRequest(request),
       );
+    },
+    runAdminSupportTicketOverdueEscalationSweep() {
+      return platformPost<
+        Record<string, never>,
+        PlatformSupportTicketOverdueEscalationSweepResult
+      >(config, '/admin/support-tickets/overdue-escalations/sweep', {});
     },
   };
 }

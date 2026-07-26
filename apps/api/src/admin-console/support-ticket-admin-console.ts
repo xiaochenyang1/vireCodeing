@@ -26,6 +26,7 @@ export function renderSupportTicketAdminConsole() {
     button:disabled { cursor: not-allowed; opacity: .55; }
     .session-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .session-link { color: #1769aa; font-size: 13px; font-weight: 600; text-decoration: none; }
+    .inline-button { width: auto; }
     .secondary-button { width: auto; background: #fff; color: #1769aa; border: 1px solid #d8dee4; }
     .ticket-row { border-top: 1px solid #edf0f2; padding: 12px 0; cursor: pointer; }
     .ticket-row.active { background: #eff6ff; border-radius: 8px; padding: 12px; margin-top: 8px; }
@@ -48,7 +49,7 @@ export function renderSupportTicketAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
-      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；但自动超时升级、坐席分配和在线会话还没补上。</p>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -62,7 +63,11 @@ export function renderSupportTicketAdminConsole() {
         <label>每页<input id="supportTicketPageSizeInput" type="number" value="20" min="1" max="50" /></label>
         <label class="full-span">工单号/货主/渠道/内容<input id="supportTicketKeywordInput" /></label>
       </div>
-      <button id="loadSupportTicketsButton" onclick="loadSupportTickets(1)">查询工单</button>
+      <div class="session-row">
+        <button id="loadSupportTicketsButton" class="inline-button" onclick="loadSupportTickets(1)">查询工单</button>
+        <button id="sweepSupportTicketOverdueButton" class="secondary-button" onclick="sweepSupportTicketOverdueEscalations()">执行超时升级扫描</button>
+      </div>
+      <div id="supportTicketSweepNotice" class="error"></div>
       <div id="supportTicketListNotice" class="error"></div>
       <div id="supportTicketList"></div>
       <div class="filters"><button onclick="changeSupportTicketPage(-1)">上一页</button><button onclick="changeSupportTicketPage(1)">下一页</button></div>
@@ -82,6 +87,7 @@ export function renderSupportTicketAdminConsole() {
     let total = 0;
     let selectedTicketId = '';
     let mutationPending = false;
+    let supportTicketSweepPending = false;
     let latestSupportTicketRequestId = 0;
     let latestSupportTicketDetailRequestId = 0;
     ${renderAdminSessionScript({
@@ -230,7 +236,7 @@ export function renderSupportTicketAdminConsole() {
           ? ' · ' + escapeHtml(formatSupportTicketStatus(item.fromStatus)) + ' -> ' + escapeHtml(formatSupportTicketStatus(item.toStatus))
           : '';
         const operatorText = item.operatorUserId
-          ? ' · 处理人：' + escapeHtml(item.operatorUserId)
+          ? ' · 处理人：' + escapeHtml(formatSupportTicketOperatorUserId(item.operatorUserId))
           : '';
         const contentText = item.content
           ? '<div class="muted">' + escapeHtml(item.content) + '</div>'
@@ -242,6 +248,16 @@ export function renderSupportTicketAdminConsole() {
           contentText +
           '</div>';
       }).join('');
+    }
+
+    function formatSupportTicketOperatorUserId(operatorUserId) {
+      if (operatorUserId === 'system:auto-escalation:first_response') {
+        return '系统自动升级（首响超时）';
+      }
+      if (operatorUserId === 'system:auto-escalation:resolution') {
+        return '系统自动升级（解决超时）';
+      }
+      return operatorUserId || '-';
     }
 
     function renderSupportTicketActions(ticket) {
@@ -365,6 +381,40 @@ export function renderSupportTicketAdminConsole() {
         if (requestId !== latestSupportTicketDetailRequestId) return;
         clearSupportTicketSelection();
         document.getElementById('supportTicketListNotice').textContent = error.message || '读取工单详情失败';
+      }
+    }
+
+    async function sweepSupportTicketOverdueEscalations() {
+      if (supportTicketSweepPending) {
+        return;
+      }
+
+      supportTicketSweepPending = true;
+      document.getElementById('supportTicketSweepNotice').textContent = '超时升级扫描执行中...';
+      document.getElementById('sweepSupportTicketOverdueButton').disabled = true;
+
+      try {
+        const data = await api('/admin/support-tickets/overdue-escalations/sweep', {
+          method: 'POST',
+        });
+        document.getElementById('supportTicketSweepNotice').textContent =
+          '本次扫描检查 ' + String(data.scannedCount || 0) +
+          ' 条 open 工单，发现超时 ' + String(data.overdueCount || 0) +
+          ' 条，新增升级 ' + String(data.escalatedCount || 0) +
+          ' 条，跳过 ' + String(data.skippedCount || 0) +
+          ' 条，冲突 ' + String(data.conflictCount || 0) + ' 条';
+
+        if (selectedTicketId) {
+          await loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        } else {
+          await loadSupportTickets(currentPage);
+        }
+      } catch (error) {
+        document.getElementById('supportTicketSweepNotice').textContent =
+          error.message || '执行超时升级扫描失败';
+      } finally {
+        supportTicketSweepPending = false;
+        document.getElementById('sweepSupportTicketOverdueButton').disabled = false;
       }
     }
 

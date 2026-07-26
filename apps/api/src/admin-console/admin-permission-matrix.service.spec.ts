@@ -169,6 +169,7 @@ describe('AdminPermissionMatrixService', () => {
             riskLevel: 'high',
             apiPaths: expect.arrayContaining([
               '/admin/support-tickets',
+              '/admin/support-tickets/overdue-escalations/sweep',
               '/admin/support-tickets/{ticketId}/process',
             ]),
           }),

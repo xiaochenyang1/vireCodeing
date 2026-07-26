@@ -9,6 +9,8 @@ import {
   AdminSupportTicketsController,
   SupportTicketsController,
 } from './support-tickets.controller';
+import { SupportTicketOverdueEscalationScheduler } from './support-ticket-overdue-escalation.scheduler';
+import { SupportTicketOverdueEscalationService } from './support-ticket-overdue-escalation.service';
 import {
   PrismaSupportTicketsRepository,
   type PrismaSupportTicketsClient,
@@ -35,8 +37,37 @@ import { SupportTicketsService } from './support-tickets.service';
       ) => new SupportTicketsService(repository, undefined, notificationsService),
       inject: [PrismaSupportTicketsRepository, NotificationsService],
     },
+    {
+      provide: SupportTicketOverdueEscalationService,
+      useFactory: (repository: PrismaSupportTicketsRepository) =>
+        new SupportTicketOverdueEscalationService(repository),
+      inject: [PrismaSupportTicketsRepository],
+    },
+    {
+      provide: SupportTicketOverdueEscalationScheduler,
+      useFactory: (service: SupportTicketOverdueEscalationService) =>
+        new SupportTicketOverdueEscalationScheduler(
+          service,
+          createSupportTicketOverdueEscalationSchedulerConfigFromEnv(process.env),
+        ),
+      inject: [SupportTicketOverdueEscalationService],
+    },
     AdminOnlyGuard,
     ShipperOnlyGuard,
   ],
 })
 export class SupportTicketsModule {}
+
+export function createSupportTicketOverdueEscalationSchedulerConfigFromEnv(
+  env: NodeJS.ProcessEnv,
+) {
+  return {
+    ...(env.SUPPORT_TICKET_OVERDUE_ESCALATION_INTERVAL_SECONDS
+      ? {
+          intervalSeconds: Number(
+            env.SUPPORT_TICKET_OVERDUE_ESCALATION_INTERVAL_SECONDS,
+          ),
+        }
+      : {}),
+  };
+}

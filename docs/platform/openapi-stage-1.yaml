@@ -2106,7 +2106,7 @@ paths:
   /shipper/support-tickets:
     get:
       summary: List current shipper support tickets
-      description: Lists the current shipper's support tickets ordered by latest updatedAt first. Each ticket now includes a derived first-response or resolution SLA snapshot. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow. This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.
+      description: Lists the current shipper's support tickets ordered by latest updatedAt first. Each ticket now includes a derived first-response or resolution SLA snapshot. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow and trigger overdue escalation sweeps. This first slice still does not include seat assignment, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2128,7 +2128,7 @@ paths:
           $ref: '#/components/responses/ShipperOnlyError'
     post:
       summary: Create current shipper support ticket
-      description: Creates a new pending support ticket for the current shipper and returns the initial first-response SLA snapshot. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.
+      description: Creates a new pending support ticket for the current shipper and returns the initial first-response SLA snapshot. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include seat assignment, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2174,6 +2174,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminSupportTicketListResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+  /admin/support-tickets/overdue-escalations/sweep:
+    post:
+      summary: Run overdue support-ticket escalation sweep
+      description: Scans open help-center support tickets, derives first-response and resolution SLA overdue queues, and appends a system auto-escalation history record once per overdue stage. This endpoint is intended for admin backfill/manual execution; the optional scheduler uses the same sweep logic.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Overdue escalation sweep completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketOverdueEscalationSweepResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
   /admin/support-tickets/{ticketId}:
@@ -12679,6 +12696,52 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminSupportTicketList'
+    SupportTicketOverdueEscalationSweep:
+      type: object
+      required:
+        [trigger, triggeredAtIso, scannedCount, overdueCount, escalatedCount, skippedCount, conflictCount, escalatedTicketIds]
+      properties:
+        trigger:
+          type: string
+          enum: [admin, scheduler]
+          example: admin
+        triggeredAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T10:00:00.000Z'
+        scannedCount:
+          type: integer
+          minimum: 0
+          example: 18
+        overdueCount:
+          type: integer
+          minimum: 0
+          example: 5
+        escalatedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        skippedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        conflictCount:
+          type: integer
+          minimum: 0
+          example: 1
+        escalatedTicketIds:
+          type: array
+          items:
+            type: string
+          example: ['support-ticket-1', 'support-ticket-7']
+    SupportTicketOverdueEscalationSweepResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/SupportTicketOverdueEscalationSweep'
     OrderExceptionCaseStatus:
       type: string
       enum: [pending, processing, resolved, closed]

@@ -8,16 +8,13 @@ import type {
   ShipperSupportTicketRecord,
   UpdateShipperSupportTicketRequest,
   ShipperSupportTicketListRecord,
-  ShipperSupportTicketSlaSnapshot,
   ShipperSupportTicketStatus,
-  ShipperSupportTicketStatusHistoryItem,
 } from './dto';
+import {
+  createSupportTicketUpdatedAtIso,
+  mapSupportTicketWithSla,
+} from './support-ticket-helpers';
 import type { SupportTicketsRepository } from './support-tickets.repository';
-
-const SUPPORT_TICKET_SLA_POLICY_KEY = 'support_ticket_default_v1';
-const SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS = 30 * 60 * 1000;
-const SUPPORT_TICKET_RESOLUTION_TARGET_MS = 24 * 60 * 60 * 1000;
-const MILLIS_PER_MINUTE = 60 * 1000;
 
 export class SupportTicketsService {
   constructor(
@@ -138,7 +135,7 @@ export class SupportTicketsService {
     actionText: string,
     input: UpdateShipperSupportTicketRequest,
   ) {
-    const updatedAtIso = createTransitionUpdatedAtIso(
+    const updatedAtIso = createSupportTicketUpdatedAtIso(
       input.baseUpdatedAtIso,
       this.now().toISOString(),
     );
@@ -205,148 +202,11 @@ export class SupportTicketsService {
   }
 }
 
-function createTransitionUpdatedAtIso(baseUpdatedAtIso: string, nowIso: string) {
-  const baseTimestamp = Date.parse(baseUpdatedAtIso);
-  const nowTimestamp = Date.parse(nowIso);
-
-  if (Number.isNaN(baseTimestamp) || Number.isNaN(nowTimestamp)) {
-    return nowIso;
-  }
-
-  return new Date(Math.max(baseTimestamp + 1, nowTimestamp)).toISOString();
-}
-
 function notFoundError() {
   return new BusinessError(
     ApiErrorCode.SUPPORT_TICKET_NOT_FOUND,
     '帮助中心工单不存在',
   );
-}
-
-function mapSupportTicketWithSla(
-  ticket: ShipperSupportTicketRecord,
-  now: Date,
-): ShipperSupportTicketRecord {
-  return {
-    ...ticket,
-    sla: buildSupportTicketSlaSnapshot(ticket, now),
-  };
-}
-
-function buildSupportTicketSlaSnapshot(
-  ticket: ShipperSupportTicketRecord,
-  now: Date,
-): ShipperSupportTicketSlaSnapshot {
-  if (ticket.status === 'pending') {
-    const targetTimestamp =
-      parseTimestamp(ticket.createdAtIso, now.getTime()) +
-      SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS;
-
-    return buildOpenSupportTicketSla(
-      'first_response',
-      targetTimestamp,
-      now.getTime(),
-    );
-  }
-
-  const resolutionAnchorTimestamp = parseTimestamp(
-    findSupportTicketStatusTransitionIso(
-      ticket.statusHistory,
-      'processing',
-      ticket.updatedAtIso,
-    ),
-    parseTimestamp(ticket.updatedAtIso, now.getTime()),
-  );
-  const targetTimestamp =
-    resolutionAnchorTimestamp + SUPPORT_TICKET_RESOLUTION_TARGET_MS;
-
-  if (ticket.status === 'resolved') {
-    return buildResolvedSupportTicketSla(
-      targetTimestamp,
-      parseTimestamp(ticket.updatedAtIso, now.getTime()),
-    );
-  }
-
-  return buildOpenSupportTicketSla('resolution', targetTimestamp, now.getTime());
-}
-
-function buildOpenSupportTicketSla(
-  stage: ShipperSupportTicketSlaSnapshot['stage'],
-  targetTimestamp: number,
-  evaluationTimestamp: number,
-): ShipperSupportTicketSlaSnapshot {
-  if (evaluationTimestamp > targetTimestamp) {
-    return {
-      policyKey: SUPPORT_TICKET_SLA_POLICY_KEY,
-      stage,
-      status: 'overdue',
-      targetAtIso: new Date(targetTimestamp).toISOString(),
-      overdueMinutes: calculateSlaMinutes(
-        evaluationTimestamp - targetTimestamp,
-      ),
-    };
-  }
-
-  return {
-    policyKey: SUPPORT_TICKET_SLA_POLICY_KEY,
-    stage,
-    status: 'within_target',
-    targetAtIso: new Date(targetTimestamp).toISOString(),
-    remainingMinutes: calculateSlaMinutes(
-      targetTimestamp - evaluationTimestamp,
-    ),
-  };
-}
-
-function buildResolvedSupportTicketSla(
-  targetTimestamp: number,
-  resolvedTimestamp: number,
-): ShipperSupportTicketSlaSnapshot {
-  if (resolvedTimestamp > targetTimestamp) {
-    return {
-      policyKey: SUPPORT_TICKET_SLA_POLICY_KEY,
-      stage: 'resolution',
-      status: 'resolved_overdue',
-      targetAtIso: new Date(targetTimestamp).toISOString(),
-      overdueMinutes: calculateSlaMinutes(
-        resolvedTimestamp - targetTimestamp,
-      ),
-    };
-  }
-
-  return {
-    policyKey: SUPPORT_TICKET_SLA_POLICY_KEY,
-    stage: 'resolution',
-    status: 'resolved_within_target',
-    targetAtIso: new Date(targetTimestamp).toISOString(),
-    remainingMinutes: calculateSlaMinutes(
-      targetTimestamp - resolvedTimestamp,
-    ),
-  };
-}
-
-function findSupportTicketStatusTransitionIso(
-  statusHistory: ShipperSupportTicketStatusHistoryItem[],
-  toStatus: ShipperSupportTicketStatus,
-  fallbackIso: string,
-) {
-  for (let index = statusHistory.length - 1; index >= 0; index -= 1) {
-    if (statusHistory[index]?.toStatus === toStatus) {
-      return statusHistory[index].timestampIso;
-    }
-  }
-
-  return fallbackIso;
-}
-
-function parseTimestamp(value: string | undefined, fallback: number) {
-  const timestamp = Date.parse(value ?? '');
-
-  return Number.isNaN(timestamp) ? fallback : timestamp;
-}
-
-function calculateSlaMinutes(deltaMs: number) {
-  return Math.max(0, Math.ceil(deltaMs / MILLIS_PER_MINUTE));
 }
 
 function toAdminSupportTicketMatchQuery(

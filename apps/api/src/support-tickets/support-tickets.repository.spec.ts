@@ -195,6 +195,62 @@ describe('InMemorySupportTicketsRepository', () => {
       }),
     ]);
   });
+
+  it('appends support ticket history items without changing status', async () => {
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `ticket-${++sequence}`;
+      })(),
+    });
+
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '待自动升级的工单',
+      status: 'pending',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T08:00:00.000Z',
+        },
+      ],
+      createdAtIso: '2026-07-22T08:00:00.000Z',
+      updatedAtIso: '2026-07-22T08:00:00.000Z',
+    });
+
+    await expect(
+      repository.appendSupportTicketHistoryItem('ticket-1', 'pending', {
+        baseUpdatedAtIso: '2026-07-22T08:00:00.000Z',
+        updatedAtIso: '2026-07-22T08:45:00.000Z',
+        historyItem: {
+          actionText: '工单超时已升级',
+          timestampIso: '2026-07-22T08:45:00.000Z',
+          operatorUserId: 'system:auto-escalation:first_response',
+          content: '系统检测到投诉建议工单首响 SLA 已超时 15 分钟，已自动升级给值班客服跟进。',
+        },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'ticket-1',
+        status: 'pending',
+        updatedAtIso: '2026-07-22T08:45:00.000Z',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampIso: '2026-07-22T08:00:00.000Z',
+          },
+          {
+            actionText: '工单超时已升级',
+            timestampIso: '2026-07-22T08:45:00.000Z',
+            operatorUserId: 'system:auto-escalation:first_response',
+            content:
+              '系统检测到投诉建议工单首响 SLA 已超时 15 分钟，已自动升级给值班客服跟进。',
+          },
+        ],
+      }),
+    );
+  });
 });
 
 describe('PrismaSupportTicketsRepository', () => {
@@ -581,6 +637,87 @@ describe('PrismaSupportTicketsRepository', () => {
       ),
     ).resolves.toBe('conflict');
     expect(prisma.shipperSupportTicket.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('appends support ticket history items from Prisma with optimistic concurrency', async () => {
+    const prisma = createPrismaClient();
+    prisma.shipperSupportTicket.findUnique.mockResolvedValue(
+      createPrismaRecord({
+        id: 'ticket-1',
+        shipperId: 'shipper-1',
+        status: 'processing',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampIso: '2026-07-22T08:00:00.000Z',
+          },
+        ],
+        createdAt: new Date('2026-07-22T08:00:00.000Z'),
+        updatedAt: new Date('2026-07-22T08:30:00.000Z'),
+      }),
+    );
+    prisma.shipperSupportTicket.updateMany.mockResolvedValue({ count: 1 });
+    const repository = new PrismaSupportTicketsRepository(
+      prisma as unknown as PrismaSupportTicketsClient,
+    );
+
+    await expect(
+      repository.appendSupportTicketHistoryItem('ticket-1', 'processing', {
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        updatedAtIso: '2026-07-22T09:00:00.000Z',
+        historyItem: {
+          actionText: '工单超时已升级',
+          timestampIso: '2026-07-22T09:00:00.000Z',
+          operatorUserId: 'system:auto-escalation:resolution',
+          content: '系统检测到投诉建议工单解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+        },
+      }),
+    ).resolves.toEqual({
+      id: 'ticket-1',
+      shipperId: 'shipper-1',
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+      status: 'processing',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T08:00:00.000Z',
+        },
+        {
+          actionText: '工单超时已升级',
+          timestampIso: '2026-07-22T09:00:00.000Z',
+          operatorUserId: 'system:auto-escalation:resolution',
+          content:
+            '系统检测到投诉建议工单解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+        },
+      ],
+      createdAtIso: '2026-07-22T08:00:00.000Z',
+      updatedAtIso: '2026-07-22T09:00:00.000Z',
+    });
+    expect(prisma.shipperSupportTicket.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'ticket-1',
+        status: 'processing',
+        updatedAt: new Date('2026-07-22T08:30:00.000Z'),
+      },
+      data: {
+        status: 'processing',
+        statusHistory: [
+          {
+            actionText: '工单已提交',
+            timestampIso: '2026-07-22T08:00:00.000Z',
+          },
+          {
+            actionText: '工单超时已升级',
+            timestampIso: '2026-07-22T09:00:00.000Z',
+            operatorUserId: 'system:auto-escalation:resolution',
+            content:
+              '系统检测到投诉建议工单解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+          },
+        ],
+        updatedAt: new Date('2026-07-22T09:00:00.000Z'),
+      },
+    });
   });
 });
 

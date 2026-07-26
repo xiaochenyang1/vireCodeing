@@ -1829,7 +1829,10 @@ describe('stage 1 OpenAPI contract', () => {
       'Each ticket now includes a derived first-response or resolution SLA snapshot.',
     );
     expect(source).toContain(
-      'This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.',
+      'administrators can process them through the dedicated admin workflow and trigger overdue escalation sweeps.',
+    );
+    expect(source).toContain(
+      'This first slice still does not include seat assignment, online chat or a complete customer-service handling audit trail.',
     );
     expectPathBlockToContain(
       source,
@@ -1843,15 +1846,19 @@ describe('stage 1 OpenAPI contract', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/admin/support-tickets:');
+    expect(source).toContain('/admin/support-tickets/overdue-escalations/sweep:');
     expect(source).toContain('/admin/support-tickets/{ticketId}:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/resolve:');
     expect(source).toContain('List help-center support tickets for admin handling');
+    expect(source).toContain('Run overdue support-ticket escalation sweep');
     expect(source).toContain('Get help-center support ticket detail');
     expect(source).toContain('Accept a pending help-center support ticket');
     expect(source).toContain('Resolve a processing help-center support ticket');
     expect(source).toContain('AdminSupportTicketList');
     expect(source).toContain('AdminSupportTicketListResponse');
+    expect(source).toContain('SupportTicketOverdueEscalationSweep');
+    expect(source).toContain('SupportTicketOverdueEscalationSweepResponse');
     expect(source).toContain('SUPPORT_TICKET_NOT_FOUND');
     expect(source).toContain('SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT');
     expect(source).toContain('baseUpdatedAtIso');
@@ -1870,6 +1877,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/support-tickets/{ticketId}/process',
       "$ref: '#/components/schemas/UpdateShipperSupportTicketRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/overdue-escalations/sweep',
+      "$ref: '#/components/schemas/SupportTicketOverdueEscalationSweepResponse'",
     );
     expect(source).toContain('AdminOnlyError:');
   });

@@ -16,6 +16,12 @@ export type SupportTicketTransitionResult =
   | 'conflict'
   | 'state-invalid';
 
+export type AppendSupportTicketHistoryItemInput = {
+  baseUpdatedAtIso: string;
+  updatedAtIso: string;
+  historyItem: ShipperSupportTicketStatusHistoryItem;
+};
+
 export interface SupportTicketsRepository {
   listSupportTicketsByShipperId(
     shipperId: string,
@@ -39,6 +45,11 @@ export interface SupportTicketsRepository {
     expectedStatus: ShipperSupportTicketStatus,
     nextStatus: ShipperSupportTicketStatus,
     input: TransitionShipperSupportTicketRecordInput,
+  ): Promise<SupportTicketTransitionResult>;
+  appendSupportTicketHistoryItem(
+    ticketId: string,
+    expectedStatus: ShipperSupportTicketStatus,
+    input: AppendSupportTicketHistoryItemInput,
   ): Promise<SupportTicketTransitionResult>;
 }
 
@@ -149,6 +160,44 @@ export class InMemorySupportTicketsRepository
             input,
           ),
         ],
+        updatedAtIso: input.updatedAtIso,
+      };
+
+      const nextTickets = [...tickets];
+      nextTickets[ticketIndex] = updatedTicket;
+      this.tickets.set(shipperId, nextTickets);
+
+      return copySupportTicket(updatedTicket);
+    }
+
+    return 'not-found';
+  }
+
+  async appendSupportTicketHistoryItem(
+    ticketId: string,
+    expectedStatus: ShipperSupportTicketStatus,
+    input: AppendSupportTicketHistoryItemInput,
+  ) {
+    for (const [shipperId, tickets] of this.tickets.entries()) {
+      const ticketIndex = tickets.findIndex(ticket => ticket.id === ticketId);
+
+      if (ticketIndex === -1) {
+        continue;
+      }
+
+      const currentTicket = tickets[ticketIndex];
+
+      if (currentTicket.status !== expectedStatus) {
+        return 'state-invalid';
+      }
+
+      if (!isSameInstant(currentTicket.updatedAtIso, input.baseUpdatedAtIso)) {
+        return 'conflict';
+      }
+
+      const updatedTicket: ShipperSupportTicketRecord = {
+        ...currentTicket,
+        statusHistory: [...currentTicket.statusHistory, input.historyItem],
         updatedAtIso: input.updatedAtIso,
       };
 
@@ -350,6 +399,63 @@ export class PrismaSupportTicketsRepository
       channelName: currentTicket.channelName,
       description: currentTicket.description,
       status: nextStatus,
+      statusHistory,
+      createdAtIso: currentTicket.createdAt.toISOString(),
+      updatedAtIso: updatedAt.toISOString(),
+    };
+  }
+
+  async appendSupportTicketHistoryItem(
+    ticketId: string,
+    expectedStatus: ShipperSupportTicketStatus,
+    input: AppendSupportTicketHistoryItemInput,
+  ) {
+    const currentTicket = await this.prisma.shipperSupportTicket.findUnique({
+      where: { id: ticketId },
+    });
+
+    if (!currentTicket) {
+      return 'not-found';
+    }
+
+    if (currentTicket.status !== expectedStatus) {
+      return 'state-invalid';
+    }
+
+    if (
+      !isSameInstant(currentTicket.updatedAt.toISOString(), input.baseUpdatedAtIso)
+    ) {
+      return 'conflict';
+    }
+
+    const statusHistory = [
+      ...toStatusHistory(currentTicket.statusHistory),
+      input.historyItem,
+    ];
+    const updatedAt = new Date(input.updatedAtIso);
+    const updateResult = await this.prisma.shipperSupportTicket.updateMany({
+      where: {
+        id: ticketId,
+        status: expectedStatus,
+        updatedAt: new Date(input.baseUpdatedAtIso),
+      },
+      data: {
+        status: expectedStatus,
+        statusHistory,
+        updatedAt,
+      },
+    });
+
+    if (updateResult.count === 0) {
+      return 'conflict';
+    }
+
+    return {
+      id: currentTicket.id,
+      shipperId: currentTicket.shipperId,
+      channelName: currentTicket.channelName,
+      description: currentTicket.description,
+      status: expectedStatus,
       statusHistory,
       createdAtIso: currentTicket.createdAt.toISOString(),
       updatedAtIso: updatedAt.toISOString(),

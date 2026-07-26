@@ -4,6 +4,7 @@ import {
   AdminSupportTicketsController,
   SupportTicketsController,
 } from './support-tickets.controller';
+import type { SupportTicketOverdueEscalationService } from './support-ticket-overdue-escalation.service';
 import type { SupportTicketsService } from './support-tickets.service';
 
 describe('SupportTicketsController', () => {
@@ -148,7 +149,10 @@ describe('SupportTicketsController', () => {
         total: 21,
       }),
     } as unknown as SupportTicketsService;
-    const controller = new AdminSupportTicketsController(service);
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
 
     await expect(
       controller.listSupportTickets(createRequest('admin-1', 'admin'), {
@@ -214,7 +218,10 @@ describe('SupportTicketsController', () => {
         updatedAtIso: '2026-07-22T08:35:00.000Z',
       }),
     } as unknown as SupportTicketsService;
-    const controller = new AdminSupportTicketsController(service);
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
 
     await expect(
       controller.getSupportTicket(createRequest('admin-1', 'admin'), 'ticket-1'),
@@ -252,7 +259,10 @@ describe('SupportTicketsController', () => {
         updatedAtIso: '2026-07-22T08:35:00.000Z',
       }),
     } as unknown as SupportTicketsService;
-    const controller = new AdminSupportTicketsController(service);
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
     const body = {
       baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
       content: '已联系货主核实问题，转客服受理跟进。',
@@ -302,7 +312,10 @@ describe('SupportTicketsController', () => {
         updatedAtIso: '2026-07-22T08:40:00.000Z',
       }),
     } as unknown as SupportTicketsService;
-    const controller = new AdminSupportTicketsController(service);
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
     const body = {
       baseUpdatedAtIso: '2026-07-22T08:35:00.000Z',
       content: '问题已确认并处理完成，通知货主查看结果。',
@@ -336,7 +349,10 @@ describe('SupportTicketsController', () => {
     const service = {
       listSupportTicketsForAdmin: jest.fn(),
     } as unknown as SupportTicketsService;
-    const controller = new AdminSupportTicketsController(service);
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
 
     await expect(
       controller.listSupportTickets(createRequest('shipper-1'), {}),
@@ -344,6 +360,41 @@ describe('SupportTicketsController', () => {
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
     );
     expect(service.listSupportTicketsForAdmin).not.toHaveBeenCalled();
+  });
+
+  it('runs overdue escalation sweep for admin support tickets', async () => {
+    const overdueEscalationService = createOverdueEscalationService({
+      sweepOverdueTickets: jest.fn().mockResolvedValue({
+        trigger: 'admin',
+        triggeredAtIso: '2026-07-22T10:00:00.000Z',
+        scannedCount: 3,
+        overdueCount: 2,
+        escalatedCount: 2,
+        skippedCount: 0,
+        conflictCount: 0,
+        escalatedTicketIds: ['ticket-1', 'ticket-2'],
+      }),
+    });
+    const controller = new AdminSupportTicketsController(
+      {} as SupportTicketsService,
+      overdueEscalationService,
+    );
+
+    await expect(
+      controller.sweepOverdueSupportTickets(createRequest('admin-1', 'admin')),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        trigger: 'admin',
+        overdueCount: 2,
+        escalatedCount: 2,
+        escalatedTicketIds: ['ticket-1', 'ticket-2'],
+      },
+      requestId: 'req_support_tickets_test',
+    });
+    expect(overdueEscalationService.sweepOverdueTickets).toHaveBeenCalledWith(
+      'admin',
+    );
   });
 });
 
@@ -355,4 +406,15 @@ function createRequest(
     headers: { 'x-request-id': 'req_support_tickets_test' },
     currentUser: { id: userId, phone: '13900139001', userType },
   };
+}
+
+function createOverdueEscalationService(
+  overrides: Partial<
+    Pick<SupportTicketOverdueEscalationService, 'sweepOverdueTickets'>
+  > = {},
+): SupportTicketOverdueEscalationService {
+  return {
+    sweepOverdueTickets: jest.fn(),
+    ...overrides,
+  } as unknown as SupportTicketOverdueEscalationService;
 }

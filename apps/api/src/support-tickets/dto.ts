@@ -52,6 +52,21 @@ export type UpdateShipperSupportTicketRequest = {
   content: string;
 };
 
+export type SupportTicketOverdueEscalationSweepTrigger =
+  | 'admin'
+  | 'scheduler';
+
+export type SupportTicketOverdueEscalationSweepResult = {
+  trigger: SupportTicketOverdueEscalationSweepTrigger;
+  triggeredAtIso: string;
+  scannedCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  skippedCount: number;
+  conflictCount: number;
+  escalatedTicketIds: string[];
+};
+
 export type CreateShipperSupportTicketRecordInput =
   CreateShipperSupportTicketRequest & {
     status: ShipperSupportTicketStatus;

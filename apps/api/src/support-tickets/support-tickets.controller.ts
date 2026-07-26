@@ -22,6 +22,7 @@ import type {
   CreateShipperSupportTicketRequest,
   UpdateShipperSupportTicketRequest,
 } from './dto';
+import { SupportTicketOverdueEscalationService } from './support-ticket-overdue-escalation.service';
 import { SupportTicketsService } from './support-tickets.service';
 import {
   adminSupportTicketListQuerySchema,
@@ -69,7 +70,10 @@ export class SupportTicketsController {
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
 @ApiTags('客服工单 (Support Tickets)')
 export class AdminSupportTicketsController {
-  constructor(private readonly supportTicketsService: SupportTicketsService) {}
+  constructor(
+    private readonly supportTicketsService: SupportTicketsService,
+    private readonly overdueEscalationService: SupportTicketOverdueEscalationService,
+  ) {}
 
   @Get()
   async listSupportTickets(
@@ -82,6 +86,16 @@ export class AdminSupportTicketsController {
       await this.supportTicketsService.listSupportTicketsForAdmin(
         parseAdminSupportTicketListQuery(query),
       ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('overdue-escalations/sweep')
+  async sweepOverdueSupportTickets(@Req() request: AuthenticatedRequest) {
+    getCurrentUserId(request, 'admin');
+
+    return ok(
+      await this.overdueEscalationService.sweepOverdueTickets('admin'),
       getRequestId(request),
     );
   }
