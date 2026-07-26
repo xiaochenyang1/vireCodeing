@@ -40,12 +40,16 @@ describe('AdminConsoleOverviewService', () => {
           pendingCount: 3,
           processingCount: 2,
           openCount: 5,
+          claimedCount: 2,
+          unclaimedCount: 3,
           overdueCount: 2,
         },
         orderExceptions: {
           pendingCount: 4,
           processingCount: 2,
           openCount: 6,
+          claimedCount: 4,
+          unclaimedCount: 2,
           overdueCount: 1,
         },
         shipperCoupons: {
@@ -123,6 +127,16 @@ describe('AdminConsoleOverviewService', () => {
                 value: 1,
                 tone: 'warning',
               }),
+              expect.objectContaining({
+                label: '已认领',
+                value: 4,
+                tone: 'warning',
+              }),
+              expect.objectContaining({
+                label: '未认领',
+                value: 2,
+                tone: 'warning',
+              }),
             ]),
             pendingGaps: ['更完整的坐席分配 / 转派规则', '会话联动', '退款联动'],
           }),
@@ -159,6 +173,16 @@ describe('AdminConsoleOverviewService', () => {
               expect.objectContaining({
                 label: '已超时',
                 value: 2,
+                tone: 'warning',
+              }),
+              expect.objectContaining({
+                label: '已认领',
+                value: 2,
+                tone: 'warning',
+              }),
+              expect.objectContaining({
+                label: '未认领',
+                value: 3,
                 tone: 'warning',
               }),
             ]),

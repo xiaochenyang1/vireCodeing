@@ -314,6 +314,16 @@ function createModules(
           tone: queueTone(stats.supportTickets.processingCount),
         },
         {
+          label: '已认领',
+          value: stats.supportTickets.claimedCount,
+          tone: queueTone(stats.supportTickets.claimedCount),
+        },
+        {
+          label: '未认领',
+          value: stats.supportTickets.unclaimedCount,
+          tone: queueTone(stats.supportTickets.unclaimedCount),
+        },
+        {
           label: '已超时',
           value: stats.supportTickets.overdueCount,
           tone: queueTone(stats.supportTickets.overdueCount),
@@ -343,6 +353,16 @@ function createModules(
           label: '处理中',
           value: stats.orderExceptions.processingCount,
           tone: queueTone(stats.orderExceptions.processingCount),
+        },
+        {
+          label: '已认领',
+          value: stats.orderExceptions.claimedCount,
+          tone: queueTone(stats.orderExceptions.claimedCount),
+        },
+        {
+          label: '未认领',
+          value: stats.orderExceptions.unclaimedCount,
+          tone: queueTone(stats.orderExceptions.unclaimedCount),
         },
         {
           label: '已超时',

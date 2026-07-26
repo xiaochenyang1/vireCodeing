@@ -102,11 +102,114 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1)
       .mockResolvedValueOnce(3);
+    prisma.shipperSupportTicket.findMany.mockResolvedValue([
+      createSupportTicketRecord({
+        id: 'support-ticket-1',
+        status: 'pending',
+        statusHistory: [createSupportTicketClaimHistory('admin-1')],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-2',
+        status: 'pending',
+        statusHistory: [createSupportTicketClaimHistory('admin-2')],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-3',
+        status: 'pending',
+        statusHistory: [],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-4',
+        status: 'pending',
+        statusHistory: [
+          createSupportTicketClaimHistory('admin-3'),
+          createSupportTicketUnclaimHistory('admin-3'),
+        ],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-5',
+        status: 'pending',
+        statusHistory: [],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-6',
+        status: 'processing',
+        statusHistory: [createSupportTicketClaimHistory('admin-4')],
+      }),
+      createSupportTicketRecord({
+        id: 'support-ticket-7',
+        status: 'processing',
+        statusHistory: [],
+      }),
+    ]);
     prisma.orderExceptionCase.count
       .mockResolvedValueOnce(7)
       .mockResolvedValueOnce(4)
       .mockResolvedValueOnce(2)
       .mockResolvedValueOnce(1);
+    prisma.orderExceptionCase.findMany.mockResolvedValue([
+      createOrderExceptionCaseRecord({
+        id: 'case-1',
+        status: 'pending',
+        actions: [createOrderExceptionClaimAction('action-1', 'admin-1')],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-2',
+        status: 'pending',
+        actions: [createOrderExceptionClaimAction('action-2', 'admin-2')],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-3',
+        status: 'pending',
+        actions: [],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-4',
+        status: 'pending',
+        actions: [
+          createOrderExceptionClaimAction('action-4-1', 'admin-3'),
+          createOrderExceptionUnclaimAction('action-4-2', 'admin-3'),
+        ],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-5',
+        status: 'pending',
+        actions: [],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-6',
+        status: 'pending',
+        actions: [createOrderExceptionClaimAction('action-6', 'admin-4')],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-7',
+        status: 'pending',
+        actions: [],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-8',
+        status: 'processing',
+        actions: [createOrderExceptionClaimAction('action-8', 'admin-5')],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-9',
+        status: 'processing',
+        actions: [],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-10',
+        status: 'processing',
+        actions: [
+          createOrderExceptionClaimAction('action-10-1', 'admin-6'),
+          createOrderExceptionUnclaimAction('action-10-2', 'admin-6'),
+        ],
+      }),
+      createOrderExceptionCaseRecord({
+        id: 'case-11',
+        status: 'processing',
+        actions: [],
+      }),
+    ]);
     prisma.shipperCoupon.count
       .mockResolvedValueOnce(12)
       .mockResolvedValueOnce(3)
@@ -158,12 +261,16 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         pendingCount: 5,
         processingCount: 2,
         openCount: 7,
+        claimedCount: 3,
+        unclaimedCount: 4,
         overdueCount: 4,
       },
       orderExceptions: {
         pendingCount: 7,
         processingCount: 4,
         openCount: 11,
+        claimedCount: 4,
+        unclaimedCount: 7,
         overdueCount: 3,
       },
       shipperCoupons: {
@@ -317,6 +424,23 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         updatedAt: { lt: new Date('2026-07-17T03:20:00.000Z') },
       },
     });
+    expect(prisma.shipperSupportTicket.findMany).toHaveBeenCalledWith({
+      where: {
+        status: {
+          in: ['pending', 'processing'],
+        },
+      },
+      select: {
+        id: true,
+        shipperId: true,
+        channelName: true,
+        description: true,
+        status: true,
+        statusHistory: true,
+        createdAtIso: true,
+        updatedAtIso: true,
+      },
+    });
     expect(prisma.orderExceptionCase.count).toHaveBeenNthCalledWith(1, {
       where: { status: 'pending' },
     });
@@ -335,6 +459,42 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         updatedAt: { lt: new Date('2026-07-17T23:20:00.000Z') },
       },
     });
+    expect(prisma.orderExceptionCase.findMany).toHaveBeenCalledWith({
+      where: {
+        status: {
+          in: ['pending', 'processing'],
+        },
+      },
+      select: {
+        id: true,
+        caseNo: true,
+        orderId: true,
+        orderNo: true,
+        sourceEventId: true,
+        reporterUserId: true,
+        sourceRole: true,
+        typeLabel: true,
+        description: true,
+        attachmentFileIds: true,
+        status: true,
+        appealStatus: true,
+        createdAtIso: true,
+        updatedAtIso: true,
+        actions: {
+          orderBy: {
+            createdAtIso: 'asc',
+          },
+          select: {
+            id: true,
+            adminUserId: true,
+            fromStatus: true,
+            toStatus: true,
+            content: true,
+            createdAtIso: true,
+          },
+        },
+      },
+    });
   });
 });
 
@@ -347,13 +507,110 @@ function createPrismaClient() {
     order: { count: jest.fn() },
     orderCargo: { count: jest.fn() },
     fileObject: { count: jest.fn() },
-    shipperSupportTicket: { count: jest.fn() },
-    orderExceptionCase: { count: jest.fn() },
+    shipperSupportTicket: { count: jest.fn(), findMany: jest.fn() },
+    orderExceptionCase: { count: jest.fn(), findMany: jest.fn() },
     shipperCoupon: { count: jest.fn() },
     paymentOrder: { count: jest.fn() },
     refund: { count: jest.fn() },
     financialOutboxEvent: { count: jest.fn() },
     driverWithdrawal: { count: jest.fn() },
     settlement: { count: jest.fn() },
+  };
+}
+
+function createSupportTicketRecord(
+  overrides: Partial<{
+    id: string;
+    status: 'pending' | 'processing';
+    statusHistory: Array<{
+      actionText: string;
+      timestampIso: string;
+      operatorUserId?: string;
+      content?: string;
+    }>;
+  }> = {},
+) {
+  return {
+    id: overrides.id ?? 'support-ticket-1',
+    shipperId: 'shipper-1',
+    channelName: '投诉建议',
+    description: '司机沟通不及时，希望客服协助跟进',
+    status: overrides.status ?? 'pending',
+    statusHistory: overrides.statusHistory ?? [],
+    createdAtIso: '2026-07-18T02:30:00.000Z',
+    updatedAtIso: '2026-07-18T03:00:00.000Z',
+  };
+}
+
+function createSupportTicketClaimHistory(adminUserId: string) {
+  return {
+    actionText: '客服已认领',
+    timestampIso: '2026-07-18T02:45:00.000Z',
+    operatorUserId: adminUserId,
+    content: '当前客服已认领并接手跟进。',
+  };
+}
+
+function createSupportTicketUnclaimHistory(adminUserId: string) {
+  return {
+    actionText: '客服已释放认领',
+    timestampIso: '2026-07-18T02:50:00.000Z',
+    operatorUserId: adminUserId,
+    content: '当前客服已释放认领，工单回到未认领队列。',
+  };
+}
+
+function createOrderExceptionCaseRecord(
+  overrides: Partial<{
+    id: string;
+    status: 'pending' | 'processing';
+    actions: Array<{
+      id: string;
+      adminUserId: string;
+      fromStatus: 'pending' | 'processing';
+      toStatus: 'pending' | 'processing';
+      content: string;
+      createdAtIso: string;
+    }>;
+  }> = {},
+) {
+  return {
+    id: overrides.id ?? 'case-1',
+    caseNo: 'YC202607180001',
+    orderId: 'order-1',
+    orderNo: 'HY202607180001',
+    sourceEventId: 'event-1',
+    reporterUserId: 'shipper-1',
+    sourceRole: 'shipper' as const,
+    typeLabel: '货损',
+    description: '装货时发现货损',
+    attachmentFileIds: [],
+    status: overrides.status ?? 'pending',
+    appealStatus: 'none' as const,
+    createdAtIso: '2026-07-18T02:30:00.000Z',
+    updatedAtIso: '2026-07-18T03:00:00.000Z',
+    actions: overrides.actions ?? [],
+  };
+}
+
+function createOrderExceptionClaimAction(id: string, adminUserId: string) {
+  return {
+    id,
+    adminUserId,
+    fromStatus: 'pending' as const,
+    toStatus: 'pending' as const,
+    content: '客服认领：当前客服已认领并接手跟进。',
+    createdAtIso: '2026-07-18T02:45:00.000Z',
+  };
+}
+
+function createOrderExceptionUnclaimAction(id: string, adminUserId: string) {
+  return {
+    id,
+    adminUserId,
+    fromStatus: 'pending' as const,
+    toStatus: 'pending' as const,
+    content: '客服释放认领：当前客服已释放认领，工单回到未认领队列。',
+    createdAtIso: '2026-07-18T02:50:00.000Z',
   };
 }

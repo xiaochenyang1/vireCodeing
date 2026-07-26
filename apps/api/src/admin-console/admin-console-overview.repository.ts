@@ -1,4 +1,10 @@
 import { buildAdminAuthSessionRiskProfile } from '../auth/admin-auth-session-risk';
+import {
+  mapOrderExceptionCaseWithSla,
+} from '../order-exception-cases/order-exception-case-helpers';
+import type { OrderExceptionCaseRecord } from '../order-exception-cases/dto';
+import { mapSupportTicketWithSla } from '../support-tickets/support-ticket-helpers';
+import type { ShipperSupportTicketRecord } from '../support-tickets/dto';
 
 const SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS = 30 * 60 * 1000;
 const SUPPORT_TICKET_RESOLUTION_TARGET_MS = 24 * 60 * 60 * 1000;
@@ -39,12 +45,16 @@ export type AdminConsoleOverviewStats = {
     pendingCount: number;
     processingCount: number;
     openCount: number;
+    claimedCount: number;
+    unclaimedCount: number;
     overdueCount: number;
   };
   orderExceptions: {
     pendingCount: number;
     processingCount: number;
     openCount: number;
+    claimedCount: number;
+    unclaimedCount: number;
     overdueCount: number;
   };
   shipperCoupons: {
@@ -128,9 +138,62 @@ export type PrismaAdminConsoleOverviewClient = {
   };
   shipperSupportTicket: {
     count(args: unknown): Promise<number>;
+    findMany(args: {
+      where: {
+        status: {
+          in: ['pending', 'processing'];
+        };
+      };
+      select: {
+        id: true;
+        shipperId: true;
+        channelName: true;
+        description: true;
+        status: true;
+        statusHistory: true;
+        createdAtIso: true;
+        updatedAtIso: true;
+      };
+    }): Promise<ShipperSupportTicketRecord[]>;
   };
   orderExceptionCase: {
     count(args: unknown): Promise<number>;
+    findMany(args: {
+      where: {
+        status: {
+          in: ['pending', 'processing'];
+        };
+      };
+      select: {
+        id: true;
+        caseNo: true;
+        orderId: true;
+        orderNo: true;
+        sourceEventId: true;
+        reporterUserId: true;
+        sourceRole: true;
+        typeLabel: true;
+        description: true;
+        attachmentFileIds: true;
+        status: true;
+        appealStatus: true;
+        createdAtIso: true;
+        updatedAtIso: true;
+        actions: {
+          orderBy: {
+            createdAtIso: 'asc';
+          };
+          select: {
+            id: true;
+            adminUserId: true;
+            fromStatus: true;
+            toStatus: true;
+            content: true;
+            createdAtIso: true;
+          };
+        };
+      };
+    }): Promise<OrderExceptionCaseRecord[]>;
   };
   shipperCoupon: {
     count(args: unknown): Promise<number>;
@@ -208,10 +271,12 @@ export class PrismaAdminConsoleOverviewRepository
       processingSupportTicketCount,
       pendingSupportTicketOverdueCount,
       processingSupportTicketOverdueCount,
+      openSupportTickets,
       pendingCaseCount,
       processingCaseCount,
       pendingCaseOverdueCount,
       processingCaseOverdueCount,
+      openOrderExceptionCases,
       usableCouponCount,
       lockedCouponCount,
       expiredCouponCount,
@@ -350,6 +415,23 @@ export class PrismaAdminConsoleOverviewRepository
           updatedAt: { lt: supportTicketResolutionCutoff },
         },
       }),
+      this.prisma.shipperSupportTicket.findMany({
+        where: {
+          status: {
+            in: ['pending', 'processing'],
+          },
+        },
+        select: {
+          id: true,
+          shipperId: true,
+          channelName: true,
+          description: true,
+          status: true,
+          statusHistory: true,
+          createdAtIso: true,
+          updatedAtIso: true,
+        },
+      }),
       this.prisma.orderExceptionCase.count({
         where: { status: 'pending' },
       }),
@@ -366,6 +448,42 @@ export class PrismaAdminConsoleOverviewRepository
         where: {
           status: 'processing',
           updatedAt: { lt: orderExceptionResolutionCutoff },
+        },
+      }),
+      this.prisma.orderExceptionCase.findMany({
+        where: {
+          status: {
+            in: ['pending', 'processing'],
+          },
+        },
+        select: {
+          id: true,
+          caseNo: true,
+          orderId: true,
+          orderNo: true,
+          sourceEventId: true,
+          reporterUserId: true,
+          sourceRole: true,
+          typeLabel: true,
+          description: true,
+          attachmentFileIds: true,
+          status: true,
+          appealStatus: true,
+          createdAtIso: true,
+          updatedAtIso: true,
+          actions: {
+            orderBy: {
+              createdAtIso: 'asc',
+            },
+            select: {
+              id: true,
+              adminUserId: true,
+              fromStatus: true,
+              toStatus: true,
+              content: true,
+              createdAtIso: true,
+            },
+          },
         },
       }),
       this.prisma.shipperCoupon.count({
@@ -451,6 +569,14 @@ export class PrismaAdminConsoleOverviewRepository
         )
         .map(session => session.userId),
     ).size;
+    const claimedSupportTicketCount = countClaimedRecords(
+      openSupportTickets.map(ticket => mapSupportTicketWithSla(ticket, now)),
+    );
+    const claimedOrderExceptionCaseCount = countClaimedRecords(
+      openOrderExceptionCases.map(exceptionCase =>
+        mapOrderExceptionCaseWithSla(exceptionCase, now),
+      ),
+    );
 
     return {
       driverCertification: {
@@ -487,6 +613,11 @@ export class PrismaAdminConsoleOverviewRepository
         pendingCount: pendingSupportTicketCount,
         processingCount: processingSupportTicketCount,
         openCount: pendingSupportTicketCount + processingSupportTicketCount,
+        claimedCount: claimedSupportTicketCount,
+        unclaimedCount:
+          pendingSupportTicketCount +
+          processingSupportTicketCount -
+          claimedSupportTicketCount,
         overdueCount:
           pendingSupportTicketOverdueCount +
           processingSupportTicketOverdueCount,
@@ -495,6 +626,11 @@ export class PrismaAdminConsoleOverviewRepository
         pendingCount: pendingCaseCount,
         processingCount: processingCaseCount,
         openCount: pendingCaseCount + processingCaseCount,
+        claimedCount: claimedOrderExceptionCaseCount,
+        unclaimedCount:
+          pendingCaseCount +
+          processingCaseCount -
+          claimedOrderExceptionCaseCount,
         overdueCount: pendingCaseOverdueCount + processingCaseOverdueCount,
       },
       shipperCoupons: {
@@ -526,4 +662,12 @@ export class PrismaAdminConsoleOverviewRepository
         uploadExpiresInSeconds * 1000,
     );
   }
+}
+
+function countClaimedRecords(
+  records: Array<{ claimedByAdminUserId?: string }>,
+) {
+  return records.filter(
+    record => typeof record.claimedByAdminUserId === 'string',
+  ).length;
 }
