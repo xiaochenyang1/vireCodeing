@@ -1098,6 +1098,21 @@ describe('order management admin console page', () => {
     expect(html).toContain('loadOrderDetail(orderRouteState.orderId)');
     expect(html).toContain('loadSelectedOrderFinance(orderId);');
   });
+
+  it('persists the order report limit in route state', () => {
+    const html = renderOrderManagementAdminConsole();
+
+    expect(html).toContain("query.get('topShippersLimit')");
+    expect(html).toContain(
+      "document.getElementById('orderReportTopShippersLimitInput').value",
+    );
+    expect(html).toContain(
+      "query.set('topShippersLimit', String(topShippersLimit))",
+    );
+    expect(html).toContain(
+      'const query = buildOrderReportQuery();\n        syncOrderManagementRouteState();',
+    );
+  });
 });
 
 describe('order exception case admin console page', () => {

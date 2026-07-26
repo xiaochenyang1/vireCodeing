@@ -651,6 +651,7 @@ export function renderOrderManagementAdminConsole() {
         createdToIso: query.get('createdToIso') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
+        topShippersLimit: query.get('topShippersLimit') || '',
       };
     }
 
@@ -677,6 +678,14 @@ export function renderOrderManagementAdminConsole() {
           Math.max(1, Number.parseInt(routeState.pageSize, 10) || 20),
         );
       }
+      if (routeState.topShippersLimit) {
+        document.getElementById('orderReportTopShippersLimitInput').value = String(
+          Math.min(
+            20,
+            Math.max(1, Number.parseInt(routeState.topShippersLimit, 10) || 5),
+          ),
+        );
+      }
 
       state.selectedOrderId = routeState.orderId.trim();
       return routeState;
@@ -695,6 +704,10 @@ export function renderOrderManagementAdminConsole() {
         }
         if (paging.pageSize !== 20) {
           query.set('pageSize', String(paging.pageSize));
+        }
+        const topShippersLimit = readOrderReportTopShippersLimit();
+        if (topShippersLimit !== 5) {
+          query.set('topShippersLimit', String(topShippersLimit));
         }
         if (state.selectedOrderId) {
           query.set('orderId', state.selectedOrderId);
@@ -944,6 +957,7 @@ export function renderOrderManagementAdminConsole() {
       try {
         setNotice('');
         const query = buildOrderReportQuery();
+        syncOrderManagementRouteState();
         const response = await fetch(apiBase + '/admin/orders/report?' + query.toString(), {
           headers: authHeaders(),
         });
