@@ -1062,6 +1062,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('adminToken');
     expect(html).toContain('/admin/support-tickets');
     expect(html).toContain('/admin/support-tickets/overdue-escalations/sweep');
+    expect(html).toContain('/claim');
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
     expect(html).toContain('supportTicketStatusInput');
@@ -1069,6 +1070,11 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('supportTicketPageSizeInput');
     expect(html).toContain('supportTicketActionContent');
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
+    expect(html).toContain('claimSupportTicket');
+    expect(html).toContain('claimSupportTicketButton');
+    expect(html).toContain('认领到我');
+    expect(html).toContain('当前认领：');
+    expect(html).toContain('认领：');
     expect(html).toContain('sweepSupportTicketOverdueEscalations');
     expect(html).toContain('applySupportTicketRouteState');
     expect(html).toContain('/api/admin/order-exception-case-console');

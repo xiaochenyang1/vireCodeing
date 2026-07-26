@@ -73,7 +73,7 @@ const defaultModules = [
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
     summary:
-      '分页查看货主帮助中心工单、按 SLA 状态筛队列、查看 SLA 提醒和详情，并推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
+      '分页查看货主帮助中心工单、按 SLA 状态筛队列、查看 SLA 提醒和详情，并先认领 open 工单再推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
   },
   {
     key: 'order-exception-case',

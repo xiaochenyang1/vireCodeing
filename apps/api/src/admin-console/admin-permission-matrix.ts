@@ -326,13 +326,14 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '处理帮助中心工单',
     moduleKey: 'support-ticket',
     summary:
-      '读取帮助中心工单列表/详情、SLA 提醒，并能执行 process、resolve 状态流转与超时升级扫描。',
+      '读取帮助中心工单列表/详情、SLA 提醒，并能执行 claim、process、resolve 状态流转与超时升级扫描。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/support-tickets',
       '/admin/support-tickets/{ticketId}',
       '/admin/support-tickets/overdue-escalations/sweep',
+      '/admin/support-tickets/{ticketId}/claim',
       '/admin/support-tickets/{ticketId}/process',
       '/admin/support-tickets/{ticketId}/resolve',
     ],

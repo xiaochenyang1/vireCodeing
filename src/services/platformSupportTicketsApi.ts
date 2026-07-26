@@ -45,6 +45,9 @@ export type PlatformSupportTicket = {
   description: string;
   status: PlatformSupportTicketStatus;
   statusHistory: PlatformSupportTicketStatusHistoryItem[];
+  claimedByAdminUserId?: string;
+  claimedAtIso?: string;
+  claimNote?: string;
   sla?: PlatformSupportTicketSlaSnapshot;
   createdAtIso: string;
   updatedAtIso: string;
@@ -78,6 +81,11 @@ export type PlatformCreateSupportTicketRequest = {
 export type PlatformUpdateSupportTicketRequest = {
   baseUpdatedAtIso: string;
   content: string;
+};
+
+export type PlatformClaimSupportTicketRequest = {
+  baseUpdatedAtIso: string;
+  content?: string;
 };
 
 export type PlatformSupportTicketOverdueEscalationSweepTrigger =
@@ -147,6 +155,21 @@ export function createPlatformSupportTicketsApi(config: PlatformApiConfig) {
           normalizeSupportTicketId(ticketId),
         )}/process`,
         normalizeUpdateSupportTicketRequest(request),
+      );
+    },
+    async claimAdminSupportTicket(
+      ticketId: string,
+      request: PlatformClaimSupportTicketRequest,
+    ) {
+      return platformPost<
+        PlatformClaimSupportTicketRequest,
+        PlatformSupportTicket
+      >(
+        config,
+        `/admin/support-tickets/${encodeURIComponent(
+          normalizeSupportTicketId(ticketId),
+        )}/claim`,
+        normalizeClaimSupportTicketRequest(request),
       );
     },
     async resolveAdminSupportTicket(
@@ -276,6 +299,38 @@ function normalizeUpdateSupportTicketRequest(
       'Support ticket content is invalid',
       6,
     ),
+  };
+}
+
+function normalizeClaimSupportTicketRequest(
+  request: PlatformClaimSupportTicketRequest,
+): PlatformClaimSupportTicketRequest {
+  assertPlainObject(
+    request,
+    'Support ticket claim request must be an object',
+  );
+
+  const baseUpdatedAtIso = normalizeRequiredString(
+    request.baseUpdatedAtIso,
+    40,
+    'Support ticket baseUpdatedAtIso is invalid',
+  );
+
+  if (Number.isNaN(Date.parse(baseUpdatedAtIso))) {
+    throwInvalidSupportTicketRequest(
+      'Support ticket baseUpdatedAtIso is invalid',
+    );
+  }
+
+  const content = normalizeOptionalString(
+    request.content,
+    200,
+    'Support ticket claim content is invalid',
+  );
+
+  return {
+    baseUpdatedAtIso,
+    ...(content ? { content } : {}),
   };
 }
 

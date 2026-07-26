@@ -149,7 +149,7 @@ describe('AdminConsoleOverviewService', () => {
             key: 'support-ticket',
             route: '/api/admin/support-ticket-console',
             summary:
-              '帮助中心工单后台列表、详情、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒和按 SLA 状态筛选已经能跑，也支持手动/定时超时升级扫描并向货主回流超时升级消息；坐席分配和在线会话还没补上。',
+              '帮助中心工单后台列表、详情、认领、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒和按 SLA 状态筛选已经能跑，也支持手动/定时超时升级扫描并向货主回流超时升级消息；更完整的坐席分配和在线会话还没补上。',
             metrics: expect.arrayContaining([
               expect.objectContaining({
                 label: '待处理工单',
@@ -162,7 +162,7 @@ describe('AdminConsoleOverviewService', () => {
                 tone: 'warning',
               }),
             ]),
-            pendingGaps: ['坐席分配', '在线客服会话'],
+            pendingGaps: ['更完整的坐席分配 / 转派规则', '在线客服会话'],
           }),
           expect.objectContaining({
             key: 'session-governance',

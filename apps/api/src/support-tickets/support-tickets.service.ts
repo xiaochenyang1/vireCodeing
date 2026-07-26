@@ -4,6 +4,7 @@ import type {
   AdminSupportTicketListRecord,
   AdminSupportTicketListQuery,
   AdminSupportTicketMatchQuery,
+  ClaimSupportTicketRequest,
   CreateShipperSupportTicketRequest,
   ShipperSupportTicketRecord,
   UpdateShipperSupportTicketRequest,
@@ -11,6 +12,7 @@ import type {
   ShipperSupportTicketStatus,
 } from './dto';
 import {
+  createSupportTicketClaimHistoryItem,
   createSupportTicketUpdatedAtIso,
   mapSupportTicketWithSla,
 } from './support-ticket-helpers';
@@ -125,6 +127,63 @@ export class SupportTicketsService {
       '客服已处理',
       input,
     );
+  }
+
+  async claimSupportTicket(
+    adminUserId: string,
+    ticketId: string,
+    input: ClaimSupportTicketRequest,
+  ) {
+    const ticket = await this.repository.findSupportTicketById(ticketId);
+
+    if (!ticket) {
+      throw notFoundError();
+    }
+
+    if (ticket.status !== 'pending' && ticket.status !== 'processing') {
+      throw new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单状态不允许执行该操作',
+      );
+    }
+
+    const updatedAtIso = createSupportTicketUpdatedAtIso(
+      input.baseUpdatedAtIso,
+      this.now().toISOString(),
+    );
+    const result = await this.repository.appendSupportTicketHistoryItem(
+      ticketId,
+      ticket.status,
+      {
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        updatedAtIso,
+        historyItem: createSupportTicketClaimHistoryItem(
+          adminUserId,
+          updatedAtIso,
+          input.content,
+        ),
+      },
+    );
+
+    if (result === 'not-found') {
+      throw notFoundError();
+    }
+
+    if (result === 'state-invalid') {
+      throw new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单状态不允许执行该操作',
+      );
+    }
+
+    if (result === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_CONFLICT,
+        '帮助中心工单已被其他管理员更新，请刷新后重试',
+      );
+    }
+
+    return mapSupportTicketWithSla(result, this.now());
   }
 
   private async transitionSupportTicket(

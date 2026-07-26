@@ -291,6 +291,171 @@ describe('SupportTicketsService', () => {
     );
   });
 
+  it('claims an open support ticket and surfaces the latest claim snapshot', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const notificationsService = createNotificationsServiceMock();
+    const service = new SupportTicketsService(
+      repository,
+      () => currentTime,
+      notificationsService as unknown as NotificationsService,
+    );
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    await expect(
+      service.claimSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '夜班客服先认领跟进。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      claimedByAdminUserId: 'admin-2',
+      claimedAtIso: '2026-07-22T08:36:00.000Z',
+      claimNote: '夜班客服先认领跟进。',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已认领',
+          operatorUserId: 'admin-2',
+          content: '夜班客服先认领跟进。',
+        }),
+      ]),
+      updatedAtIso: '2026-07-22T08:36:00.000Z',
+    });
+
+    await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
+      id: created.id,
+      claimedByAdminUserId: 'admin-2',
+      claimNote: '夜班客服先认领跟进。',
+    });
+    expect(notificationsService.notifySupportTicketEvent).not.toHaveBeenCalled();
+  });
+
+  it('rejects claiming a resolved support ticket', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    currentTime = new Date('2026-07-22T08:35:00.000Z');
+    const processing = await service.processSupportTicket(
+      'admin-1',
+      created.id,
+      {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '已联系货主核实问题，转客服受理跟进。',
+      },
+    );
+
+    currentTime = new Date('2026-07-22T08:40:00.000Z');
+    const resolved = await service.resolveSupportTicket(
+      'admin-1',
+      created.id,
+      {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '问题已确认并处理完成，通知货主查看结果。',
+      },
+    );
+
+    await expect(
+      service.claimSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: resolved.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单状态不允许执行该操作',
+      ),
+    );
+  });
+
+  it('does not reset the resolution SLA anchor when a processing ticket is claimed', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '咨询订单签收问题',
+    });
+
+    currentTime = new Date('2026-07-22T08:35:00.000Z');
+    const processing = await service.processSupportTicket(
+      'admin-1',
+      created.id,
+      {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '已联系货主核实问题，转客服受理跟进。',
+      },
+    );
+
+    currentTime = new Date('2026-07-22T09:00:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '夜班客服接手继续跟进。',
+    });
+
+    expect(claimed).toMatchObject({
+      id: created.id,
+      status: 'processing',
+      claimedByAdminUserId: 'admin-2',
+      claimNote: '夜班客服接手继续跟进。',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'within_target',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        remainingMinutes: 1415,
+      },
+    });
+
+    currentTime = new Date('2026-07-23T08:40:00.000Z');
+    await expect(
+      service.resolveSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '问题已确认并处理完成，通知货主查看结果。',
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      claimedByAdminUserId: 'admin-2',
+      claimNote: '夜班客服接手继续跟进。',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'resolved_overdue',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        overdueMinutes: 5,
+      },
+    });
+  });
+
   it('keeps support ticket transitions successful when notification delivery fails', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({

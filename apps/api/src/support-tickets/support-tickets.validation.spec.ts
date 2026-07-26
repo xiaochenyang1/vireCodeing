@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import {
   parseAdminSupportTicketListQuery,
+  parseClaimSupportTicketRequest,
   parseCreateShipperSupportTicketRequest,
   parseSupportTicketId,
   parseUpdateShipperSupportTicketRequest,
@@ -89,6 +90,27 @@ describe('support tickets validation', () => {
       parseUpdateShipperSupportTicketRequest({
         baseUpdatedAtIso: 'bad-date',
         content: '太短',
+      }),
+    ).toThrow('工单版本时间不合法');
+  });
+
+  it('normalizes a support ticket claim request and allows an empty optional note', () => {
+    expect(
+      parseClaimSupportTicketRequest({
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        content: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+      content: undefined,
+    });
+  });
+
+  it('rejects an invalid support ticket claim request', () => {
+    expect(() =>
+      parseClaimSupportTicketRequest({
+        baseUpdatedAtIso: 'bad-date',
+        content: '问'.repeat(201),
       }),
     ).toThrow('工单版本时间不合法');
   });

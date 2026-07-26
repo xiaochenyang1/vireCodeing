@@ -49,7 +49,7 @@ export function renderSupportTicketAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
-      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配和在线会话还没补上。</p>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，支持按 SLA 状态筛队列，并可先把 open 工单认领到当前客服名下；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，更完整的坐席分配和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -75,7 +75,7 @@ export function renderSupportTicketAdminConsole() {
     <section class="panel">
       <h2>工单详情</h2>
       <div id="supportTicketDetail" class="muted">请选择工单</div>
-      <label>处理说明<textarea id="supportTicketActionContent" placeholder="请输入 6-500 字处理说明"></textarea></label>
+      <label>处理说明 / 认领备注<textarea id="supportTicketActionContent" placeholder="处理动作请输入 6-500 字；认领备注可留空或填写最多 200 字"></textarea></label>
       <input id="supportTicketBaseUpdatedAtIso" type="hidden" />
       <div id="supportTicketActions"></div>
       <div id="supportTicketMutationNotice" class="error"></div>
@@ -86,6 +86,7 @@ export function renderSupportTicketAdminConsole() {
     let currentPage = 1;
     let total = 0;
     let selectedTicketId = '';
+    let selectedTicketStatus = '';
     let mutationPending = false;
     let supportTicketSweepPending = false;
     let latestSupportTicketRequestId = 0;
@@ -168,6 +169,7 @@ export function renderSupportTicketAdminConsole() {
 
     function clearSupportTicketSelection() {
       selectedTicketId = '';
+      selectedTicketStatus = '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = '';
       document.getElementById('supportTicketActions').innerHTML = '';
       document.getElementById('supportTicketDetail').textContent = '请选择工单';
@@ -260,12 +262,21 @@ export function renderSupportTicketAdminConsole() {
       return operatorUserId || '-';
     }
 
+    function formatSupportTicketClaim(ticket) {
+      if (!ticket || !ticket.claimedByAdminUserId) {
+        return '未认领';
+      }
+      return ticket.claimedByAdminUserId + (ticket.claimedAtIso ? ' · ' + ticket.claimedAtIso : '');
+    }
+
     function renderSupportTicketActions(ticket) {
       const actions = [];
       if (ticket.status === 'pending') {
+        actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
         actions.push('<button id="processSupportTicketButton" onclick="mutateSupportTicket(\\'process\\')"' + (mutationPending ? ' disabled' : '') + '>客服受理</button>');
       }
       if (ticket.status === 'processing') {
+        actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
         actions.push('<button id="resolveSupportTicketButton" onclick="mutateSupportTicket(\\'resolve\\')"' + (mutationPending ? ' disabled' : '') + '>处理完成</button>');
       }
       if (actions.length === 0) {
@@ -290,6 +301,7 @@ export function renderSupportTicketAdminConsole() {
 
     function renderSupportTicketDetail(ticket) {
       selectedTicketId = ticket.id;
+      selectedTicketStatus = ticket.status || '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = ticket.updatedAtIso || '';
       document.getElementById('supportTicketDetail').innerHTML = [
         '<div><span class="badge ' + escapeHtml(formatSupportTicketStatusClass(ticket.status)) + '">' + escapeHtml(formatSupportTicketStatus(ticket.status)) + '</span></div>',
@@ -299,6 +311,8 @@ export function renderSupportTicketAdminConsole() {
         '<p>问题说明：' + escapeHtml(ticket.description) + '</p>',
         '<p>创建时间：' + escapeHtml(ticket.createdAtIso) + '</p>',
         '<p>更新时间：' + escapeHtml(ticket.updatedAtIso) + '</p>',
+        '<p>当前认领：' + escapeHtml(formatSupportTicketClaim(ticket)) + '</p>',
+        (ticket.claimNote ? '<p>认领备注：' + escapeHtml(ticket.claimNote) + '</p>' : ''),
         '<h3>SLA</h3>',
         renderSupportTicketSla(ticket),
         '<h3>处理记录</h3>',
@@ -326,6 +340,7 @@ export function renderSupportTicketAdminConsole() {
             '<span class="badge ' + escapeHtml(formatSupportTicketStatusClass(ticket.status)) + '">' + escapeHtml(formatSupportTicketStatus(ticket.status)) + '</span>' +
           '</div>' +
           '<div class="muted" style="margin-top:6px;">' + escapeHtml(ticket.description) + '</div>' +
+          '<div class="muted" style="margin-top:6px;">认领：' + escapeHtml(formatSupportTicketClaim(ticket)) + '</div>' +
           '<div class="muted" style="margin-top:6px;">SLA：' + escapeHtml(formatSupportTicketSlaMeta(ticket.sla)) + '</div>' +
           '<div class="muted" style="margin-top:6px;">更新时间：' + escapeHtml(ticket.updatedAtIso || ticket.createdAtIso || '-') + '</div>' +
         '</div>';
@@ -449,7 +464,7 @@ export function renderSupportTicketAdminConsole() {
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
         id: selectedTicketId,
-        status: action === 'process' ? 'pending' : 'processing',
+        status: selectedTicketStatus,
       });
 
       const path = action === 'process' ? '/process' : '/resolve';
@@ -472,6 +487,56 @@ export function renderSupportTicketAdminConsole() {
       } catch (error) {
         document.getElementById('supportTicketMutationNotice').textContent =
           error.message || '更新工单失败';
+        if (selectedTicketId) {
+          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        }
+      } finally {
+        mutationPending = false;
+      }
+    }
+
+    async function claimSupportTicket() {
+      if (!selectedTicketId) {
+        document.getElementById('supportTicketMutationNotice').textContent = '请选择工单';
+        return;
+      }
+      if (mutationPending) {
+        return;
+      }
+      const content = document.getElementById('supportTicketActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('supportTicketMutationNotice').textContent = '认领备注最多 200 字';
+        return;
+      }
+      const baseUpdatedAtIso = document.getElementById('supportTicketBaseUpdatedAtIso').value;
+      if (!baseUpdatedAtIso) {
+        document.getElementById('supportTicketMutationNotice').textContent = '当前工单缺少版本时间，请刷新后重试';
+        return;
+      }
+
+      mutationPending = true;
+      document.getElementById('supportTicketMutationNotice').textContent = '';
+      document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
+        id: selectedTicketId,
+        status: selectedTicketStatus,
+      });
+
+      try {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/claim', {
+          method: 'POST',
+          body: JSON.stringify({
+            baseUpdatedAtIso,
+            ...(content ? { content } : {}),
+          }),
+        });
+        renderSupportTicketDetail(ticket);
+        document.getElementById('supportTicketMutationNotice').textContent =
+          '工单已认领，当前客服可继续跟进。';
+        document.getElementById('supportTicketActionContent').value = '';
+        loadSupportTickets(currentPage);
+      } catch (error) {
+        document.getElementById('supportTicketMutationNotice').textContent =
+          error.message || '认领工单失败';
         if (selectedTicketId) {
           loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
         }

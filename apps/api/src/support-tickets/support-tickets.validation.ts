@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   AdminSupportTicketListQuery,
+  ClaimSupportTicketRequest,
   CreateShipperSupportTicketRequest,
   UpdateShipperSupportTicketRequest,
 } from './dto';
@@ -43,6 +44,17 @@ export const updateShipperSupportTicketSchema = z.object({
     .max(500, '处理说明最多 500 字'),
 });
 
+export const claimSupportTicketSchema = z.object({
+  baseUpdatedAtIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '工单版本时间不合法'),
+  content: optionalTrimmedString.refine(
+    value => value === undefined || value.length <= 200,
+    '认领备注最多 200 字',
+  ),
+});
+
 const supportTicketIdSchema = z
   .string()
   .trim()
@@ -65,6 +77,12 @@ export function parseUpdateShipperSupportTicketRequest(
   input: unknown,
 ): UpdateShipperSupportTicketRequest {
   return updateShipperSupportTicketSchema.parse(input);
+}
+
+export function parseClaimSupportTicketRequest(
+  input: unknown,
+): ClaimSupportTicketRequest {
+  return claimSupportTicketSchema.parse(input);
 }
 
 export function parseSupportTicketId(input: unknown) {

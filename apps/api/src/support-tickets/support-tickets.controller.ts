@@ -19,6 +19,7 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ApiTags } from '@nestjs/swagger';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import type {
+  ClaimSupportTicketRequest,
   CreateShipperSupportTicketRequest,
   UpdateShipperSupportTicketRequest,
 } from './dto';
@@ -26,8 +27,10 @@ import { SupportTicketOverdueEscalationService } from './support-ticket-overdue-
 import { SupportTicketsService } from './support-tickets.service';
 import {
   adminSupportTicketListQuerySchema,
+  claimSupportTicketSchema,
   createShipperSupportTicketSchema,
   parseAdminSupportTicketListQuery,
+  parseClaimSupportTicketRequest,
   parseCreateShipperSupportTicketRequest,
   parseSupportTicketId,
   parseUpdateShipperSupportTicketRequest,
@@ -127,6 +130,23 @@ export class AdminSupportTicketsController {
         getCurrentUserId(request, 'admin'),
         parseSupportTicketId(ticketId),
         parseUpdateShipperSupportTicketRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Post(':ticketId/claim')
+  async claimSupportTicket(
+    @Req() request: AuthenticatedRequest,
+    @Param('ticketId') ticketId: string,
+    @Body(new ZodValidationPipe(claimSupportTicketSchema))
+    body: ClaimSupportTicketRequest,
+  ) {
+    return ok(
+      await this.supportTicketsService.claimSupportTicket(
+        getCurrentUserId(request, 'admin'),
+        parseSupportTicketId(ticketId),
+        parseClaimSupportTicketRequest(body),
       ),
       getRequestId(request),
     );

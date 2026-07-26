@@ -52,6 +52,11 @@ export type UpdateShipperSupportTicketRequest = {
   content: string;
 };
 
+export type ClaimSupportTicketRequest = {
+  baseUpdatedAtIso: string;
+  content?: string;
+};
+
 export type SupportTicketOverdueEscalationSweepTrigger =
   | 'admin'
   | 'scheduler';
@@ -86,6 +91,9 @@ export type ShipperSupportTicketRecord = CreateShipperSupportTicketRequest & {
   shipperId: string;
   status: ShipperSupportTicketStatus;
   statusHistory: ShipperSupportTicketStatusHistoryItem[];
+  claimedByAdminUserId?: string;
+  claimedAtIso?: string;
+  claimNote?: string;
   sla?: ShipperSupportTicketSlaSnapshot;
   createdAtIso: string;
   updatedAtIso: string;

@@ -2106,7 +2106,7 @@ paths:
   /shipper/support-tickets:
     get:
       summary: List current shipper support tickets
-      description: Lists the current shipper's support tickets ordered by latest updatedAt first. Each ticket now includes a derived first-response or resolution SLA snapshot. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow and trigger overdue escalation sweeps. This first slice still does not include seat assignment, online chat or a complete customer-service handling audit trail.
+      description: Lists the current shipper's support tickets ordered by latest updatedAt first. Each ticket now includes a derived first-response or resolution SLA snapshot. Shippers can create and track their own support tickets here, while administrators can claim/process/resolve them through the dedicated admin workflow and trigger overdue escalation sweeps. This first slice still does not include cross-seat assignment, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2128,7 +2128,7 @@ paths:
           $ref: '#/components/responses/ShipperOnlyError'
     post:
       summary: Create current shipper support ticket
-      description: Creates a new pending support ticket for the current shipper and returns the initial first-response SLA snapshot. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include seat assignment, online chat or a complete customer-service handling audit trail.
+      description: Creates a new pending support ticket for the current shipper and returns the initial first-response SLA snapshot. Administrators handle later claim/process/resolve actions through the admin support-ticket workflow. This first slice still does not include cross-seat assignment, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2242,6 +2242,42 @@ paths:
       responses:
         '200':
           description: Support ticket moved to processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: SUPPORT_TICKET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/support-tickets/{ticketId}/claim:
+    post:
+      summary: Claim an open help-center support ticket
+      description: Appends a same-status claim history item so the current administrator can explicitly take over a pending or processing help-center support ticket. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim history item.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: ticketId, in: path, required: true, schema: { type: string } }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimSupportTicketRequest'
+      responses:
+        '200':
+          description: Support ticket claimed
           content:
             application/json:
               schema:
@@ -12623,7 +12659,7 @@ components:
           example: admin-1
         content:
           type: string
-          minLength: 6
+          minLength: 1
           maxLength: 500
           example: 已联系货主核实问题，转客服受理跟进。
     CreateShipperSupportTicketRequest:
@@ -12653,6 +12689,19 @@ components:
           minLength: 6
           maxLength: 500
           example: 已联系货主核实问题，转客服受理跟进。
+    ClaimSupportTicketRequest:
+      type: object
+      required: [baseUpdatedAtIso]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T08:30:00.000Z'
+        content:
+          type: string
+          maxLength: 200
+          description: Optional claim note shown in admin history and the derived claim snapshot.
+          example: 夜班客服先认领跟进。
     ShipperSupportTicket:
       allOf:
         - $ref: '#/components/schemas/CreateShipperSupportTicketRequest'
@@ -12671,6 +12720,17 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/ShipperSupportTicketStatusHistoryItem'
+            claimedByAdminUserId:
+              type: string
+              description: Latest administrator who explicitly claimed the open help-center support ticket in the current lightweight seat-claim slice.
+            claimedAtIso:
+              type: string
+              format: date-time
+              example: '2026-07-22T08:36:00.000Z'
+            claimNote:
+              type: string
+              maxLength: 200
+              description: Latest optional claim note left by the claiming administrator.
             sla:
               $ref: '#/components/schemas/ShipperSupportTicketSla'
             createdAtIso:

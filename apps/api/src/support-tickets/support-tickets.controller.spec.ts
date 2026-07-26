@@ -292,6 +292,63 @@ describe('SupportTicketsController', () => {
     );
   });
 
+  it('claims an admin support ticket', async () => {
+    const service = {
+      claimSupportTicket: jest.fn().mockResolvedValue({
+        id: 'ticket-1',
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        description: '司机沟通不及时，希望客服协助跟进',
+        status: 'processing',
+        claimedByAdminUserId: 'admin-1',
+        claimedAtIso: '2026-07-22T08:36:00.000Z',
+        claimNote: '当前客服接手跟进。',
+        statusHistory: [],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1439,
+        },
+        createdAtIso: '2026-07-22T08:30:00.000Z',
+        updatedAtIso: '2026-07-22T08:36:00.000Z',
+      }),
+    } as unknown as SupportTicketsService;
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
+    const body = {
+      baseUpdatedAtIso: '2026-07-22T08:35:00.000Z',
+      content: ' 当前客服接手跟进。 ',
+    };
+
+    await expect(
+      controller.claimSupportTicket(
+        createRequest('admin-1', 'admin'),
+        'ticket-1',
+        body,
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'ticket-1',
+        claimedByAdminUserId: 'admin-1',
+        claimNote: '当前客服接手跟进。',
+      },
+      requestId: 'req_support_tickets_test',
+    });
+    expect(service.claimSupportTicket).toHaveBeenCalledWith(
+      'admin-1',
+      'ticket-1',
+      {
+        baseUpdatedAtIso: '2026-07-22T08:35:00.000Z',
+        content: '当前客服接手跟进。',
+      },
+    );
+  });
+
   it('resolves an admin support ticket', async () => {
     const service = {
       resolveSupportTicket: jest.fn().mockResolvedValue({
