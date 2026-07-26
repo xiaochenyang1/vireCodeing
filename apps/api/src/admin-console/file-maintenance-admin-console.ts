@@ -434,6 +434,74 @@ export function renderFileMaintenanceAdminConsole() {
       return normalizedValue;
     }
 
+    function readFileMaintenanceRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        status: query.get('status') || '',
+        purpose: query.get('purpose') || '',
+        ownerUserId: query.get('ownerUserId') || '',
+        keyword: query.get('keyword') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
+        topOwnersLimit: query.get('topOwnersLimit') || '',
+      };
+    }
+
+    function applyFileMaintenanceRouteState() {
+      const routeState = readFileMaintenanceRouteState();
+      document.getElementById('maintenanceStatusInput').value = routeState.status;
+      document.getElementById('maintenancePurposeInput').value = routeState.purpose;
+      document.getElementById('maintenanceOwnerUserIdInput').value = routeState.ownerUserId;
+      document.getElementById('maintenanceKeywordInput').value = routeState.keyword;
+      if (routeState.page) {
+        document.getElementById('maintenancePageInput').value = String(
+          Math.max(1, Number.parseInt(routeState.page, 10) || 1),
+        );
+      }
+      if (routeState.pageSize) {
+        const pageSize = Number.parseInt(routeState.pageSize, 10) || 20;
+        document.getElementById('maintenancePageSizeInput').value = String(
+          [10, 20, 50].indexOf(pageSize) >= 0 ? pageSize : 20,
+        );
+      }
+      if (routeState.topOwnersLimit) {
+        document.getElementById('maintenanceTopOwnersLimitInput').value = String(
+          Math.min(20, Math.max(1, Number.parseInt(routeState.topOwnersLimit, 10) || 5)),
+        );
+      }
+      return routeState;
+    }
+
+    function syncFileMaintenanceRouteState(pageOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const status = document.getElementById('maintenanceStatusInput').value;
+      const purpose = document.getElementById('maintenancePurposeInput').value;
+      const ownerUserId = document.getElementById('maintenanceOwnerUserIdInput').value.trim();
+      const keyword = document.getElementById('maintenanceKeywordInput').value.trim();
+      const paging = readMaintenancePaging(pageOverride);
+      const topOwnersLimit = readMaintenanceTopOwnersLimit();
+
+      if (status) query.set('status', status);
+      if (purpose) query.set('purpose', purpose);
+      if (ownerUserId) query.set('ownerUserId', ownerUserId);
+      if (keyword) query.set('keyword', keyword);
+      if (paging.page > 1) query.set('page', String(paging.page));
+      if (paging.pageSize !== 20) query.set('pageSize', String(paging.pageSize));
+      if (topOwnersLimit !== 5) query.set('topOwnersLimit', String(topOwnersLimit));
+
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     function renderMaintenanceReport(report) {
       const purposeBreakdown = Array.isArray(report.purposeBreakdown)
         ? report.purposeBreakdown
@@ -616,6 +684,7 @@ export function renderFileMaintenanceAdminConsole() {
       const requestId = ++latestReportRequestId;
       setNotice('');
       try {
+        syncFileMaintenanceRouteState();
         const query = new URLSearchParams();
         query.set('topOwnersLimit', String(readMaintenanceTopOwnersLimit()));
         const report = await api('/files/maintenance/report?' + query.toString());
@@ -637,6 +706,7 @@ export function renderFileMaintenanceAdminConsole() {
         const ownerUserId = document.getElementById('maintenanceOwnerUserIdInput').value.trim();
         const keyword = document.getElementById('maintenanceKeywordInput').value.trim();
         const { page, pageSize } = readMaintenancePaging(pageOverride);
+        syncFileMaintenanceRouteState(page);
         const query = new URLSearchParams();
         query.set('page', String(page));
         query.set('pageSize', String(pageSize));
@@ -648,6 +718,7 @@ export function renderFileMaintenanceAdminConsole() {
         if (requestId !== latestFilesRequestId) return;
         renderMaintenanceFiles(result.items);
         renderMaintenanceFilePagination(result);
+        syncFileMaintenanceRouteState(Number(result.page || page));
       } catch (error) {
         if (requestId !== latestFilesRequestId) return;
         resetMaintenanceFiles('文件记录拉取失败。');
@@ -746,11 +817,17 @@ export function renderFileMaintenanceAdminConsole() {
     }
 
     updateMaintenanceSelectionStatus();
+    applyFileMaintenanceRouteState();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadFileMaintenanceSummary();
       loadMaintenanceReport();
-      loadMaintenanceFiles();
+      loadMaintenanceFiles(
+        Math.max(
+          1,
+          Number.parseInt(document.getElementById('maintenancePageInput').value, 10) || 1,
+        ),
+      );
     }
   </script>
 </body>

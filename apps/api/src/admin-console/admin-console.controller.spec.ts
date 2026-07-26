@@ -654,6 +654,20 @@ describe('file maintenance admin console page', () => {
     expect(html).toContain('class="console-shell"');
     expect(html).not.toContain('hero');
   });
+
+  it('syncs maintenance filters, pagination and report limits into route state', () => {
+    const html = renderFileMaintenanceAdminConsole();
+
+    expect(html).toContain('applyFileMaintenanceRouteState');
+    expect(html).toContain('syncFileMaintenanceRouteState');
+    expect(html).toContain("query.get('ownerUserId')");
+    expect(html).toContain("query.get('topOwnersLimit')");
+    expect(html).toContain("query.set('page', String(paging.page))");
+    expect(html).toContain("query.set('pageSize', String(paging.pageSize))");
+    expect(html).toContain("query.set('topOwnersLimit', String(topOwnersLimit))");
+    expect(html).toContain('loadMaintenanceFiles(');
+    expect(html).toContain('history.replaceState');
+  });
 });
 
 describe('order management admin console page', () => {
