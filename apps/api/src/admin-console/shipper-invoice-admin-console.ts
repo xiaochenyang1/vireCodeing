@@ -379,13 +379,14 @@ export function renderShipperInvoiceAdminConsole() {
     }
 
     async function loadQueue() {
+      const requestId = ++latestQueueRequestId;
+      latestReviewEventsRequestId += 1;
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
         resetReviewEvents('请先填写 admin token。');
         setDownloadState('请先填写 admin token。', true);
         return;
       }
-      const requestId = ++latestQueueRequestId;
       setText('queueStatus', '加载中...');
       syncShipperInvoiceRouteState(selectedApplicationId);
       try {
