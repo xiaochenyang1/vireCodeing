@@ -117,6 +117,12 @@ export type ClaimOrderExceptionCaseRequest = {
   content?: string;
 };
 
+export type AssignOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  targetAdminUserId: string;
+  content?: string;
+};
+
 export type OrderExceptionCaseOverdueEscalationSweepTrigger =
   | 'admin'
   | 'scheduler';

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   AdminSupportTicketListQuery,
+  AssignSupportTicketRequest,
   ClaimSupportTicketRequest,
   CreateShipperSupportTicketRequest,
   UpdateShipperSupportTicketRequest,
@@ -59,6 +60,22 @@ export const claimSupportTicketSchema = z.object({
   ),
 });
 
+export const assignSupportTicketSchema = z.object({
+  baseUpdatedAtIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '工单版本时间不合法'),
+  targetAdminUserId: z
+    .string()
+    .trim()
+    .min(1, '目标客服 ID 不能为空')
+    .max(120, '目标客服 ID 最多 120 字'),
+  content: optionalTrimmedString.refine(
+    value => value === undefined || value.length <= 200,
+    '指派备注最多 200 字',
+  ),
+});
+
 const supportTicketIdSchema = z
   .string()
   .trim()
@@ -87,6 +104,12 @@ export function parseClaimSupportTicketRequest(
   input: unknown,
 ): ClaimSupportTicketRequest {
   return claimSupportTicketSchema.parse(input);
+}
+
+export function parseAssignSupportTicketRequest(
+  input: unknown,
+): AssignSupportTicketRequest {
+  return assignSupportTicketSchema.parse(input);
 }
 
 export function parseSupportTicketId(input: unknown) {

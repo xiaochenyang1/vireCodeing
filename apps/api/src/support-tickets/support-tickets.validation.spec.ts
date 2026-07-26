@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import {
   parseAdminSupportTicketListQuery,
+  parseAssignSupportTicketRequest,
   parseClaimSupportTicketRequest,
   parseCreateShipperSupportTicketRequest,
   parseSupportTicketId,
@@ -125,6 +126,53 @@ describe('support tickets validation', () => {
         content: '问'.repeat(201),
       }),
     ).toThrow('工单版本时间不合法');
+  });
+
+  it('normalizes a support ticket assign request', () => {
+    expect(
+      parseAssignSupportTicketRequest({
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        targetAdminUserId: ' admin-2 ',
+        content: '  白班客服继续跟进。  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+      targetAdminUserId: 'admin-2',
+      content: '白班客服继续跟进。',
+    });
+    expect(
+      parseAssignSupportTicketRequest({
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        targetAdminUserId: ' admin-2 ',
+        content: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+      targetAdminUserId: 'admin-2',
+      content: undefined,
+    });
+  });
+
+  it('rejects an invalid support ticket assign request', () => {
+    expect(() =>
+      parseAssignSupportTicketRequest({
+        baseUpdatedAtIso: 'bad-date',
+        targetAdminUserId: 'admin-2',
+      }),
+    ).toThrow('工单版本时间不合法');
+    expect(() =>
+      parseAssignSupportTicketRequest({
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        targetAdminUserId: '   ',
+      }),
+    ).toThrow('目标客服 ID 不能为空');
+    expect(() =>
+      parseAssignSupportTicketRequest({
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        targetAdminUserId: 'admin-2',
+        content: '问'.repeat(201),
+      }),
+    ).toThrow('指派备注最多 200 字');
   });
 
   it('rejects an empty support ticket id', () => {

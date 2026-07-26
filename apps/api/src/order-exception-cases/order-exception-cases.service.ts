@@ -4,6 +4,7 @@ import { createAdminActionFingerprint } from '../payments/admin-finance.service'
 import type { NotificationsService } from '../notifications/notifications.service';
 import type {
   AppealOrderExceptionCaseRequest,
+  AssignOrderExceptionCaseRequest,
   ClaimOrderExceptionCaseRequest,
   OrderExceptionCaseRecord,
   ExecuteOrderExceptionCaseCompensationRequest,
@@ -14,6 +15,7 @@ import type {
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 import {
+  createOrderExceptionCaseAssignContent,
   createOrderExceptionCaseClaimContent,
   createOrderExceptionCaseUnclaimContent,
   mapOrderExceptionCaseListWithSla,
@@ -148,6 +150,88 @@ export class OrderExceptionCasesService {
       {
         baseUpdatedAtIso: input.baseUpdatedAtIso,
         content: createOrderExceptionCaseClaimContent(input.content),
+      },
+    );
+
+    if (!result) {
+      throw notFoundError();
+    }
+
+    if (result === 'state-invalid') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    if (result === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+        '异常工单已被其他管理员更新，请刷新后重试',
+      );
+    }
+
+    return mapOrderExceptionCaseWithSla(result, this.now());
+  }
+
+  async assignCase(
+    adminUserId: string,
+    caseId: string,
+    input: AssignOrderExceptionCaseRequest,
+  ) {
+    const exceptionCase = await this.repository.findOrderExceptionCaseById(caseId);
+
+    if (!exceptionCase) {
+      throw notFoundError();
+    }
+
+    if (
+      exceptionCase.status !== 'pending' &&
+      exceptionCase.status !== 'processing'
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    const currentSnapshot = mapOrderExceptionCaseWithSla(
+      exceptionCase,
+      this.now(),
+    );
+
+    if (currentSnapshot.claimedByAdminUserId === input.targetAdminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单已在目标客服名下，无需重复指派',
+      );
+    }
+
+    const assignmentMode = currentSnapshot.claimedByAdminUserId
+      ? 'transfer'
+      : 'assign';
+
+    if (
+      assignmentMode === 'transfer' &&
+      currentSnapshot.claimedByAdminUserId !== adminUserId
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员不是该异常工单的认领人，不能转派给其他客服',
+      );
+    }
+
+    const result = await this.repository.appendOrderExceptionCaseAction(
+      caseId,
+      adminUserId,
+      exceptionCase.status,
+      {
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        content: createOrderExceptionCaseAssignContent(
+          input.targetAdminUserId,
+          assignmentMode,
+          input.content,
+        ),
       },
     );
 

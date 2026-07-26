@@ -40,7 +40,7 @@ export function renderOrderExceptionCaseAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
-      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
+      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列，以及把 open 工单指派 / 转派给指定客服；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，自动派单、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -71,7 +71,8 @@ export function renderOrderExceptionCaseAdminConsole() {
     <section class="panel">
       <h2>工单详情</h2>
       <div id="caseDetail" class="muted">请选择工单</div>
-      <label>处理说明 / 认领备注<textarea id="caseActionContent" placeholder="处理动作请输入 6-500 字；认领备注可留空或填写最多 200 字"></textarea></label>
+      <label>指派 / 转派给客服 ID<input id="caseAssignTargetAdminUserIdInput" placeholder="例如 admin-2" /></label>
+      <label>处理说明 / 认领 / 指派备注<textarea id="caseActionContent" placeholder="处理动作请输入 6-500 字；认领、释放认领、指派或转派备注可留空或填写最多 200 字"></textarea></label>
       <div id="caseCompensationControls" class="filters">
         <label>赔付状态<select id="caseCompensationStatusInput"><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option></select></label>
         <label id="caseAppealDecisionField" style="display:none">申诉裁定<select id="caseAppealDecisionInput"><option value="">请选择</option><option value="accepted">受理申诉</option><option value="rejected">驳回申诉</option></select></label>
@@ -88,6 +89,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     let currentPage = 1;
     let total = 0;
     let selectedCaseId = '';
+    let selectedCaseClaimedByAdminUserId = '';
     let selectedCaseAppealStatus = 'none';
     let mutationPending = false;
     let caseSweepPending = false;
@@ -304,6 +306,10 @@ export function renderOrderExceptionCaseAdminConsole() {
       return document.getElementById('caseClaimButton');
     }
 
+    function getCaseAssignButton() {
+      return document.getElementById('caseAssignButton');
+    }
+
     function getCaseReleaseClaimButton() {
       return document.getElementById('caseReleaseClaimButton');
     }
@@ -313,6 +319,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (button) button.disabled = disabled;
       const claimButton = getCaseClaimButton();
       if (claimButton) claimButton.disabled = disabled;
+      const assignButton = getCaseAssignButton();
+      if (assignButton) assignButton.disabled = disabled;
       const releaseClaimButton = getCaseReleaseClaimButton();
       if (releaseClaimButton) releaseClaimButton.disabled = disabled;
       const executeButton = document.getElementById('caseExecuteCompensationButton');
@@ -402,6 +410,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<p>创建时间：' + escapeHtml(item.createdAtIso || '-') + '</p>' +
         '<p>更新时间：' + escapeHtml(formatCaseRecentActivity(item)) + '</p>' +
         '<p>当前认领：' + escapeHtml(formatCaseClaim(item)) + '</p>' +
+        (item.claimNote ? '<p>认领备注：' + escapeHtml(item.claimNote) + '</p>' : '') +
         '<p>SLA：' + escapeHtml(formatCaseSlaMeta(item.sla)) + '</p>' +
         '<p>SLA 目标时间：' + escapeHtml((item.sla && item.sla.targetAtIso) || '-') + '</p>' +
         '<p>附件：' + escapeHtml((item.attachmentFileIds || []).join(', ') || '无') + '</p>' +
@@ -452,8 +461,10 @@ export function renderOrderExceptionCaseAdminConsole() {
         selectedCaseId = caseId;
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
+        selectedCaseClaimedByAdminUserId = item.claimedByAdminUserId || '';
         selectedCaseAppealStatus = item.appealStatus || 'none';
         document.getElementById('baseUpdatedAtIso').value = item.updatedAtIso;
+        document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
         document.getElementById('caseDetail').innerHTML = renderCaseDetail(item);
         document.getElementById('caseActions').innerHTML = (item.actions || []).length
           ? (item.actions || []).map(action => '<div class="action">' + escapeHtml(action.fromStatus) + ' → ' + escapeHtml(action.toStatus) + '<br>' + escapeHtml(action.content) + '<div class="muted">' + escapeHtml(action.createdAtIso) + '</div></div>').join('')
@@ -508,6 +519,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       let buttons = '';
       if (status === 'pending' || status === 'processing') {
         buttons += '<button id="caseClaimButton" class="secondary-button" onclick="claimCase()">认领到我</button>';
+        buttons += '<button id="caseAssignButton" class="secondary-button" onclick="assignCase()">' + (item.claimedByAdminUserId ? '转派给客服' : '指派给客服') + '</button>';
         if (item.claimedByAdminUserId) {
           buttons += '<button id="caseReleaseClaimButton" class="secondary-button" onclick="releaseCaseClaim()">释放认领</button>';
         }
@@ -619,6 +631,57 @@ export function renderOrderExceptionCaseAdminConsole() {
         });
         document.getElementById('caseActionContent').value = '';
         document.getElementById('caseMutationNotice').textContent = '工单认领已释放，已回到未认领队列。';
+        await loadCase(selectedCaseId);
+        await loadCases(currentPage);
+      } catch (error) {
+        if (error.code === 'EXCEPTION_CASE_CONFLICT') {
+          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
+          await loadCase(selectedCaseId);
+        } else {
+          document.getElementById('caseMutationNotice').textContent = error.message;
+        }
+      } finally {
+        mutationPending = false;
+        setCaseActionButtonsDisabled(false);
+        syncCompensationInputsFromStatus();
+      }
+    }
+
+    async function assignCase() {
+      if (!selectedCaseId || mutationPending) return;
+      const targetAdminUserId = document.getElementById('caseAssignTargetAdminUserIdInput').value.trim();
+      if (!targetAdminUserId) {
+        document.getElementById('caseMutationNotice').textContent = '请输入目标客服 ID';
+        return;
+      }
+      if (targetAdminUserId.length > 120) {
+        document.getElementById('caseMutationNotice').textContent = '目标客服 ID 最多 120 字';
+        return;
+      }
+      const content = document.getElementById('caseActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('caseMutationNotice').textContent = '指派备注最多 200 字';
+        return;
+      }
+      const isTransfer = Boolean(selectedCaseClaimedByAdminUserId);
+      mutationPending = true;
+      document.getElementById('caseMutationNotice').textContent = '';
+      setCaseActionButtonsDisabled(true);
+      try {
+        const payload = {
+          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
+          targetAdminUserId,
+          ...(content ? { content } : {}),
+        };
+        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/assign', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        document.getElementById('caseActionContent').value = '';
+        document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
+        document.getElementById('caseMutationNotice').textContent = isTransfer
+          ? '工单已转派给指定客服。'
+          : '工单已指派给指定客服。';
         await loadCase(selectedCaseId);
         await loadCases(currentPage);
       } catch (error) {

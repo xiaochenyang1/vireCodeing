@@ -61,6 +61,12 @@ export type ClaimSupportTicketRequest = {
   content?: string;
 };
 
+export type AssignSupportTicketRequest = {
+  baseUpdatedAtIso: string;
+  targetAdminUserId: string;
+  content?: string;
+};
+
 export type SupportTicketOverdueEscalationSweepTrigger =
   | 'admin'
   | 'scheduler';

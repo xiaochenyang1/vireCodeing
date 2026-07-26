@@ -1093,6 +1093,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/claim:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/assign:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/unclaim:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/resolve:');
@@ -1101,6 +1102,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('OrderExceptionCaseRecord');
     expect(source).toContain('OrderExceptionCaseActionRecord');
     expect(source).toContain('ClaimOrderExceptionCaseRequest');
+    expect(source).toContain('AssignOrderExceptionCaseRequest');
     expect(source).toContain('OrderExceptionCaseOverdueEscalationSweep');
     expect(source).toContain('OrderExceptionCaseOverdueEscalationSweepResponse');
     expect(source).toContain('OrderExceptionCaseStatus');
@@ -1163,7 +1165,17 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/order-exception-cases/{caseId}/claim',
-      'support cross-seat assignment or transfer rules.',
+      'transfer uses the /assign endpoint.',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/assign',
+      "$ref: '#/components/schemas/AssignOrderExceptionCaseRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/assign',
+      'Case assigned or transferred',
     );
     expectPathBlockToContain(
       source,
@@ -1174,6 +1186,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases/{caseId}/unclaim',
       'Case claim released',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AssignOrderExceptionCaseRequest',
+      'Optional assignment or transfer note shown in admin audit history and the derived claim snapshot.',
     );
   });
 
@@ -1875,10 +1892,10 @@ describe('stage 1 OpenAPI contract', () => {
       'Each ticket now includes a derived first-response or resolution SLA snapshot.',
     );
     expect(source).toContain(
-      'administrators can claim/process/resolve them through the dedicated admin workflow and trigger overdue escalation sweeps.',
+      'administrators can claim, manually assign or transfer, process and resolve them through the dedicated admin workflow and trigger overdue escalation sweeps.',
     );
     expect(source).toContain(
-      'This first slice still does not include cross-seat assignment, online chat or a complete customer-service handling audit trail.',
+      'This first slice still does not include automatic load balancing, staffing rules, online chat or a complete customer-service handling audit trail.',
     );
     expectPathBlockToContain(
       source,
@@ -1895,6 +1912,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/support-tickets/overdue-escalations/sweep:');
     expect(source).toContain('/admin/support-tickets/{ticketId}:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/claim:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}/assign:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/unclaim:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/resolve:');
@@ -1902,12 +1920,16 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Run overdue support-ticket escalation sweep');
     expect(source).toContain('Get help-center support ticket detail');
     expect(source).toContain('Claim an open help-center support ticket');
+    expect(source).toContain(
+      'Assign or transfer an open help-center support ticket',
+    );
     expect(source).toContain('Release a claimed help-center support ticket');
     expect(source).toContain('Accept a pending help-center support ticket');
     expect(source).toContain('Resolve a processing help-center support ticket');
     expect(source).toContain('AdminSupportTicketList');
     expect(source).toContain('AdminSupportTicketListResponse');
     expect(source).toContain('ClaimSupportTicketRequest');
+    expect(source).toContain('AssignSupportTicketRequest');
     expect(source).toContain('SupportTicketOverdueEscalationSweep');
     expect(source).toContain('SupportTicketOverdueEscalationSweepResponse');
     expect(source).toContain('SupportTicketClaimStatus');
@@ -1937,7 +1959,17 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/support-tickets/{ticketId}/claim',
-      'latest claim or unclaim history item',
+      'latest claim, assign, transfer or unclaim history item',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/assign',
+      "$ref: '#/components/schemas/AssignSupportTicketRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/assign',
+      'Support ticket assigned or transferred',
     );
     expectPathBlockToContain(
       source,
@@ -1948,6 +1980,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/support-tickets/{ticketId}/unclaim',
       'Support ticket claim released',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/unclaim',
+      'latest claim, assign, transfer or unclaim history item',
     );
     expectPathBlockToContain(
       source,
@@ -1963,6 +2000,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       'ClaimSupportTicketRequest',
       'Optional claim or release note shown in admin history and the derived claim snapshot.',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AssignSupportTicketRequest',
+      'Optional assignment or transfer note shown in admin history and the derived claim snapshot.',
     );
     expectSchemaBlockToContain(
       source,

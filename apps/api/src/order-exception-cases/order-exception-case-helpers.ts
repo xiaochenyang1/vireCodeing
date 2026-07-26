@@ -12,9 +12,15 @@ const EXCEPTION_CASE_RESOLUTION_TARGET_MS = 4 * 60 * 60 * 1000;
 const MILLIS_PER_MINUTE = 60 * 1000;
 const EXCEPTION_CASE_CLAIM_CONTENT_PREFIX = '客服认领：';
 const EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX = '客服释放认领：';
+const EXCEPTION_CASE_ASSIGN_CONTENT_PREFIX = '客服指派给 ';
+const EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX = '客服转派给 ';
 const EXCEPTION_CASE_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
 const EXCEPTION_CASE_DEFAULT_UNCLAIM_NOTE =
   '当前客服已释放认领，工单回到未认领队列。';
+const EXCEPTION_CASE_DEFAULT_ASSIGN_NOTE =
+  '当前异常工单已指派给指定客服跟进。';
+const EXCEPTION_CASE_DEFAULT_TRANSFER_NOTE =
+  '当前异常工单已转派给指定客服继续跟进。';
 
 export function mapOrderExceptionCaseListWithSla(
   result: { items: OrderExceptionCaseRecord[]; total: number },
@@ -56,6 +62,27 @@ export function createOrderExceptionCaseUnclaimContent(content?: string) {
     normalizedNote && normalizedNote.length > 0
       ? normalizedNote
       : EXCEPTION_CASE_DEFAULT_UNCLAIM_NOTE
+  }`;
+}
+
+export function createOrderExceptionCaseAssignContent(
+  targetAdminUserId: string,
+  mode: 'assign' | 'transfer',
+  content?: string,
+) {
+  const normalizedNote = content?.trim();
+  const normalizedTargetAdminUserId = targetAdminUserId.trim();
+
+  return `${
+    mode === 'assign'
+      ? EXCEPTION_CASE_ASSIGN_CONTENT_PREFIX
+      : EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX
+  }${normalizedTargetAdminUserId}：${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : mode === 'assign'
+        ? EXCEPTION_CASE_DEFAULT_ASSIGN_NOTE
+        : EXCEPTION_CASE_DEFAULT_TRANSFER_NOTE
   }`;
 }
 
@@ -144,6 +171,24 @@ export function isOrderExceptionCaseUnclaimContent(
   return (
     typeof content === 'string' &&
     content.startsWith(EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX)
+  );
+}
+
+export function isOrderExceptionCaseAssignContent(
+  content: string | undefined,
+) {
+  return (
+    typeof content === 'string' &&
+    content.startsWith(EXCEPTION_CASE_ASSIGN_CONTENT_PREFIX)
+  );
+}
+
+export function isOrderExceptionCaseTransferContent(
+  content: string | undefined,
+) {
+  return (
+    typeof content === 'string' &&
+    content.startsWith(EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX)
   );
 }
 
@@ -248,6 +293,18 @@ function buildOrderExceptionCaseClaimSnapshot(
       return {};
     }
 
+    const assignedSnapshot = extractOrderExceptionCaseAssignedSnapshot(
+      action.content,
+    );
+
+    if (assignedSnapshot) {
+      return {
+        claimedByAdminUserId: assignedSnapshot.targetAdminUserId,
+        claimedAtIso: action.createdAtIso,
+        claimNote: assignedSnapshot.note,
+      };
+    }
+
     if (!isOrderExceptionCaseClaimContent(action.content)) {
       continue;
     }
@@ -276,6 +333,52 @@ function shouldIgnoreOrderExceptionCaseActionForSlaAnchor(
   return (
     isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId) ||
     isOrderExceptionCaseClaimContent(action.content) ||
-    isOrderExceptionCaseUnclaimContent(action.content)
+    isOrderExceptionCaseUnclaimContent(action.content) ||
+    isOrderExceptionCaseAssignContent(action.content) ||
+    isOrderExceptionCaseTransferContent(action.content)
   );
+}
+
+function extractOrderExceptionCaseAssignedSnapshot(content: string | undefined) {
+  const contentPrefix = isOrderExceptionCaseAssignContent(content)
+    ? EXCEPTION_CASE_ASSIGN_CONTENT_PREFIX
+    : isOrderExceptionCaseTransferContent(content)
+      ? EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX
+      : null;
+
+  if (!contentPrefix || typeof content !== 'string') {
+    return null;
+  }
+
+  const remainder = content.slice(contentPrefix.length);
+  const separatorIndex = findOrderExceptionCaseAssignmentSeparatorIndex(
+    remainder,
+  );
+  const rawTargetAdminUserId =
+    separatorIndex === -1 ? remainder : remainder.slice(0, separatorIndex);
+  const targetAdminUserId = rawTargetAdminUserId.trim();
+
+  if (targetAdminUserId.length === 0) {
+    return null;
+  }
+
+  const note =
+    separatorIndex === -1
+      ? undefined
+      : remainder.slice(separatorIndex + 1).trim() || undefined;
+
+  return {
+    targetAdminUserId,
+    note,
+  };
+}
+
+function findOrderExceptionCaseAssignmentSeparatorIndex(content: string) {
+  const chineseSeparatorIndex = content.indexOf('：');
+
+  if (chineseSeparatorIndex !== -1) {
+    return chineseSeparatorIndex;
+  }
+
+  return content.indexOf(':');
 }

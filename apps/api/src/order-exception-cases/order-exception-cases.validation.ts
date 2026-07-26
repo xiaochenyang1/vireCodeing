@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   AppealOrderExceptionCaseRequest,
+  AssignOrderExceptionCaseRequest,
   ClaimOrderExceptionCaseRequest,
   ExecuteOrderExceptionCaseCompensationRequest,
   OrderExceptionCaseListQuery,
@@ -88,6 +89,22 @@ export const claimOrderExceptionCaseSchema = z.object({
   content: optionalTrimmedString.refine(
     value => value === undefined || value.length <= 200,
     '认领备注最多 200 字',
+  ),
+});
+
+export const assignOrderExceptionCaseSchema = z.object({
+  baseUpdatedAtIso: z
+    .string()
+    .trim()
+    .refine(value => !Number.isNaN(Date.parse(value)), '工单版本时间不合法'),
+  targetAdminUserId: z
+    .string()
+    .trim()
+    .min(1, '目标客服 ID 不能为空')
+    .max(120, '目标客服 ID 最多 120 字'),
+  content: optionalTrimmedString.refine(
+    value => value === undefined || value.length <= 200,
+    '指派备注最多 200 字',
   ),
 });
 
@@ -183,6 +200,12 @@ export function parseClaimOrderExceptionCaseRequest(
   input: unknown,
 ): ClaimOrderExceptionCaseRequest {
   return claimOrderExceptionCaseSchema.parse(input);
+}
+
+export function parseAssignOrderExceptionCaseRequest(
+  input: unknown,
+): AssignOrderExceptionCaseRequest {
+  return assignOrderExceptionCaseSchema.parse(input);
 }
 
 export function parseResolveOrderExceptionCaseRequest(

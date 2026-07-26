@@ -49,7 +49,7 @@ export function renderSupportTicketAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
-      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，支持按 SLA 状态、认领状态和认领客服筛队列，并可先把 open 工单认领到当前客服名下；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，更完整的坐席分配和在线会话还没补上。</p>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，支持按 SLA 状态、认领状态和认领客服筛队列，并可先把 open 工单认领到当前客服名下、再指派 / 转派给指定客服；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，更完整的自动派单、排班和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -77,7 +77,8 @@ export function renderSupportTicketAdminConsole() {
     <section class="panel">
       <h2>工单详情</h2>
       <div id="supportTicketDetail" class="muted">请选择工单</div>
-      <label>处理说明 / 认领备注<textarea id="supportTicketActionContent" placeholder="处理动作请输入 6-500 字；认领备注可留空或填写最多 200 字"></textarea></label>
+      <label>指派 / 转派给客服 ID<input id="supportTicketAssignTargetAdminUserIdInput" placeholder="例如 admin-2" /></label>
+      <label>处理说明 / 认领 / 指派备注<textarea id="supportTicketActionContent" placeholder="处理动作请输入 6-500 字；认领、释放认领、指派或转派备注可留空或填写最多 200 字"></textarea></label>
       <input id="supportTicketBaseUpdatedAtIso" type="hidden" />
       <div id="supportTicketActions"></div>
       <div id="supportTicketMutationNotice" class="error"></div>
@@ -175,6 +176,7 @@ export function renderSupportTicketAdminConsole() {
       selectedTicketStatus = '';
       selectedTicketClaimedByAdminUserId = '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = '';
+      document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
       document.getElementById('supportTicketActions').innerHTML = '';
       document.getElementById('supportTicketDetail').textContent = '请选择工单';
       document.getElementById('supportTicketMutationNotice').textContent = '';
@@ -285,6 +287,7 @@ export function renderSupportTicketAdminConsole() {
       const actions = [];
       if (ticket.status === 'pending') {
         actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
+        actions.push('<button id="assignSupportTicketButton" class="secondary-button" onclick="assignSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>' + (ticket.claimedByAdminUserId ? '转派给客服' : '指派给客服') + '</button>');
         if (ticket.claimedByAdminUserId) {
           actions.push('<button id="releaseSupportTicketClaimButton" class="secondary-button" onclick="releaseSupportTicketClaim()"' + (mutationPending ? ' disabled' : '') + '>释放认领</button>');
         }
@@ -292,6 +295,7 @@ export function renderSupportTicketAdminConsole() {
       }
       if (ticket.status === 'processing') {
         actions.push('<button id="claimSupportTicketButton" class="secondary-button" onclick="claimSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>认领到我</button>');
+        actions.push('<button id="assignSupportTicketButton" class="secondary-button" onclick="assignSupportTicket()"' + (mutationPending ? ' disabled' : '') + '>' + (ticket.claimedByAdminUserId ? '转派给客服' : '指派给客服') + '</button>');
         if (ticket.claimedByAdminUserId) {
           actions.push('<button id="releaseSupportTicketClaimButton" class="secondary-button" onclick="releaseSupportTicketClaim()"' + (mutationPending ? ' disabled' : '') + '>释放认领</button>');
         }
@@ -322,6 +326,7 @@ export function renderSupportTicketAdminConsole() {
       selectedTicketStatus = ticket.status || '';
       selectedTicketClaimedByAdminUserId = ticket.claimedByAdminUserId || '';
       document.getElementById('supportTicketBaseUpdatedAtIso').value = ticket.updatedAtIso || '';
+      document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
       document.getElementById('supportTicketDetail').innerHTML = [
         '<div><span class="badge ' + escapeHtml(formatSupportTicketStatusClass(ticket.status)) + '">' + escapeHtml(formatSupportTicketStatus(ticket.status)) + '</span></div>',
         '<p>工单 ID：' + escapeHtml(ticket.id) + '</p>',
@@ -561,6 +566,71 @@ export function renderSupportTicketAdminConsole() {
       } catch (error) {
         document.getElementById('supportTicketMutationNotice').textContent =
           error.message || '认领工单失败';
+        if (selectedTicketId) {
+          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        }
+      } finally {
+        mutationPending = false;
+      }
+    }
+
+    async function assignSupportTicket() {
+      if (!selectedTicketId) {
+        document.getElementById('supportTicketMutationNotice').textContent = '请选择工单';
+        return;
+      }
+      if (mutationPending) {
+        return;
+      }
+      const targetAdminUserId = document.getElementById('supportTicketAssignTargetAdminUserIdInput').value.trim();
+      if (!targetAdminUserId) {
+        document.getElementById('supportTicketMutationNotice').textContent = '请输入目标客服 ID';
+        return;
+      }
+      if (targetAdminUserId.length > 120) {
+        document.getElementById('supportTicketMutationNotice').textContent = '目标客服 ID 最多 120 字';
+        return;
+      }
+      const content = document.getElementById('supportTicketActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('supportTicketMutationNotice').textContent = '指派备注最多 200 字';
+        return;
+      }
+      const baseUpdatedAtIso = document.getElementById('supportTicketBaseUpdatedAtIso').value;
+      if (!baseUpdatedAtIso) {
+        document.getElementById('supportTicketMutationNotice').textContent = '当前工单缺少版本时间，请刷新后重试';
+        return;
+      }
+
+      const isTransfer = Boolean(selectedTicketClaimedByAdminUserId);
+      mutationPending = true;
+      document.getElementById('supportTicketMutationNotice').textContent = '';
+      document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
+        id: selectedTicketId,
+        status: selectedTicketStatus,
+        claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
+      });
+
+      try {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/assign', {
+          method: 'POST',
+          body: JSON.stringify({
+            baseUpdatedAtIso,
+            targetAdminUserId,
+            ...(content ? { content } : {}),
+          }),
+        });
+        renderSupportTicketDetail(ticket);
+        document.getElementById('supportTicketMutationNotice').textContent =
+          isTransfer
+            ? '工单已转派给指定客服。'
+            : '工单已指派给指定客服。';
+        document.getElementById('supportTicketActionContent').value = '';
+        document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
+        loadSupportTickets(currentPage);
+      } catch (error) {
+        document.getElementById('supportTicketMutationNotice').textContent =
+          error.message || '指派工单失败';
         if (selectedTicketId) {
           loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
         }

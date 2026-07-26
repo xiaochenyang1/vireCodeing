@@ -10,9 +10,16 @@ const SUPPORT_TICKET_RESOLUTION_TARGET_MS = 24 * 60 * 60 * 1000;
 const MILLIS_PER_MINUTE = 60 * 1000;
 const SUPPORT_TICKET_CLAIM_ACTION_TEXT = '客服已认领';
 const SUPPORT_TICKET_UNCLAIM_ACTION_TEXT = '客服已释放认领';
+const SUPPORT_TICKET_ASSIGN_ACTION_TEXT = '客服已指派';
+const SUPPORT_TICKET_TRANSFER_ACTION_TEXT = '客服已转派';
 const SUPPORT_TICKET_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
 const SUPPORT_TICKET_DEFAULT_UNCLAIM_NOTE =
   '当前客服已释放认领，工单回到未认领队列。';
+const SUPPORT_TICKET_DEFAULT_ASSIGN_NOTE = '当前工单已指派给指定客服跟进。';
+const SUPPORT_TICKET_DEFAULT_TRANSFER_NOTE =
+  '当前工单已转派给指定客服继续跟进。';
+const SUPPORT_TICKET_ASSIGN_CONTENT_PREFIX = '指派给 ';
+const SUPPORT_TICKET_TRANSFER_CONTENT_PREFIX = '转派给 ';
 
 export function mapSupportTicketWithSla(
   ticket: ShipperSupportTicketRecord,
@@ -48,6 +55,28 @@ export function createSupportTicketUnclaimHistoryItem(
     timestampIso,
     operatorUserId: adminUserId,
     content: createSupportTicketUnclaimContent(content),
+  };
+}
+
+export function createSupportTicketAssignHistoryItem(
+  adminUserId: string,
+  targetAdminUserId: string,
+  timestampIso: string,
+  mode: 'assign' | 'transfer',
+  content?: string,
+): ShipperSupportTicketStatusHistoryItem {
+  return {
+    actionText:
+      mode === 'assign'
+        ? SUPPORT_TICKET_ASSIGN_ACTION_TEXT
+        : SUPPORT_TICKET_TRANSFER_ACTION_TEXT,
+    timestampIso,
+    operatorUserId: adminUserId,
+    content: createSupportTicketAssignContent(
+      targetAdminUserId,
+      mode,
+      content,
+    ),
   };
 }
 
@@ -116,6 +145,27 @@ export function createSupportTicketUnclaimContent(content?: string) {
   return normalizedNote && normalizedNote.length > 0
     ? normalizedNote
     : SUPPORT_TICKET_DEFAULT_UNCLAIM_NOTE;
+}
+
+export function createSupportTicketAssignContent(
+  targetAdminUserId: string,
+  mode: 'assign' | 'transfer',
+  content?: string,
+) {
+  const normalizedNote = content?.trim();
+  const normalizedTargetAdminUserId = targetAdminUserId.trim();
+
+  return `${
+    mode === 'assign'
+      ? SUPPORT_TICKET_ASSIGN_CONTENT_PREFIX
+      : SUPPORT_TICKET_TRANSFER_CONTENT_PREFIX
+  }${normalizedTargetAdminUserId}：${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : mode === 'assign'
+        ? SUPPORT_TICKET_DEFAULT_ASSIGN_NOTE
+        : SUPPORT_TICKET_DEFAULT_TRANSFER_NOTE
+  }`;
 }
 
 export function findSupportTicketStatusTransitionIso(
@@ -212,6 +262,17 @@ function buildSupportTicketClaimSnapshot(
       return {};
     }
 
+    const assignedSnapshot =
+      buildSupportTicketAssignedSnapshotFromHistoryItem(historyItem);
+
+    if (assignedSnapshot) {
+      return {
+        claimedByAdminUserId: assignedSnapshot.targetAdminUserId,
+        claimedAtIso: historyItem.timestampIso,
+        claimNote: assignedSnapshot.note,
+      };
+    }
+
     if (
       !historyItem ||
       historyItem.actionText !== SUPPORT_TICKET_CLAIM_ACTION_TEXT ||
@@ -236,4 +297,53 @@ function extractSupportTicketClaimNote(content: string | undefined) {
   return normalizedNote && normalizedNote.length > 0
     ? normalizedNote
     : undefined;
+}
+
+function buildSupportTicketAssignedSnapshotFromHistoryItem(
+  historyItem: ShipperSupportTicketStatusHistoryItem | undefined,
+) {
+  if (!historyItem) {
+    return null;
+  }
+
+  const contentPrefix =
+    historyItem.actionText === SUPPORT_TICKET_ASSIGN_ACTION_TEXT
+      ? SUPPORT_TICKET_ASSIGN_CONTENT_PREFIX
+      : historyItem.actionText === SUPPORT_TICKET_TRANSFER_ACTION_TEXT
+        ? SUPPORT_TICKET_TRANSFER_CONTENT_PREFIX
+        : null;
+
+  if (!contentPrefix || typeof historyItem.content !== 'string') {
+    return null;
+  }
+
+  const remainder = historyItem.content.slice(contentPrefix.length);
+  const separatorIndex = findSupportTicketAssignmentSeparatorIndex(remainder);
+  const rawTargetAdminUserId =
+    separatorIndex === -1 ? remainder : remainder.slice(0, separatorIndex);
+  const targetAdminUserId = rawTargetAdminUserId.trim();
+
+  if (targetAdminUserId.length === 0) {
+    return null;
+  }
+
+  const note =
+    separatorIndex === -1
+      ? undefined
+      : remainder.slice(separatorIndex + 1).trim() || undefined;
+
+  return {
+    targetAdminUserId,
+    note,
+  };
+}
+
+function findSupportTicketAssignmentSeparatorIndex(content: string) {
+  const chineseSeparatorIndex = content.indexOf('：');
+
+  if (chineseSeparatorIndex !== -1) {
+    return chineseSeparatorIndex;
+  }
+
+  return content.indexOf(':');
 }

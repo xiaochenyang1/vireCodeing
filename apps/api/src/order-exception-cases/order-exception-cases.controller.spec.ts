@@ -15,6 +15,9 @@ describe('order exception case controllers', () => {
     claimCase: jest
       .fn()
       .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-1' }),
+    assignCase: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-2' }),
     unclaimCase: jest.fn().mockResolvedValue({ id: 'case-1' }),
     processCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'processing' }),
     resolveCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'resolved' }),
@@ -97,6 +100,32 @@ describe('order exception case controllers', () => {
     expect(result.data).toMatchObject({
       id: 'case-1',
       claimedByAdminUserId: 'admin-1',
+    });
+  });
+
+  it('assigns a case to the specified administrator', async () => {
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
+    const result = await controller.assignCase(
+      createRequest('admin-1', 'admin'),
+      ' case-1 ',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+        targetAdminUserId: ' admin-2 ',
+        content: '  白班客服继续跟进。  ',
+      },
+    );
+
+    expect(service.assignCase).toHaveBeenCalledWith('admin-1', 'case-1', {
+      baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+      targetAdminUserId: 'admin-2',
+      content: '白班客服继续跟进。',
+    });
+    expect(result.data).toMatchObject({
+      id: 'case-1',
+      claimedByAdminUserId: 'admin-2',
     });
   });
 

@@ -1,5 +1,6 @@
 import {
   parseAppealOrderExceptionCaseRequest,
+  parseAssignOrderExceptionCaseRequest,
   parseClaimOrderExceptionCaseRequest,
   parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
@@ -140,6 +141,52 @@ describe('order exception case validation', () => {
         content: 'a'.repeat(201),
       }),
     ).toThrow('认领备注最多 200 字');
+  });
+
+  it('normalizes an assign request and allows an empty optional note', () => {
+    expect(
+      parseAssignOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        targetAdminUserId: ' admin-3 ',
+        content: '  白班客服继续跟进。  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      targetAdminUserId: 'admin-3',
+      content: '白班客服继续跟进。',
+    });
+    expect(
+      parseAssignOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        targetAdminUserId: ' admin-3 ',
+        content: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      targetAdminUserId: 'admin-3',
+    });
+  });
+
+  it('rejects an invalid assign request', () => {
+    expect(() =>
+      parseAssignOrderExceptionCaseRequest({
+        baseUpdatedAtIso: 'bad-date',
+        targetAdminUserId: 'admin-3',
+      }),
+    ).toThrow('工单版本时间不合法');
+    expect(() =>
+      parseAssignOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        targetAdminUserId: '   ',
+      }),
+    ).toThrow('目标客服 ID 不能为空');
+    expect(() =>
+      parseAssignOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        targetAdminUserId: 'admin-3',
+        content: 'a'.repeat(201),
+      }),
+    ).toThrow('指派备注最多 200 字');
   });
 
   it('normalizes a resolve request with compensation tracking', () => {

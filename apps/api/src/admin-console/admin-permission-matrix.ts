@@ -145,13 +145,15 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     key: 'support-ticket',
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
-    summary: '查看帮助中心工单列表/详情、SLA 提醒，并执行认领、释放认领和 pending / processing / resolved 流程推进。',
+    summary:
+      '查看帮助中心工单列表/详情、SLA 提醒，并执行认领、指派 / 转派、释放认领和 pending / processing / resolved 流程推进。',
   },
   {
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
-    summary: '读取异常工单、查看详情，并能认领到当前客服、释放认领后继续推进 processing / resolved / closed 流程。',
+    summary:
+      '读取异常工单、查看详情，并能认领到当前客服、指派 / 转派给指定客服、释放认领后继续推进 processing / resolved / closed 流程。',
   },
   {
     key: 'shipper-coupon',
@@ -326,7 +328,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '处理帮助中心工单',
     moduleKey: 'support-ticket',
     summary:
-      '读取帮助中心工单列表/详情、SLA 提醒，并能执行 claim、unclaim、process、resolve 状态流转与超时升级扫描。',
+      '读取帮助中心工单列表/详情、SLA 提醒，并能执行 claim、assign、unclaim、process、resolve 状态流转与超时升级扫描。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
@@ -334,6 +336,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/support-tickets/{ticketId}',
       '/admin/support-tickets/overdue-escalations/sweep',
       '/admin/support-tickets/{ticketId}/claim',
+      '/admin/support-tickets/{ticketId}/assign',
       '/admin/support-tickets/{ticketId}/unclaim',
       '/admin/support-tickets/{ticketId}/process',
       '/admin/support-tickets/{ticketId}/resolve',
@@ -344,7 +347,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '处理异常客服工单',
     moduleKey: 'order-exception-case',
     summary:
-      '读取异常工单列表/详情，并能执行 claim、unclaim、process、resolve、close 状态流转与超时升级扫描。',
+      '读取异常工单列表/详情，并能执行 claim、assign、unclaim、process、resolve、close 状态流转与超时升级扫描。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
@@ -352,6 +355,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/order-exception-cases/{caseId}',
       '/admin/order-exception-cases/overdue-escalations/sweep',
       '/admin/order-exception-cases/{caseId}/claim',
+      '/admin/order-exception-cases/{caseId}/assign',
       '/admin/order-exception-cases/{caseId}/unclaim',
       '/admin/order-exception-cases/{caseId}/process',
       '/admin/order-exception-cases/{caseId}/resolve',

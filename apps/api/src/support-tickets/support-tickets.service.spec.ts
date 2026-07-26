@@ -342,6 +342,52 @@ describe('SupportTicketsService', () => {
     expect(notificationsService.notifySupportTicketEvent).not.toHaveBeenCalled();
   });
 
+  it('assigns an open support ticket to a specific admin and derives the latest claim snapshot from the assignment history', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '希望指定客服继续跟进回访。',
+    });
+
+    currentTime = new Date('2026-07-22T08:34:00.000Z');
+    await expect(
+      service.assignSupportTicket('admin-1', created.id, {
+        baseUpdatedAtIso: created.updatedAtIso,
+        targetAdminUserId: 'admin-3',
+        content: '白班客服继续跟进。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      claimedByAdminUserId: 'admin-3',
+      claimedAtIso: '2026-07-22T08:34:00.000Z',
+      claimNote: '白班客服继续跟进。',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已指派',
+          operatorUserId: 'admin-1',
+          content: '指派给 admin-3：白班客服继续跟进。',
+        }),
+      ]),
+      updatedAtIso: '2026-07-22T08:34:00.000Z',
+    });
+
+    await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
+      id: created.id,
+      claimedByAdminUserId: 'admin-3',
+      claimNote: '白班客服继续跟进。',
+    });
+  });
+
   it('rejects claiming a resolved support ticket', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({
@@ -495,6 +541,99 @@ describe('SupportTicketsService', () => {
         '当前管理员不是该工单的认领人，不能释放认领',
       ),
     );
+  });
+
+  it('lets the current claimer transfer a support ticket to another admin and rejects duplicate or unauthorized transfers', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '需要继续跟进货主回访。',
+    });
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    currentTime = new Date('2026-07-22T08:39:00.000Z');
+    await expect(
+      service.assignSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        targetAdminUserId: 'admin-3',
+        content: '白班客服接手继续跟进。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      claimedByAdminUserId: 'admin-3',
+      claimedAtIso: '2026-07-22T08:39:00.000Z',
+      claimNote: '白班客服接手继续跟进。',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已转派',
+          operatorUserId: 'admin-2',
+          content: '转派给 admin-3：白班客服接手继续跟进。',
+        }),
+      ]),
+    });
+
+    const transferred = await service.getSupportTicketForAdmin(created.id);
+    expect(transferred).toMatchObject({
+      claimedByAdminUserId: 'admin-3',
+      claimNote: '白班客服接手继续跟进。',
+    });
+
+    await expect(
+      service.assignSupportTicket('admin-1', created.id, {
+        baseUpdatedAtIso: transferred.updatedAtIso,
+        targetAdminUserId: 'admin-4',
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前管理员不是该工单的认领人，不能转派给其他客服',
+      ),
+    );
+
+    await expect(
+      service.assignSupportTicket('admin-3', created.id, {
+        baseUpdatedAtIso: transferred.updatedAtIso,
+        targetAdminUserId: 'admin-3',
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单已在目标客服名下，无需重复指派',
+      ),
+    );
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimedByAdminUserId: 'admin-3',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: created.id,
+          claimedByAdminUserId: 'admin-3',
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 1,
+    });
   });
 
   it('does not reset the resolution SLA anchor when a processing ticket is claimed', async () => {

@@ -353,6 +353,65 @@ describe('SupportTicketsController', () => {
     );
   });
 
+  it('assigns or transfers an admin support ticket to a specific administrator', async () => {
+    const service = {
+      assignSupportTicket: jest.fn().mockResolvedValue({
+        id: 'ticket-1',
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        description: '司机沟通不及时，希望客服协助跟进',
+        status: 'processing',
+        claimedByAdminUserId: 'admin-2',
+        claimedAtIso: '2026-07-22T08:37:00.000Z',
+        claimNote: '白班客服接手继续跟进。',
+        statusHistory: [],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1438,
+        },
+        createdAtIso: '2026-07-22T08:30:00.000Z',
+        updatedAtIso: '2026-07-22T08:37:00.000Z',
+      }),
+    } as unknown as SupportTicketsService;
+    const controller = new AdminSupportTicketsController(
+      service,
+      createOverdueEscalationService(),
+    );
+    const body = {
+      baseUpdatedAtIso: '2026-07-22T08:36:00.000Z',
+      targetAdminUserId: ' admin-2 ',
+      content: ' 白班客服接手继续跟进。 ',
+    };
+
+    await expect(
+      controller.assignSupportTicket(
+        createRequest('admin-1', 'admin'),
+        'ticket-1',
+        body,
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'ticket-1',
+        claimedByAdminUserId: 'admin-2',
+        claimNote: '白班客服接手继续跟进。',
+      },
+      requestId: 'req_support_tickets_test',
+    });
+    expect(service.assignSupportTicket).toHaveBeenCalledWith(
+      'admin-1',
+      'ticket-1',
+      {
+        baseUpdatedAtIso: '2026-07-22T08:36:00.000Z',
+        targetAdminUserId: 'admin-2',
+        content: '白班客服接手继续跟进。',
+      },
+    );
+  });
+
   it('releases an admin support ticket claim', async () => {
     const service = {
       unclaimSupportTicket: jest.fn().mockResolvedValue({

@@ -19,6 +19,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ApiTags } from '@nestjs/swagger';
 import type {
   AppealOrderExceptionCaseRequest,
+  AssignOrderExceptionCaseRequest,
   ClaimOrderExceptionCaseRequest,
   ExecuteOrderExceptionCaseCompensationRequest,
   ResolveOrderExceptionCaseRequest,
@@ -28,10 +29,12 @@ import { OrderExceptionCaseOverdueEscalationService } from './order-exception-ca
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 import {
   appealOrderExceptionCaseSchema,
+  assignOrderExceptionCaseSchema,
   claimOrderExceptionCaseSchema,
   executeOrderExceptionCaseCompensationSchema,
   orderExceptionCaseListQuerySchema,
   parseAppealOrderExceptionCaseRequest,
+  parseAssignOrderExceptionCaseRequest,
   parseClaimOrderExceptionCaseRequest,
   parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
@@ -192,6 +195,23 @@ export class AdminOrderExceptionCasesController {
       adminUserId,
       parseOrderExceptionCaseId(caseId),
       parseClaimOrderExceptionCaseRequest(body),
+    );
+
+    return ok(result, getRequestId(request));
+  }
+
+  @Post(':caseId/assign')
+  async assignCase(
+    @Req() request: AuthenticatedRequest,
+    @Param('caseId') caseId: string,
+    @Body(new ZodValidationPipe(assignOrderExceptionCaseSchema))
+    body: AssignOrderExceptionCaseRequest,
+  ) {
+    const adminUserId = getCurrentUserId(request, 'admin');
+    const result = await this.service.assignCase(
+      adminUserId,
+      parseOrderExceptionCaseId(caseId),
+      parseAssignOrderExceptionCaseRequest(body),
     );
 
     return ok(result, getRequestId(request));
