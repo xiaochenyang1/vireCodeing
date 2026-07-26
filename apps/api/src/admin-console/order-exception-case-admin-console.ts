@@ -38,6 +38,7 @@ export function renderOrderExceptionCaseAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
+      <p class="muted">这页现在除了看异常工单流转、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级、坐席分配、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -50,6 +51,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         <label>来源<select id="caseSourceRoleInput"><option value="">全部</option><option value="shipper">货主</option><option value="driver">司机</option></select></label>
         <label>赔付<select id="caseListCompensationStatusInput"><option value="">全部</option><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option><option value="executed">平台已赔付到账</option></select></label>
         <label>申诉<select id="caseListAppealStatusInput"><option value="">全部</option><option value="none">未申诉</option><option value="requested">申诉处理中</option><option value="rejected">申诉已驳回</option><option value="accepted">申诉已受理</option></select></label>
+        <label>SLA 状态<select id="caseListSlaStatusInput"><option value="">全部</option><option value="within_target">时限内</option><option value="overdue">已超时</option><option value="resolved_within_target">按时解决</option><option value="resolved_overdue">超时解决</option></select></label>
         <label>订单号/工单号<input id="caseKeywordInput" /></label>
         <label>每页<input id="casePageSizeInput" type="number" value="20" min="1" max="50" /></label>
       </div>
@@ -149,6 +151,34 @@ export function renderOrderExceptionCaseAdminConsole() {
       return item.updatedAtIso || item.createdAtIso || '-';
     }
 
+    function formatCaseSlaStage(stage) {
+      if (stage === 'acceptance') return '受理 SLA';
+      if (stage === 'resolution') return '解决 SLA';
+      return 'SLA';
+    }
+
+    function formatCaseSlaStatus(status) {
+      if (status === 'within_target') return '时限内';
+      if (status === 'overdue') return '已超时';
+      if (status === 'resolved_within_target') return '按时解决';
+      if (status === 'resolved_overdue') return '超时解决';
+      return 'SLA';
+    }
+
+    function formatCaseSlaMeta(sla) {
+      if (!sla || !sla.stage) return 'SLA 暂无数据';
+      if (typeof sla.overdueMinutes === 'number') {
+        return formatCaseSlaStage(sla.stage) + ' · 已超时 ' + String(sla.overdueMinutes) + ' 分钟';
+      }
+      if (typeof sla.remainingMinutes === 'number') {
+        if (sla.status === 'resolved_within_target') {
+          return formatCaseSlaStage(sla.stage) + ' · 提前 ' + String(sla.remainingMinutes) + ' 分钟完成';
+        }
+        return formatCaseSlaStage(sla.stage) + ' · 剩余 ' + String(sla.remainingMinutes) + ' 分钟';
+      }
+      return formatCaseSlaStage(sla.stage) + ' · ' + formatCaseSlaStatus(sla.status);
+    }
+
     function readOrderExceptionCaseRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -160,6 +190,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         sourceRole: query.get('sourceRole') || '',
         compensationStatus: query.get('compensationStatus') || '',
         appealStatus: query.get('appealStatus') || '',
+        slaStatus: query.get('slaStatus') || '',
         keyword: query.get('keyword') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
@@ -172,6 +203,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       document.getElementById('caseSourceRoleInput').value = routeState.sourceRole;
       document.getElementById('caseListCompensationStatusInput').value = routeState.compensationStatus;
       document.getElementById('caseListAppealStatusInput').value = routeState.appealStatus;
+      document.getElementById('caseListSlaStatusInput').value = routeState.slaStatus;
       document.getElementById('caseKeywordInput').value = routeState.keyword;
       if (routeState.pageSize) {
         document.getElementById('casePageSizeInput').value = String(
@@ -194,6 +226,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       const sourceRole = document.getElementById('caseSourceRoleInput').value;
       const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
       const appealStatus = document.getElementById('caseListAppealStatusInput').value;
+      const slaStatus = document.getElementById('caseListSlaStatusInput').value;
       const keyword = document.getElementById('caseKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('casePageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
@@ -201,6 +234,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (sourceRole) query.set('sourceRole', sourceRole);
       if (compensationStatus) query.set('compensationStatus', compensationStatus);
       if (appealStatus) query.set('appealStatus', appealStatus);
+      if (slaStatus) query.set('slaStatus', slaStatus);
       if (keyword) query.set('keyword', keyword);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
@@ -313,6 +347,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<div class="muted">最近更新：' + escapeHtml(formatCaseRecentActivity(item)) + '</div>' +
         '<div class="muted">赔付：' + escapeHtml(formatCompensationStatus(item.compensationStatus)) + '</div>' +
         '<div class="muted">申诉：' + escapeHtml(formatAppealStatus(item.appealStatus)) + '</div>' +
+        '<div class="muted">SLA：' + escapeHtml(formatCaseSlaMeta(item.sla)) + '</div>' +
       '</div>';
     }
 
@@ -322,6 +357,8 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<p>' + escapeHtml(item.typeLabel) + '：' + escapeHtml(item.description) + '</p>' +
         '<p>创建时间：' + escapeHtml(item.createdAtIso || '-') + '</p>' +
         '<p>更新时间：' + escapeHtml(formatCaseRecentActivity(item)) + '</p>' +
+        '<p>SLA：' + escapeHtml(formatCaseSlaMeta(item.sla)) + '</p>' +
+        '<p>SLA 目标时间：' + escapeHtml((item.sla && item.sla.targetAtIso) || '-') + '</p>' +
         '<p>附件：' + escapeHtml((item.attachmentFileIds || []).join(', ') || '无') + '</p>' +
         '<p>处理结论：' + escapeHtml(item.resolutionText || '暂无') + '</p>' +
         renderCompensationSnapshot(item);
@@ -335,11 +372,13 @@ export function renderOrderExceptionCaseAdminConsole() {
         const sourceRole = document.getElementById('caseSourceRoleInput').value;
         const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
         const appealStatus = document.getElementById('caseListAppealStatusInput').value;
+        const slaStatus = document.getElementById('caseListSlaStatusInput').value;
         const keyword = document.getElementById('caseKeywordInput').value.trim();
         if (status) query.set('status', status);
         if (sourceRole) query.set('sourceRole', sourceRole);
         if (compensationStatus) query.set('compensationStatus', compensationStatus);
         if (appealStatus) query.set('appealStatus', appealStatus);
+        if (slaStatus) query.set('slaStatus', slaStatus);
         if (keyword) query.set('keyword', keyword);
         syncOrderExceptionCaseRouteState(currentPage);
         const result = await api('/admin/order-exception-cases?' + query.toString());

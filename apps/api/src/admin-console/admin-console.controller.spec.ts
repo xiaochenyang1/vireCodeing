@@ -671,7 +671,7 @@ describe('order management admin console page', () => {
 });
 
 describe('order exception case admin console page', () => {
-  it('surfaces recent activity timestamps plus compensation filters in the list and detail view', () => {
+  it('surfaces recent activity timestamps plus SLA and compensation filters in the list and detail view', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
     expect(html).toContain('最近更新：');
@@ -680,14 +680,20 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('更新时间：');
     expect(html).toContain('caseListCompensationStatusInput');
     expect(html).toContain('caseListAppealStatusInput');
+    expect(html).toContain('caseListSlaStatusInput');
     expect(html).toContain('caseAppealDecisionInput');
     expect(html).toContain("query.get('compensationStatus')");
     expect(html).toContain("query.get('appealStatus')");
+    expect(html).toContain("query.get('slaStatus')");
     expect(html).toContain("query.set('compensationStatus', compensationStatus)");
     expect(html).toContain("query.set('appealStatus', appealStatus)");
+    expect(html).toContain("query.set('slaStatus', slaStatus)");
     expect(html).toContain('平台已赔付到账');
     expect(html).toContain('申诉：');
     expect(html).toContain('申诉裁定');
+    expect(html).toContain('SLA：');
+    expect(html).toContain('受理 SLA');
+    expect(html).toContain('解决 SLA');
   });
 });
 

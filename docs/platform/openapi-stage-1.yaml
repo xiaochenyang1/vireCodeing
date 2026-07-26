@@ -5652,6 +5652,7 @@ paths:
         - { name: sourceRole, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseSourceRole' } }
         - { name: compensationStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus' } }
         - { name: appealStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseAppealStatus' } }
+        - { name: slaStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseSlaStatus' } }
         - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
         - { name: createdFromIso, in: query, schema: { type: string, format: date-time } }
         - { name: createdToIso, in: query, schema: { type: string, format: date-time } }
@@ -12705,6 +12706,41 @@ components:
         appealDecision.
       enum: [none, requested, rejected, accepted]
       example: none
+    OrderExceptionCaseSlaStage:
+      type: string
+      description: >-
+        acceptance tracks the pending-case pickup window. resolution tracks the
+        active handling window after a case enters processing.
+      enum: [acceptance, resolution]
+      example: acceptance
+    OrderExceptionCaseSlaStatus:
+      type: string
+      description: >-
+        Derived exception-case SLA result. within_target and overdue represent open
+        queues; resolved_within_target and resolved_overdue represent completed
+        handling outcomes.
+      enum: [within_target, overdue, resolved_within_target, resolved_overdue]
+      example: overdue
+    OrderExceptionCaseSla:
+      type: object
+      required: [policyKey, stage, status, targetAtIso]
+      properties:
+        policyKey:
+          type: string
+          enum: [exception_case_default_v1]
+        stage:
+          $ref: '#/components/schemas/OrderExceptionCaseSlaStage'
+        status:
+          $ref: '#/components/schemas/OrderExceptionCaseSlaStatus'
+        targetAtIso:
+          type: string
+          format: date-time
+        remainingMinutes:
+          type: integer
+          minimum: 0
+        overdueMinutes:
+          type: integer
+          minimum: 0
     OrderExceptionCaseActionRecord:
       type: object
       required: [id, adminUserId, fromStatus, toStatus, content, createdAtIso]
@@ -12764,6 +12800,8 @@ components:
           format: date-time
         resolvedAtIso: { type: string, format: date-time }
         closedAtIso: { type: string, format: date-time }
+        sla:
+          $ref: '#/components/schemas/OrderExceptionCaseSla'
         createdAtIso: { type: string, format: date-time }
         updatedAtIso: { type: string, format: date-time }
         actions:

@@ -20,6 +20,7 @@ describe('order exception case validation', () => {
         sourceRole: 'driver',
         compensationStatus: 'pending',
         appealStatus: 'requested',
+        slaStatus: 'overdue',
         keyword: ' HY2026 ',
         createdFromIso: '2026-07-01T00:00:00.000Z',
         createdToIso: '2026-08-01T00:00:00.000Z',
@@ -31,6 +32,7 @@ describe('order exception case validation', () => {
       sourceRole: 'driver',
       compensationStatus: 'pending',
       appealStatus: 'requested',
+      slaStatus: 'overdue',
       keyword: 'HY2026',
       createdFromIso: '2026-07-01T00:00:00.000Z',
       createdToIso: '2026-08-01T00:00:00.000Z',
@@ -55,6 +57,11 @@ describe('order exception case validation', () => {
     expect(() =>
       parseOrderExceptionCaseListQuery({
         appealStatus: 'bad-status',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseOrderExceptionCaseListQuery({
+        slaStatus: 'bad-status',
       }),
     ).toThrow();
   });

@@ -97,6 +97,124 @@ describe('OrderExceptionCasesService', () => {
     });
   });
 
+  it('adds an acceptance SLA snapshot to open exception cases', async () => {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-12T08:00:00.000Z'),
+    );
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.reportDriverOrderException(order.id, 'driver-1', {
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+    });
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => new Date('2026-07-12T08:10:00.000Z'),
+    );
+
+    await expect(service.listForShipper('shipper-1', order.id)).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          status: 'pending',
+          sla: {
+            policyKey: 'exception_case_default_v1',
+            stage: 'acceptance',
+            status: 'within_target',
+            targetAtIso: '2026-07-12T08:15:00.000Z',
+            remainingMinutes: 5,
+          },
+        }),
+      ],
+    });
+  });
+
+  it('evaluates resolved exception cases against the latest processing transition', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.reportDriverOrderException(order.id, 'driver-1', {
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => currentTime,
+    );
+
+    currentTime = new Date('2026-07-12T08:30:00.000Z');
+    const processing = await service.processCase('admin-1', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '客服已经联系司机核实异常情况。',
+    });
+
+    currentTime = new Date('2026-07-12T11:45:00.000Z');
+    const resolved = await service.resolveCase('admin-1', created.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '双方确认外包装破损但货物完好。',
+      compensationStatus: 'not_required',
+    });
+
+    expect(resolved).toMatchObject({
+      status: 'resolved',
+      sla: {
+        policyKey: 'exception_case_default_v1',
+        stage: 'resolution',
+        status: 'resolved_within_target',
+        targetAtIso: '2026-07-12T12:30:00.000Z',
+        remainingMinutes: 45,
+      },
+    });
+  });
+
+  it('filters admin exception queues by derived SLA status', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => new Date('2026-07-12T08:20:00.000Z'),
+    );
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '第一张异常工单已经超过受理时限。',
+    });
+
+    currentTime = new Date('2026-07-12T08:10:00.000Z');
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '第二张异常工单仍在受理时限内。',
+    });
+
+    const result = await service.listForAdmin({
+      page: 1,
+      pageSize: 20,
+      slaStatus: 'overdue',
+    });
+
+    expect(result.page).toBe(1);
+    expect(result.pageSize).toBe(20);
+    expect(result.total).toBe(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        description: '第一张异常工单已经超过受理时限。',
+        sla: expect.objectContaining({
+          stage: 'acceptance',
+          status: 'overdue',
+          targetAtIso: '2026-07-12T08:15:00.000Z',
+          overdueMinutes: 5,
+        }),
+      }),
+    );
+  });
+
   it('processes, resolves and closes a case with public action history', async () => {
     const { exceptionCase, service } = await createCase();
 

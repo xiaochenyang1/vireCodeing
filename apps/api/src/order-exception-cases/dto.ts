@@ -22,6 +22,26 @@ export type OrderExceptionCaseAppealDecision = Extract<
   'rejected' | 'accepted'
 >;
 
+export type OrderExceptionCaseSlaPolicyKey =
+  'exception_case_default_v1';
+
+export type OrderExceptionCaseSlaStage = 'acceptance' | 'resolution';
+
+export type OrderExceptionCaseSlaStatus =
+  | 'within_target'
+  | 'overdue'
+  | 'resolved_within_target'
+  | 'resolved_overdue';
+
+export type OrderExceptionCaseSlaSnapshot = {
+  policyKey: OrderExceptionCaseSlaPolicyKey;
+  stage: OrderExceptionCaseSlaStage;
+  status: OrderExceptionCaseSlaStatus;
+  targetAtIso: string;
+  remainingMinutes?: number;
+  overdueMinutes?: number;
+};
+
 export type OrderExceptionCaseActionRecord = {
   id: string;
   adminUserId: string;
@@ -55,6 +75,7 @@ export type OrderExceptionCaseRecord = {
   appealRequestedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
+  sla?: OrderExceptionCaseSlaSnapshot;
   createdAtIso: string;
   updatedAtIso: string;
   actions: OrderExceptionCaseActionRecord[];
@@ -67,6 +88,7 @@ export type OrderExceptionCaseListQuery = {
   sourceRole?: OrderExceptionCaseSourceRole;
   compensationStatus?: OrderExceptionCaseCompensationStatus;
   appealStatus?: OrderExceptionCaseAppealStatus;
+  slaStatus?: OrderExceptionCaseSlaStatus;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;

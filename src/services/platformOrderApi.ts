@@ -151,6 +151,26 @@ export type PlatformOrderExceptionCaseAppealDecision = Extract<
   'accepted' | 'rejected'
 >;
 
+export type PlatformOrderExceptionCaseSlaPolicyKey =
+  'exception_case_default_v1';
+
+export type PlatformOrderExceptionCaseSlaStage = 'acceptance' | 'resolution';
+
+export type PlatformOrderExceptionCaseSlaStatus =
+  | 'within_target'
+  | 'overdue'
+  | 'resolved_within_target'
+  | 'resolved_overdue';
+
+export type PlatformOrderExceptionCaseSlaSnapshot = {
+  policyKey: PlatformOrderExceptionCaseSlaPolicyKey;
+  stage: PlatformOrderExceptionCaseSlaStage;
+  status: PlatformOrderExceptionCaseSlaStatus;
+  targetAtIso: string;
+  remainingMinutes?: number;
+  overdueMinutes?: number;
+};
+
 export type PlatformOrderLatestExceptionCase = {
   id: string;
   caseNo: string;
@@ -228,6 +248,7 @@ export type PlatformOrderExceptionCase = {
   appealRequestedAtIso?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
+  sla?: PlatformOrderExceptionCaseSlaSnapshot;
   createdAtIso: string;
   updatedAtIso: string;
   actions: PlatformOrderExceptionCaseAction[];
@@ -484,6 +505,7 @@ export type PlatformListAdminOrderExceptionCasesQuery = {
   sourceRole?: PlatformOrderExceptionCaseSourceRole;
   compensationStatus?: PlatformOrderExceptionCaseCompensationStatus;
   appealStatus?: PlatformOrderExceptionCaseAppealStatus;
+  slaStatus?: PlatformOrderExceptionCaseSlaStatus;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;
@@ -1837,6 +1859,12 @@ function normalizeAdminOrderExceptionCasesQuery(
     'Platform admin order exception appealStatus is invalid',
     ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
   ) as PlatformOrderExceptionCaseAppealStatus | undefined;
+  const slaStatus = normalizeOptionalTrimmedString(
+    query.slaStatus,
+    30,
+    'Platform admin order exception slaStatus is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as PlatformOrderExceptionCaseSlaStatus | undefined;
   const keyword = normalizeOptionalTrimmedString(
     query.keyword,
     80,
@@ -1912,6 +1940,20 @@ function normalizeAdminOrderExceptionCasesQuery(
     );
   }
 
+  if (
+    slaStatus !== undefined &&
+    slaStatus !== 'within_target' &&
+    slaStatus !== 'overdue' &&
+    slaStatus !== 'resolved_within_target' &&
+    slaStatus !== 'resolved_overdue'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception slaStatus is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
   if (!Number.isInteger(page) || page < 1) {
     throw new PlatformApiError(
       'Platform admin order exception page is invalid',
@@ -1956,6 +1998,7 @@ function normalizeAdminOrderExceptionCasesQuery(
     ...(sourceRole ? { sourceRole } : {}),
     ...(compensationStatus ? { compensationStatus } : {}),
     ...(appealStatus ? { appealStatus } : {}),
+    ...(slaStatus ? { slaStatus } : {}),
     ...(keyword ? { keyword } : {}),
     ...(createdFromIso ? { createdFromIso } : {}),
     ...(createdToIso ? { createdToIso } : {}),

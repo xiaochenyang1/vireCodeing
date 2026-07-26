@@ -79,7 +79,8 @@ const defaultModules = [
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
-    summary: '处理货主/司机异常工单，按赔付状态和申诉状态筛队列，并在申诉重开后补录 accepted / rejected 裁定。',
+    summary:
+      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列，并在申诉重开后补录 accepted / rejected 裁定。',
   },
   {
     key: 'shipper-coupon',

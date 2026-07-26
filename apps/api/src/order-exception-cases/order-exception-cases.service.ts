@@ -4,18 +4,28 @@ import { createAdminActionFingerprint } from '../payments/admin-finance.service'
 import type { NotificationsService } from '../notifications/notifications.service';
 import type {
   AppealOrderExceptionCaseRequest,
+  OrderExceptionCaseActionRecord,
+  OrderExceptionCaseRecord,
   ExecuteOrderExceptionCaseCompensationRequest,
   OrderExceptionCaseListQuery,
+  OrderExceptionCaseSlaSnapshot,
   OrderExceptionCaseSourceRole,
   OrderExceptionCaseStatus,
   ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 
+const EXCEPTION_CASE_SLA_POLICY_KEY = 'exception_case_default_v1';
+const EXCEPTION_CASE_ACCEPTANCE_TARGET_MS = 15 * 60 * 1000;
+const EXCEPTION_CASE_RESOLUTION_TARGET_MS = 4 * 60 * 60 * 1000;
+const EXCEPTION_CASE_SLA_MATCH_PAGE_SIZE = 200;
+const MILLIS_PER_MINUTE = 60 * 1000;
+
 export class OrderExceptionCasesService {
   constructor(
     private readonly repository: OrdersRepository,
     private readonly notificationsService?: NotificationsService,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async listForShipper(shipperId: string, orderId: string) {
@@ -25,7 +35,9 @@ export class OrderExceptionCasesService {
       throw notFoundError();
     }
 
-    return this.repository.listOrderExceptionCases(orderId);
+    const result = await this.repository.listOrderExceptionCases(orderId);
+
+    return mapOrderExceptionCaseListWithSla(result, this.now());
   }
 
   async listForDriver(driverId: string, orderId: string) {
@@ -38,14 +50,39 @@ export class OrderExceptionCasesService {
       throw notFoundError();
     }
 
-    return this.repository.listOrderExceptionCases(orderId);
+    const result = await this.repository.listOrderExceptionCases(orderId);
+
+    return mapOrderExceptionCaseListWithSla(result, this.now());
   }
 
   async listForAdmin(query: OrderExceptionCaseListQuery) {
-    const result = await this.repository.listAdminOrderExceptionCases(query);
+    const currentTime = this.now();
+
+    if (query.slaStatus) {
+      const filteredItems = (
+        await this.listAllAdminExceptionCasesMatching(query)
+      )
+        .map(exceptionCase =>
+          mapOrderExceptionCaseWithSla(exceptionCase, currentTime),
+        )
+        .filter(exceptionCase => exceptionCase.sla?.status === query.slaStatus);
+
+      return createAdminOrderExceptionCasePage(
+        filteredItems,
+        query.page,
+        query.pageSize,
+      );
+    }
+
+    const result = await this.repository.listAdminOrderExceptionCases(
+      toAdminOrderExceptionCaseMatchQuery(query),
+    );
 
     return {
       ...result,
+      items: result.items.map(exceptionCase =>
+        mapOrderExceptionCaseWithSla(exceptionCase, currentTime),
+      ),
       page: query.page,
       pageSize: query.pageSize,
     };
@@ -58,7 +95,7 @@ export class OrderExceptionCasesService {
       throw notFoundError();
     }
 
-    return exceptionCase;
+    return mapOrderExceptionCaseWithSla(exceptionCase, this.now());
   }
 
   async processCase(
@@ -137,7 +174,7 @@ export class OrderExceptionCasesService {
           driverId: order?.assignedDriverId,
           compensationTargetRole: result.exceptionCase.compensationTargetRole,
         });
-        return result.exceptionCase;
+        return mapOrderExceptionCaseWithSla(result.exceptionCase, this.now());
       }
       case 'not-found':
         throw notFoundError();
@@ -218,7 +255,7 @@ export class OrderExceptionCasesService {
           driverId: order?.assignedDriverId,
           actorRole,
         });
-        return result.exceptionCase;
+        return mapOrderExceptionCaseWithSla(result.exceptionCase, this.now());
       }
       case 'not-found':
         throw notFoundError();
@@ -288,7 +325,35 @@ export class OrderExceptionCasesService {
       });
     }
 
-    return result;
+    return mapOrderExceptionCaseWithSla(result, this.now());
+  }
+
+  private async listAllAdminExceptionCasesMatching(
+    query: OrderExceptionCaseListQuery,
+  ) {
+    const items: OrderExceptionCaseRecord[] = [];
+    const baseQuery = toAdminOrderExceptionCaseMatchQuery(query);
+    let page = 1;
+
+    while (true) {
+      const result = await this.repository.listAdminOrderExceptionCases({
+        ...baseQuery,
+        page,
+        pageSize: EXCEPTION_CASE_SLA_MATCH_PAGE_SIZE,
+      });
+
+      items.push(...result.items);
+
+      if (
+        result.items.length === 0 ||
+        items.length >= result.total ||
+        result.items.length < EXCEPTION_CASE_SLA_MATCH_PAGE_SIZE
+      ) {
+        return items;
+      }
+
+      page += 1;
+    }
   }
 
   private async safeNotifyExceptionEvent(input: {
@@ -325,4 +390,190 @@ function notFoundError() {
     ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
     '异常工单不存在',
   );
+}
+
+function mapOrderExceptionCaseListWithSla(
+  result: {
+    items: OrderExceptionCaseRecord[];
+    total: number;
+  },
+  now: Date,
+) {
+  return {
+    ...result,
+    items: result.items.map(exceptionCase =>
+      mapOrderExceptionCaseWithSla(exceptionCase, now),
+    ),
+  };
+}
+
+function mapOrderExceptionCaseWithSla(
+  exceptionCase: OrderExceptionCaseRecord,
+  now: Date,
+): OrderExceptionCaseRecord {
+  return {
+    ...exceptionCase,
+    sla: buildOrderExceptionCaseSlaSnapshot(exceptionCase, now),
+  };
+}
+
+function buildOrderExceptionCaseSlaSnapshot(
+  exceptionCase: OrderExceptionCaseRecord,
+  now: Date,
+): OrderExceptionCaseSlaSnapshot {
+  if (exceptionCase.status === 'pending') {
+    const targetTimestamp =
+      parseTimestamp(exceptionCase.createdAtIso, now.getTime()) +
+      EXCEPTION_CASE_ACCEPTANCE_TARGET_MS;
+
+    return buildOpenOrderExceptionCaseSla(
+      'acceptance',
+      targetTimestamp,
+      now.getTime(),
+    );
+  }
+
+  const resolutionAnchorTimestamp = parseTimestamp(
+    findOrderExceptionCaseTransitionIso(
+      exceptionCase.actions,
+      'processing',
+      exceptionCase.updatedAtIso,
+    ),
+    parseTimestamp(exceptionCase.updatedAtIso, now.getTime()),
+  );
+  const targetTimestamp =
+    resolutionAnchorTimestamp + EXCEPTION_CASE_RESOLUTION_TARGET_MS;
+
+  if (
+    exceptionCase.status === 'resolved' ||
+    exceptionCase.status === 'closed'
+  ) {
+    return buildResolvedOrderExceptionCaseSla(
+      targetTimestamp,
+      parseTimestamp(
+        exceptionCase.resolvedAtIso ??
+          exceptionCase.closedAtIso ??
+          exceptionCase.updatedAtIso,
+        now.getTime(),
+      ),
+    );
+  }
+
+  return buildOpenOrderExceptionCaseSla(
+    'resolution',
+    targetTimestamp,
+    now.getTime(),
+  );
+}
+
+function buildOpenOrderExceptionCaseSla(
+  stage: OrderExceptionCaseSlaSnapshot['stage'],
+  targetTimestamp: number,
+  evaluationTimestamp: number,
+): OrderExceptionCaseSlaSnapshot {
+  if (evaluationTimestamp > targetTimestamp) {
+    return {
+      policyKey: EXCEPTION_CASE_SLA_POLICY_KEY,
+      stage,
+      status: 'overdue',
+      targetAtIso: new Date(targetTimestamp).toISOString(),
+      overdueMinutes: calculateSlaMinutes(
+        evaluationTimestamp - targetTimestamp,
+      ),
+    };
+  }
+
+  return {
+    policyKey: EXCEPTION_CASE_SLA_POLICY_KEY,
+    stage,
+    status: 'within_target',
+    targetAtIso: new Date(targetTimestamp).toISOString(),
+    remainingMinutes: calculateSlaMinutes(
+      targetTimestamp - evaluationTimestamp,
+    ),
+  };
+}
+
+function buildResolvedOrderExceptionCaseSla(
+  targetTimestamp: number,
+  resolvedTimestamp: number,
+): OrderExceptionCaseSlaSnapshot {
+  if (resolvedTimestamp > targetTimestamp) {
+    return {
+      policyKey: EXCEPTION_CASE_SLA_POLICY_KEY,
+      stage: 'resolution',
+      status: 'resolved_overdue',
+      targetAtIso: new Date(targetTimestamp).toISOString(),
+      overdueMinutes: calculateSlaMinutes(
+        resolvedTimestamp - targetTimestamp,
+      ),
+    };
+  }
+
+  return {
+    policyKey: EXCEPTION_CASE_SLA_POLICY_KEY,
+    stage: 'resolution',
+    status: 'resolved_within_target',
+    targetAtIso: new Date(targetTimestamp).toISOString(),
+    remainingMinutes: calculateSlaMinutes(
+      targetTimestamp - resolvedTimestamp,
+    ),
+  };
+}
+
+function findOrderExceptionCaseTransitionIso(
+  actions: OrderExceptionCaseActionRecord[],
+  toStatus: OrderExceptionCaseStatus,
+  fallbackIso: string,
+) {
+  for (let index = actions.length - 1; index >= 0; index -= 1) {
+    if (actions[index]?.toStatus === toStatus) {
+      return actions[index].createdAtIso;
+    }
+  }
+
+  return fallbackIso;
+}
+
+function parseTimestamp(value: string | undefined, fallback: number) {
+  const timestamp = Date.parse(value ?? '');
+
+  return Number.isNaN(timestamp) ? fallback : timestamp;
+}
+
+function calculateSlaMinutes(deltaMs: number) {
+  return Math.max(0, Math.ceil(deltaMs / MILLIS_PER_MINUTE));
+}
+
+function toAdminOrderExceptionCaseMatchQuery(
+  query: OrderExceptionCaseListQuery,
+) {
+  return {
+    page: query.page,
+    pageSize: query.pageSize,
+    ...(query.status ? { status: query.status } : {}),
+    ...(query.sourceRole ? { sourceRole: query.sourceRole } : {}),
+    ...(query.compensationStatus
+      ? { compensationStatus: query.compensationStatus }
+      : {}),
+    ...(query.appealStatus ? { appealStatus: query.appealStatus } : {}),
+    ...(query.keyword ? { keyword: query.keyword } : {}),
+    ...(query.createdFromIso ? { createdFromIso: query.createdFromIso } : {}),
+    ...(query.createdToIso ? { createdToIso: query.createdToIso } : {}),
+  };
+}
+
+function createAdminOrderExceptionCasePage(
+  items: OrderExceptionCaseRecord[],
+  page: number,
+  pageSize: number,
+) {
+  const startIndex = (page - 1) * pageSize;
+
+  return {
+    items: items.slice(startIndex, startIndex + pageSize),
+    page,
+    pageSize,
+    total: items.length,
+  };
 }

@@ -32,6 +32,14 @@ export const orderExceptionCaseListQuerySchema = z
     appealStatus: z
       .enum(['none', 'requested', 'rejected', 'accepted'])
       .optional(),
+    slaStatus: z
+      .enum([
+        'within_target',
+        'overdue',
+        'resolved_within_target',
+        'resolved_overdue',
+      ])
+      .optional(),
     keyword: z
       .string()
       .trim()

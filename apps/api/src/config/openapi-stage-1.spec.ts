@@ -1099,11 +1099,17 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('OrderExceptionCaseStatus');
     expect(source).toContain('OrderExceptionCaseCompensationStatus');
     expect(source).toContain('OrderExceptionCaseSourceRole');
+    expect(source).toContain('OrderExceptionCaseSla');
+    expect(source).toContain('OrderExceptionCaseSlaStage');
+    expect(source).toContain('OrderExceptionCaseSlaStatus');
     expect(source).toContain('ResolveOrderExceptionCaseRequest');
     expect(source).toContain('compensationStatus');
     expect(source).toContain('appealDecision');
     expect(source).toContain('compensationTargetRole');
     expect(source).toContain('compensationAmountCents');
+    expect(source).toContain('sla');
+    expect(source).toContain('targetAtIso');
+    expect(source).toContain('overdueMinutes');
     expect(source).toContain('baseUpdatedAtIso');
     expect(source).toContain('EXCEPTION_CASE_NOT_FOUND');
     expect(source).toContain('EXCEPTION_CASE_STATE_INVALID');
@@ -1117,6 +1123,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases',
       'name: appealStatus',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases',
+      'name: slaStatus',
     );
   });
 
