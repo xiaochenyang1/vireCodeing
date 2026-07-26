@@ -73,14 +73,14 @@ const defaultModules = [
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
     summary:
-      '分页查看货主帮助中心工单、按 SLA/认领状态筛队列、查看 SLA 提醒和详情，并可对 open 工单认领或释放认领后再推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
+      '分页查看货主帮助中心工单、按 SLA/认领状态筛队列、查看 SLA 提醒和详情，并可对 open 工单认领、指派 / 转派或释放认领后再推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
   },
   {
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
     summary:
-      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；也能先认领到当前客服或释放认领，再执行超时升级扫描并把升级消息回流给相关方。',
+      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；也能先认领到当前客服、再指派 / 转派或释放认领，再执行超时升级扫描并把升级消息回流给相关方。',
   },
   {
     key: 'shipper-coupon',
@@ -282,6 +282,13 @@ export function renderAdminConsoleHome() {
       font-weight: 700;
       text-decoration: none;
     }
+    .module-card-links {
+      margin-top: 8px;
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
     .module-card h3 { margin: 10px 0 8px; font-size: 18px; }
     .metric-row {
       display: flex;
@@ -386,6 +393,7 @@ export function renderAdminConsoleHome() {
     const defaultModules = ${JSON.stringify(defaultModules)};
     const defaultGaps = ${JSON.stringify(defaultGaps)};
     let latestOverviewRequestId = 0;
+    let currentAdminUserId = '';
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/console',
     })}
@@ -445,6 +453,23 @@ export function renderAdminConsoleHome() {
       window.location.href = route;
     }
 
+    function isCustomerServiceModule(module) {
+      return module && (
+        module.key === 'support-ticket' ||
+        module.key === 'order-exception-case'
+      );
+    }
+
+    function buildOverviewMyClaimRoute(route) {
+      if (!route || !currentAdminUserId) {
+        return '';
+      }
+      return route +
+        (route.indexOf('?') === -1 ? '?' : '&') +
+        'claimStatus=claimed&claimedByAdminUserId=' +
+        encodeURIComponent(currentAdminUserId);
+    }
+
     function renderSummaryCards(overview) {
       const summaryGrid = document.getElementById('overviewSummaryGrid');
       const implementedCount = overview ? Number(overview.implementedConsoleCount || 0) : defaultModules.length;
@@ -480,6 +505,17 @@ export function renderAdminConsoleHome() {
       moduleGrid.innerHTML = (Array.isArray(modules) ? modules : defaultModules).map(function(module) {
         const metrics = Array.isArray(module.metrics) ? module.metrics : [];
         const pendingGaps = Array.isArray(module.pendingGaps) ? module.pendingGaps : [];
+        const myClaimRoute = isCustomerServiceModule(module)
+          ? buildOverviewMyClaimRoute(module.route)
+          : '';
+        const moduleLinkButtons = [
+          '<a class="module-card-link" href="' + escapeHtml(module.route) + '" onclick="event.stopPropagation()">进入工具台</a>',
+        ];
+        if (myClaimRoute) {
+          moduleLinkButtons.push(
+            '<a class="module-card-link" href="' + escapeHtml(myClaimRoute) + '" onclick="event.stopPropagation()">我的认领单</a>',
+          );
+        }
         return '<article class="module-card" data-route="' + escapeHtml(module.route) + '" onclick="handleOverviewModuleCardClick(event, this.dataset.route)">' +
           '<div class="module-top">' +
             '<div>' +
@@ -488,7 +524,7 @@ export function renderAdminConsoleHome() {
             '</div>' +
             '<div>' +
               '<span class="stage-chip">' + escapeHtml(formatStage(module.stage || 'first_slice')) + '</span>' +
-              '<div style="margin-top:8px;text-align:right"><a class="module-card-link" href="' + escapeHtml(module.route) + '" onclick="event.stopPropagation()">进入工具台</a></div>' +
+              '<div class="module-card-links">' + moduleLinkButtons.join('') + '</div>' +
             '</div>' +
           '</div>' +
           '<p class="muted">' + escapeHtml(module.summary || '') + '</p>' +
@@ -549,10 +585,16 @@ export function renderAdminConsoleHome() {
       }
     }
 
+    const currentAdminSession = initializeAdminSession();
+    currentAdminUserId =
+      currentAdminSession &&
+      currentAdminSession.user &&
+      typeof currentAdminSession.user.id === 'string'
+        ? currentAdminSession.user.id.trim()
+        : '';
     renderSummaryCards();
     renderModuleGrid(defaultModules);
     renderRemainingGaps(defaultGaps);
-    const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadAdminConsoleOverview();
     }
