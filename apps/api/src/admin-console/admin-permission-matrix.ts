@@ -368,10 +368,13 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     key: 'evaluation_audit_read',
     title: '只读审计评价记录',
     moduleKey: 'evaluation-audit',
-    summary: '读取货主/司机评价方向、评分、内容、标签和图片文件引用。',
+    summary: '读取货主/司机评价方向、评分、内容、标签和图片附件预览元数据。',
     actions: ['read'],
     riskLevel: 'sensitive',
-    apiPaths: ['/admin/evaluations'],
+    apiPaths: [
+      '/admin/evaluations',
+      '/admin/evaluations/{evaluationId}/attachments',
+    ],
   },
   {
     key: 'finance_manage',

@@ -471,6 +471,21 @@ export type PlatformAdminEvaluationAuditListResult = {
   total: number;
 };
 
+export type PlatformAdminEvaluationAuditAttachmentRecord =
+  PlatformFileUploadRecord & {
+    previewUrl?: string;
+    previewExpiresAtIso?: string;
+  };
+
+export type PlatformAdminEvaluationAuditAttachmentPreview = {
+  evaluationId: string;
+  orderId: string;
+  orderNo: string;
+  photoCount: number;
+  items: PlatformAdminEvaluationAuditAttachmentRecord[];
+  missingFileIds: string[];
+};
+
 export type PlatformSaveProfileAddressBookRequest = {
   addresses: PlatformProfileAddressBookAddress[];
   contacts: PlatformProfileAddressBookContact[];
@@ -682,6 +697,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       return platformGet<PlatformAdminEvaluationAuditListResult>(
         config,
         `/admin/evaluations?${new URLSearchParams(normalizedQuery).toString()}`,
+      );
+    },
+    async getAdminEvaluationAuditAttachments(evaluationId: string) {
+      return platformGet<PlatformAdminEvaluationAuditAttachmentPreview>(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/attachments`,
       );
     },
     async createInvoiceApplication(
@@ -1252,6 +1275,15 @@ function normalizeAdminEvaluationAuditListQuery(
     page: String(page),
     pageSize: String(pageSize),
   };
+}
+
+function normalizeAdminEvaluationAuditId(evaluationId: string) {
+  return normalizeRequiredString(
+    evaluationId,
+    120,
+    'Admin evaluation audit id is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
 }
 
 function normalizeListAdminShipperVerificationQuery(

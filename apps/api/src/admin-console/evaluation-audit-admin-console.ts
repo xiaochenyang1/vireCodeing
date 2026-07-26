@@ -77,6 +77,7 @@ export function renderEvaluationAuditAdminConsole() {
       <div id="auditTags" class="tag-list"></div>
       <div id="auditPhotoPanel" class="detail-card" hidden>
         <strong>图片文件</strong>
+        <p id="auditPhotoNotice" class="muted"></p>
         <ul id="auditPhotoList"></ul>
       </div>
     </section>
@@ -88,6 +89,7 @@ export function renderEvaluationAuditAdminConsole() {
     let currentItems = [];
     let selectedAuditId = '';
     let latestAuditRequestId = 0;
+    let latestAuditAttachmentRequestId = 0;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/evaluation-audit-console',
     })}
@@ -158,6 +160,7 @@ export function renderEvaluationAuditAdminConsole() {
           selectedAuditId = '';
           document.getElementById('auditDetail').innerHTML = '<p class="muted">当前筛选条件下暂无评价记录</p>';
           document.getElementById('auditTags').innerHTML = '';
+          document.getElementById('auditPhotoNotice').textContent = '';
           document.getElementById('auditPhotoList').innerHTML = '';
           document.getElementById('auditPhotoPanel').hidden = true;
         }
@@ -179,6 +182,7 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditNextPage').disabled = true;
       document.getElementById('auditDetail').innerHTML = '<p class="muted">暂无可展示的评价详情</p>';
       document.getElementById('auditTags').innerHTML = '';
+      document.getElementById('auditPhotoNotice').textContent = '';
       document.getElementById('auditPhotoList').innerHTML = '';
       document.getElementById('auditPhotoPanel').hidden = true;
     }
@@ -218,11 +222,68 @@ export function renderEvaluationAuditAdminConsole() {
         '</div>' +
         '<div class="detail-card"><strong>评价内容</strong><p>' + escapeHtml(item.content) + '</p><div class="muted">提交时间：' + escapeHtml(item.submittedAtIso) + '</div></div>';
       document.getElementById('auditTags').innerHTML = (item.tags || []).map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('');
+      loadAuditAttachments(item);
+    }
+
+    async function loadAuditAttachments(item) {
       const photoFileIds = Array.isArray(item.photoFileIds) ? item.photoFileIds : [];
-      document.getElementById('auditPhotoList').innerHTML = photoFileIds.length
-        ? photoFileIds.map(fileId => '<li>' + escapeHtml(fileId) + '</li>').join('')
-        : '<li>无图片文件</li>';
-      document.getElementById('auditPhotoPanel').hidden = item.photoCount === 0 && photoFileIds.length === 0;
+      const panel = document.getElementById('auditPhotoPanel');
+      const notice = document.getElementById('auditPhotoNotice');
+      const list = document.getElementById('auditPhotoList');
+      if (item.photoCount === 0 && photoFileIds.length === 0) {
+        notice.textContent = '';
+        list.innerHTML = '';
+        panel.hidden = true;
+        return;
+      }
+
+      panel.hidden = false;
+      notice.textContent = '图片附件加载中...';
+      list.innerHTML = '';
+      const requestId = ++latestAuditAttachmentRequestId;
+
+      try {
+        const preview = await api('/admin/evaluations/' + encodeURIComponent(item.id) + '/attachments');
+        if (requestId !== latestAuditAttachmentRequestId) return;
+        renderAuditAttachments(preview);
+      } catch (error) {
+        if (requestId !== latestAuditAttachmentRequestId) return;
+        notice.textContent = error.message || '图片附件加载失败';
+        list.innerHTML = photoFileIds.length
+          ? photoFileIds.map(fileId => '<li>文件 ID：' + escapeHtml(fileId) + '</li>').join('')
+          : '<li>暂无可展示附件</li>';
+      }
+    }
+
+    function renderAuditAttachments(preview) {
+      const items = Array.isArray(preview.items) ? preview.items : [];
+      const missingFileIds = Array.isArray(preview.missingFileIds) ? preview.missingFileIds : [];
+      const photoCount = Number(preview.photoCount || 0);
+
+      document.getElementById('auditPhotoNotice').textContent = items.length
+        ? '已加载 ' + items.length + ' 个可预览附件'
+        : missingFileIds.length
+          ? '当前评价图片存在缺失或不可预览文件'
+          : photoCount > 0
+            ? '历史评价标记了图片凭证，但当前没有可预览文件引用'
+            : '';
+
+      document.getElementById('auditPhotoList').innerHTML = [
+        ...items.map(item =>
+          '<li><strong>文件 ID：</strong>' + escapeHtml(item.id) +
+            '<br><span class="muted">状态：' + escapeHtml(item.status) + ' · objectKey：' + escapeHtml(item.objectKey) + '</span>' +
+            '<br><a href="' + escapeHtml(item.previewUrl || item.publicUrl || '#') + '" target="_blank" rel="noreferrer">打开预览</a>' +
+            '<span class="muted"> · 过期：' + escapeHtml(item.previewExpiresAtIso || '-') + '</span></li>'
+        ),
+        ...(missingFileIds.length
+          ? ['<li>缺失文件：' + escapeHtml(missingFileIds.join(', ')) + '</li>']
+          : []),
+        ...(!items.length && !missingFileIds.length
+          ? ['<li>暂无可展示附件</li>']
+          : []),
+      ].join('');
+      document.getElementById('auditPhotoPanel').hidden =
+        items.length === 0 && missingFileIds.length === 0 && photoCount === 0;
     }
 
     initializeAdminSession();

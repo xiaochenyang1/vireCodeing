@@ -1,3 +1,5 @@
+import type { FileUploadRecord } from '../files/dto';
+
 export type ShipperProfileEvaluationRecord = {
   id: string;
   orderId: string;
@@ -73,6 +75,20 @@ export type AdminEvaluationAuditListResult = {
   page: number;
   pageSize: number;
   total: number;
+};
+
+export type AdminEvaluationAuditAttachmentRecord = FileUploadRecord & {
+  previewUrl?: string;
+  previewExpiresAtIso?: string;
+};
+
+export type AdminEvaluationAuditAttachmentPreview = {
+  evaluationId: string;
+  orderId: string;
+  orderNo: string;
+  photoCount: number;
+  items: AdminEvaluationAuditAttachmentRecord[];
+  missingFileIds: string[];
 };
 
 export type ShipperProfileEvaluationOrderEventRecord = {

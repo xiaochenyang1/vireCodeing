@@ -6,6 +6,9 @@ export interface ProfileEvaluationsRepository {
     shipperId: string,
   ): Promise<ShipperProfileEvaluationOrderRecord[]>;
   listAdminEvaluationOrders(): Promise<ShipperProfileEvaluationOrderRecord[]>;
+  findAdminEvaluationOrderByEventId(
+    evaluationId: string,
+  ): Promise<ShipperProfileEvaluationOrderRecord | undefined>;
 }
 
 export class InMemoryProfileEvaluationsRepository
@@ -38,6 +41,16 @@ export class InMemoryProfileEvaluationsRepository
   async listAdminEvaluationOrders() {
     return this.orders.filter(order =>
       order.events.some(event => isEvaluationAuditEventType(event.eventType)),
+    );
+  }
+
+  async findAdminEvaluationOrderByEventId(evaluationId: string) {
+    return this.orders.find(order =>
+      order.events.some(
+        event =>
+          event.id === evaluationId &&
+          isEvaluationAuditEventType(event.eventType),
+      ),
     );
   }
 }
@@ -82,6 +95,30 @@ export type PrismaProfileEvaluationsClient = {
         updatedAt: 'desc';
       };
     }): Promise<PrismaProfileEvaluationOrderRecord[]>;
+    findFirst(args: {
+      where: Record<string, unknown>;
+      select: {
+        id: true;
+        shipperId: true;
+        orderNo: true;
+        events: {
+          select: {
+            id: true;
+            actorUserId: true;
+            eventType: true;
+            noteText: true;
+            attachmentFileIds: true;
+            createdAt: true;
+          };
+          orderBy: {
+            createdAt: 'asc';
+          };
+        };
+      };
+      orderBy: {
+        updatedAt: 'desc';
+      };
+    }): Promise<PrismaProfileEvaluationOrderRecord | null>;
   };
 };
 
@@ -136,6 +173,44 @@ export class PrismaProfileEvaluationsRepository
     });
 
     return orders.map(mapPrismaProfileEvaluationOrder);
+  }
+
+  async findAdminEvaluationOrderByEventId(evaluationId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: {
+        events: {
+          some: {
+            id: evaluationId,
+            eventType: {
+              in: ['evaluation_submitted', 'shipper_evaluation_submitted'],
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        shipperId: true,
+        orderNo: true,
+        events: {
+          select: {
+            id: true,
+            actorUserId: true,
+            eventType: true,
+            noteText: true,
+            attachmentFileIds: true,
+            createdAt: true,
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    return order ? mapPrismaProfileEvaluationOrder(order) : undefined;
   }
 
   private async listOrdersByEventType(shipperId: string, eventType: string) {

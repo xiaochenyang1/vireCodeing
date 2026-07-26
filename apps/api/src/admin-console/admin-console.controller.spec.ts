@@ -83,6 +83,11 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain('auditRatingInput');
     expect(html).toContain('auditKeywordInput');
     expect(html).toContain('/admin/evaluations?');
+    expect(html).toContain('/admin/evaluations/');
+    expect(html).toContain('/attachments');
+    expect(html).toContain('loadAuditAttachments');
+    expect(html).toContain('auditPhotoNotice');
+    expect(html).toContain('打开预览');
     expect(html).toContain('/api/admin/file-maintenance-console');
     expect(html).toContain('/api/admin/order-exception-case-console');
   });
@@ -1029,6 +1034,7 @@ describe('AdminConsoleController', () => {
     const controller = new AdminConsoleController();
 
     expect(controller.getEvaluationAuditConsole()).toContain('评价审计台');
+    expect(controller.getEvaluationAuditConsole()).toContain('/attachments');
   });
 
   it('serves the finance console html', () => {

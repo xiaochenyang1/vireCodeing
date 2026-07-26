@@ -224,6 +224,10 @@ describe('AdminPermissionMatrixService', () => {
             moduleKey: 'evaluation-audit',
             actions: ['read'],
             riskLevel: 'sensitive',
+            apiPaths: expect.arrayContaining([
+              '/admin/evaluations',
+              '/admin/evaluations/{evaluationId}/attachments',
+            ]),
           }),
           expect.objectContaining({
             key: 'finance_manage',

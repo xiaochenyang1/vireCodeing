@@ -1793,6 +1793,46 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/evaluations/{evaluationId}/attachments:
+    get:
+      summary: Get admin evaluation audit attachment previews
+      description: Returns previewable evaluation attachment metadata derived from the selected evaluation event photoFileIds. Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: admin-evaluation-audit-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin evaluation audit attachment preview metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationAuditAttachmentPreviewResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Evaluation audit record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: EVALUATION_AUDIT_NOT_FOUND
+                message: 评价审计记录不存在
+                requestId: req_local
+                timestamp: '2026-07-26T08:00:00.000Z'
   /shipper/profile/coupons:
     get:
       summary: List current shipper coupon wallet
@@ -12005,6 +12045,62 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminEvaluationAuditListResult'
+    AdminEvaluationAuditAttachmentRecord:
+      allOf:
+        - $ref: '#/components/schemas/FileUploadRecord'
+        - type: object
+          required: [previewUrl, previewExpiresAtIso]
+          properties:
+            previewUrl:
+              type: string
+              format: uri
+              description: Signed short-lived preview URL for admin evaluation audit attachment review.
+              example: 'https://cdn.example.com/evaluations/file-audit-1.png?expiresAtIso=2026-07-26T08%3A10%3A00.000Z&signature=local-signature'
+            previewExpiresAtIso:
+              type: string
+              format: date-time
+              description: Expiration time for the signed preview URL.
+              example: '2026-07-26T08:10:00.000Z'
+    AdminEvaluationAuditAttachmentPreview:
+      type: object
+      required: [evaluationId, orderId, orderNo, photoCount, items, missingFileIds]
+      properties:
+        evaluationId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: admin-evaluation-audit-1
+        orderId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: order-platform-1
+        orderNo:
+          type: string
+          minLength: 1
+          maxLength: 40
+          example: HY202607090001
+        photoCount:
+          type: integer
+          minimum: 0
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminEvaluationAuditAttachmentRecord'
+        missingFileIds:
+          type: array
+          items:
+            type: string
+          example: [file-missing]
+    AdminEvaluationAuditAttachmentPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminEvaluationAuditAttachmentPreview'
     ShipperCouponStatus:
       type: string
       enum: [usable, locked, used, expired]

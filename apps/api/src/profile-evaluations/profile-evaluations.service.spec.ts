@@ -1,3 +1,6 @@
+import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { FilesRepository } from '../files/files.repository';
+import { LocalFilePreviewUrlSigner } from '../files/file-preview-url.signer';
 import { InMemoryProfileEvaluationsRepository } from './profile-evaluations.repository';
 import { ProfileEvaluationsService } from './profile-evaluations.service';
 
@@ -453,6 +456,118 @@ describe('ProfileEvaluationsService', () => {
       });
   });
 
+  it('returns admin evaluation attachment previews with missing file hints', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-audit-attachments',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090105',
+          events: [
+            createEvent({
+              id: 'accepted-audit-attachments',
+              actorUserId: 'driver-1',
+              eventType: 'driver_accepted',
+              noteText: JSON.stringify({
+                noteText: '司机接单',
+                driverSnapshot: {
+                  driverName: '李师傅',
+                },
+              }),
+              createdAtIso: '2026-07-09T07:30:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-attachment-1',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时送达；图片凭证 3 张；司机服务细致',
+              attachmentFileIds: ['file-eval-1', 'file-missing', 'file-pending'],
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const filesRepository = {
+      findFilesByIds: jest.fn().mockResolvedValue([
+        createFileRecord({
+          id: 'file-eval-1',
+          ownerUserId: 'shipper-1',
+          purpose: 'evaluation',
+          status: 'uploaded',
+          objectKey: 'shipper-1/evaluation/file-eval-1.png',
+        }),
+        createFileRecord({
+          id: 'file-pending',
+          ownerUserId: 'shipper-1',
+          purpose: 'evaluation',
+          status: 'pending',
+          objectKey: 'shipper-1/evaluation/file-pending.png',
+        }),
+      ]),
+    } as unknown as FilesRepository;
+    const previewUrlSigner = new LocalFilePreviewUrlSigner({
+      previewUrlBase: 'https://files.example.com/previews',
+      previewExpiresInSeconds: 600,
+      signingSecret: 'preview-secret',
+      now: () => new Date('2026-07-09T09:05:00.000Z'),
+    });
+    const service = new ProfileEvaluationsService(
+      repository,
+      filesRepository,
+      previewUrlSigner,
+    );
+
+    await expect(
+      service.getAdminEvaluationAuditAttachments(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'audit-attachment-1',
+      ),
+    ).resolves.toEqual({
+      evaluationId: 'audit-attachment-1',
+      orderId: 'order-audit-attachments',
+      orderNo: 'HY202607090105',
+      photoCount: 3,
+      items: [
+        expect.objectContaining({
+          id: 'file-eval-1',
+          purpose: 'evaluation',
+          status: 'uploaded',
+          previewUrl: expect.stringContaining(
+            'https://files.example.com/previews/shipper-1/evaluation/file-eval-1.png?',
+          ),
+          previewExpiresAtIso: '2026-07-09T09:15:00.000Z',
+        }),
+      ],
+      missingFileIds: ['file-missing', 'file-pending'],
+    });
+    expect(filesRepository.findFilesByIds).toHaveBeenCalledWith([
+      'file-eval-1',
+      'file-missing',
+      'file-pending',
+    ]);
+  });
+
+  it('rejects missing admin evaluation attachment previews with not found', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository();
+    const service = new ProfileEvaluationsService(
+      repository,
+      { findFilesByIds: jest.fn() } as unknown as FilesRepository,
+    );
+
+    await expect(
+      service.getAdminEvaluationAuditAttachments(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'missing-evaluation',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.EVALUATION_AUDIT_NOT_FOUND,
+        '评价审计记录不存在',
+      ),
+    );
+  });
+
   it('filters admin evaluation audit records by direction, rating, and keyword', async () => {
     const repository = new InMemoryProfileEvaluationsRepository({
       orders: [
@@ -905,6 +1020,29 @@ function createEvent(
     eventType: 'evaluation_submitted',
     noteText: '5 星：准时；服务不错',
     createdAtIso: '2026-07-09T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function createFileRecord(
+  overrides: Partial<{
+    id: string;
+    ownerUserId: string;
+    purpose: 'evaluation' | 'identity';
+    status: 'pending' | 'uploaded' | 'rejected';
+    objectKey: string;
+  }> = {},
+) {
+  return {
+    id: 'file-1',
+    ownerUserId: 'shipper-1',
+    purpose: 'evaluation' as const,
+    contentType: 'image/png',
+    byteSize: 1024,
+    objectKey: 'shipper-1/evaluation/file-1.png',
+    publicUrl: 'https://cdn.example.com/file-1.png',
+    status: 'uploaded' as const,
+    createdAtIso: '2026-07-09T08:30:00.000Z',
     ...overrides,
   };
 }

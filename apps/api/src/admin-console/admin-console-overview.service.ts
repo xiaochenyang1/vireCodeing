@@ -374,7 +374,7 @@ function createModules(
       route: '/api/admin/evaluation-audit-console',
       stage: 'first_slice',
       summary:
-        '已经能只读审计货主/司机评价，但还没申诉、审核处置和信用分联动。',
+        '已经能只读审计货主/司机评价并查看图片附件预览，但还没申诉、审核处置和信用分联动。',
       metrics: [
         {
           label: '货主评司机',

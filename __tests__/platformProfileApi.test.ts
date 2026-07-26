@@ -1648,6 +1648,65 @@ describe('platform profile api', () => {
     );
   });
 
+  it('gets admin evaluation attachment previews with normalized ids', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          evaluationId: 'audit-1',
+          orderId: 'order-1',
+          orderNo: 'HY202607090001',
+          photoCount: 2,
+          items: [
+            {
+              id: 'file-audit-1',
+              ownerUserId: 'shipper-1',
+              purpose: 'evaluation',
+              contentType: 'image/png',
+              byteSize: 1024,
+              objectKey: 'shipper-1/evaluation/file-audit-1.png',
+              publicUrl: 'https://cdn.example.com/file-audit-1.png',
+              status: 'uploaded',
+              createdAtIso: '2026-07-09T08:00:00.000Z',
+              previewUrl:
+                'https://cdn.example.com/previews/file-audit-1.png?signature=test',
+              previewExpiresAtIso: '2026-07-09T08:10:00.000Z',
+            },
+          ],
+          missingFileIds: ['file-missing'],
+        },
+        requestId: 'req-admin-evaluation-attachments',
+        timestamp: '2026-07-09T08:05:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminEvaluationAuditAttachments(' audit-1 '),
+    ).resolves.toMatchObject({
+      evaluationId: 'audit-1',
+      items: [expect.objectContaining({ id: 'file-audit-1' })],
+      missingFileIds: ['file-missing'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/evaluations/audit-1/attachments',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid admin evaluation audit query before sending it', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -1671,6 +1730,13 @@ describe('platform profile api', () => {
 
     await expect(
       api.listAdminEvaluationAudits(invalidRatingQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
+      api.getAdminEvaluationAuditAttachments('   '),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
       status: 0,

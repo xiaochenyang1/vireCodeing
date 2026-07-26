@@ -1,4 +1,13 @@
+import type { AuthenticatedUser } from '../auth/dto';
+import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { FileUploadRecord } from '../files/dto';
+import {
+  LocalFilePreviewUrlSigner,
+  type FilePreviewUrlSigner,
+} from '../files/file-preview-url.signer';
+import type { FilesRepository } from '../files/files.repository';
 import type {
+  AdminEvaluationAuditAttachmentPreview,
   AdminEvaluationDirection,
   AdminEvaluationAuditListQuery,
   AdminEvaluationAuditListResult,
@@ -17,7 +26,12 @@ type DriverOrderEventSnapshot = {
 };
 
 export class ProfileEvaluationsService {
-  constructor(private readonly repository: ProfileEvaluationsRepository) {}
+  constructor(
+    private readonly repository: ProfileEvaluationsRepository,
+    private readonly filesRepository?: FilesRepository,
+    private readonly previewUrlSigner: FilePreviewUrlSigner =
+      new LocalFilePreviewUrlSigner(),
+  ) {}
 
   async listRecords(
     shipperId: string,
@@ -68,6 +82,76 @@ export class ProfileEvaluationsService {
       pageSize: query.pageSize,
       total: filteredItems.length,
     };
+  }
+
+  async getAdminEvaluationAuditAttachments(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+  ): Promise<AdminEvaluationAuditAttachmentPreview> {
+    this.assertAdmin(currentUser);
+    const filesRepository = this.requireFilesRepository();
+    const order =
+      await this.repository.findAdminEvaluationOrderByEventId(evaluationId);
+
+    if (!order) {
+      throw evaluationAuditNotFoundError();
+    }
+
+    const evaluation = findAdminEvaluationAuditRecordById(order, evaluationId);
+
+    if (!evaluation) {
+      throw evaluationAuditNotFoundError();
+    }
+
+    const photoFileIds = evaluation.photoFileIds ?? [];
+
+    if (photoFileIds.length === 0) {
+      return {
+        evaluationId: evaluation.id,
+        orderId: evaluation.orderId,
+        orderNo: evaluation.orderNo,
+        photoCount: evaluation.photoCount,
+        items: [],
+        missingFileIds: [],
+      };
+    }
+
+    const files = await filesRepository.findFilesByIds(photoFileIds);
+    const filesById = new Map(files.map(file => [file.id, file]));
+    const items = photoFileIds.flatMap(fileId => {
+      const file = filesById.get(fileId);
+
+      return isPreviewableEvaluationAttachment(file)
+        ? [mapAdminEvaluationAttachment(file, this.previewUrlSigner)]
+        : [];
+    });
+    const missingFileIds = photoFileIds.filter(fileId => {
+      const file = filesById.get(fileId);
+      return !isPreviewableEvaluationAttachment(file);
+    });
+
+    return {
+      evaluationId: evaluation.id,
+      orderId: evaluation.orderId,
+      orderNo: evaluation.orderNo,
+      photoCount: evaluation.photoCount,
+      items,
+      missingFileIds,
+    };
+  }
+
+  private assertAdmin(currentUser: AuthenticatedUser) {
+    if (currentUser.userType !== 'admin') {
+      throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员');
+    }
+  }
+
+  private requireFilesRepository() {
+    if (!this.filesRepository) {
+      throw new Error('Files repository is required for evaluation attachments');
+    }
+
+    return this.filesRepository;
   }
 }
 
@@ -315,6 +399,25 @@ function createAdminEvaluationAuditRecord(
     ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
     submittedAtIso: event.createdAtIso,
   };
+}
+
+function findAdminEvaluationAuditRecordById(
+  order: ShipperProfileEvaluationOrderRecord,
+  evaluationId: string,
+) {
+  const matchedEvent = order.events
+    .map((event, index) => ({ event, index }))
+    .find(({ event }) => event.id === evaluationId);
+
+  if (!matchedEvent) {
+    return undefined;
+  }
+
+  return createAdminEvaluationAuditRecord(
+    order,
+    matchedEvent.event,
+    matchedEvent.index,
+  );
 }
 
 function resolveDriverName(
@@ -680,10 +783,35 @@ function normalizeAttachmentFileIds(fileIds?: string[]) {
   );
 }
 
+function isPreviewableEvaluationAttachment(
+  file: FileUploadRecord | undefined,
+): file is FileUploadRecord {
+  return Boolean(
+    file && file.purpose === 'evaluation' && file.status === 'uploaded',
+  );
+}
+
+function mapAdminEvaluationAttachment(
+  file: FileUploadRecord,
+  previewUrlSigner: FilePreviewUrlSigner,
+) {
+  return {
+    ...file,
+    ...previewUrlSigner.signPreviewUrl(file),
+  };
+}
+
 function formatDriverName(driverId: string) {
   return driverId === 'unknown-driver' ? '未知司机' : `平台司机 ${driverId}`;
 }
 
 function formatShipperName(shipperId: string) {
   return `平台货主 ${shipperId}`;
+}
+
+function evaluationAuditNotFoundError() {
+  return new BusinessError(
+    ApiErrorCode.EVALUATION_AUDIT_NOT_FOUND,
+    '评价审计记录不存在',
+  );
 }

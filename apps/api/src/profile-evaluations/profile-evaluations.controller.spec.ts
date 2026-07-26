@@ -162,6 +162,55 @@ describe('AdminProfileEvaluationsController', () => {
     });
   });
 
+  it('returns admin evaluation attachment previews', async () => {
+    const service = {
+      getAdminEvaluationAuditAttachments: jest.fn().mockResolvedValue({
+        evaluationId: 'audit-1',
+        orderId: 'order-1',
+        orderNo: 'HY202607090001',
+        photoCount: 1,
+        items: [
+          {
+            id: 'file-audit-1',
+            ownerUserId: 'shipper-1',
+            purpose: 'evaluation',
+            contentType: 'image/png',
+            byteSize: 1024,
+            objectKey: 'shipper-1/evaluation/file-audit-1.png',
+            publicUrl: 'https://cdn.example.com/file-audit-1.png',
+            status: 'uploaded',
+            createdAtIso: '2026-07-09T08:00:00.000Z',
+            previewUrl:
+              'https://cdn.example.com/previews/file-audit-1.png?signature=test',
+            previewExpiresAtIso: '2026-07-09T08:10:00.000Z',
+          },
+        ],
+        missingFileIds: [],
+      }),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+
+    await expect(
+      controller.getEvaluationAttachments(
+        createRequest('admin-1', 'admin'),
+        'audit-1',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        code: 'OK',
+        data: expect.objectContaining({
+          evaluationId: 'audit-1',
+          items: [expect.objectContaining({ id: 'file-audit-1' })],
+        }),
+        requestId: 'req_profile_evaluations_test',
+      }),
+    );
+    expect(service.getAdminEvaluationAuditAttachments).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'audit-1',
+    );
+  });
+
   it('rejects non-admin users before reading evaluation audit records', async () => {
     const service = {
       listAdminEvaluationAudits: jest.fn(),

@@ -1620,25 +1620,48 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not a shipper');
   });
 
-  it('documents the admin evaluation audit endpoint', () => {
+  it('documents the admin evaluation audit endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/admin/evaluations:');
+    expect(source).toContain('/admin/evaluations/{evaluationId}/attachments:');
     expect(source).toContain('List admin evaluation audit records');
+    expect(source).toContain('Get admin evaluation audit attachment previews');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: direction');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: rating');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: keyword');
+    expectPathBlockToContain(
+      source,
+      '/admin/evaluations/{evaluationId}/attachments',
+      'name: evaluationId',
+    );
     expect(source).toContain('AdminEvaluationAuditListResponse');
     expect(source).toContain('AdminEvaluationAuditRecord');
+    expect(source).toContain('AdminEvaluationAuditAttachmentPreviewResponse');
+    expect(source).toContain('AdminEvaluationAuditAttachmentPreview');
+    expect(source).toContain('AdminEvaluationAuditAttachmentRecord');
     expect(source).toContain('AdminEvaluationDirection');
     expect(source).toContain('shipper_to_driver');
     expect(source).toContain('driver_to_shipper');
     expect(source).toContain(
       'It is derived from order evaluation_submitted and shipper_evaluation_submitted events.',
     );
+    expect(source).toContain(
+      "Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.",
+    );
+    expect(source).toContain('missingFileIds');
+    expect(source).toContain('previewUrl');
+    expect(source).toContain('previewExpiresAtIso');
+    expect(source).toContain('EVALUATION_AUDIT_NOT_FOUND');
+    expect(source).toContain('评价审计记录不存在');
     expectPathBlockToContain(
       source,
       '/admin/evaluations',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/evaluations/{evaluationId}/attachments',
       "$ref: '#/components/responses/AdminOnlyError'",
     );
     expect(source).toContain('Current authenticated user is not an admin');

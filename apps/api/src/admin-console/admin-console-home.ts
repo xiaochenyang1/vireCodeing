@@ -91,7 +91,7 @@ const defaultModules = [
     key: 'evaluation-audit',
     title: '评价审计台',
     route: '/api/admin/evaluation-audit-console',
-    summary: '只读筛货主评价司机和司机评价货主记录，追标签、评分、内容和图片文件。',
+    summary: '只读筛货主评价司机和司机评价货主记录，追标签、评分、内容和图片附件预览。',
   },
   {
     key: 'finance',

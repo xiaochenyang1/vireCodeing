@@ -1,4 +1,11 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -64,6 +71,20 @@ export class AdminProfileEvaluationsController {
     return ok(
       await this.profileEvaluationsService.listAdminEvaluationAudits(
         parseAdminEvaluationAuditListQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get(':evaluationId/attachments')
+  async getEvaluationAttachments(
+    @Req() request: AuthenticatedRequest,
+    @Param('evaluationId') evaluationId: string,
+  ) {
+    return ok(
+      await this.profileEvaluationsService.getAdminEvaluationAuditAttachments(
+        getCurrentAdmin(request),
+        evaluationId,
       ),
       getRequestId(request),
     );

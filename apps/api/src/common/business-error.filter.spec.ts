@@ -458,6 +458,21 @@ describe('BusinessErrorFilter', () => {
     expect(status).toHaveBeenCalledWith(404);
   });
 
+  it('maps missing evaluation audit records to not found', () => {
+    const filter = new BusinessErrorFilter(() => new Date('2026-06-26T06:00:00.000Z'));
+    const { host, status } = createHost();
+
+    filter.catch(
+      new BusinessError(
+        ApiErrorCode.EVALUATION_AUDIT_NOT_FOUND,
+        '评价审计记录不存在',
+      ),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(404);
+  });
+
   it.each([
     ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
     ApiErrorCode.EXCEPTION_CASE_CONFLICT,
