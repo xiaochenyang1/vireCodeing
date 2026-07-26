@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import { AccessTokenGuard } from '../auth/access-token.guard';
@@ -331,6 +332,174 @@ describe('order change request admin console page', () => {
     expect(html).toContain('history.replaceState');
   });
 
+  it('loads routed order change details outside the current queue without replacing the selection', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const renderQueueStart = html.indexOf('function renderQueue(items)');
+    const renderQueueEnd = html.indexOf(
+      'function setReviewActionsEnabled(enabled)',
+      renderQueueStart,
+    );
+    const renderQueueBody = html.slice(renderQueueStart, renderQueueEnd);
+    const routedDetailStart = html.indexOf(
+      'async function loadRoutedChangeRequestDetail(orderId)',
+    );
+    const routedDetailEnd = html.indexOf(
+      'async function loadReviewEvents()',
+      routedDetailStart,
+    );
+    const routedDetailBody = html.slice(routedDetailStart, routedDetailEnd);
+    const loadQueueStart = html.indexOf('async function loadQueue()');
+    const loadQueueEnd = html.indexOf(
+      'async function review(decision)',
+      loadQueueStart,
+    );
+    const loadQueueBody = html.slice(loadQueueStart, loadQueueEnd);
+    const queuedSelectionStart = loadQueueBody.indexOf('if (queuedSelection)');
+    const routedSelectionStart = loadQueueBody.indexOf(
+      '} else if (selectedOrderId)',
+      queuedSelectionStart,
+    );
+    const queuedSelectionBody = loadQueueBody.slice(
+      queuedSelectionStart,
+      routedSelectionStart,
+    );
+    const missingDetailStart = routedDetailBody.indexOf('if (!detail)');
+    const missingDetailEnd = routedDetailBody.indexOf(
+      'selectedChangeRequest = detail',
+      missingDetailStart,
+    );
+    const missingDetailBody = routedDetailBody.slice(
+      missingDetailStart,
+      missingDetailEnd,
+    );
+    const detailGuardIndex = routedDetailBody.indexOf(
+      'requestId !== latestDetailRequestId',
+    );
+    const detailCommitIndex = routedDetailBody.indexOf(
+      'selectedChangeRequest = detail',
+      detailGuardIndex,
+    );
+
+    expect(renderQueueBody).toContain('if (!selectedOrderId)');
+    expect(renderQueueBody).not.toContain(
+      'if (!currentItems.some(item => item.orderId === selectedOrderId))',
+    );
+    expect(routedDetailBody).toContain(
+      "apiGet(orderApiBase + '/' + encodeURIComponent(orderId))",
+    );
+    expect(routedDetailBody).toContain(
+      "encodeURIComponent(orderId) + '/change-request/review-events'",
+    );
+    expect(routedDetailBody).toContain('const [order, events] = await Promise.all([');
+    expect(routedDetailBody).toContain(
+      'requestId !== latestDetailRequestId',
+    );
+    expect(routedDetailBody).toContain('selectedOrderId !== orderId');
+    expect(detailCommitIndex).toBeGreaterThan(detailGuardIndex);
+    expect(queuedSelectionStart).toBeGreaterThanOrEqual(0);
+    expect(routedSelectionStart).toBeGreaterThan(queuedSelectionStart);
+    expect(queuedSelectionBody).toContain('await loadReviewEvents()');
+    expect(queuedSelectionBody).not.toContain('loadRoutedChangeRequestDetail');
+    expect(loadQueueBody).toContain(
+      'await loadRoutedChangeRequestDetail(selectedOrderId)',
+    );
+    expect(missingDetailBody).not.toContain("selectedOrderId = ''");
+    expect(missingDetailBody).not.toContain('currentItems[0]');
+    expect(html).toContain("targetChangeRequest.status !== 'pending'");
+  });
+
+  it('groups routed order change decisions by the latest request boundary', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const helperStart = html.indexOf(
+      'function findLatestChangeRequestCycle(events)',
+    );
+    const helperEnd = html.indexOf(
+      'function resetReviewEvents(statusText)',
+      helperStart,
+    );
+    const helperSource = html.slice(helperStart, helperEnd);
+    const createDetail = (events: Array<Record<string, unknown>>) => {
+      const context: {
+        order: Record<string, unknown>;
+        events: Array<Record<string, unknown>>;
+        result?: unknown;
+      } = {
+        order: {
+          id: 'order-1',
+          orderNo: 'HY202607260001',
+          shipperId: 'shipper-1',
+          assignedDriverId: 'driver-1',
+          status: 'transporting',
+        },
+        events,
+      };
+
+      runInNewContext(
+        `${helperSource}\nresult = createRoutedChangeRequest(order, events);`,
+        context,
+      );
+      return context.result
+        ? JSON.parse(JSON.stringify(context.result))
+        : context.result;
+    };
+    const previousCycle = [
+      {
+        eventId: 'review-1',
+        stage: 'approved',
+        noteText: '上一轮已通过',
+        createdAtIso: '2026-07-26T08:02:00.000Z',
+      },
+      {
+        eventId: 'request-1',
+        stage: 'requested',
+        noteText: '上一轮申请',
+        createdAtIso: '2026-07-26T08:01:00.000Z',
+      },
+    ];
+
+    expect(
+      createDetail([
+        {
+          eventId: 'request-2',
+          stage: 'requested',
+          noteText: '本轮待审申请',
+          createdAtIso: '2026-07-26T08:03:00.000Z',
+        },
+        ...previousCycle,
+      ]),
+    ).toMatchObject({
+      orderId: 'order-1',
+      status: 'pending',
+      description: '本轮待审申请',
+      requestedAtIso: '2026-07-26T08:03:00.000Z',
+    });
+    expect(
+      createDetail([
+        {
+          eventId: 'review-2',
+          stage: 'rejected',
+          noteText: '本轮资料不足',
+          costImpactText: '费用不变',
+          createdAtIso: '2026-07-26T08:04:00.000Z',
+        },
+        {
+          eventId: 'request-2',
+          stage: 'requested',
+          noteText: '本轮已审申请',
+          createdAtIso: '2026-07-26T08:03:00.000Z',
+        },
+        ...previousCycle,
+      ]),
+    ).toMatchObject({
+      status: 'rejected',
+      description: '本轮已审申请',
+      reviewResultText: '本轮资料不足',
+      costImpactText: '费用不变',
+      reviewedAtIso: '2026-07-26T08:04:00.000Z',
+    });
+    expect(createDetail(previousCycle.slice(0, 1))).toBeNull();
+  });
+
   it('ignores stale order change queue responses and keeps the latest review context', () => {
     const html = renderOrderChangeRequestAdminConsole();
 
@@ -339,7 +508,211 @@ describe('order change request admin console page', () => {
     expect(html).toContain('const requestId = ++latestQueueRequestId');
     expect(html).toContain('if (requestId !== latestQueueRequestId) {');
     expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
-    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+    expect(html).toContain('requestId !== latestReviewEventsRequestId ||');
+    expect(html).toContain('selectedOrderId !== targetOrderId');
+  });
+
+  it('keeps order change review completions bound to their originating order', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const reviewStart = html.indexOf('async function review(decision)');
+    const reviewEnd = html.indexOf(
+      "document.getElementById('refreshButton')",
+      reviewStart,
+    );
+    const reviewBody = html.slice(reviewStart, reviewEnd);
+    const apiPostStart = html.indexOf('async function apiPost(url, body)');
+    const apiPostEnd = html.indexOf('function renderQueue(items)', apiPostStart);
+    const apiPostBody = html.slice(apiPostStart, apiPostEnd);
+    const postIndex = reviewBody.indexOf('await apiPost(');
+    const successGuardIndex = reviewBody.indexOf(
+      'selectedOrderId !== targetOrderId',
+      postIndex,
+    );
+    const successStatusIndex = reviewBody.indexOf(
+      "setText('reviewStatus', '审核成功：' + decision)",
+      successGuardIndex,
+    );
+    const localTerminalIndex = reviewBody.indexOf(
+      'selectedChangeRequest = {',
+      successGuardIndex,
+    );
+    const pendingClearIndex = reviewBody.indexOf(
+      'reviewMutationPending = false',
+      successStatusIndex,
+    );
+    const refreshIndex = reviewBody.indexOf(
+      'await loadQueue()',
+      pendingClearIndex,
+    );
+    const pendingGuardIndex = reviewBody.indexOf(
+      'if (reviewMutationPending)',
+    );
+    const reviewRequestIndex = reviewBody.indexOf(
+      'const requestId = ++latestReviewRequestId',
+    );
+
+    expect(html).toContain('let reviewMutationPending = false');
+    expect(html).toContain(
+      "!reviewMutationPending && item.status === 'pending'",
+    );
+    expect(pendingGuardIndex).toBeGreaterThanOrEqual(0);
+    expect(reviewRequestIndex).toBeGreaterThan(pendingGuardIndex);
+    expect(reviewBody).toContain('const requestId = ++latestReviewRequestId');
+    expect(reviewBody).toContain('const targetOrderId = selectedOrderId');
+    expect(reviewBody).toContain(
+      "encodeURIComponent(targetOrderId) + '/change-request/review'",
+    );
+    expect(successGuardIndex).toBeGreaterThan(postIndex);
+    expect(localTerminalIndex).toBeGreaterThan(successGuardIndex);
+    expect(successStatusIndex).toBeGreaterThan(localTerminalIndex);
+    expect(successStatusIndex).toBeGreaterThan(successGuardIndex);
+    expect(pendingClearIndex).toBeGreaterThan(successStatusIndex);
+    expect(refreshIndex).toBeGreaterThan(pendingClearIndex);
+    expect(reviewBody).toContain('status: decision');
+    expect(reviewBody).toContain('let shouldRefresh = false');
+    expect(reviewBody).toContain('shouldRefresh = true');
+    expect(apiPostBody).toContain('error.code = payload.code');
+    expect(reviewBody).toContain("error.code === 'ORDER_CONFLICT'");
+    expect(reviewBody).toContain("error.code === 'ORDER_STATE_INVALID'");
+    expect(reviewBody).toContain(
+      '!shouldRefresh &&\n            selectedChangeRequest?.orderId === selectedOrderId',
+    );
+    expect(reviewBody.match(/selectedOrderId !== targetOrderId/g)).toHaveLength(
+      2,
+    );
+    expect(reviewBody).not.toContain(
+      "encodeURIComponent(selectedOrderId) + '/change-request/review'",
+    );
+    expect(reviewBody).toContain('reviewMutationPending = true');
+    expect(reviewBody).toContain('finally {');
+    expect(reviewBody).toContain('reviewMutationPending = false');
+    expect(reviewBody).toContain(
+      'selectedChangeRequest?.orderId === selectedOrderId',
+    );
+  });
+
+  it('executes order change reviews without duplicate or cross-selection commits', async () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const reviewStart = html.indexOf('async function review(decision)');
+    const reviewEnd = html.indexOf(
+      "document.getElementById('refreshButton')",
+      reviewStart,
+    );
+    const reviewSource = html.slice(reviewStart, reviewEnd);
+    const createRuntime = (
+      post: () => Promise<unknown>,
+      refresh: () => Promise<unknown>,
+    ) => {
+      const apiPost = jest.fn(post);
+      const loadQueue = jest.fn(refresh);
+      const setText = jest.fn();
+      const setReviewActionsEnabled = jest.fn();
+      const context = {
+        reviewMutationPending: false,
+        latestReviewRequestId: 0,
+        selectedOrderId: 'order-a',
+        selectedChangeRequest: {
+          orderId: 'order-a',
+          status: 'pending',
+        },
+        document: {
+          getElementById: () => ({ value: '' }),
+        },
+        apiPost,
+        loadQueue,
+        setText,
+        setReviewActionsEnabled,
+        renderDetail: jest.fn(),
+        orderApiBase: '/api/admin/orders',
+        encodeURIComponent,
+        invokeReview: undefined as
+          | undefined
+          | ((decision: 'approved' | 'rejected') => Promise<void>),
+      };
+
+      runInNewContext(`${reviewSource}\ninvokeReview = review;`, context);
+      if (!context.invokeReview) {
+        throw new Error('review function was not initialized');
+      }
+
+      return {
+        apiPost,
+        context,
+        invokeReview: context.invokeReview,
+        loadQueue,
+        setReviewActionsEnabled,
+        setText,
+      };
+    };
+
+    let resolvePost: (() => void) | undefined;
+    let resolveRefresh: (() => void) | undefined;
+    const post = new Promise<void>(resolve => {
+      resolvePost = resolve;
+    });
+    const refresh = new Promise<void>(resolve => {
+      resolveRefresh = resolve;
+    });
+    const successful = createRuntime(() => post, () => refresh);
+    const firstReview = successful.invokeReview('approved');
+
+    await successful.invokeReview('rejected');
+    expect(successful.apiPost).toHaveBeenCalledTimes(1);
+
+    resolvePost?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(successful.context.reviewMutationPending).toBe(false);
+    expect(successful.context.selectedChangeRequest.status).toBe('approved');
+    expect(successful.loadQueue).toHaveBeenCalledTimes(1);
+
+    await successful.invokeReview('rejected');
+    expect(successful.apiPost).toHaveBeenCalledTimes(1);
+    resolveRefresh?.();
+    await firstReview;
+
+    let resolveSelectionPost: (() => void) | undefined;
+    const selectionPost = new Promise<void>(resolve => {
+      resolveSelectionPost = resolve;
+    });
+    const switched = createRuntime(
+      () => selectionPost,
+      () => Promise.resolve(),
+    );
+    const switchedReview = switched.invokeReview('approved');
+    switched.context.selectedOrderId = 'order-b';
+    switched.context.selectedChangeRequest = {
+      orderId: 'order-b',
+      status: 'pending',
+    };
+    resolveSelectionPost?.();
+    await switchedReview;
+
+    expect(switched.context.selectedChangeRequest).toEqual({
+      orderId: 'order-b',
+      status: 'pending',
+    });
+    expect(switched.loadQueue).not.toHaveBeenCalled();
+    expect(switched.setText).not.toHaveBeenCalledWith(
+      'reviewStatus',
+      '审核成功：approved',
+    );
+
+    const conflict = Object.assign(new Error('订单已被其他操作更新'), {
+      code: 'ORDER_CONFLICT',
+    });
+    const conflicted = createRuntime(
+      () => Promise.reject(conflict),
+      () => Promise.resolve(),
+    );
+    await conflicted.invokeReview('rejected');
+
+    expect(conflicted.loadQueue).toHaveBeenCalledTimes(1);
+    expect(conflicted.setReviewActionsEnabled).toHaveBeenLastCalledWith(false);
+    expect(conflicted.setText).toHaveBeenCalledWith(
+      'reviewStatus',
+      '订单已被其他操作更新',
+    );
   });
 
   it('executes the shared admin session bootstrap before auto-loading the order change queue', () => {

@@ -78,6 +78,7 @@ export function renderOrderChangeRequestAdminConsole() {
       color: #fff;
       cursor: pointer;
     }
+    button:disabled { cursor: not-allowed; opacity: .55; }
     button.secondary { background: #44515b; }
     button.danger { background: var(--danger); }
     .queue-item { cursor: pointer; }
@@ -156,8 +157,8 @@ export function renderOrderChangeRequestAdminConsole() {
           </label>
         </div>
         <div class="review-row" style="margin-top:10px;">
-          <button type="button" id="approveButton">通过申请</button>
-          <button type="button" id="rejectButton" class="danger">驳回申请</button>
+          <button type="button" id="approveButton" disabled>通过申请</button>
+          <button type="button" id="rejectButton" class="danger" disabled>驳回申请</button>
         </div>
         <div id="reviewStatus" class="status-line"></div>
       </div>
@@ -174,9 +175,13 @@ export function renderOrderChangeRequestAdminConsole() {
     const listApiBase = document.querySelector('meta[name="admin-order-change-request-api"]').content;
     const orderApiBase = document.querySelector('meta[name="admin-order-api"]').content;
     let selectedOrderId = '';
+    let selectedChangeRequest = null;
     let currentItems = [];
     let latestQueueRequestId = 0;
+    let latestDetailRequestId = 0;
     let latestReviewEventsRequestId = 0;
+    let latestReviewRequestId = 0;
+    let reviewMutationPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-change-request-console',
     })}
@@ -271,7 +276,9 @@ export function renderOrderChangeRequestAdminConsole() {
       });
       const payload = await response.json();
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -287,7 +294,9 @@ export function renderOrderChangeRequestAdminConsole() {
       });
       const payload = await response.json();
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -296,14 +305,18 @@ export function renderOrderChangeRequestAdminConsole() {
       currentItems = items || [];
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
-        selectedOrderId = '';
-        syncOrderChangeRequestRouteState('');
+        syncOrderChangeRequestRouteState(selectedOrderId);
         root.innerHTML = '<div class="muted">当前筛选下没有修改申请。</div>';
-        resetReviewEvents('请选择左侧修改申请。');
         return;
       }
-      if (!currentItems.some(item => item.orderId === selectedOrderId)) {
+      if (!selectedOrderId) {
         selectedOrderId = currentItems[0].orderId;
+      }
+      const queuedSelection = currentItems.find(
+        item => item.orderId === selectedOrderId,
+      );
+      if (queuedSelection) {
+        selectedChangeRequest = queuedSelection;
       }
       syncOrderChangeRequestRouteState(selectedOrderId);
       root.innerHTML = currentItems.map(item => {
@@ -316,8 +329,12 @@ export function renderOrderChangeRequestAdminConsole() {
       }).join('');
       root.querySelectorAll('.queue-item').forEach(node => {
         node.addEventListener('click', () => {
+          latestDetailRequestId += 1;
           selectedOrderId = node.getAttribute('data-order-id') || '';
+          selectedChangeRequest =
+            currentItems.find(item => item.orderId === selectedOrderId) || null;
           syncOrderChangeRequestRouteState(selectedOrderId);
+          setText('reviewStatus', '');
           renderQueue(currentItems);
           renderDetail();
           loadReviewEvents();
@@ -325,16 +342,31 @@ export function renderOrderChangeRequestAdminConsole() {
       });
     }
 
-    function renderDetail() {
-      const item = currentItems.find(entry => entry.orderId === selectedOrderId);
+    function setReviewActionsEnabled(enabled) {
+      document.getElementById('approveButton').disabled = !enabled;
+      document.getElementById('rejectButton').disabled = !enabled;
+    }
+
+    function renderDetail(emptyStatusText) {
+      const item = selectedChangeRequest;
       if (!item) {
-        setText('detailStatus', '请选择左侧修改申请。');
+        setText(
+          'detailStatus',
+          emptyStatusText ||
+            (selectedOrderId
+              ? '指定修改申请详情尚未加载。'
+              : '请选择左侧修改申请。'),
+        );
         document.getElementById('detailBody').innerHTML = '';
         fillReviewForm();
+        setReviewActionsEnabled(false);
         return;
       }
       setText('detailStatus', '当前订单：' + item.orderNo);
       fillReviewForm(item);
+      setReviewActionsEnabled(
+        !reviewMutationPending && item.status === 'pending',
+      );
       document.getElementById('detailBody').innerHTML = [
         '<div><strong>货主</strong><div class="muted">' + escapeHtml(item.shipperId) + '</div></div>',
         '<div><strong>订单状态</strong><div class="muted">' + escapeHtml(item.orderStatus) + '</div></div>',
@@ -345,6 +377,58 @@ export function renderOrderChangeRequestAdminConsole() {
         buildReviewSnapshotBlocks(item),
         '<div><strong>申请时间</strong><div class="muted">' + escapeHtml(item.requestedAtIso) + '</div></div>',
       ].join('');
+    }
+
+    function findLatestChangeRequestCycle(events) {
+      let reviewEvent = null;
+      for (const event of Array.isArray(events) ? events : []) {
+        if (event.stage === 'requested') {
+          return { requestEvent: event, reviewEvent };
+        }
+        if (
+          !reviewEvent &&
+          (event.stage === 'approved' || event.stage === 'rejected')
+        ) {
+          reviewEvent = event;
+        }
+      }
+      return null;
+    }
+
+    function createRoutedChangeRequest(order, events) {
+      const cycle = findLatestChangeRequestCycle(events);
+      if (!order || !cycle) {
+        return null;
+      }
+      const { requestEvent, reviewEvent } = cycle;
+
+      return {
+        orderId: order.id,
+        orderNo: order.orderNo,
+        shipperId: order.shipperId,
+        status: reviewEvent ? reviewEvent.stage : 'pending',
+        description: requestEvent.noteText || '',
+        ...(reviewEvent && reviewEvent.noteText
+          ? { reviewResultText: reviewEvent.noteText }
+          : {}),
+        ...(reviewEvent && reviewEvent.costImpactText
+          ? { costImpactText: reviewEvent.costImpactText }
+          : {}),
+        ...(reviewEvent && reviewEvent.refundText
+          ? { refundText: reviewEvent.refundText }
+          : {}),
+        ...(reviewEvent && reviewEvent.driverNoticeText
+          ? { driverNoticeText: reviewEvent.driverNoticeText }
+          : {}),
+        requestedAtIso: requestEvent.createdAtIso,
+        ...(reviewEvent
+          ? { reviewedAtIso: reviewEvent.createdAtIso }
+          : {}),
+        ...(order.assignedDriverId
+          ? { assignedDriverId: order.assignedDriverId }
+          : {}),
+        orderStatus: order.status,
+      };
     }
 
     function resetReviewEvents(statusText) {
@@ -375,9 +459,58 @@ export function renderOrderChangeRequestAdminConsole() {
       }).join('');
     }
 
+    async function loadRoutedChangeRequestDetail(orderId) {
+      const requestId = ++latestDetailRequestId;
+      const reviewEventsRequestId = ++latestReviewEventsRequestId;
+      selectedChangeRequest = null;
+      renderDetail('加载指定修改申请详情中...');
+      resetReviewEvents('加载指定修改申请审核事件中...');
+
+      try {
+        const [order, events] = await Promise.all([
+          apiGet(orderApiBase + '/' + encodeURIComponent(orderId)),
+          apiGet(
+            orderApiBase + '/' + encodeURIComponent(orderId) + '/change-request/review-events',
+          ),
+        ]);
+        if (
+          requestId !== latestDetailRequestId ||
+          reviewEventsRequestId !== latestReviewEventsRequestId ||
+          selectedOrderId !== orderId
+        ) {
+          return;
+        }
+        const detail = createRoutedChangeRequest(order, events);
+        if (!detail) {
+          renderDetail('指定订单没有可展示的修改申请。');
+          resetReviewEvents('指定订单没有修改申请审核事件。');
+          return;
+        }
+        selectedChangeRequest = detail;
+        renderDetail();
+        renderReviewEvents(Array.isArray(events) ? events : []);
+        setText(
+          'reviewEventStatus',
+          '共 ' + (Array.isArray(events) ? events.length : 0) + ' 条审核事件',
+        );
+      } catch (error) {
+        if (
+          requestId !== latestDetailRequestId ||
+          reviewEventsRequestId !== latestReviewEventsRequestId ||
+          selectedOrderId !== orderId
+        ) {
+          return;
+        }
+        selectedChangeRequest = null;
+        renderDetail(error.message || '指定修改申请详情加载失败');
+        resetReviewEvents('指定修改申请审核事件加载失败');
+      }
+    }
+
     async function loadReviewEvents() {
       const requestId = ++latestReviewEventsRequestId;
-      if (!selectedOrderId) {
+      const targetOrderId = selectedOrderId;
+      if (!targetOrderId) {
         resetReviewEvents('请选择左侧修改申请。');
         return;
       }
@@ -388,9 +521,12 @@ export function renderOrderChangeRequestAdminConsole() {
       setText('reviewEventStatus', '加载审核事件中...');
       try {
         const events = await apiGet(
-          orderApiBase + '/' + encodeURIComponent(selectedOrderId) + '/change-request/review-events',
+          orderApiBase + '/' + encodeURIComponent(targetOrderId) + '/change-request/review-events',
         );
-        if (requestId !== latestReviewEventsRequestId) {
+        if (
+          requestId !== latestReviewEventsRequestId ||
+          selectedOrderId !== targetOrderId
+        ) {
           return;
         }
         renderReviewEvents(Array.isArray(events) ? events : []);
@@ -399,7 +535,10 @@ export function renderOrderChangeRequestAdminConsole() {
           '共 ' + (Array.isArray(events) ? events.length : 0) + ' 条审核事件',
         );
       } catch (error) {
-        if (requestId !== latestReviewEventsRequestId) {
+        if (
+          requestId !== latestReviewEventsRequestId ||
+          selectedOrderId !== targetOrderId
+        ) {
           return;
         }
         resetReviewEvents(error.message || '审核事件加载失败');
@@ -408,9 +547,12 @@ export function renderOrderChangeRequestAdminConsole() {
 
     async function loadQueue() {
       const requestId = ++latestQueueRequestId;
+      latestDetailRequestId += 1;
       latestReviewEventsRequestId += 1;
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
+        selectedChangeRequest = null;
+        renderDetail('请先填写 admin token。');
         resetReviewEvents('请先填写 admin token。');
         return;
       }
@@ -425,20 +567,49 @@ export function renderOrderChangeRequestAdminConsole() {
         }
         renderQueue(data.items || []);
         setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
-        renderDetail();
-        await loadReviewEvents();
+        const queuedSelection = currentItems.find(
+          item => item.orderId === selectedOrderId,
+        );
+        if (queuedSelection) {
+          selectedChangeRequest = queuedSelection;
+          renderDetail();
+          await loadReviewEvents();
+        } else if (selectedOrderId) {
+          await loadRoutedChangeRequestDetail(selectedOrderId);
+        } else {
+          selectedChangeRequest = null;
+          renderDetail();
+          resetReviewEvents('请选择左侧修改申请。');
+        }
       } catch (error) {
         if (requestId !== latestQueueRequestId) {
           return;
         }
         setText('queueStatus', error.message || '加载失败');
-        resetReviewEvents('审核事件尚未加载');
+        if (selectedOrderId) {
+          await loadRoutedChangeRequestDetail(selectedOrderId);
+        } else {
+          selectedChangeRequest = null;
+          renderDetail('修改申请队列加载失败。');
+          resetReviewEvents('审核事件尚未加载');
+        }
       }
     }
 
     async function review(decision) {
-      if (!selectedOrderId) {
-        setText('reviewStatus', '请先选择修改申请。');
+      if (reviewMutationPending) {
+        return;
+      }
+      const requestId = ++latestReviewRequestId;
+      const targetOrderId = selectedOrderId;
+      const targetChangeRequest = selectedChangeRequest;
+      if (
+        !targetOrderId ||
+        !targetChangeRequest ||
+        targetChangeRequest.orderId !== targetOrderId ||
+        targetChangeRequest.status !== 'pending'
+      ) {
+        setText('reviewStatus', '当前没有可审核的待处理修改申请。');
         return;
       }
       const reviewResultText = document.getElementById('reviewResultText').value.trim();
@@ -452,16 +623,62 @@ export function renderOrderChangeRequestAdminConsole() {
         ...(refundText ? { refundText } : {}),
         ...(driverNoticeText ? { driverNoticeText } : {}),
       };
+      let shouldRefresh = false;
+      reviewMutationPending = true;
       setText('reviewStatus', '提交审核中...');
+      setReviewActionsEnabled(false);
       try {
         await apiPost(
-          orderApiBase + '/' + encodeURIComponent(selectedOrderId) + '/change-request/review',
+          orderApiBase + '/' + encodeURIComponent(targetOrderId) + '/change-request/review',
           body,
         );
+        if (
+          requestId !== latestReviewRequestId ||
+          selectedOrderId !== targetOrderId
+        ) {
+          return;
+        }
+        selectedChangeRequest = {
+          ...targetChangeRequest,
+          status: decision,
+          ...(reviewResultText ? { reviewResultText } : {}),
+          ...(costImpactText ? { costImpactText } : {}),
+          ...(refundText ? { refundText } : {}),
+          ...(driverNoticeText ? { driverNoticeText } : {}),
+        };
+        renderDetail();
         setText('reviewStatus', '审核成功：' + decision);
-        await loadQueue();
+        shouldRefresh = true;
       } catch (error) {
+        if (
+          requestId !== latestReviewRequestId ||
+          selectedOrderId !== targetOrderId
+        ) {
+          return;
+        }
         setText('reviewStatus', error.message || '审核失败');
+        if (
+          error.code === 'ORDER_CONFLICT' ||
+          error.code === 'ORDER_STATE_INVALID'
+        ) {
+          shouldRefresh = true;
+        }
+      } finally {
+        reviewMutationPending = false;
+        setReviewActionsEnabled(
+          !shouldRefresh &&
+            selectedChangeRequest?.orderId === selectedOrderId &&
+            selectedChangeRequest.status === 'pending',
+        );
+      }
+      if (shouldRefresh) {
+        try {
+          await loadQueue();
+        } catch (error) {
+          if (selectedOrderId === targetOrderId) {
+            setText('queueStatus', error.message || '审核后刷新失败');
+          }
+        }
       }
     }
 
