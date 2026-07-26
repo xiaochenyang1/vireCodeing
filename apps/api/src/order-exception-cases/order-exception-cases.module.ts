@@ -44,9 +44,16 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
     },
     {
       provide: OrderExceptionCaseOverdueEscalationService,
-      useFactory: (repository: PrismaOrdersRepository) =>
-        new OrderExceptionCaseOverdueEscalationService(repository),
-      inject: [PrismaOrdersRepository],
+      useFactory: (
+        repository: PrismaOrdersRepository,
+        notificationsService: NotificationsService,
+      ) =>
+        new OrderExceptionCaseOverdueEscalationService(
+          repository,
+          undefined,
+          notificationsService,
+        ),
+      inject: [PrismaOrdersRepository, NotificationsService],
     },
     {
       provide: OrderExceptionCaseOverdueEscalationScheduler,

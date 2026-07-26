@@ -314,6 +314,66 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('notifies the shipper when a support ticket overdue escalation is triggered', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-26T10:30:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const pushProvider = new FakePushProvider();
+    const service = new NotificationsService(repository, pushProvider);
+
+    await service.notifySupportTicketEvent({
+      event: 'support_ticket_overdue_escalated',
+      ticketId: 'support-ticket-1',
+      shipperId: 'shipper-1',
+      channelName: ' 投诉建议 ',
+      stage: 'first_response',
+      overdueMinutes: 45,
+    });
+    await service.notifySupportTicketEvent({
+      event: 'support_ticket_overdue_escalated',
+      ticketId: 'support-ticket-1',
+      shipperId: 'shipper-1',
+      channelName: '投诉建议',
+      stage: 'resolution',
+      overdueMinutes: 135,
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(pushProvider.sends).toHaveLength(2);
+    expect(
+      shipperMessages.items.find(
+        item =>
+          item.referenceId ===
+          'support_ticket_overdue_escalated:first_response:support-ticket-1:shipper',
+      ),
+    ).toMatchObject({
+      title: '帮助中心工单超时已升级',
+      content:
+        '投诉建议工单 support-ticket-1 首响 SLA 已超时 45 分钟，平台已升级给值班客服跟进。',
+      referenceType: 'support_ticket',
+    });
+    expect(
+      shipperMessages.items.find(
+        item =>
+          item.referenceId ===
+          'support_ticket_overdue_escalated:resolution:support-ticket-1:shipper',
+      ),
+    ).toMatchObject({
+      title: '帮助中心工单超时已升级',
+      content:
+        '投诉建议工单 support-ticket-1 解决 SLA 已超时 135 分钟，平台已升级给值班客服继续处理。',
+      referenceType: 'support_ticket',
+    });
+  });
+
   it('notifies both related parties when an exception appeal is accepted or rejected', async () => {
     const repository = new InMemoryNotificationsRepository({
       now: () => new Date('2026-07-26T11:00:00.000Z'),
@@ -371,6 +431,76 @@ describe('NotificationsService', () => {
         '订单 HY202607260002 的异常工单 YC202607260002 申诉已驳回，请查看最新处理结果。',
       referenceType: 'exception_case',
       referenceId: 'exception_appeal_rejected:case-2:driver',
+    });
+  });
+
+  it('notifies both related parties when an exception case overdue escalation is triggered', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-26T11:30:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const pushProvider = new FakePushProvider();
+    const service = new NotificationsService(repository, pushProvider);
+
+    await service.notifyExceptionEvent({
+      event: 'exception_case_overdue_escalated',
+      caseId: 'case-1',
+      caseNo: 'YC202607260101',
+      orderId: 'order-1',
+      orderNo: 'HY202607260101',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      slaStage: 'acceptance',
+      overdueMinutes: 20,
+    });
+    await service.notifyExceptionEvent({
+      event: 'exception_case_overdue_escalated',
+      caseId: 'case-1',
+      caseNo: 'YC202607260101',
+      orderId: 'order-1',
+      orderNo: 'HY202607260101',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      slaStage: 'resolution',
+      overdueMinutes: 80,
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const driverMessages = await service.listMessages('driver-1', {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(pushProvider.sends).toHaveLength(4);
+    expect(
+      shipperMessages.items.find(
+        item =>
+          item.referenceId ===
+          'exception_case_overdue_escalated:acceptance:case-1:shipper',
+      ),
+    ).toMatchObject({
+      title: '异常工单超时已升级',
+      content:
+        '订单 HY202607260101 的异常工单 YC202607260101 受理 SLA 已超时 20 分钟，平台已升级给值班客服跟进。',
+      referenceType: 'exception_case',
+    });
+    expect(
+      driverMessages.items.find(
+        item =>
+          item.referenceId ===
+          'exception_case_overdue_escalated:resolution:case-1:driver',
+      ),
+    ).toMatchObject({
+      title: '异常工单超时已升级',
+      content:
+        '订单 HY202607260101 的异常工单 YC202607260101 解决 SLA 已超时 80 分钟，平台已升级给值班客服继续处理。',
+      referenceType: 'exception_case',
     });
   });
 

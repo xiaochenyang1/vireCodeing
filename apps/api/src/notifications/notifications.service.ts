@@ -39,6 +39,7 @@ export type NotifyExceptionEventInput = {
   event:
     | 'exception_case_created'
     | 'exception_case_resolved'
+    | 'exception_case_overdue_escalated'
     | 'exception_compensation_executed'
     | 'exception_appeal_requested'
     | 'exception_appeal_accepted'
@@ -51,14 +52,21 @@ export type NotifyExceptionEventInput = {
   driverId?: string | null;
   compensationTargetRole?: 'shipper' | 'driver' | null;
   actorRole?: 'shipper' | 'driver';
+  slaStage?: 'acceptance' | 'resolution';
+  overdueMinutes?: number;
 };
 
 export type NotifySupportTicketEventInput = {
-  event: 'support_ticket_processing' | 'support_ticket_resolved';
+  event:
+    | 'support_ticket_processing'
+    | 'support_ticket_resolved'
+    | 'support_ticket_overdue_escalated';
   ticketId: string;
   shipperId: string;
   channelName: string;
   content?: string;
+  stage?: 'first_response' | 'resolution';
+  overdueMinutes?: number;
 };
 
 export class NotificationsService {
@@ -201,7 +209,7 @@ export class NotificationsService {
         orderId: input.orderId,
         orderNo: input.orderNo,
         referenceType: 'exception_case',
-        referenceId: `${input.event}:${input.caseId}:${recipient.audience}`,
+        referenceId: buildExceptionEventReferenceId(input, recipient.audience),
       });
     }
   }
@@ -218,7 +226,10 @@ export class NotificationsService {
         title: recipient.title,
         content: recipient.content,
         referenceType: 'support_ticket',
-        referenceId: `${input.event}:${input.ticketId}:${recipient.audience}`,
+        referenceId: buildSupportTicketEventReferenceId(
+          input,
+          recipient.audience,
+        ),
       });
     }
   }
@@ -491,6 +502,37 @@ function buildExceptionEventRecipients(
             ]
           : []),
       ]);
+    case 'exception_case_overdue_escalated': {
+      const stage = input.slaStage === 'resolution' ? 'resolution' : 'acceptance';
+      const overdueSuffix = formatSlaOverdueDurationSuffix(input.overdueMinutes);
+
+      return uniqueRecipients([
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '异常工单超时已升级',
+          content:
+            stage === 'acceptance'
+              ? `订单 ${orderLabel} 的异常工单 ${caseLabel} 受理 SLA 已超时${overdueSuffix}，平台已升级给值班客服跟进。`
+              : `订单 ${orderLabel} 的异常工单 ${caseLabel} 解决 SLA 已超时${overdueSuffix}，平台已升级给值班客服继续处理。`,
+        },
+        ...(input.driverId
+          ? [
+              {
+                userId: input.driverId,
+                audience: 'driver' as const,
+                category: 'service' as const,
+                title: '异常工单超时已升级',
+                content:
+                  stage === 'acceptance'
+                    ? `订单 ${orderLabel} 的异常工单 ${caseLabel} 受理 SLA 已超时${overdueSuffix}，平台已升级给值班客服跟进。`
+                    : `订单 ${orderLabel} 的异常工单 ${caseLabel} 解决 SLA 已超时${overdueSuffix}，平台已升级给值班客服继续处理。`,
+              },
+            ]
+          : []),
+      ]);
+    }
     case 'exception_compensation_executed': {
       const targetRole = input.compensationTargetRole;
       if (targetRole === 'driver' && input.driverId) {
@@ -623,7 +665,52 @@ function buildSupportTicketEventRecipients(
             detailSuffix,
         },
       ];
+    case 'support_ticket_overdue_escalated': {
+      const stage =
+        input.stage === 'resolution' ? 'resolution' : 'first_response';
+      const overdueSuffix = formatSlaOverdueDurationSuffix(input.overdueMinutes);
+
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '帮助中心工单超时已升级',
+          content:
+            stage === 'first_response'
+              ? `${channelLabel}工单 ${input.ticketId} 首响 SLA 已超时${overdueSuffix}，平台已升级给值班客服跟进。`
+              : `${channelLabel}工单 ${input.ticketId} 解决 SLA 已超时${overdueSuffix}，平台已升级给值班客服继续处理。`,
+        },
+      ];
+    }
   }
+}
+
+function buildExceptionEventReferenceId(
+  input: NotifyExceptionEventInput,
+  audience: InboxMessageAudience,
+) {
+  if (input.event === 'exception_case_overdue_escalated') {
+    const stage = input.slaStage === 'resolution' ? 'resolution' : 'acceptance';
+
+    return `${input.event}:${stage}:${input.caseId}:${audience}`;
+  }
+
+  return `${input.event}:${input.caseId}:${audience}`;
+}
+
+function buildSupportTicketEventReferenceId(
+  input: NotifySupportTicketEventInput,
+  audience: InboxMessageAudience,
+) {
+  if (input.event === 'support_ticket_overdue_escalated') {
+    const stage =
+      input.stage === 'resolution' ? 'resolution' : 'first_response';
+
+    return `${input.event}:${stage}:${input.ticketId}:${audience}`;
+  }
+
+  return `${input.event}:${input.ticketId}:${audience}`;
 }
 
 function uniqueRecipients<T extends { userId: string; audience: string }>(
@@ -665,6 +752,18 @@ function formatSupportTicketDetailSuffix(content?: string) {
   const normalizedText = content?.trim();
 
   return normalizedText ? ` 处理说明：${normalizedText}` : '';
+}
+
+function formatSlaOverdueDurationSuffix(overdueMinutes?: number) {
+  if (
+    typeof overdueMinutes !== 'number' ||
+    !Number.isFinite(overdueMinutes) ||
+    overdueMinutes <= 0
+  ) {
+    return '';
+  }
+
+  return ` ${Math.max(1, Math.ceil(overdueMinutes))} 分钟`;
 }
 
 function formatOrderStatus(status?: string) {

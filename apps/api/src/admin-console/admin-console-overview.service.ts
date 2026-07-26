@@ -296,7 +296,7 @@ function createModules(
       route: '/api/admin/support-ticket-console',
       stage: 'first_slice',
       summary:
-        '帮助中心工单后台列表、详情、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒和按 SLA 状态筛选已经能跑，但还没自动超时升级、坐席分配和在线会话。',
+        '帮助中心工单后台列表、详情、pending -> processing -> resolved 状态流转、货主通知、SLA 提醒和按 SLA 状态筛选已经能跑，也支持手动/定时超时升级扫描并向货主回流超时升级消息；坐席分配和在线会话还没补上。',
       metrics: [
         {
           label: '待处理工单',
@@ -319,7 +319,7 @@ function createModules(
           tone: queueTone(stats.supportTickets.overdueCount),
         },
       ],
-      pendingGaps: ['自动超时升级', '坐席分配', '在线客服会话'],
+      pendingGaps: ['坐席分配', '在线客服会话'],
     },
     {
       key: 'order-exception-case',
@@ -327,7 +327,7 @@ function createModules(
       route: '/api/admin/order-exception-case-console',
       stage: 'first_slice',
       summary:
-        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，并按赔付状态、申诉状态和 SLA 状态筛队列后执行平台赔付，但自动超时升级、分配、会话和退款联动还没补上。',
+        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列后执行平台赔付，也支持手动/定时超时升级扫描并向相关方回流超时升级消息，但坐席分配、会话和退款联动还没补上。',
       metrics: [
         {
           label: '待处理工单',
@@ -350,7 +350,7 @@ function createModules(
           tone: queueTone(stats.orderExceptions.overdueCount),
         },
       ],
-      pendingGaps: ['自动超时升级', '坐席分配', '会话联动', '退款联动'],
+      pendingGaps: ['坐席分配', '会话联动', '退款联动'],
     },
     {
       key: 'shipper-coupon',

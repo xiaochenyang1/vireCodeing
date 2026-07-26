@@ -6,9 +6,13 @@ describe('OrderExceptionCaseOverdueEscalationService', () => {
   it('escalates overdue acceptance and resolution queues with system audit actions', async () => {
     let currentTime = new Date('2026-07-12T12:00:00.000Z');
     const repository = new InMemoryOrdersRepository(() => currentTime);
+    const notificationsService = {
+      notifyExceptionEvent: jest.fn().mockResolvedValue(undefined),
+    };
     const sweepService = new OrderExceptionCaseOverdueEscalationService(
       repository,
       () => new Date('2026-07-12T13:00:00.000Z'),
+      notificationsService,
     );
     const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
 
@@ -86,6 +90,34 @@ describe('OrderExceptionCaseOverdueEscalationService', () => {
           }),
         ]),
       }),
+    );
+    expect(notificationsService.notifyExceptionEvent).toHaveBeenNthCalledWith(
+      1,
+      {
+        event: 'exception_case_overdue_escalated',
+        caseId: acceptanceOverdue.id,
+        caseNo: acceptanceOverdue.caseNo,
+        orderId: acceptanceOverdue.orderId,
+        orderNo: acceptanceOverdue.orderNo,
+        shipperId: 'shipper-1',
+        driverId: undefined,
+        slaStage: 'acceptance',
+        overdueMinutes: 45,
+      },
+    );
+    expect(notificationsService.notifyExceptionEvent).toHaveBeenNthCalledWith(
+      2,
+      {
+        event: 'exception_case_overdue_escalated',
+        caseId: resolutionCandidate.id,
+        caseNo: resolutionCandidate.caseNo,
+        orderId: resolutionCandidate.orderId,
+        orderNo: resolutionCandidate.orderNo,
+        shipperId: 'shipper-1',
+        driverId: undefined,
+        slaStage: 'resolution',
+        overdueMinutes: 30,
+      },
     );
   });
 
@@ -173,6 +205,49 @@ describe('OrderExceptionCaseOverdueEscalationService', () => {
         overdueMinutes: 30,
       },
     });
+  });
+
+  it('does not fail the sweep when overdue escalation notifications fail', async () => {
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-12T12:00:00.000Z'),
+    );
+    const notificationsService = {
+      notifyExceptionEvent: jest
+        .fn()
+        .mockRejectedValue(new Error('push failed')),
+    };
+    const sweepService = new OrderExceptionCaseOverdueEscalationService(
+      repository,
+      () => new Date('2026-07-12T13:00:00.000Z'),
+      notificationsService,
+    );
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '异常工单已超时待受理。',
+    });
+
+    await expect(sweepService.sweepOverdueCases('admin')).resolves.toMatchObject(
+      {
+        escalatedCount: 1,
+        conflictCount: 0,
+      },
+    );
+    expect(notificationsService.notifyExceptionEvent).toHaveBeenCalledTimes(1);
+    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject(
+      {
+        items: [
+          expect.objectContaining({
+            actions: expect.arrayContaining([
+              expect.objectContaining({
+                adminUserId: 'system:auto-escalation:acceptance',
+              }),
+            ]),
+          }),
+        ],
+      },
+    );
   });
 });
 

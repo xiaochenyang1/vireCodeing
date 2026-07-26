@@ -9,6 +9,7 @@ import {
   buildSupportTicketSlaSnapshot,
   createSupportTicketUpdatedAtIso,
 } from './support-ticket-helpers';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { SupportTicketsRepository } from './support-tickets.repository';
 
 const SUPPORT_TICKET_AUTO_ESCALATION_ACTION_TEXT = '工单超时已升级';
@@ -18,6 +19,10 @@ export class SupportTicketOverdueEscalationService {
   constructor(
     private readonly repository: SupportTicketsRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly notificationsService?: Pick<
+      NotificationsService,
+      'notifySupportTicketEvent'
+    >,
   ) {}
 
   async sweepOverdueTickets(
@@ -87,9 +92,36 @@ export class SupportTicketOverdueEscalationService {
 
       result.escalatedCount += 1;
       result.escalatedTicketIds.push(appendResult.id);
+      await this.safeNotifySupportTicketEvent({
+        event: 'support_ticket_overdue_escalated',
+        ticketId: appendResult.id,
+        shipperId: appendResult.shipperId,
+        channelName: appendResult.channelName,
+        stage: sla.stage,
+        overdueMinutes: sla.overdueMinutes,
+      });
     }
 
     return result;
+  }
+
+  private async safeNotifySupportTicketEvent(input: {
+    event: 'support_ticket_overdue_escalated';
+    ticketId: string;
+    shipperId: string;
+    channelName: string;
+    stage: 'first_response' | 'resolution';
+    overdueMinutes?: number;
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifySupportTicketEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break sweep execution.
+    }
   }
 }
 

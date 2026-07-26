@@ -73,14 +73,14 @@ const defaultModules = [
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
     summary:
-      '分页查看货主帮助中心工单、按 SLA 状态筛队列、查看 SLA 提醒和详情，并推进 pending -> processing -> resolved 状态流转，处理状态会通知货主。',
+      '分页查看货主帮助中心工单、按 SLA 状态筛队列、查看 SLA 提醒和详情，并推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
   },
   {
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
     summary:
-      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列，并在申诉重开后补录 accepted / rejected 裁定。',
+      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列，也能执行超时升级扫描并把升级消息回流给相关方；申诉重开后还能补录 accepted / rejected 裁定。',
   },
   {
     key: 'shipper-coupon',

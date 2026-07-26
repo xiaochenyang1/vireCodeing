@@ -13,9 +13,13 @@ describe('SupportTicketOverdueEscalationService', () => {
         return () => `ticket-${++sequence}`;
       })(),
     });
+    const notificationsService = {
+      notifySupportTicketEvent: jest.fn().mockResolvedValue(undefined),
+    };
     const service = new SupportTicketOverdueEscalationService(
       repository,
       () => new Date('2026-07-22T10:00:00.000Z'),
+      notificationsService,
     );
 
     await repository.createSupportTicket('shipper-1', {
@@ -105,6 +109,28 @@ describe('SupportTicketOverdueEscalationService', () => {
         ]),
       }),
     );
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenNthCalledWith(
+      1,
+      {
+        event: 'support_ticket_overdue_escalated',
+        ticketId: 'ticket-1',
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        stage: 'first_response',
+        overdueMinutes: 30,
+      },
+    );
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenNthCalledWith(
+      2,
+      {
+        event: 'support_ticket_overdue_escalated',
+        ticketId: 'ticket-2',
+        shipperId: 'shipper-2',
+        channelName: '订单咨询',
+        stage: 'resolution',
+        overdueMinutes: 120,
+      },
+    );
   });
 
   it('does not append duplicate escalation history for the same overdue stage', async () => {
@@ -191,5 +217,50 @@ describe('SupportTicketOverdueEscalationService', () => {
       conflictCount: 1,
       escalatedTicketIds: [],
     });
+  });
+
+  it('does not fail the sweep when overdue escalation notifications fail', async () => {
+    const repository = new InMemorySupportTicketsRepository({
+      createId: () => 'ticket-1',
+    });
+    const notificationsService = {
+      notifySupportTicketEvent: jest
+        .fn()
+        .mockRejectedValue(new Error('push failed')),
+    };
+    const service = new SupportTicketOverdueEscalationService(
+      repository,
+      () => new Date('2026-07-22T10:00:00.000Z'),
+      notificationsService,
+    );
+
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '首响已超时工单',
+      status: 'pending',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T09:00:00.000Z',
+        },
+      ],
+      createdAtIso: '2026-07-22T09:00:00.000Z',
+      updatedAtIso: '2026-07-22T09:00:00.000Z',
+    });
+
+    await expect(service.sweepOverdueTickets('admin')).resolves.toMatchObject({
+      escalatedCount: 1,
+      conflictCount: 0,
+    });
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenCalledTimes(
+      1,
+    );
+    await expect(repository.findSupportTicketById('ticket-1')).resolves.toEqual(
+      expect.objectContaining({
+        statusHistory: expect.arrayContaining([
+          expect.objectContaining({ actionText: '工单超时已升级' }),
+        ]),
+      }),
+    );
   });
 });

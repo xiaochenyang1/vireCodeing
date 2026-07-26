@@ -10,6 +10,7 @@ import {
   buildOrderExceptionCaseSlaSnapshot,
   createOrderExceptionCaseAutoEscalationAdminUserId,
 } from './order-exception-case-helpers';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { OrdersRepository } from '../orders/orders.repository';
 
 const EXCEPTION_CASE_SLA_MATCH_PAGE_SIZE = 200;
@@ -19,6 +20,10 @@ export class OrderExceptionCaseOverdueEscalationService {
   constructor(
     private readonly repository: OrdersRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly notificationsService?: Pick<
+      NotificationsService,
+      'notifyExceptionEvent'
+    >,
   ) {}
 
   async sweepOverdueCases(
@@ -82,6 +87,18 @@ export class OrderExceptionCaseOverdueEscalationService {
 
       result.escalatedCount += 1;
       result.escalatedCaseIds.push(appendResult.id);
+      const order = await this.repository.findOrderById(appendResult.orderId);
+      await this.safeNotifyExceptionEvent({
+        event: 'exception_case_overdue_escalated',
+        caseId: appendResult.id,
+        caseNo: appendResult.caseNo,
+        orderId: appendResult.orderId,
+        orderNo: appendResult.orderNo,
+        shipperId: order?.shipperId ?? '',
+        driverId: order?.assignedDriverId,
+        slaStage: sla.stage,
+        overdueMinutes: sla.overdueMinutes,
+      });
     }
 
     return result;
@@ -118,6 +135,28 @@ export class OrderExceptionCaseOverdueEscalationService {
       }
 
       page += 1;
+    }
+  }
+
+  private async safeNotifyExceptionEvent(input: {
+    event: 'exception_case_overdue_escalated';
+    caseId: string;
+    caseNo?: string;
+    orderId: string;
+    orderNo: string;
+    shipperId: string;
+    driverId?: string | null;
+    slaStage: 'acceptance' | 'resolution';
+    overdueMinutes?: number;
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifyExceptionEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break sweep execution.
     }
   }
 }

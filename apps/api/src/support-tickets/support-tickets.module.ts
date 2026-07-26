@@ -39,9 +39,16 @@ import { SupportTicketsService } from './support-tickets.service';
     },
     {
       provide: SupportTicketOverdueEscalationService,
-      useFactory: (repository: PrismaSupportTicketsRepository) =>
-        new SupportTicketOverdueEscalationService(repository),
-      inject: [PrismaSupportTicketsRepository],
+      useFactory: (
+        repository: PrismaSupportTicketsRepository,
+        notificationsService: NotificationsService,
+      ) =>
+        new SupportTicketOverdueEscalationService(
+          repository,
+          undefined,
+          notificationsService,
+        ),
+      inject: [PrismaSupportTicketsRepository, NotificationsService],
     },
     {
       provide: SupportTicketOverdueEscalationScheduler,
