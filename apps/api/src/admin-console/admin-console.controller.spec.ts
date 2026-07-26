@@ -462,6 +462,18 @@ describe('shipper invoice admin console page', () => {
     expect(auditInvalidationIndex).toBeGreaterThan(queueStart);
     expect(auditInvalidationIndex).toBeLessThan(missingTokenIndex);
   });
+
+  it('keeps invoice downloads bound to the application selected at request time', () => {
+    const html = renderShipperInvoiceAdminConsole();
+
+    expect(html).toContain('const applicationId = selectedItem.id');
+    expect(html).toContain("encodeURIComponent(applicationId) + '/download'");
+    expect(html).toContain("'invoice-' + applicationId + '.txt'");
+    expect(html).toContain('if (selectedApplicationId === applicationId)');
+    expect(html).not.toContain(
+      "encodeURIComponent(selectedApplicationId) + '/download'",
+    );
+  });
 });
 
 describe('shipper verification admin console page', () => {

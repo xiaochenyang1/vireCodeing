@@ -430,11 +430,12 @@ export function renderShipperInvoiceAdminConsole() {
         setDownloadState('仅已通过申请支持下载发票文件。', true);
         return;
       }
+      const applicationId = selectedItem.id;
 
       setDownloadState('下载发票文件中...', true);
       try {
         const response = await fetch(
-          apiBase + '/' + encodeURIComponent(selectedApplicationId) + '/download',
+          apiBase + '/' + encodeURIComponent(applicationId) + '/download',
           {
             headers: { Authorization: 'Bearer ' + getToken() },
           },
@@ -455,7 +456,7 @@ export function renderShipperInvoiceAdminConsole() {
 
         const fileName = extractDownloadFilename(
           response.headers.get('content-disposition'),
-          'invoice-' + selectedApplicationId + '.txt',
+          'invoice-' + applicationId + '.txt',
         );
         const downloadUrl = URL.createObjectURL(
           new Blob([responseText], {
@@ -472,9 +473,13 @@ export function renderShipperInvoiceAdminConsole() {
           URL.revokeObjectURL(downloadUrl);
         }, 0);
 
-        setDownloadState('发票文件下载已触发：' + fileName, false);
+        if (selectedApplicationId === applicationId) {
+          setDownloadState('发票文件下载已触发：' + fileName, false);
+        }
       } catch (error) {
-        setDownloadState(error.message || '发票文件下载失败', false);
+        if (selectedApplicationId === applicationId) {
+          setDownloadState(error.message || '发票文件下载失败', false);
+        }
       }
     }
 
