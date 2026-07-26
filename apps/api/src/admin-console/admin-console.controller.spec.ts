@@ -796,6 +796,17 @@ describe('order management admin console page', () => {
     expect(html).toContain('后端已整批校验并原子写入');
   });
 
+  it('ignores stale order list and detail responses', () => {
+    const html = renderOrderManagementAdminConsole();
+
+    expect(html).toContain('let latestOrderListRequestId = 0');
+    expect(html).toContain('const requestId = ++latestOrderListRequestId');
+    expect(html).toContain('if (requestId !== latestOrderListRequestId) return');
+    expect(html).toContain('let latestOrderDetailRequestId = 0');
+    expect(html).toContain('const requestId = ++latestOrderDetailRequestId');
+    expect(html).toContain('if (requestId !== latestOrderDetailRequestId) return');
+  });
+
   it('renders a selected-order finance drill-down action', () => {
     const html = renderOrderManagementAdminConsole();
 

@@ -486,6 +486,8 @@ export function renderOrderManagementAdminConsole() {
     };
     const selectedWaitingOrderIds = new Set();
     let batchCancelPending = false;
+    let latestOrderListRequestId = 0;
+    let latestOrderDetailRequestId = 0;
     let latestReportRequestId = 0;
     let latestOrderFinanceRequestId = 0;
     ${renderAdminSessionScript({
@@ -902,6 +904,7 @@ export function renderOrderManagementAdminConsole() {
     }
 
     async function loadOrderList(pageOverride) {
+      const requestId = ++latestOrderListRequestId;
       try {
         setNotice('');
         const query = buildOrderListQuery(pageOverride);
@@ -912,6 +915,8 @@ export function renderOrderManagementAdminConsole() {
         if (!response.ok || body.code !== 'OK') {
           throw new Error(body.message || body.code || '请求失败');
         }
+        if (requestId !== latestOrderListRequestId) return;
+
         state.list = body.data;
         syncOrderManagementRouteState(pageOverride);
         syncSelectedWaitingOrdersToCurrentList();
@@ -919,6 +924,7 @@ export function renderOrderManagementAdminConsole() {
         renderOrderListPagination(body.data);
         updateOrderBatchSelectionUi();
       } catch (error) {
+        if (requestId !== latestOrderListRequestId) return;
         state.list = null;
         selectedWaitingOrderIds.clear();
         document.getElementById('orderListResults').innerHTML =
@@ -1027,6 +1033,7 @@ export function renderOrderManagementAdminConsole() {
     }
 
     async function loadOrderDetail(orderIdOverride) {
+      const requestId = ++latestOrderDetailRequestId;
       try {
         setNotice('');
         const orderId = String(orderIdOverride || state.selectedOrderId || '').trim();
@@ -1040,12 +1047,15 @@ export function renderOrderManagementAdminConsole() {
         if (!response.ok || body.code !== 'OK') {
           throw new Error(body.message || body.code || '请求失败');
         }
+        if (requestId !== latestOrderDetailRequestId) return;
+
         state.selectedOrderId = orderId;
         state.selectedOrder = body.data;
         syncOrderManagementRouteState();
         renderSelectedOrder();
         loadSelectedOrderFinance(orderId);
       } catch (error) {
+        if (requestId !== latestOrderDetailRequestId) return;
         setNotice(error.message);
       }
     }
