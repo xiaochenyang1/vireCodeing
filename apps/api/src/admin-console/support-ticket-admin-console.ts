@@ -495,6 +495,10 @@ export function renderSupportTicketAdminConsole() {
         pendingRouteTicketId = '';
       }
       selectedTicketId = ticketId;
+      selectedTicketStatus = '';
+      selectedTicketClaimedByAdminUserId = '';
+      document.getElementById('supportTicketBaseUpdatedAtIso').value = '';
+      document.getElementById('supportTicketActions').innerHTML = '';
       syncSupportTicketRouteState(currentPage, selectedTicketId);
       renderSupportTicketListFromSelection();
       const requestId = ++latestSupportTicketDetailRequestId;
@@ -573,16 +577,29 @@ export function renderSupportTicketAdminConsole() {
       });
     }
 
-    async function recoverSupportTicketFromConflict() {
+    function renderSelectedSupportTicketActions() {
+      if (!selectedTicketId || !selectedTicketStatus) {
+        return;
+      }
+
+      document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
+        id: selectedTicketId,
+        status: selectedTicketStatus,
+        claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
+      });
+    }
+
+    async function recoverSupportTicketFromConflict(targetTicketId) {
       const refreshTasks = [loadSupportTickets(currentPage)];
 
-      if (selectedTicketId) {
+      if (selectedTicketId === targetTicketId) {
         refreshTasks.push(
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId)),
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId)),
         );
       }
 
       await Promise.all(refreshTasks);
+      if (selectedTicketId !== targetTicketId) return;
       document.getElementById('supportTicketMutationNotice').textContent =
         '工单已被其他管理员更新，正在刷新最新状态。';
     }
@@ -606,10 +623,11 @@ export function renderSupportTicketAdminConsole() {
         return;
       }
 
+      const targetTicketId = selectedTicketId;
       mutationPending = true;
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
-        id: selectedTicketId,
+        id: targetTicketId,
         status: selectedTicketStatus,
         claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
       });
@@ -617,13 +635,14 @@ export function renderSupportTicketAdminConsole() {
       const path = action === 'process' ? '/process' : '/resolve';
 
       try {
-        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + path, {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(targetTicketId) + path, {
           method: 'POST',
           body: JSON.stringify({
             baseUpdatedAtIso,
             content,
           }),
         });
+        if (selectedTicketId !== targetTicketId) return;
         renderSupportTicketDetail(ticket);
         document.getElementById('supportTicketMutationNotice').textContent =
           action === 'process'
@@ -632,17 +651,17 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
+        if (selectedTicketId !== targetTicketId) return;
         if (error.code === 'SUPPORT_TICKET_CONFLICT') {
-          await recoverSupportTicketFromConflict();
+          await recoverSupportTicketFromConflict(targetTicketId);
         } else {
           document.getElementById('supportTicketMutationNotice').textContent =
             error.message || '更新工单失败';
-          if (selectedTicketId) {
-            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
-          }
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId));
         }
       } finally {
         mutationPending = false;
+        renderSelectedSupportTicketActions();
       }
     }
 
@@ -665,38 +684,40 @@ export function renderSupportTicketAdminConsole() {
         return;
       }
 
+      const targetTicketId = selectedTicketId;
       mutationPending = true;
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
-        id: selectedTicketId,
+        id: targetTicketId,
         status: selectedTicketStatus,
       });
 
       try {
-        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/claim', {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(targetTicketId) + '/claim', {
           method: 'POST',
           body: JSON.stringify({
             baseUpdatedAtIso,
             ...(content ? { content } : {}),
           }),
         });
+        if (selectedTicketId !== targetTicketId) return;
         renderSupportTicketDetail(ticket);
         document.getElementById('supportTicketMutationNotice').textContent =
           '工单已认领，当前客服可继续跟进。';
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
+        if (selectedTicketId !== targetTicketId) return;
         if (error.code === 'SUPPORT_TICKET_CONFLICT') {
-          await recoverSupportTicketFromConflict();
+          await recoverSupportTicketFromConflict(targetTicketId);
         } else {
           document.getElementById('supportTicketMutationNotice').textContent =
             error.message || '认领工单失败';
-          if (selectedTicketId) {
-            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
-          }
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId));
         }
       } finally {
         mutationPending = false;
+        renderSelectedSupportTicketActions();
       }
     }
 
@@ -719,39 +740,41 @@ export function renderSupportTicketAdminConsole() {
         return;
       }
 
+      const targetTicketId = selectedTicketId;
       mutationPending = true;
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
-        id: selectedTicketId,
+        id: targetTicketId,
         status: selectedTicketStatus,
         claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
       });
 
       try {
-        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/takeover', {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(targetTicketId) + '/takeover', {
           method: 'POST',
           body: JSON.stringify({
             baseUpdatedAtIso,
             ...(content ? { content } : {}),
           }),
         });
+        if (selectedTicketId !== targetTicketId) return;
         renderSupportTicketDetail(ticket);
         document.getElementById('supportTicketMutationNotice').textContent =
           '工单已强制接管，当前客服可继续跟进。';
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
+        if (selectedTicketId !== targetTicketId) return;
         if (error.code === 'SUPPORT_TICKET_CONFLICT') {
-          await recoverSupportTicketFromConflict();
+          await recoverSupportTicketFromConflict(targetTicketId);
         } else {
           document.getElementById('supportTicketMutationNotice').textContent =
             error.message || '强制接管工单失败';
-          if (selectedTicketId) {
-            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
-          }
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId));
         }
       } finally {
         mutationPending = false;
+        renderSelectedSupportTicketActions();
       }
     }
 
@@ -784,16 +807,17 @@ export function renderSupportTicketAdminConsole() {
       }
 
       const isTransfer = Boolean(selectedTicketClaimedByAdminUserId);
+      const targetTicketId = selectedTicketId;
       mutationPending = true;
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
-        id: selectedTicketId,
+        id: targetTicketId,
         status: selectedTicketStatus,
         claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
       });
 
       try {
-        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/assign', {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(targetTicketId) + '/assign', {
           method: 'POST',
           body: JSON.stringify({
             baseUpdatedAtIso,
@@ -801,6 +825,7 @@ export function renderSupportTicketAdminConsole() {
             ...(content ? { content } : {}),
           }),
         });
+        if (selectedTicketId !== targetTicketId) return;
         renderSupportTicketDetail(ticket);
         document.getElementById('supportTicketMutationNotice').textContent =
           isTransfer
@@ -810,17 +835,17 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
+        if (selectedTicketId !== targetTicketId) return;
         if (error.code === 'SUPPORT_TICKET_CONFLICT') {
-          await recoverSupportTicketFromConflict();
+          await recoverSupportTicketFromConflict(targetTicketId);
         } else {
           document.getElementById('supportTicketMutationNotice').textContent =
             error.message || '指派工单失败';
-          if (selectedTicketId) {
-            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
-          }
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId));
         }
       } finally {
         mutationPending = false;
+        renderSelectedSupportTicketActions();
       }
     }
 
@@ -843,39 +868,41 @@ export function renderSupportTicketAdminConsole() {
         return;
       }
 
+      const targetTicketId = selectedTicketId;
       mutationPending = true;
       document.getElementById('supportTicketMutationNotice').textContent = '';
       document.getElementById('supportTicketActions').innerHTML = renderSupportTicketActions({
-        id: selectedTicketId,
+        id: targetTicketId,
         status: selectedTicketStatus,
         claimedByAdminUserId: selectedTicketClaimedByAdminUserId,
       });
 
       try {
-        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(selectedTicketId) + '/unclaim', {
+        const ticket = await api('/admin/support-tickets/' + encodeURIComponent(targetTicketId) + '/unclaim', {
           method: 'POST',
           body: JSON.stringify({
             baseUpdatedAtIso,
             ...(content ? { content } : {}),
           }),
         });
+        if (selectedTicketId !== targetTicketId) return;
         renderSupportTicketDetail(ticket);
         document.getElementById('supportTicketMutationNotice').textContent =
           '工单认领已释放，已回到未认领队列。';
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
+        if (selectedTicketId !== targetTicketId) return;
         if (error.code === 'SUPPORT_TICKET_CONFLICT') {
-          await recoverSupportTicketFromConflict();
+          await recoverSupportTicketFromConflict(targetTicketId);
         } else {
           document.getElementById('supportTicketMutationNotice').textContent =
             error.message || '释放认领失败';
-          if (selectedTicketId) {
-            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
-          }
+          loadSupportTicketDetail(encodeURIComponent(targetTicketId));
         }
       } finally {
         mutationPending = false;
+        renderSelectedSupportTicketActions();
       }
     }
 

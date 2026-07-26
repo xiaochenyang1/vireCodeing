@@ -631,6 +631,34 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('await loadSupportTicketDetail(');
     expect(html).toContain('clearSupportTicketSelection(options = {})');
   });
+
+  it('keeps support ticket mutation responses bound to their starting selection', () => {
+    const html = renderSupportTicketAdminConsole();
+
+    expect(html.match(/const targetTicketId = selectedTicketId;/g)).toHaveLength(
+      5,
+    );
+    expect(
+      html.match(/if \(selectedTicketId !== targetTicketId\) return;/g),
+    ).toHaveLength(11);
+    expect(html).toContain(
+      "encodeURIComponent(targetTicketId) + '/claim'",
+    );
+    expect(html).toContain(
+      "encodeURIComponent(targetTicketId) + '/takeover'",
+    );
+    expect(html).toContain(
+      "encodeURIComponent(targetTicketId) + '/assign'",
+    );
+    expect(html).toContain(
+      "encodeURIComponent(targetTicketId) + '/unclaim'",
+    );
+    expect(html).toContain('recoverSupportTicketFromConflict(targetTicketId)');
+    expect(html).toContain('renderSelectedSupportTicketActions()');
+    expect(html).not.toContain(
+      "encodeURIComponent(selectedTicketId) + '/claim'",
+    );
+  });
 });
 
 describe('session governance admin console page', () => {
