@@ -4,6 +4,7 @@ import { createAdminActionFingerprint } from '../payments/admin-finance.service'
 import type { NotificationsService } from '../notifications/notifications.service';
 import type {
   AppealOrderExceptionCaseRequest,
+  ClaimOrderExceptionCaseRequest,
   OrderExceptionCaseRecord,
   ExecuteOrderExceptionCaseCompensationRequest,
   OrderExceptionCaseListQuery,
@@ -13,6 +14,7 @@ import type {
   UpdateOrderExceptionCaseRequest,
 } from './dto';
 import {
+  createOrderExceptionCaseClaimContent,
   mapOrderExceptionCaseListWithSla,
   mapOrderExceptionCaseWithSla,
 } from './order-exception-case-helpers';
@@ -108,6 +110,58 @@ export class OrderExceptionCasesService {
       'processing',
       input,
     );
+  }
+
+  async claimCase(
+    adminUserId: string,
+    caseId: string,
+    input: ClaimOrderExceptionCaseRequest,
+  ) {
+    const exceptionCase = await this.repository.findOrderExceptionCaseById(caseId);
+
+    if (!exceptionCase) {
+      throw notFoundError();
+    }
+
+    if (
+      exceptionCase.status !== 'pending' &&
+      exceptionCase.status !== 'processing'
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    const result = await this.repository.appendOrderExceptionCaseAction(
+      caseId,
+      adminUserId,
+      exceptionCase.status,
+      {
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        content: createOrderExceptionCaseClaimContent(input.content),
+      },
+    );
+
+    if (!result) {
+      throw notFoundError();
+    }
+
+    if (result === 'state-invalid') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    if (result === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+        '异常工单已被其他管理员更新，请刷新后重试',
+      );
+    }
+
+    return mapOrderExceptionCaseWithSla(result, this.now());
   }
 
   async resolveCase(

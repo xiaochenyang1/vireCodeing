@@ -1929,6 +1929,56 @@ describe('platform order api', () => {
     );
   });
 
+  it('claims an admin order exception case with a normalized optional note', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(
+        createAdminOrderExceptionCase({
+          status: 'processing',
+          claimedByAdminUserId: 'admin-1',
+          claimedAtIso: '2026-07-25T08:20:00.000Z',
+          claimNote: '夜班客服先认领跟进。',
+          actions: [
+            {
+              id: 'action-1',
+              adminUserId: 'admin-1',
+              fromStatus: 'processing',
+              toStatus: 'processing',
+              content: '客服认领：夜班客服先认领跟进。',
+              createdAtIso: '2026-07-25T08:20:00.000Z',
+            },
+          ],
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.claimAdminOrderExceptionCase(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T08:00:00.000Z',
+        content: '  夜班客服先认领跟进。  ',
+      }),
+    ).resolves.toMatchObject({
+      claimedByAdminUserId: 'admin-1',
+      claimNote: '夜班客服先认领跟进。',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/claim',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T08:00:00.000Z',
+          content: '夜班客服先认领跟进。',
+        }),
+      }),
+    );
+  });
+
   it('processes resolves closes and executes admin order exception cases with normalized payloads', async () => {
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(
@@ -2143,6 +2193,10 @@ describe('platform order api', () => {
       baseUpdatedAtIso: 'invalid',
       content: 'short',
     } as unknown as Parameters<typeof api.processAdminOrderExceptionCase>[1];
+    const invalidClaimRequest = {
+      baseUpdatedAtIso: '2026-07-25T08:00:00.000Z',
+      content: 'a'.repeat(201),
+    } as unknown as Parameters<typeof api.claimAdminOrderExceptionCase>[1];
     const invalidResolveRequest = {
       baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
       content: '货损属实，等待赔付跟进。',
@@ -2184,6 +2238,12 @@ describe('platform order api', () => {
     } satisfies Partial<PlatformApiError>);
     await expect(
       api.processAdminOrderExceptionCase('case-1', invalidProcessRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.claimAdminOrderExceptionCase('case-1', invalidClaimRequest),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
       status: 0,

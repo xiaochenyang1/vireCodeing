@@ -246,6 +246,9 @@ export type PlatformOrderExceptionCase = {
   appealStatus: PlatformOrderExceptionCaseAppealStatus;
   appealReason?: string;
   appealRequestedAtIso?: string;
+  claimedByAdminUserId?: string;
+  claimedAtIso?: string;
+  claimNote?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   sla?: PlatformOrderExceptionCaseSlaSnapshot;
@@ -540,6 +543,11 @@ export type PlatformAdminUpdateOrderExceptionCaseRequest = {
   content: string;
 };
 
+export type PlatformAdminClaimOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  content?: string;
+};
+
 export type PlatformAdminResolveOrderExceptionCaseRequest =
   PlatformAdminUpdateOrderExceptionCaseRequest & {
     compensationStatus: Extract<
@@ -716,6 +724,23 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
           normalizedCaseId,
         )}/process`,
         normalizeAdminOrderExceptionCaseUpdateRequest(request),
+      );
+    },
+    async claimAdminOrderExceptionCase(
+      caseId: string,
+      request: PlatformAdminClaimOrderExceptionCaseRequest,
+    ) {
+      const normalizedCaseId = normalizeExceptionCaseId(caseId);
+
+      return platformPost<
+        PlatformAdminClaimOrderExceptionCaseRequest,
+        PlatformOrderExceptionCase
+      >(
+        config,
+        `/admin/order-exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/claim`,
+        normalizeAdminOrderExceptionCaseClaimRequest(request),
       );
     },
     async resolveAdminOrderExceptionCase(
@@ -2078,6 +2103,38 @@ function normalizeAdminOrderExceptionCaseUpdateRequest(
       ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
       6,
     ),
+  };
+}
+
+function normalizeAdminOrderExceptionCaseClaimRequest(
+  request: PlatformAdminClaimOrderExceptionCaseRequest,
+): PlatformAdminClaimOrderExceptionCaseRequest {
+  const requestInput = request as unknown;
+
+  if (
+    requestInput === null ||
+    typeof requestInput !== 'object' ||
+    Array.isArray(requestInput)
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception claim request must be an object',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  const normalizedContent = normalizeOptionalTrimmedString(
+    request.content,
+    200,
+    'Platform admin order exception claim content is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
+
+  return {
+    baseUpdatedAtIso: normalizeAdminOrderExceptionCaseBaseUpdatedAtIso(
+      request.baseUpdatedAtIso,
+    ),
+    ...(normalizedContent ? { content: normalizedContent } : {}),
   };
 }
 

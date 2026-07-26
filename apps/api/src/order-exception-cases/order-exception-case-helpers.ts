@@ -10,6 +10,8 @@ export const EXCEPTION_CASE_SLA_POLICY_KEY = 'exception_case_default_v1';
 const EXCEPTION_CASE_ACCEPTANCE_TARGET_MS = 15 * 60 * 1000;
 const EXCEPTION_CASE_RESOLUTION_TARGET_MS = 4 * 60 * 60 * 1000;
 const MILLIS_PER_MINUTE = 60 * 1000;
+const EXCEPTION_CASE_CLAIM_CONTENT_PREFIX = '客服认领：';
+const EXCEPTION_CASE_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
 
 export function mapOrderExceptionCaseListWithSla(
   result: { items: OrderExceptionCaseRecord[]; total: number },
@@ -29,8 +31,19 @@ export function mapOrderExceptionCaseWithSla(
 ): OrderExceptionCaseRecord {
   return {
     ...exceptionCase,
+    ...buildOrderExceptionCaseClaimSnapshot(exceptionCase.actions),
     sla: buildOrderExceptionCaseSlaSnapshot(exceptionCase, now),
   };
+}
+
+export function createOrderExceptionCaseClaimContent(content?: string) {
+  const normalizedNote = content?.trim();
+
+  return `${EXCEPTION_CASE_CLAIM_CONTENT_PREFIX}${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : EXCEPTION_CASE_DEFAULT_CLAIM_NOTE
+  }`;
 }
 
 export function buildOrderExceptionCaseSlaSnapshot(
@@ -105,6 +118,13 @@ export function isOrderExceptionCaseAutoEscalationAdminUserId(
   return adminUserId.startsWith('system:auto-escalation:');
 }
 
+export function isOrderExceptionCaseClaimContent(content: string | undefined) {
+  return (
+    typeof content === 'string' &&
+    content.startsWith(EXCEPTION_CASE_CLAIM_CONTENT_PREFIX)
+  );
+}
+
 function buildOpenOrderExceptionCaseSla(
   stage: OrderExceptionCaseSlaSnapshot['stage'],
   targetTimestamp: number,
@@ -170,7 +190,7 @@ function findOrderExceptionCaseTransitionIso(
 
     if (
       action?.toStatus === toStatus &&
-      !isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId)
+      !shouldIgnoreOrderExceptionCaseActionForSlaAnchor(action)
     ) {
       return action.createdAtIso;
     }
@@ -187,4 +207,45 @@ function parseTimestamp(value: string | undefined, fallback: number) {
 
 function calculateSlaMinutes(deltaMs: number) {
   return Math.max(0, Math.ceil(deltaMs / MILLIS_PER_MINUTE));
+}
+
+function buildOrderExceptionCaseClaimSnapshot(
+  actions: OrderExceptionCaseActionRecord[],
+) {
+  for (let index = actions.length - 1; index >= 0; index -= 1) {
+    const action = actions[index];
+
+    if (
+      !action ||
+      isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId) ||
+      !isOrderExceptionCaseClaimContent(action.content)
+    ) {
+      continue;
+    }
+
+    return {
+      claimedByAdminUserId: action.adminUserId,
+      claimedAtIso: action.createdAtIso,
+      claimNote: extractOrderExceptionCaseClaimNote(action.content),
+    };
+  }
+
+  return {};
+}
+
+function extractOrderExceptionCaseClaimNote(content: string) {
+  const normalizedNote = content
+    .slice(EXCEPTION_CASE_CLAIM_CONTENT_PREFIX.length)
+    .trim();
+
+  return normalizedNote.length > 0 ? normalizedNote : undefined;
+}
+
+function shouldIgnoreOrderExceptionCaseActionForSlaAnchor(
+  action: OrderExceptionCaseActionRecord,
+) {
+  return (
+    isOrderExceptionCaseAutoEscalationAdminUserId(action.adminUserId) ||
+    isOrderExceptionCaseClaimContent(action.content)
+  );
 }

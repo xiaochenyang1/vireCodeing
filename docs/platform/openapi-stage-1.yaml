@@ -5728,6 +5728,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /admin/order-exception-cases/{caseId}/claim:
+    post:
+      summary: Claim an open exception case for the current administrator
+      description: >-
+        Appends a same-status claim audit so the current administrator can explicitly take over an
+        open exception case without changing its business status. This first slice does not yet
+        support cross-seat assignment, transfer rules or release workflows.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case claimed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
   /admin/order-exception-cases/{caseId}/process:
     post:
       summary: Accept a pending exception case for processing
@@ -12883,6 +12902,16 @@ components:
         appealRequestedAtIso:
           type: string
           format: date-time
+        claimedByAdminUserId:
+          type: string
+          description: Latest administrator who explicitly claimed the open case in the current lightweight seat-claim slice.
+        claimedAtIso:
+          type: string
+          format: date-time
+        claimNote:
+          type: string
+          maxLength: 200
+          description: Latest optional claim note left by the claiming administrator.
         resolvedAtIso: { type: string, format: date-time }
         closedAtIso: { type: string, format: date-time }
         sla:
@@ -12902,6 +12931,18 @@ components:
           format: date-time
           description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
         content: { type: string, minLength: 6, maxLength: 500 }
+    ClaimOrderExceptionCaseRequest:
+      type: object
+      required: [baseUpdatedAtIso]
+      properties:
+        baseUpdatedAtIso:
+          type: string
+          format: date-time
+          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+        content:
+          type: string
+          maxLength: 200
+          description: Optional claim note shown in admin audit history and the derived claim snapshot.
     ResolveOrderExceptionCaseRequest:
       allOf:
         - $ref: '#/components/schemas/UpdateOrderExceptionCaseRequest'

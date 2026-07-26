@@ -327,7 +327,7 @@ function createModules(
       route: '/api/admin/order-exception-case-console',
       stage: 'first_slice',
       summary:
-        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列后执行平台赔付，也支持手动/定时超时升级扫描并向相关方回流超时升级消息，但坐席分配、会话和退款联动还没补上。',
+        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列后执行平台赔付，也支持先认领到当前客服，再手动/定时执行超时升级扫描并向相关方回流超时升级消息，但更完整的坐席分配、会话和退款联动还没补上。',
       metrics: [
         {
           label: '待处理工单',
@@ -350,7 +350,7 @@ function createModules(
           tone: queueTone(stats.orderExceptions.overdueCount),
         },
       ],
-      pendingGaps: ['坐席分配', '会话联动', '退款联动'],
+      pendingGaps: ['更完整的坐席分配 / 转派规则', '会话联动', '退款联动'],
     },
     {
       key: 'shipper-coupon',

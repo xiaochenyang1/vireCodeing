@@ -1092,12 +1092,14 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/order-exception-cases:');
     expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/claim:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/resolve:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/close:');
     expect(source).toContain('Run overdue exception-case escalation sweep');
     expect(source).toContain('OrderExceptionCaseRecord');
     expect(source).toContain('OrderExceptionCaseActionRecord');
+    expect(source).toContain('ClaimOrderExceptionCaseRequest');
     expect(source).toContain('OrderExceptionCaseOverdueEscalationSweep');
     expect(source).toContain('OrderExceptionCaseOverdueEscalationSweepResponse');
     expect(source).toContain('OrderExceptionCaseStatus');
@@ -1111,6 +1113,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('appealDecision');
     expect(source).toContain('compensationTargetRole');
     expect(source).toContain('compensationAmountCents');
+    expect(source).toContain('claimedByAdminUserId');
+    expect(source).toContain('claimedAtIso');
+    expect(source).toContain('claimNote');
     expect(source).toContain('sla');
     expect(source).toContain('targetAtIso');
     expect(source).toContain('overdueMinutes');
@@ -1137,6 +1142,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases/overdue-escalations/sweep',
       "$ref: '#/components/schemas/OrderExceptionCaseOverdueEscalationSweepResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/claim',
+      "$ref: '#/components/schemas/ClaimOrderExceptionCaseRequest'",
     );
   });
 

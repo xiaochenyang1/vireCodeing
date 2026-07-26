@@ -39,7 +39,7 @@ export function renderOrderExceptionCaseAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
-      <p class="muted">这页现在除了看异常工单流转、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
+      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -68,7 +68,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     <section class="panel">
       <h2>工单详情</h2>
       <div id="caseDetail" class="muted">请选择工单</div>
-      <label>处理说明<textarea id="caseActionContent" placeholder="请输入 6-500 字处理说明"></textarea></label>
+      <label>处理说明 / 认领备注<textarea id="caseActionContent" placeholder="处理动作请输入 6-500 字；认领备注可留空或填写最多 200 字"></textarea></label>
       <div id="caseCompensationControls" class="filters">
         <label>赔付状态<select id="caseCompensationStatusInput"><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option></select></label>
         <label id="caseAppealDecisionField" style="display:none">申诉裁定<select id="caseAppealDecisionInput"><option value="">请选择</option><option value="accepted">受理申诉</option><option value="rejected">驳回申诉</option></select></label>
@@ -185,6 +185,13 @@ export function renderOrderExceptionCaseAdminConsole() {
       return formatCaseSlaStage(sla.stage) + ' · ' + formatCaseSlaStatus(sla.status);
     }
 
+    function formatCaseClaim(item) {
+      if (!item || !item.claimedByAdminUserId) {
+        return '未认领';
+      }
+      return item.claimedByAdminUserId + (item.claimedAtIso ? ' · ' + item.claimedAtIso : '');
+    }
+
     function readOrderExceptionCaseRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -282,6 +289,19 @@ export function renderOrderExceptionCaseAdminConsole() {
       return document.getElementById('caseMutationButton');
     }
 
+    function getCaseClaimButton() {
+      return document.getElementById('caseClaimButton');
+    }
+
+    function setCaseActionButtonsDisabled(disabled) {
+      const button = getCaseMutationButton();
+      if (button) button.disabled = disabled;
+      const claimButton = getCaseClaimButton();
+      if (claimButton) claimButton.disabled = disabled;
+      const executeButton = document.getElementById('caseExecuteCompensationButton');
+      if (executeButton) executeButton.disabled = disabled;
+    }
+
     function syncCompensationInputsFromStatus() {
       const button = getCaseMutationButton();
       const isResolveAction = Boolean(button && button.dataset.action === 'resolve');
@@ -351,6 +371,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<div>' + escapeHtml(item.orderNo) + ' · ' + escapeHtml(item.typeLabel) + '</div>' +
         '<div class="muted">' + escapeHtml(item.sourceRole) + ' · 创建：' + escapeHtml(item.createdAtIso || '-') + '</div>' +
         '<div class="muted">最近更新：' + escapeHtml(formatCaseRecentActivity(item)) + '</div>' +
+        '<div class="muted">认领：' + escapeHtml(formatCaseClaim(item)) + '</div>' +
         '<div class="muted">赔付：' + escapeHtml(formatCompensationStatus(item.compensationStatus)) + '</div>' +
         '<div class="muted">申诉：' + escapeHtml(formatAppealStatus(item.appealStatus)) + '</div>' +
         '<div class="muted">SLA：' + escapeHtml(formatCaseSlaMeta(item.sla)) + '</div>' +
@@ -363,6 +384,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<p>' + escapeHtml(item.typeLabel) + '：' + escapeHtml(item.description) + '</p>' +
         '<p>创建时间：' + escapeHtml(item.createdAtIso || '-') + '</p>' +
         '<p>更新时间：' + escapeHtml(formatCaseRecentActivity(item)) + '</p>' +
+        '<p>当前认领：' + escapeHtml(formatCaseClaim(item)) + '</p>' +
         '<p>SLA：' + escapeHtml(formatCaseSlaMeta(item.sla)) + '</p>' +
         '<p>SLA 目标时间：' + escapeHtml((item.sla && item.sla.targetAtIso) || '-') + '</p>' +
         '<p>附件：' + escapeHtml((item.attachmentFileIds || []).join(', ') || '无') + '</p>' +
@@ -463,6 +485,9 @@ export function renderOrderExceptionCaseAdminConsole() {
       const labelByStatus = { pending: '受理工单', processing: '解决工单', resolved: '关闭工单' };
       const action = actionByStatus[status];
       let buttons = '';
+      if (status === 'pending' || status === 'processing') {
+        buttons += '<button id="caseClaimButton" class="secondary-button" onclick="claimCase()">认领到我</button>';
+      }
       if (action) {
         buttons += '<button id="caseMutationButton" data-action="' + action + '" onclick="mutateCase(this.dataset.action)">' + labelByStatus[status] + '</button>';
       } else {
@@ -485,10 +510,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       }
       mutationPending = true;
       document.getElementById('caseMutationNotice').textContent = '';
-      const button = getCaseMutationButton();
-      if (button) button.disabled = true;
-      const executeButton = document.getElementById('caseExecuteCompensationButton');
-      if (executeButton) executeButton.disabled = true;
+      setCaseActionButtonsDisabled(true);
       try {
         const payload = { baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value, content };
         if (action === 'resolve') {
@@ -510,10 +532,44 @@ export function renderOrderExceptionCaseAdminConsole() {
         }
       } finally {
         mutationPending = false;
-        const nextButton = getCaseMutationButton();
-        if (nextButton) nextButton.disabled = false;
-        const nextExecuteButton = document.getElementById('caseExecuteCompensationButton');
-        if (nextExecuteButton) nextExecuteButton.disabled = false;
+        setCaseActionButtonsDisabled(false);
+        syncCompensationInputsFromStatus();
+      }
+    }
+
+    async function claimCase() {
+      if (!selectedCaseId || mutationPending) return;
+      const content = document.getElementById('caseActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('caseMutationNotice').textContent = '认领备注最多 200 字';
+        return;
+      }
+      mutationPending = true;
+      document.getElementById('caseMutationNotice').textContent = '';
+      setCaseActionButtonsDisabled(true);
+      try {
+        const payload = {
+          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
+          ...(content ? { content } : {}),
+        };
+        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/claim', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        document.getElementById('caseActionContent').value = '';
+        document.getElementById('caseMutationNotice').textContent = '工单已认领，当前客服可继续跟进。';
+        await loadCase(selectedCaseId);
+        await loadCases(currentPage);
+      } catch (error) {
+        if (error.code === 'EXCEPTION_CASE_CONFLICT') {
+          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
+          await loadCase(selectedCaseId);
+        } else {
+          document.getElementById('caseMutationNotice').textContent = error.message;
+        }
+      } finally {
+        mutationPending = false;
+        setCaseActionButtonsDisabled(false);
         syncCompensationInputsFromStatus();
       }
     }
@@ -527,10 +583,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       }
       mutationPending = true;
       document.getElementById('caseMutationNotice').textContent = '';
-      const button = getCaseMutationButton();
-      if (button) button.disabled = true;
-      const executeButton = document.getElementById('caseExecuteCompensationButton');
-      if (executeButton) executeButton.disabled = true;
+      setCaseActionButtonsDisabled(true);
       try {
         await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/compensation/execute', {
           method: 'POST',
@@ -556,10 +609,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         }
       } finally {
         mutationPending = false;
-        const nextButton = getCaseMutationButton();
-        if (nextButton) nextButton.disabled = false;
-        const nextExecuteButton = document.getElementById('caseExecuteCompensationButton');
-        if (nextExecuteButton) nextExecuteButton.disabled = false;
+        setCaseActionButtonsDisabled(false);
         syncCompensationInputsFromStatus();
       }
     }

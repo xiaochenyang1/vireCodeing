@@ -12,6 +12,9 @@ describe('order exception case controllers', () => {
     listForDriver: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     listForAdmin: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     getForAdmin: jest.fn().mockResolvedValue({ id: 'case-1' }),
+    claimCase: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-1' }),
     processCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'processing' }),
     resolveCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'resolved' }),
     closeCase: jest.fn().mockResolvedValue({ id: 'case-1', status: 'closed' }),
@@ -66,6 +69,30 @@ describe('order exception case controllers', () => {
       slaStatus: 'overdue',
     });
     expect(service.getForAdmin).toHaveBeenCalledWith('case-1');
+  });
+
+  it('claims a case for the authenticated administrator', async () => {
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
+    const result = await controller.claimCase(
+      createRequest('admin-1', 'admin'),
+      ' case-1 ',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: '  当前客服先认领跟进。  ',
+      },
+    );
+
+    expect(service.claimCase).toHaveBeenCalledWith('admin-1', 'case-1', {
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      content: '当前客服先认领跟进。',
+    });
+    expect(result.data).toMatchObject({
+      id: 'case-1',
+      claimedByAdminUserId: 'admin-1',
+    });
   });
 
   it.each([

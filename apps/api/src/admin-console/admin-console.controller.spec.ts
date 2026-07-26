@@ -681,7 +681,13 @@ describe('order exception case admin console page', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
     expect(html).toContain('/admin/order-exception-cases/overdue-escalations/sweep');
+    expect(html).toContain('/claim');
     expect(html).toContain('sweepOverdueExceptionCases');
+    expect(html).toContain('claimCase');
+    expect(html).toContain('caseClaimButton');
+    expect(html).toContain('认领到我');
+    expect(html).toContain('当前认领：');
+    expect(html).toContain('认领：');
     expect(html).toContain('caseSweepNotice');
     expect(html).toContain('sweepExceptionCaseOverdueButton');
     expect(html).toContain('最近更新：');

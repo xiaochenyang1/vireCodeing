@@ -73,6 +73,9 @@ export type OrderExceptionCaseRecord = {
   appealStatus: OrderExceptionCaseAppealStatus;
   appealReason?: string;
   appealRequestedAtIso?: string;
+  claimedByAdminUserId?: string;
+  claimedAtIso?: string;
+  claimNote?: string;
   resolvedAtIso?: string;
   closedAtIso?: string;
   sla?: OrderExceptionCaseSlaSnapshot;
@@ -104,6 +107,11 @@ export type OrderExceptionCaseListResult = {
 export type UpdateOrderExceptionCaseRequest = {
   baseUpdatedAtIso: string;
   content: string;
+};
+
+export type ClaimOrderExceptionCaseRequest = {
+  baseUpdatedAtIso: string;
+  content?: string;
 };
 
 export type OrderExceptionCaseOverdueEscalationSweepTrigger =

@@ -1,5 +1,6 @@
 import {
   parseAppealOrderExceptionCaseRequest,
+  parseClaimOrderExceptionCaseRequest,
   parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
   parseOrderExceptionCaseListQuery,
@@ -91,6 +92,40 @@ describe('order exception case validation', () => {
         content: '太短',
       }),
     ).toThrow('处理说明至少 6 个字');
+  });
+
+  it('normalizes a claim request and allows an empty optional note', () => {
+    expect(
+      parseClaimOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: '  当前客服先认领跟进。  ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+      content: '当前客服先认领跟进。',
+    });
+    expect(
+      parseClaimOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: '   ',
+      }),
+    ).toEqual({
+      baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+    });
+  });
+
+  it('rejects an invalid claim request', () => {
+    expect(() =>
+      parseClaimOrderExceptionCaseRequest({
+        baseUpdatedAtIso: 'bad-date',
+      }),
+    ).toThrow('工单版本时间不合法');
+    expect(() =>
+      parseClaimOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: 'a'.repeat(201),
+      }),
+    ).toThrow('认领备注最多 200 字');
   });
 
   it('normalizes a resolve request with compensation tracking', () => {
