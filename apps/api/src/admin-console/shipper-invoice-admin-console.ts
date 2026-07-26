@@ -160,18 +160,19 @@ export function renderShipperInvoiceAdminConsole() {
       </div>
     </section>
   </div>
-  ${renderAdminSessionScript({
-    currentRoute: '/api/admin/shipper-invoice-console',
-  })}
   <script>
     const apiBase = document.querySelector('meta[name="admin-shipper-invoice-api"]').content;
     let selectedApplicationId = '';
     let currentItems = [];
     let latestQueueRequestId = 0;
     let latestReviewEventsRequestId = 0;
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/shipper-invoice-console',
+    })}
 
     function getToken() {
-      return window.__adminSession?.getAccessToken?.() || localStorage.getItem('adminAccessToken') || '';
+      const stored = readStoredAdminSession();
+      return stored.session?.accessToken || localStorage.getItem('adminAccessToken') || '';
     }
 
     function setText(id, text) {
@@ -505,7 +506,10 @@ export function renderShipperInvoiceAdminConsole() {
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
     applyShipperInvoiceRouteState();
-    loadQueue();
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadQueue();
+    }
   </script>
 </body>
 </html>`;
