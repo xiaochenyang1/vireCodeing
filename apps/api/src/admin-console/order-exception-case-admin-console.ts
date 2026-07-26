@@ -141,6 +141,10 @@ export function renderOrderExceptionCaseAdminConsole() {
       return '¥' + (amountCents / 100).toFixed(2);
     }
 
+    function formatCaseRecentActivity(item) {
+      return item.updatedAtIso || item.createdAtIso || '-';
+    }
+
     function readOrderExceptionCaseRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -264,6 +268,27 @@ export function renderOrderExceptionCaseAdminConsole() {
       };
     }
 
+    function renderCaseListItem(item) {
+      return '<div class="case-row" data-case-id="' + escapeHtml(item.id) + '" onclick="loadCase(this.dataset.caseId)">' +
+        '<strong>' + escapeHtml(item.caseNo) + '</strong> · ' + escapeHtml(item.status) +
+        '<div>' + escapeHtml(item.orderNo) + ' · ' + escapeHtml(item.typeLabel) + '</div>' +
+        '<div class="muted">' + escapeHtml(item.sourceRole) + ' · 创建：' + escapeHtml(item.createdAtIso || '-') + '</div>' +
+        '<div class="muted">最近更新：' + escapeHtml(formatCaseRecentActivity(item)) + '</div>' +
+        '<div class="muted">赔付：' + escapeHtml(formatCompensationStatus(item.compensationStatus)) + '</div>' +
+      '</div>';
+    }
+
+    function renderCaseDetail(item) {
+      return '<strong>' + escapeHtml(item.caseNo) + '</strong>' +
+        '<p>' + escapeHtml(item.orderNo) + ' · ' + escapeHtml(item.sourceRole) + ' · ' + escapeHtml(item.status) + '</p>' +
+        '<p>' + escapeHtml(item.typeLabel) + '：' + escapeHtml(item.description) + '</p>' +
+        '<p>创建时间：' + escapeHtml(item.createdAtIso || '-') + '</p>' +
+        '<p>更新时间：' + escapeHtml(formatCaseRecentActivity(item)) + '</p>' +
+        '<p>附件：' + escapeHtml((item.attachmentFileIds || []).join(', ') || '无') + '</p>' +
+        '<p>处理结论：' + escapeHtml(item.resolutionText || '暂无') + '</p>' +
+        renderCompensationSnapshot(item);
+    }
+
     async function loadCases(page) {
       try {
         currentPage = Math.max(1, page);
@@ -279,7 +304,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         total = result.total;
         document.getElementById('caseListNotice').textContent = '第 ' + currentPage + ' 页，共 ' + total + ' 条';
         document.getElementById('caseList').innerHTML = result.items.length
-          ? result.items.map(item => '<div class="case-row" data-case-id="' + escapeHtml(item.id) + '" onclick="loadCase(this.dataset.caseId)"><strong>' + escapeHtml(item.caseNo) + '</strong> · ' + escapeHtml(item.status) + '<div>' + escapeHtml(item.orderNo) + ' · ' + escapeHtml(item.typeLabel) + '</div><div class="muted">' + escapeHtml(item.sourceRole) + ' · ' + escapeHtml(item.createdAtIso) + '</div><div class="muted">赔付：' + escapeHtml(formatCompensationStatus(item.compensationStatus)) + '</div></div>').join('')
+          ? result.items.map(renderCaseListItem).join('')
           : '<p class="muted">暂无异常工单</p>';
       } catch (error) {
         document.getElementById('caseListNotice').textContent = error.message;
@@ -298,7 +323,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
         document.getElementById('baseUpdatedAtIso').value = item.updatedAtIso;
-        document.getElementById('caseDetail').innerHTML = '<strong>' + escapeHtml(item.caseNo) + '</strong><p>' + escapeHtml(item.orderNo) + ' · ' + escapeHtml(item.sourceRole) + ' · ' + escapeHtml(item.status) + '</p><p>' + escapeHtml(item.typeLabel) + '：' + escapeHtml(item.description) + '</p><p>附件：' + escapeHtml((item.attachmentFileIds || []).join(', ') || '无') + '</p><p>处理结论：' + escapeHtml(item.resolutionText || '暂无') + '</p>' + renderCompensationSnapshot(item);
+        document.getElementById('caseDetail').innerHTML = renderCaseDetail(item);
         document.getElementById('caseActions').innerHTML = (item.actions || []).length
           ? (item.actions || []).map(action => '<div class="action">' + escapeHtml(action.fromStatus) + ' → ' + escapeHtml(action.toStatus) + '<br>' + escapeHtml(action.content) + '<div class="muted">' + escapeHtml(action.createdAtIso) + '</div></div>').join('')
           : '<p class="muted">暂无处理留痕</p>';

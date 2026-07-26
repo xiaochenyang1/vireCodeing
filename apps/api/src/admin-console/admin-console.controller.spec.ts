@@ -14,6 +14,7 @@ import { renderFinanceAdminConsole } from './finance-admin-console';
 import { renderOrderManagementAdminConsole } from './order-management-admin-console';
 import { renderOrderChangeRequestAdminConsole } from './order-change-request-admin-console';
 import { renderAccountManagementAdminConsole } from './account-management-admin-console';
+import { renderOrderExceptionCaseAdminConsole } from './order-exception-case-admin-console';
 import { renderAdminPermissionMatrixConsole } from './permission-matrix-admin-console';
 import { renderSessionGovernanceAdminConsole } from './session-governance-admin-console';
 import { renderShipperInvoiceAdminConsole } from './shipper-invoice-admin-console';
@@ -655,6 +656,17 @@ describe('order management admin console page', () => {
   });
 });
 
+describe('order exception case admin console page', () => {
+  it('surfaces recent activity timestamps in the list and detail view', () => {
+    const html = renderOrderExceptionCaseAdminConsole();
+
+    expect(html).toContain('最近更新：');
+    expect(html).toContain("item.updatedAtIso || item.createdAtIso || '-'");
+    expect(html).toContain('创建时间：');
+    expect(html).toContain('更新时间：');
+  });
+});
+
 describe('admin console home page', () => {
   it('renders a live overview hub for the existing operational consoles', () => {
     const html = renderAdminConsoleHome();
@@ -981,6 +993,9 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('caseCompensationTargetRoleInput');
     expect(html).toContain('caseCompensationAmountInput');
     expect(html).toContain('applyOrderExceptionCaseRouteState');
+    expect(html).toContain('最近更新：');
+    expect(html).toContain('创建时间：');
+    expect(html).toContain('更新时间：');
     expect(html).toContain('/api/admin/driver-certification-console');
     expect(html).toContain('/api/admin/finance-console');
     expect(html).not.toContain('hero');
