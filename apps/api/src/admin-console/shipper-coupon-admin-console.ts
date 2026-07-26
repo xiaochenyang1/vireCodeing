@@ -445,8 +445,10 @@ export function renderShipperCouponAdminConsole() {
     }
 
     async function loadCouponReport() {
+      const requestId = ++latestCouponReportRequestId;
       const token = readTrimmed('adminToken');
       if (!token) {
+        setCouponReportControlsDisabled(false);
         renderCouponReportError('请先填写 admin access token，再拉优惠券报表');
         return;
       }
@@ -457,11 +459,11 @@ export function renderShipperCouponAdminConsole() {
       try {
         topShippersLimit = readCouponReportTopShippersLimit();
       } catch (error) {
+        setCouponReportControlsDisabled(false);
         renderCouponReportError(error.message);
         return;
       }
 
-      const requestId = ++latestCouponReportRequestId;
       setCouponReportControlsDisabled(true);
       document.getElementById('couponReportTimestamp').textContent = '正在拉取优惠券报表...';
 

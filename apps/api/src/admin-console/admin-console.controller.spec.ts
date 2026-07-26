@@ -1459,6 +1459,30 @@ describe('AdminConsoleController', () => {
     expect(html).not.toContain('hero');
   });
 
+  it('invalidates coupon reports before token and limit validation returns', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getShipperCouponConsole: () => string;
+      }
+    ).getShipperCouponConsole();
+    const loadStart = html.indexOf('async function loadCouponReport()');
+    const requestStart = html.indexOf(
+      'const requestId = ++latestCouponReportRequestId',
+      loadStart,
+    );
+    const tokenRead = html.indexOf("const token = readTrimmed('adminToken')", loadStart);
+    const limitRead = html.indexOf(
+      'topShippersLimit = readCouponReportTopShippersLimit()',
+      loadStart,
+    );
+
+    expect(requestStart).toBeGreaterThan(loadStart);
+    expect(requestStart).toBeLessThan(tokenRead);
+    expect(requestStart).toBeLessThan(limitRead);
+    expect(html.match(/setCouponReportControlsDisabled\(false\)/g)).toHaveLength(3);
+  });
+
   it('syncs coupon form inputs and report filters into route state', () => {
     const controller = new AdminConsoleController();
     const html = (
