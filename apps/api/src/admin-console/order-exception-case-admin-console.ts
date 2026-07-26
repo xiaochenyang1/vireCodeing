@@ -95,6 +95,8 @@ export function renderOrderExceptionCaseAdminConsole() {
     let currentAdminUserId = '';
     let mutationPending = false;
     let caseSweepPending = false;
+    let latestCaseListRequestId = 0;
+    let latestCaseDetailRequestId = 0;
     const mutationPaths = ['/process', '/resolve', '/close'];
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-exception-case-console',
@@ -449,8 +451,11 @@ export function renderOrderExceptionCaseAdminConsole() {
     }
 
     async function loadCases(page) {
+      const requestId = ++latestCaseListRequestId;
+
       try {
         currentPage = Math.max(1, page);
+        document.getElementById('caseListNotice').textContent = '加载中...';
         const query = new URLSearchParams({ page: String(currentPage), pageSize: document.getElementById('casePageSizeInput').value || '20' });
         const status = document.getElementById('caseStatusInput').value;
         const sourceRole = document.getElementById('caseSourceRoleInput').value;
@@ -470,12 +475,14 @@ export function renderOrderExceptionCaseAdminConsole() {
         if (keyword) query.set('keyword', keyword);
         syncOrderExceptionCaseRouteState(currentPage);
         const result = await api('/admin/order-exception-cases?' + query.toString());
+        if (requestId !== latestCaseListRequestId) return;
         total = result.total;
         document.getElementById('caseListNotice').textContent = '第 ' + currentPage + ' 页，共 ' + total + ' 条';
         document.getElementById('caseList').innerHTML = result.items.length
           ? result.items.map(renderCaseListItem).join('')
           : '<p class="muted">暂无异常工单</p>';
       } catch (error) {
+        if (requestId !== latestCaseListRequestId) return;
         document.getElementById('caseListNotice').textContent = error.message;
       }
     }
@@ -487,10 +494,14 @@ export function renderOrderExceptionCaseAdminConsole() {
     }
 
     async function loadCase(caseId) {
+      const requestId = ++latestCaseDetailRequestId;
+
       try {
         selectedCaseId = caseId;
+        document.getElementById('caseDetail').textContent = '工单详情加载中...';
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
+        if (requestId !== latestCaseDetailRequestId) return;
         selectedCaseClaimedByAdminUserId = item.claimedByAdminUserId || '';
         selectedCaseAppealStatus = item.appealStatus || 'none';
         document.getElementById('baseUpdatedAtIso').value = item.updatedAtIso;
@@ -505,6 +516,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         document.getElementById('caseCompensationAmountInput').value = item.compensationAmountCents ? String(item.compensationAmountCents) : '';
         renderMutationButtons(item);
       } catch (error) {
+        if (requestId !== latestCaseDetailRequestId) return;
         document.getElementById('caseMutationNotice').textContent = error.message;
       }
     }

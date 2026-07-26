@@ -713,6 +713,8 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('loadMyCasesButton');
     expect(html).toContain('loadMyCases()');
     expect(html).toContain('currentAdminUserId');
+    expect(html).toContain('latestCaseListRequestId');
+    expect(html).toContain('latestCaseDetailRequestId');
     expect(html).toContain('我的认领单');
     expect(html).toContain('工单已被其他管理员更新，正在刷新最新状态。');
     expect(html).toContain('最近更新：');
