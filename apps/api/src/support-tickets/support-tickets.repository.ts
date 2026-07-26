@@ -49,7 +49,7 @@ export class InMemorySupportTicketsRepository
   }
 
   async listSupportTicketsByShipperId(shipperId: string) {
-    return sortTicketsByCreatedAtDesc(this.tickets.get(shipperId) ?? []).map(
+    return sortTicketsByRecentActivityDesc(this.tickets.get(shipperId) ?? []).map(
       copySupportTicket,
     );
   }
@@ -76,7 +76,7 @@ export class InMemorySupportTicketsRepository
   }
 
   async listSupportTicketsForAdmin(query: AdminSupportTicketListQuery) {
-    const allTickets = sortTicketsByCreatedAtDesc(
+    const allTickets = sortTicketsByRecentActivityDesc(
       [...this.tickets.values()].flatMap(items => items),
     ).filter(ticket => matchesAdminSupportTicketQuery(ticket, query));
     const startIndex = (query.page - 1) * query.pageSize;
@@ -168,7 +168,7 @@ export type PrismaSupportTicketsClient = {
   shipperSupportTicket: {
     findMany(args: {
       where: unknown;
-      orderBy: { createdAt: 'desc' };
+      orderBy: Array<{ updatedAt: 'desc' } | { createdAt: 'desc' }>;
       skip?: number;
       take?: number;
     }): Promise<PrismaSupportTicketRecord[]>;
@@ -218,7 +218,7 @@ export class PrismaSupportTicketsRepository
   async listSupportTicketsByShipperId(shipperId: string) {
     const tickets = await this.prisma.shipperSupportTicket.findMany({
       where: { shipperId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: defaultSupportTicketOrderBy(),
     });
 
     return tickets.map(mapPrismaSupportTicket);
@@ -249,7 +249,7 @@ export class PrismaSupportTicketsRepository
     const [tickets, total] = await Promise.all([
       this.prisma.shipperSupportTicket.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: defaultSupportTicketOrderBy(),
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
       }),
@@ -397,13 +397,32 @@ function copySupportTicket(
   };
 }
 
-function sortTicketsByCreatedAtDesc(tickets: ShipperSupportTicketRecord[]) {
+function sortTicketsByRecentActivityDesc(tickets: ShipperSupportTicketRecord[]) {
   return [...tickets].sort((left, right) => {
-    const leftTimestamp = Date.parse(left.createdAtIso);
-    const rightTimestamp = Date.parse(right.createdAtIso);
+    const leftTimestamp = parseSupportTicketSortTimestamp(left.updatedAtIso);
+    const rightTimestamp = parseSupportTicketSortTimestamp(right.updatedAtIso);
 
-    return rightTimestamp - leftTimestamp;
+    if (rightTimestamp !== leftTimestamp) {
+      return rightTimestamp - leftTimestamp;
+    }
+
+    return (
+      parseSupportTicketSortTimestamp(right.createdAtIso) -
+      parseSupportTicketSortTimestamp(left.createdAtIso)
+    );
   });
+}
+
+function defaultSupportTicketOrderBy(): Array<
+  { updatedAt: 'desc' } | { createdAt: 'desc' }
+> {
+  return [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
+}
+
+function parseSupportTicketSortTimestamp(iso: string) {
+  const timestamp = Date.parse(iso);
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function matchesAdminSupportTicketQuery(

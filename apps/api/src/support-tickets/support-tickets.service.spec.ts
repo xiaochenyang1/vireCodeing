@@ -121,6 +121,55 @@ describe('SupportTicketsService', () => {
     });
   });
 
+  it('moves recently updated support tickets to the top of the shipper list', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const notificationsService = createNotificationsServiceMock();
+    const service = new SupportTicketsService(
+      repository,
+      () => currentTime,
+      notificationsService as unknown as NotificationsService,
+    );
+
+    const first = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '较早提交的工单',
+    });
+    currentTime = new Date('2026-07-22T08:35:00.000Z');
+    await service.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '较晚提交但未更新的工单',
+    });
+
+    currentTime = new Date('2026-07-22T08:40:00.000Z');
+    await service.processSupportTicket('admin-1', first.id, {
+      baseUpdatedAtIso: first.updatedAtIso,
+      content: '已联系货主核实问题，转客服受理跟进。',
+    });
+
+    await expect(service.listSupportTickets('shipper-1')).resolves.toEqual({
+      shipperId: 'shipper-1',
+      items: [
+        expect.objectContaining({
+          id: first.id,
+          status: 'processing',
+          updatedAtIso: '2026-07-22T08:40:00.000Z',
+        }),
+        expect.objectContaining({
+          id: 'support-ticket-platform-2',
+          status: 'pending',
+          updatedAtIso: '2026-07-22T08:35:00.000Z',
+        }),
+      ],
+    });
+  });
+
   it('lets admin process and resolve support tickets with transition history', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({

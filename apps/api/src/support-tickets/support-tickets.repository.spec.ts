@@ -6,6 +6,58 @@ import {
 } from './support-tickets.repository';
 
 describe('InMemorySupportTicketsRepository', () => {
+  it('lists shipper support tickets by most recent updatedAt first', async () => {
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `ticket-${++sequence}`;
+      })(),
+    });
+
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '较早提交的工单',
+      status: 'pending',
+      statusHistory: [],
+      createdAtIso: '2026-07-22T08:30:00.000Z',
+      updatedAtIso: '2026-07-22T08:30:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '较晚提交但未更新的工单',
+      status: 'pending',
+      statusHistory: [],
+      createdAtIso: '2026-07-22T08:35:00.000Z',
+      updatedAtIso: '2026-07-22T08:35:00.000Z',
+    });
+    await repository.transitionSupportTicket(
+      'ticket-1',
+      'admin-1',
+      'pending',
+      'processing',
+      {
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        content: '已联系货主核实问题。',
+        actionText: '客服已受理',
+        updatedAtIso: '2026-07-22T08:40:00.000Z',
+      },
+    );
+
+    await expect(repository.listSupportTicketsByShipperId('shipper-1')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'ticket-1',
+        status: 'processing',
+        updatedAtIso: '2026-07-22T08:40:00.000Z',
+      }),
+      expect.objectContaining({
+        id: 'ticket-2',
+        status: 'pending',
+        updatedAtIso: '2026-07-22T08:35:00.000Z',
+      }),
+    ]);
+  });
+
   it('lists admin support tickets with status filtering and pagination', async () => {
     const repository = new InMemorySupportTicketsRepository({
       createId: (() => {
@@ -39,6 +91,18 @@ describe('InMemorySupportTicketsRepository', () => {
       createdAtIso: '2026-07-22T08:40:00.000Z',
       updatedAtIso: '2026-07-22T08:40:00.000Z',
     });
+    await repository.transitionSupportTicket(
+      'ticket-1',
+      'admin-1',
+      'pending',
+      'processing',
+      {
+        baseUpdatedAtIso: '2026-07-22T08:30:00.000Z',
+        content: '较早工单被重新受理后应该排到前面。',
+        actionText: '客服已受理',
+        updatedAtIso: '2026-07-22T08:45:00.000Z',
+      },
+    );
 
     await expect(
       repository.listSupportTicketsForAdmin({
@@ -49,14 +113,15 @@ describe('InMemorySupportTicketsRepository', () => {
     ).resolves.toEqual({
       items: [
         expect.objectContaining({
-          id: 'ticket-3',
+          id: 'ticket-1',
           shipperId: 'shipper-1',
           status: 'processing',
+          updatedAtIso: '2026-07-22T08:45:00.000Z',
         }),
       ],
       page: 1,
       pageSize: 1,
-      total: 2,
+      total: 3,
     });
 
     await expect(
@@ -111,6 +176,33 @@ describe('PrismaSupportTicketsRepository', () => {
       },
     };
   }
+
+  it('lists current shipper support tickets from Prisma by recent updatedAt first', async () => {
+    const prisma = createPrismaClient();
+    prisma.shipperSupportTicket.findMany.mockResolvedValue([
+      createPrismaRecord({
+        id: 'ticket-2',
+        shipperId: 'shipper-1',
+        createdAt: new Date('2026-07-22T08:35:00.000Z'),
+        updatedAt: new Date('2026-07-22T08:40:00.000Z'),
+      }),
+    ]);
+    const repository = new PrismaSupportTicketsRepository(
+      prisma as unknown as PrismaSupportTicketsClient,
+    );
+
+    await expect(repository.listSupportTicketsByShipperId('shipper-1')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'ticket-2',
+        shipperId: 'shipper-1',
+        updatedAtIso: '2026-07-22T08:40:00.000Z',
+      }),
+    ]);
+    expect(prisma.shipperSupportTicket.findMany).toHaveBeenCalledWith({
+      where: { shipperId: 'shipper-1' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+  });
 
   it('maps admin support ticket list records from Prisma', async () => {
     const prisma = createPrismaClient();
@@ -212,7 +304,7 @@ describe('PrismaSupportTicketsRepository', () => {
         ],
         status: 'processing',
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       skip: 10,
       take: 10,
     });
