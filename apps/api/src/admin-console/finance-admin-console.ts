@@ -460,6 +460,7 @@ export function renderFinanceAdminConsole() {
         tab: query.get('tab') || '',
         status: query.get('status') || '',
         orderId: query.get('orderId') || '',
+        recordId: query.get('recordId') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
       };
@@ -472,6 +473,7 @@ export function renderFinanceAdminConsole() {
       }
       document.getElementById('financeStatusInput').value = routeState.status;
       document.getElementById('financeOrderIdInput').value = routeState.orderId;
+      selectedFinanceRecordId = routeState.recordId;
       if (routeState.page) {
         const nextPage = Math.max(
           1,
@@ -490,7 +492,7 @@ export function renderFinanceAdminConsole() {
       }
     }
 
-    function syncFinanceRouteState(page, pageSize) {
+    function syncFinanceRouteState(page, pageSize, recordIdOverride) {
       if (!globalThis.history || !globalThis.location) {
         return;
       }
@@ -498,11 +500,19 @@ export function renderFinanceAdminConsole() {
       query.set('tab', currentFinanceTab);
       const status = document.getElementById('financeStatusInput').value.trim();
       const orderId = document.getElementById('financeOrderIdInput').value.trim();
+      const recordId = String(
+        typeof recordIdOverride === 'string'
+          ? recordIdOverride
+          : selectedFinanceRecordId || '',
+      ).trim();
       if (status) {
         query.set('status', status);
       }
       if (orderId) {
         query.set('orderId', orderId);
+      }
+      if (recordId) {
+        query.set('recordId', recordId);
       }
       if (page > 1) {
         query.set('page', String(page));
@@ -700,11 +710,18 @@ export function renderFinanceAdminConsole() {
         '已清空提现批量勾选。';
     }
 
-    function clearFinanceSelection() {
+    function clearFinanceSelection(options = {}) {
       selectedFinanceRecordId = '';
       document.getElementById('financeDetail').innerHTML = '<p class="muted">请选择一条财务记录</p>';
       document.getElementById('expectedVersionInput').value = '0';
       document.getElementById('ledgerTransactionIdInput').value = '';
+      if (options.syncRoute !== false) {
+        syncFinanceRouteState(
+          currentFinancePage,
+          Math.max(1, Number(document.getElementById('financePageSizeInput').value || '20')),
+          '',
+        );
+      }
       updateViewOrderButton();
       renderFinanceList();
       updateWithdrawalBatchSelectionUi();
@@ -849,6 +866,11 @@ export function renderFinanceAdminConsole() {
 
     function selectFinanceRecord(recordId, shouldClearLedger = true) {
       selectedFinanceRecordId = recordId;
+      syncFinanceRouteState(
+        currentFinancePage,
+        Math.max(1, Number(document.getElementById('financePageSizeInput').value || '20')),
+        selectedFinanceRecordId,
+      );
       renderFinanceList();
       const item = currentFinanceItems.find(candidate => candidate.id === recordId);
       if (!item) {

@@ -100,6 +100,18 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain('if (requestId !== latestAuditRequestId) return');
     expect(html).toContain('clearAuditResults()');
   });
+
+  it('syncs evaluation filters and selected audit detail into route state', () => {
+    const html = renderEvaluationAuditAdminConsole();
+
+    expect(html).toContain('applyEvaluationAuditRouteState');
+    expect(html).toContain('syncEvaluationAuditRouteState');
+    expect(html).toContain("query.get('auditId')");
+    expect(html).toContain("query.set('auditId', auditId)");
+    expect(html).toContain("query.set('direction', direction)");
+    expect(html).toContain("query.set('rating', rating)");
+    expect(html).toContain('loadAudits(currentPage)');
+  });
 });
 
 describe('finance admin console page', () => {
@@ -135,6 +147,8 @@ describe('finance admin console page', () => {
     expect(html).toContain('URLSearchParams');
     expect(html).toContain('location.search');
     expect(html).toContain("query.set('orderId', orderId)");
+    expect(html).toContain("query.get('recordId')");
+    expect(html).toContain("query.set('recordId', recordId)");
     expect(html).toContain("currentFinanceTab !== 'withdrawals'");
     expect(html).toContain('applyFinanceRouteState');
   });

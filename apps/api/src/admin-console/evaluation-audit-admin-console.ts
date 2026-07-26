@@ -128,6 +128,75 @@ export function renderEvaluationAuditAdminConsole() {
       return rating + ' 星';
     }
 
+    function readEvaluationAuditRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        direction: query.get('direction') || '',
+        rating: query.get('rating') || '',
+        keyword: query.get('keyword') || '',
+        auditId: query.get('auditId') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
+      };
+    }
+
+    function applyEvaluationAuditRouteState() {
+      const routeState = readEvaluationAuditRouteState();
+      document.getElementById('auditDirectionInput').value = routeState.direction;
+      document.getElementById('auditRatingInput').value = routeState.rating;
+      document.getElementById('auditKeywordInput').value = routeState.keyword;
+      if (routeState.page) {
+        currentPage = Math.max(1, Number.parseInt(routeState.page, 10) || 1);
+      }
+      if (routeState.pageSize) {
+        document.getElementById('auditPageSizeInput').value = String(
+          Math.min(50, Math.max(1, Number.parseInt(routeState.pageSize, 10) || 20)),
+        );
+      }
+      selectedAuditId = routeState.auditId;
+      return routeState;
+    }
+
+    function syncEvaluationAuditRouteState(pageOverride, pageSizeOverride, auditIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const direction = document.getElementById('auditDirectionInput').value;
+      const rating = document.getElementById('auditRatingInput').value;
+      const keyword = document.getElementById('auditKeywordInput').value.trim();
+      const pageSize = Math.min(
+        50,
+        Math.max(
+          1,
+          Number.parseInt(
+            String(pageSizeOverride || document.getElementById('auditPageSizeInput').value || '20'),
+            10,
+          ) || 20,
+        ),
+      );
+      const page = Math.max(1, Number.parseInt(String(pageOverride || currentPage || 1), 10) || 1);
+      const auditId = String(
+        typeof auditIdOverride === 'string'
+          ? auditIdOverride
+          : selectedAuditId || '',
+      ).trim();
+      if (direction) query.set('direction', direction);
+      if (rating) query.set('rating', rating);
+      if (keyword) query.set('keyword', keyword);
+      if (auditId) query.set('auditId', auditId);
+      if (page > 1) query.set('page', String(page));
+      if (pageSize !== 20) query.set('pageSize', String(pageSize));
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     async function loadAudits(page) {
       const requestId = ++latestAuditRequestId;
       const requestedPage = Math.max(1, page);
@@ -143,6 +212,7 @@ export function renderEvaluationAuditAdminConsole() {
         if (direction) query.set('direction', direction);
         if (rating) query.set('rating', rating);
         if (keyword) query.set('keyword', keyword);
+        syncEvaluationAuditRouteState(requestedPage, pageSize);
         const result = await api('/admin/evaluations?' + query.toString());
         if (requestId !== latestAuditRequestId) return;
         currentPage = requestedPage;
@@ -158,6 +228,7 @@ export function renderEvaluationAuditAdminConsole() {
           selectAudit(nextSelectedId);
         } else {
           selectedAuditId = '';
+          syncEvaluationAuditRouteState(currentPage, pageSize, '');
           document.getElementById('auditDetail').innerHTML = '<p class="muted">当前筛选条件下暂无评价记录</p>';
           document.getElementById('auditTags').innerHTML = '';
           document.getElementById('auditPhotoNotice').textContent = '';
@@ -176,6 +247,11 @@ export function renderEvaluationAuditAdminConsole() {
       total = 0;
       currentItems = [];
       selectedAuditId = '';
+      syncEvaluationAuditRouteState(
+        currentPage,
+        document.getElementById('auditPageSizeInput').value || '20',
+        '',
+      );
       document.getElementById('auditPaginationStatus').textContent = '评价记录加载失败';
       document.getElementById('auditList').innerHTML = '';
       document.getElementById('auditPreviousPage').disabled = true;
@@ -210,6 +286,11 @@ export function renderEvaluationAuditAdminConsole() {
 
     function selectAudit(auditId) {
       selectedAuditId = auditId;
+      syncEvaluationAuditRouteState(
+        currentPage,
+        document.getElementById('auditPageSizeInput').value || '20',
+        selectedAuditId,
+      );
       renderAuditList();
       const item = currentItems.find(candidate => candidate.id === auditId);
       if (!item) return;
@@ -286,7 +367,11 @@ export function renderEvaluationAuditAdminConsole() {
         items.length === 0 && missingFileIds.length === 0 && photoCount === 0;
     }
 
-    initializeAdminSession();
+    applyEvaluationAuditRouteState();
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadAudits(currentPage);
+    }
   </script>
 </body>
 </html>`;
