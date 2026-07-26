@@ -474,11 +474,27 @@ describe('BusinessErrorFilter', () => {
   });
 
   it.each([
+    ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+    ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+  ])('maps %s to not found', code => {
+    const filter = new BusinessErrorFilter(
+      () => new Date('2026-06-26T06:00:00.000Z'),
+    );
+    const { host, status } = createHost();
+
+    filter.catch(new BusinessError(code, '审核记录不存在'), host);
+
+    expect(status).toHaveBeenCalledWith(404);
+  });
+
+  it.each([
     ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
     ApiErrorCode.EXCEPTION_CASE_CONFLICT,
     ApiErrorCode.EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE,
     ApiErrorCode.EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED,
     ApiErrorCode.EXCEPTION_CASE_APPEAL_NOT_ALLOWED,
+    ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+    ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
     ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
     ApiErrorCode.SUPPORT_TICKET_CONFLICT,
   ])('maps %s to conflict', code => {
