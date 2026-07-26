@@ -67,6 +67,7 @@ export function renderSupportTicketAdminConsole() {
       </div>
       <div class="session-row">
         <button id="loadSupportTicketsButton" class="inline-button" onclick="loadSupportTickets(1)">查询工单</button>
+        <button id="loadMySupportTicketsButton" class="secondary-button" onclick="loadMySupportTickets()">我的认领单</button>
         <button id="sweepSupportTicketOverdueButton" class="secondary-button" onclick="sweepSupportTicketOverdueEscalations()">执行超时升级扫描</button>
       </div>
       <div id="supportTicketSweepNotice" class="error"></div>
@@ -95,6 +96,7 @@ export function renderSupportTicketAdminConsole() {
     let supportTicketSweepPending = false;
     let latestSupportTicketRequestId = 0;
     let latestSupportTicketDetailRequestId = 0;
+    let currentAdminUserId = '';
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/support-ticket-console',
     })}
@@ -427,6 +429,16 @@ export function renderSupportTicketAdminConsole() {
       }
     }
 
+    function loadMySupportTickets() {
+      if (!currentAdminUserId) {
+        document.getElementById('supportTicketListNotice').textContent = '当前后台会话缺少 admin user id，请重新登录后台。';
+        return;
+      }
+      document.getElementById('supportTicketClaimStatusInput').value = 'claimed';
+      document.getElementById('supportTicketClaimedByAdminUserIdInput').value = currentAdminUserId;
+      loadSupportTickets(1);
+    }
+
     async function sweepSupportTicketOverdueEscalations() {
       if (supportTicketSweepPending) {
         return;
@@ -701,7 +713,16 @@ export function renderSupportTicketAdminConsole() {
     }
 
     applySupportTicketRouteState();
-    loadSupportTickets(currentPage);
+    const currentAdminSession = initializeAdminSession();
+    currentAdminUserId =
+      currentAdminSession &&
+      currentAdminSession.user &&
+      typeof currentAdminSession.user.id === 'string'
+        ? currentAdminSession.user.id.trim()
+        : '';
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadSupportTickets(currentPage);
+    }
   </script>
 </body>
 </html>`;

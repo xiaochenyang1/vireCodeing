@@ -705,6 +705,10 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('认领备注：');
     expect(html).toContain('caseSweepNotice');
     expect(html).toContain('sweepExceptionCaseOverdueButton');
+    expect(html).toContain('loadMyCasesButton');
+    expect(html).toContain('loadMyCases()');
+    expect(html).toContain('currentAdminUserId');
+    expect(html).toContain('我的认领单');
     expect(html).toContain('最近更新：');
     expect(html).toContain("item.updatedAtIso || item.createdAtIso || '-'");
     expect(html).toContain('创建时间：');
@@ -1115,10 +1119,15 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('assignSupportTicketButton');
     expect(html).toContain('releaseSupportTicketClaim');
     expect(html).toContain('releaseSupportTicketClaimButton');
+    expect(html).toContain('loadMySupportTicketsButton');
+    expect(html).toContain('loadMySupportTickets()');
+    expect(html).toContain('currentAdminUserId');
+    expect(html).toContain('initializeAdminSession');
     expect(html).toContain('释放认领');
     expect(html).toContain('认领到我');
     expect(html).toContain('指派给客服');
     expect(html).toContain('转派给客服');
+    expect(html).toContain('我的认领单');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');
     expect(html).toContain("query.get('claimStatus')");

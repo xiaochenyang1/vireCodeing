@@ -61,6 +61,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       </div>
       <div class="session-row">
         <button id="loadCasesButton" class="inline-button" onclick="loadCases(1)">查询工单</button>
+        <button id="loadMyCasesButton" class="secondary-button" onclick="loadMyCases()">我的认领单</button>
         <button id="sweepExceptionCaseOverdueButton" class="secondary-button" onclick="sweepOverdueExceptionCases()">执行超时升级扫描</button>
       </div>
       <div id="caseSweepNotice" class="error"></div>
@@ -91,6 +92,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     let selectedCaseId = '';
     let selectedCaseClaimedByAdminUserId = '';
     let selectedCaseAppealStatus = 'none';
+    let currentAdminUserId = '';
     let mutationPending = false;
     let caseSweepPending = false;
     const mutationPaths = ['/process', '/resolve', '/close'];
@@ -479,6 +481,16 @@ export function renderOrderExceptionCaseAdminConsole() {
       }
     }
 
+    function loadMyCases() {
+      if (!currentAdminUserId) {
+        document.getElementById('caseListNotice').textContent = '当前后台会话缺少 admin user id，请重新登录后台。';
+        return;
+      }
+      document.getElementById('caseClaimStatusInput').value = 'claimed';
+      document.getElementById('caseClaimedByAdminUserIdInput').value = currentAdminUserId;
+      loadCases(1);
+    }
+
     async function sweepOverdueExceptionCases() {
       if (caseSweepPending) return;
 
@@ -745,6 +757,12 @@ export function renderOrderExceptionCaseAdminConsole() {
     resetCompensationInputs();
     const caseRouteState = applyOrderExceptionCaseRouteState();
     const currentAdminSession = initializeAdminSession();
+    currentAdminUserId =
+      currentAdminSession &&
+      currentAdminSession.user &&
+      typeof currentAdminSession.user.id === 'string'
+        ? currentAdminSession.user.id.trim()
+        : '';
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadCases(currentPage || (caseRouteState.page ? Number.parseInt(caseRouteState.page, 10) || 1 : 1));
     }
