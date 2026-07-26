@@ -200,6 +200,48 @@ export function renderOrderChangeRequestAdminConsole() {
         .replaceAll('"', '&quot;');
     }
 
+    function readOrderChangeRequestRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        status: query.get('status') || 'pending',
+        orderId: query.get('orderId') || '',
+      };
+    }
+
+    function applyOrderChangeRequestRouteState() {
+      const routeState = readOrderChangeRequestRouteState();
+      document.getElementById('statusFilter').value = routeState.status;
+      selectedOrderId = routeState.orderId;
+      return routeState;
+    }
+
+    function syncOrderChangeRequestRouteState(orderIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const status = document.getElementById('statusFilter').value;
+      const orderId = String(
+        typeof orderIdOverride === 'string'
+          ? orderIdOverride
+          : selectedOrderId || '',
+      ).trim();
+      if (status && status !== 'pending') {
+        query.set('status', status);
+      }
+      if (orderId) {
+        query.set('orderId', orderId);
+      }
+      const nextQuery = query.toString();
+      const nextPath = location.pathname + (nextQuery ? '?' + nextQuery : '');
+      history.replaceState(null, '', nextPath);
+    }
+
     function buildReviewSnapshotBlocks(item) {
       return [
         item.costImpactText
@@ -252,6 +294,8 @@ export function renderOrderChangeRequestAdminConsole() {
       currentItems = items || [];
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
+        selectedOrderId = '';
+        syncOrderChangeRequestRouteState('');
         root.innerHTML = '<div class="muted">当前筛选下没有修改申请。</div>';
         resetReviewEvents('请选择左侧修改申请。');
         return;
@@ -259,6 +303,7 @@ export function renderOrderChangeRequestAdminConsole() {
       if (!currentItems.some(item => item.orderId === selectedOrderId)) {
         selectedOrderId = currentItems[0].orderId;
       }
+      syncOrderChangeRequestRouteState(selectedOrderId);
       root.innerHTML = currentItems.map(item => {
         const selected = item.orderId === selectedOrderId ? ' selected' : '';
         return '<div class="card queue-item' + selected + '" data-order-id="' + escapeHtml(item.orderId) + '">' +
@@ -270,6 +315,7 @@ export function renderOrderChangeRequestAdminConsole() {
       root.querySelectorAll('.queue-item').forEach(node => {
         node.addEventListener('click', () => {
           selectedOrderId = node.getAttribute('data-order-id') || '';
+          syncOrderChangeRequestRouteState(selectedOrderId);
           renderQueue(currentItems);
           renderDetail();
           loadReviewEvents();
@@ -365,6 +411,7 @@ export function renderOrderChangeRequestAdminConsole() {
         return;
       }
       setText('queueStatus', '加载中...');
+      syncOrderChangeRequestRouteState(selectedOrderId);
       try {
         const status = document.getElementById('statusFilter').value;
         const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
@@ -412,6 +459,7 @@ export function renderOrderChangeRequestAdminConsole() {
     document.getElementById('statusFilter').addEventListener('change', loadQueue);
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
+    applyOrderChangeRequestRouteState();
     loadQueue();
   </script>
 </body>

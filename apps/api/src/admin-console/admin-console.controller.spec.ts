@@ -222,6 +222,17 @@ describe('order change request admin console page', () => {
     expect(html).toContain('暂无审核事件');
     expect(html).not.toContain('hero');
   });
+
+  it('syncs queue filters and selected order change request into route state', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+
+    expect(html).toContain('applyOrderChangeRequestRouteState');
+    expect(html).toContain('syncOrderChangeRequestRouteState');
+    expect(html).toContain("query.get('status') || 'pending'");
+    expect(html).toContain("query.get('orderId')");
+    expect(html).toContain("query.set('orderId', orderId)");
+    expect(html).toContain('history.replaceState');
+  });
 });
 
 describe('shipper invoice admin console page', () => {
@@ -244,6 +255,17 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain('latestReviewEventsRequestId');
     expect(html).toContain('暂无审核事件');
     expect(html).not.toContain('hero');
+  });
+
+  it('syncs queue filters and selected invoice application into route state', () => {
+    const html = renderShipperInvoiceAdminConsole();
+
+    expect(html).toContain('applyShipperInvoiceRouteState');
+    expect(html).toContain('syncShipperInvoiceRouteState');
+    expect(html).toContain("query.get('status') || 'pending'");
+    expect(html).toContain("query.get('applicationId')");
+    expect(html).toContain("query.set('applicationId', applicationId)");
+    expect(html).toContain('history.replaceState');
   });
 });
 
@@ -270,6 +292,18 @@ describe('shipper verification admin console page', () => {
     expect(html).toContain('暂无附件');
     expect(html).toContain('暂无审核事件');
     expect(html).not.toContain('hero');
+  });
+
+  it('syncs verification filters and selected shipper into route state', () => {
+    const html = renderShipperVerificationAdminConsole();
+
+    expect(html).toContain('applyShipperVerificationRouteState');
+    expect(html).toContain('syncShipperVerificationRouteState');
+    expect(html).toContain("query.get('status') || 'pending'");
+    expect(html).toContain("query.get('type')");
+    expect(html).toContain("query.get('shipperId')");
+    expect(html).toContain("query.set('shipperId', shipperId)");
+    expect(html).toContain('history.replaceState');
   });
 });
 

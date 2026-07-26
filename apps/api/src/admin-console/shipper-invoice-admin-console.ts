@@ -185,6 +185,48 @@ export function renderShipperInvoiceAdminConsole() {
         .replaceAll('"', '&quot;');
     }
 
+    function readShipperInvoiceRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        status: query.get('status') || 'pending',
+        applicationId: query.get('applicationId') || '',
+      };
+    }
+
+    function applyShipperInvoiceRouteState() {
+      const routeState = readShipperInvoiceRouteState();
+      document.getElementById('statusFilter').value = routeState.status;
+      selectedApplicationId = routeState.applicationId;
+      return routeState;
+    }
+
+    function syncShipperInvoiceRouteState(applicationIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const status = document.getElementById('statusFilter').value;
+      const applicationId = String(
+        typeof applicationIdOverride === 'string'
+          ? applicationIdOverride
+          : selectedApplicationId || '',
+      ).trim();
+      if (status && status !== 'pending') {
+        query.set('status', status);
+      }
+      if (applicationId) {
+        query.set('applicationId', applicationId);
+      }
+      const nextQuery = query.toString();
+      const nextPath = location.pathname + (nextQuery ? '?' + nextQuery : '');
+      history.replaceState(null, '', nextPath);
+    }
+
     function formatAmount(cents) {
       return '¥' + (Number(cents || 0) / 100).toFixed(2);
     }
@@ -237,6 +279,8 @@ export function renderShipperInvoiceAdminConsole() {
       currentItems = items || [];
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
+        selectedApplicationId = '';
+        syncShipperInvoiceRouteState('');
         root.innerHTML = '<div class="muted">当前筛选下没有发票申请。</div>';
         resetReviewEvents('请选择左侧发票申请。');
         return;
@@ -244,6 +288,7 @@ export function renderShipperInvoiceAdminConsole() {
       if (!currentItems.some(item => item.id === selectedApplicationId)) {
         selectedApplicationId = currentItems[0].id;
       }
+      syncShipperInvoiceRouteState(selectedApplicationId);
       root.innerHTML = currentItems.map(item => {
         const selected = item.id === selectedApplicationId ? ' selected' : '';
         return '<div class="card queue-item' + selected + '" data-application-id="' + escapeHtml(item.id) + '">' +
@@ -254,6 +299,7 @@ export function renderShipperInvoiceAdminConsole() {
       root.querySelectorAll('.queue-item').forEach(node => {
         node.addEventListener('click', () => {
           selectedApplicationId = node.getAttribute('data-application-id') || '';
+          syncShipperInvoiceRouteState(selectedApplicationId);
           renderQueue(currentItems);
           renderDetail();
           loadReviewEvents();
@@ -338,6 +384,7 @@ export function renderShipperInvoiceAdminConsole() {
         return;
       }
       setText('queueStatus', '加载中...');
+      syncShipperInvoiceRouteState(selectedApplicationId);
       try {
         const status = document.getElementById('statusFilter').value;
         const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
@@ -449,6 +496,7 @@ export function renderShipperInvoiceAdminConsole() {
     document.getElementById('downloadButton').addEventListener('click', downloadSelectedInvoice);
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
+    applyShipperInvoiceRouteState();
     loadQueue();
   </script>
 </body>

@@ -225,6 +225,54 @@ export function renderShipperVerificationAdminConsole() {
         .replaceAll("'", '&#39;');
     }
 
+    function readShipperVerificationRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        status: query.get('status') || 'pending',
+        type: query.get('type') || '',
+        shipperId: query.get('shipperId') || '',
+      };
+    }
+
+    function applyShipperVerificationRouteState() {
+      const routeState = readShipperVerificationRouteState();
+      document.getElementById('statusFilter').value = routeState.status;
+      document.getElementById('typeFilter').value = routeState.type;
+      selectedShipperId = routeState.shipperId;
+      return routeState;
+    }
+
+    function syncShipperVerificationRouteState(shipperIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const status = document.getElementById('statusFilter').value;
+      const type = document.getElementById('typeFilter').value;
+      const shipperId = String(
+        typeof shipperIdOverride === 'string'
+          ? shipperIdOverride
+          : selectedShipperId || '',
+      ).trim();
+      if (status && status !== 'pending') {
+        query.set('status', status);
+      }
+      if (type) {
+        query.set('type', type);
+      }
+      if (shipperId) {
+        query.set('shipperId', shipperId);
+      }
+      const nextQuery = query.toString();
+      const nextPath = location.pathname + (nextQuery ? '?' + nextQuery : '');
+      history.replaceState(null, '', nextPath);
+    }
+
     function getSelectedItem() {
       return currentItems.find(item => item.shipperId === selectedShipperId);
     }
@@ -286,6 +334,7 @@ export function renderShipperVerificationAdminConsole() {
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
         selectedShipperId = '';
+        syncShipperVerificationRouteState('');
         root.innerHTML = '<div class="muted">当前筛选下没有认证记录。</div>';
         resetDetail('请选择左侧货主。');
         resetAttachments('请选择左侧货主。');
@@ -295,6 +344,7 @@ export function renderShipperVerificationAdminConsole() {
       if (!currentItems.some(item => item.shipperId === selectedShipperId)) {
         selectedShipperId = currentItems[0].shipperId;
       }
+      syncShipperVerificationRouteState(selectedShipperId);
       root.innerHTML = currentItems.map(item => {
         const identity = item.identity ? item.identity.status : '无';
         const enterprise = item.enterprise ? item.enterprise.status : '无';
@@ -388,6 +438,7 @@ export function renderShipperVerificationAdminConsole() {
 
     async function selectShipper(shipperId) {
       selectedShipperId = shipperId;
+      syncShipperVerificationRouteState(selectedShipperId);
       renderQueue(currentItems);
       renderDetail();
       setText('reviewStatus', '');
@@ -436,6 +487,7 @@ export function renderShipperVerificationAdminConsole() {
         return;
       }
       setText('queueStatus', '加载中...');
+      syncShipperVerificationRouteState(selectedShipperId);
       try {
         const status = document.getElementById('statusFilter').value;
         const type = document.getElementById('typeFilter').value;
@@ -486,6 +538,7 @@ export function renderShipperVerificationAdminConsole() {
     document.getElementById('rejectIdentityButton').addEventListener('click', () => review('identity', 'rejected'));
     document.getElementById('approveEnterpriseButton').addEventListener('click', () => review('enterprise', 'approved'));
     document.getElementById('rejectEnterpriseButton').addEventListener('click', () => review('enterprise', 'rejected'));
+    applyShipperVerificationRouteState();
     loadQueue();
   </script>
 </body>
