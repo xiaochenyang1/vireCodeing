@@ -279,6 +279,22 @@ describe('finance admin console page', () => {
     expect(html).toContain('clearFinanceSelection()');
     expect(html).toContain('clearLedgerDetail()');
   });
+
+  it('invalidates pending ledger requests whenever the ledger detail clears', () => {
+    const html = renderFinanceAdminConsole();
+    const clearStart = html.indexOf('function clearLedgerDetail()');
+    const invalidationIndex = html.indexOf(
+      'latestLedgerRequestId += 1',
+      clearStart,
+    );
+    const emptyLedgerIndex = html.indexOf(
+      "document.getElementById('ledgerDetail').innerHTML",
+      clearStart,
+    );
+
+    expect(invalidationIndex).toBeGreaterThan(clearStart);
+    expect(invalidationIndex).toBeLessThan(emptyLedgerIndex);
+  });
 });
 
 describe('order change request admin console page', () => {

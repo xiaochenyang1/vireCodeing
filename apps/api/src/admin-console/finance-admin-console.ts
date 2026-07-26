@@ -732,6 +732,7 @@ export function renderFinanceAdminConsole() {
     }
 
     function clearLedgerDetail() {
+      latestLedgerRequestId += 1;
       document.getElementById('ledgerDetail').innerHTML = '<p class="muted">暂无资金流水</p>';
     }
 
