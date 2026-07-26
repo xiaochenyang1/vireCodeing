@@ -1107,6 +1107,11 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('EXCEPTION_CASE_NOT_FOUND');
     expect(source).toContain('EXCEPTION_CASE_STATE_INVALID');
     expect(source).toContain('EXCEPTION_CASE_CONFLICT');
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases',
+      'name: compensationStatus',
+    );
   });
 
   it('documents exception case compensation execution and appeal workflows', () => {

@@ -603,6 +603,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       return (
         (!query.status || exceptionCase.status === query.status) &&
         (!query.sourceRole || exceptionCase.sourceRole === query.sourceRole) &&
+        (!query.compensationStatus ||
+          exceptionCase.compensationStatus === query.compensationStatus) &&
         (!keyword || searchable.includes(keyword)) &&
         (!query.createdFromIso || exceptionCase.createdAtIso >= query.createdFromIso) &&
         (!query.createdToIso || exceptionCase.createdAtIso < query.createdToIso)
@@ -4211,6 +4213,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
       return (
         (!query.status || record.status === query.status) &&
         (!query.sourceRole || record.sourceRole === query.sourceRole) &&
+        (!query.compensationStatus ||
+          record.compensationStatus === query.compensationStatus) &&
         (!keyword || searchable.includes(keyword)) &&
         (!query.createdFromIso || record.createdAt >= new Date(query.createdFromIso)) &&
         (!query.createdToIso || record.createdAt < new Date(query.createdToIso))

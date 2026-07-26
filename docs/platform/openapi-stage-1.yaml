@@ -5650,6 +5650,7 @@ paths:
         - { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseStatus' } }
         - { name: sourceRole, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseSourceRole' } }
+        - { name: compensationStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus' } }
         - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
         - { name: createdFromIso, in: query, schema: { type: string, format: date-time } }
         - { name: createdToIso, in: query, schema: { type: string, format: date-time } }

@@ -671,13 +671,17 @@ describe('order management admin console page', () => {
 });
 
 describe('order exception case admin console page', () => {
-  it('surfaces recent activity timestamps in the list and detail view', () => {
+  it('surfaces recent activity timestamps plus compensation filters in the list and detail view', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
     expect(html).toContain('最近更新：');
     expect(html).toContain("item.updatedAtIso || item.createdAtIso || '-'");
     expect(html).toContain('创建时间：');
     expect(html).toContain('更新时间：');
+    expect(html).toContain('caseListCompensationStatusInput');
+    expect(html).toContain("query.get('compensationStatus')");
+    expect(html).toContain("query.set('compensationStatus', compensationStatus)");
+    expect(html).toContain('平台已赔付到账');
   });
 });
 

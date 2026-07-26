@@ -18,6 +18,7 @@ describe('order exception case validation', () => {
       parseOrderExceptionCaseListQuery({
         status: 'processing',
         sourceRole: 'driver',
+        compensationStatus: 'pending',
         keyword: ' HY2026 ',
         createdFromIso: '2026-07-01T00:00:00.000Z',
         createdToIso: '2026-08-01T00:00:00.000Z',
@@ -27,6 +28,7 @@ describe('order exception case validation', () => {
       pageSize: 20,
       status: 'processing',
       sourceRole: 'driver',
+      compensationStatus: 'pending',
       keyword: 'HY2026',
       createdFromIso: '2026-07-01T00:00:00.000Z',
       createdToIso: '2026-08-01T00:00:00.000Z',
@@ -43,6 +45,11 @@ describe('order exception case validation', () => {
         createdToIso: '2026-07-01T00:00:00.000Z',
       }),
     ).toThrow('开始时间必须早于结束时间');
+    expect(() =>
+      parseOrderExceptionCaseListQuery({
+        compensationStatus: 'bad-status',
+      }),
+    ).toThrow();
   });
 
   it('normalizes valid transition requests', () => {

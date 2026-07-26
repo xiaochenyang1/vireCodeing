@@ -1869,6 +1869,7 @@ describe('platform order api', () => {
       api.listAdminOrderExceptionCases({
         status: 'processing',
         sourceRole: 'driver',
+        compensationStatus: 'pending',
         keyword: '  YC202607250001  ',
         createdFromIso: ' 2026-07-01T00:00:00.000Z ',
         createdToIso: ' 2026-07-03T00:00:00.000Z ',
@@ -1890,7 +1891,7 @@ describe('platform order api', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/admin/order-exception-cases?status=processing&sourceRole=driver&keyword=YC202607250001&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=2&pageSize=10',
+      'http://localhost:3000/api/admin/order-exception-cases?status=processing&sourceRole=driver&compensationStatus=pending&keyword=YC202607250001&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=2&pageSize=10',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -2080,6 +2081,9 @@ describe('platform order api', () => {
     const invalidQuery = {
       sourceRole: 'admin',
     } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
+    const invalidCompensationStatusQuery = {
+      compensationStatus: 'missing',
+    } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
     const invalidProcessRequest = {
       baseUpdatedAtIso: 'invalid',
       content: 'short',
@@ -2099,6 +2103,12 @@ describe('platform order api', () => {
 
     await expect(
       api.listAdminOrderExceptionCases(invalidQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.listAdminOrderExceptionCases(invalidCompensationStatusQuery),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
       status: 0,

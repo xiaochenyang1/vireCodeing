@@ -26,6 +26,9 @@ export const orderExceptionCaseListQuerySchema = z
       .enum(['pending', 'processing', 'resolved', 'closed'])
       .optional(),
     sourceRole: z.enum(['shipper', 'driver']).optional(),
+    compensationStatus: z
+      .enum(['not_required', 'pending', 'offline_completed', 'executed'])
+      .optional(),
     keyword: z
       .string()
       .trim()

@@ -1407,6 +1407,16 @@ describe('InMemoryOrdersRepository exception cases', () => {
         compensationAmountCents: 3600,
       },
     });
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+        compensationStatus: 'pending',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: created.id, compensationStatus: 'pending' })],
+    });
   });
 });
 
@@ -1455,6 +1465,45 @@ describe('PrismaOrdersRepository exception case lists', () => {
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
     );
+  });
+
+  it('filters admin exception case lists by compensation status', async () => {
+    const findMany = jest.fn().mockResolvedValue([
+      createPrismaExceptionCaseListRecord({
+        id: 'case-1',
+        caseNo: 'CASE202607120001',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+        compensationUpdatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      }),
+      createPrismaExceptionCaseListRecord({
+        id: 'case-2',
+        caseNo: 'CASE202607120002',
+        compensationStatus: 'executed',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+        compensationUpdatedAt: new Date('2026-07-12T08:30:00.000Z'),
+        compensationExecutedAt: new Date('2026-07-12T08:35:00.000Z'),
+      }),
+    ]);
+    const repository = new PrismaOrdersRepository(
+      {
+        orderExceptionCase: { findMany },
+      } as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:35:00.000Z'),
+    );
+
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+        compensationStatus: 'pending',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 'case-1', compensationStatus: 'pending' })],
+    });
   });
 });
 
@@ -2284,6 +2333,17 @@ function createPrismaExceptionCaseListRecord(
     typeLabel: string;
     description: string;
     status: 'pending' | 'processing' | 'resolved' | 'closed';
+    compensationStatus:
+      | 'not_required'
+      | 'pending'
+      | 'offline_completed'
+      | 'executed'
+      | null;
+    compensationTargetRole: 'shipper' | 'driver' | null;
+    compensationAmountCents: number | null;
+    compensationUpdatedAt: Date | null;
+    compensationTransactionId: string | null;
+    compensationExecutedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }> = {},
