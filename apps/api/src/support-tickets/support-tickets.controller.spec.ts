@@ -155,6 +155,7 @@ describe('SupportTicketsController', () => {
         page: '2',
         pageSize: '10',
         status: 'processing',
+        slaStatus: 'within_target',
         keyword: '投诉',
       }),
     ).resolves.toMatchObject({
@@ -179,6 +180,7 @@ describe('SupportTicketsController', () => {
       page: 2,
       pageSize: 10,
       status: 'processing',
+      slaStatus: 'within_target',
       keyword: '投诉',
     });
   });

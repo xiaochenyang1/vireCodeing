@@ -142,6 +142,59 @@ describe('InMemorySupportTicketsRepository', () => {
       total: 1,
     });
   });
+
+  it('lists all admin support tickets matching the base filters without pagination', async () => {
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `ticket-${++sequence}`;
+      })(),
+    });
+
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '第一张待跟进工单',
+      status: 'pending',
+      statusHistory: [],
+      createdAtIso: '2026-07-22T08:30:00.000Z',
+      updatedAtIso: '2026-07-22T08:30:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '第二张待跟进工单',
+      status: 'pending',
+      statusHistory: [],
+      createdAtIso: '2026-07-22T08:35:00.000Z',
+      updatedAtIso: '2026-07-22T08:35:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-2', {
+      channelName: '订单咨询',
+      description: '第三张处理中工单',
+      status: 'processing',
+      statusHistory: [],
+      createdAtIso: '2026-07-22T08:40:00.000Z',
+      updatedAtIso: '2026-07-22T08:40:00.000Z',
+    });
+
+    await expect(
+      repository.listSupportTicketsForAdminMatching({
+        status: 'pending',
+        keyword: '待跟进',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'ticket-2',
+        status: 'pending',
+        updatedAtIso: '2026-07-22T08:35:00.000Z',
+      }),
+      expect.objectContaining({
+        id: 'ticket-1',
+        status: 'pending',
+        updatedAtIso: '2026-07-22T08:30:00.000Z',
+      }),
+    ]);
+  });
 });
 
 describe('PrismaSupportTicketsRepository', () => {
@@ -338,6 +391,77 @@ describe('PrismaSupportTicketsRepository', () => {
         ],
         status: 'processing',
       },
+    });
+  });
+
+  it('lists all admin support tickets matching the base filters from Prisma', async () => {
+    const prisma = createPrismaClient();
+    prisma.shipperSupportTicket.findMany.mockResolvedValue([
+      createPrismaRecord({
+        id: 'ticket-2',
+        shipperId: 'shipper-1',
+        status: 'pending',
+        createdAt: new Date('2026-07-22T08:35:00.000Z'),
+        updatedAt: new Date('2026-07-22T08:35:00.000Z'),
+      }),
+      createPrismaRecord({
+        id: 'ticket-1',
+        shipperId: 'shipper-1',
+        status: 'pending',
+        createdAt: new Date('2026-07-22T08:30:00.000Z'),
+        updatedAt: new Date('2026-07-22T08:30:00.000Z'),
+      }),
+    ]);
+    const repository = new PrismaSupportTicketsRepository(
+      prisma as unknown as PrismaSupportTicketsClient,
+    );
+
+    await expect(
+      repository.listSupportTicketsForAdminMatching({
+        status: 'pending',
+        keyword: '投诉',
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'ticket-2',
+        status: 'pending',
+      }),
+      expect.objectContaining({
+        id: 'ticket-1',
+        status: 'pending',
+      }),
+    ]);
+    expect(prisma.shipperSupportTicket.findMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          {
+            id: {
+              contains: '投诉',
+              mode: 'insensitive',
+            },
+          },
+          {
+            shipperId: {
+              contains: '投诉',
+              mode: 'insensitive',
+            },
+          },
+          {
+            channelName: {
+              contains: '投诉',
+              mode: 'insensitive',
+            },
+          },
+          {
+            description: {
+              contains: '投诉',
+              mode: 'insensitive',
+            },
+          },
+        ],
+        status: 'pending',
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
   });
 

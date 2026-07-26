@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type {
+  AdminSupportTicketMatchQuery,
   AdminSupportTicketListQuery,
   AdminSupportTicketListRecord,
   CreateShipperSupportTicketRecordInput,
@@ -26,6 +27,9 @@ export interface SupportTicketsRepository {
   listSupportTicketsForAdmin(
     query: AdminSupportTicketListQuery,
   ): Promise<AdminSupportTicketListRecord>;
+  listSupportTicketsForAdminMatching(
+    query: AdminSupportTicketMatchQuery,
+  ): Promise<ShipperSupportTicketRecord[]>;
   findSupportTicketById(
     ticketId: string,
   ): Promise<ShipperSupportTicketRecord | null>;
@@ -76,9 +80,7 @@ export class InMemorySupportTicketsRepository
   }
 
   async listSupportTicketsForAdmin(query: AdminSupportTicketListQuery) {
-    const allTickets = sortTicketsByRecentActivityDesc(
-      [...this.tickets.values()].flatMap(items => items),
-    ).filter(ticket => matchesAdminSupportTicketQuery(ticket, query));
+    const allTickets = await this.listSupportTicketsForAdminMatching(query);
     const startIndex = (query.page - 1) * query.pageSize;
 
     return {
@@ -89,6 +91,14 @@ export class InMemorySupportTicketsRepository
       pageSize: query.pageSize,
       total: allTickets.length,
     };
+  }
+
+  async listSupportTicketsForAdminMatching(query: AdminSupportTicketMatchQuery) {
+    return sortTicketsByRecentActivityDesc(
+      [...this.tickets.values()].flatMap(items => items),
+    )
+      .filter(ticket => matchesAdminSupportTicketQuery(ticket, query))
+      .map(copySupportTicket);
   }
 
   async findSupportTicketById(ticketId: string) {
@@ -264,6 +274,16 @@ export class PrismaSupportTicketsRepository
     };
   }
 
+  async listSupportTicketsForAdminMatching(query: AdminSupportTicketMatchQuery) {
+    const where = createAdminSupportTicketWhere(query);
+    const tickets = await this.prisma.shipperSupportTicket.findMany({
+      where,
+      orderBy: defaultSupportTicketOrderBy(),
+    });
+
+    return tickets.map(mapPrismaSupportTicket);
+  }
+
   async findSupportTicketById(ticketId: string) {
     const ticket = await this.prisma.shipperSupportTicket.findUnique({
       where: { id: ticketId },
@@ -427,7 +447,7 @@ function parseSupportTicketSortTimestamp(iso: string) {
 
 function matchesAdminSupportTicketQuery(
   ticket: ShipperSupportTicketRecord,
-  query: AdminSupportTicketListQuery,
+  query: AdminSupportTicketMatchQuery,
 ) {
   if (query.status && ticket.status !== query.status) {
     return false;
@@ -447,7 +467,7 @@ function matchesAdminSupportTicketQuery(
   ].some(value => value.toLowerCase().includes(keyword));
 }
 
-function createAdminSupportTicketWhere(query: AdminSupportTicketListQuery) {
+function createAdminSupportTicketWhere(query: AdminSupportTicketMatchQuery) {
   if (!query.keyword) {
     return query.status ? { status: query.status } : {};
   }

@@ -1832,6 +1832,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('baseUpdatedAtIso');
     expect(source).toContain('operatorUserId');
     expect(source).toContain('content');
+    expect(source).toContain('name: slaStatus');
     expect(source).toContain(
       'Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.',
     );

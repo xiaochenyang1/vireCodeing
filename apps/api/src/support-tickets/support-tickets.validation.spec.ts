@@ -52,14 +52,24 @@ describe('support tickets validation', () => {
         page: '2',
         pageSize: '10',
         status: 'processing',
+        slaStatus: 'within_target',
         keyword: ' 投诉建议 ',
       }),
     ).toEqual({
       page: 2,
       pageSize: 10,
       status: 'processing',
+      slaStatus: 'within_target',
       keyword: '投诉建议',
     });
+  });
+
+  it('rejects invalid admin support ticket sla status filters', () => {
+    expect(() =>
+      parseAdminSupportTicketListQuery({
+        slaStatus: 'bad-status',
+      }),
+    ).toThrow(ZodError);
   });
 
   it('parses admin support ticket transition requests', () => {

@@ -59,6 +59,7 @@ export type PlatformListAdminSupportTicketsQuery = {
   page?: number;
   pageSize?: number;
   status?: PlatformSupportTicketStatus;
+  slaStatus?: PlatformSupportTicketSlaStatus;
   keyword?: string;
 };
 
@@ -196,6 +197,21 @@ function normalizeAdminSupportTicketListQuery(
     }
 
     normalizedQuery.status = query.status;
+  }
+
+  if (query.slaStatus !== undefined) {
+    if (
+      ![
+        'within_target',
+        'overdue',
+        'resolved_within_target',
+        'resolved_overdue',
+      ].includes(query.slaStatus)
+    ) {
+      throwInvalidSupportTicketRequest('Support ticket slaStatus is invalid');
+    }
+
+    normalizedQuery.slaStatus = query.slaStatus;
   }
 
   const keyword = normalizeOptionalString(

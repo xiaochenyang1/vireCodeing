@@ -36,11 +36,15 @@ export type CreateShipperSupportTicketRequest = {
   description: string;
 };
 
-export type AdminSupportTicketListQuery = {
-  page: number;
-  pageSize: number;
+export type AdminSupportTicketMatchQuery = {
   status?: ShipperSupportTicketStatus;
   keyword?: string;
+};
+
+export type AdminSupportTicketListQuery = AdminSupportTicketMatchQuery & {
+  page: number;
+  pageSize: number;
+  slaStatus?: ShipperSupportTicketSlaStatus;
 };
 
 export type UpdateShipperSupportTicketRequest = {

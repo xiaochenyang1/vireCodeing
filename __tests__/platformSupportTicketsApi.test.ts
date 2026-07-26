@@ -368,6 +368,7 @@ describe('platform support tickets api', () => {
         page: 2,
         pageSize: 10,
         status: 'pending',
+        slaStatus: 'within_target',
         keyword: ' shipper-1 ',
       }),
     ).resolves.toMatchObject({
@@ -439,7 +440,7 @@ describe('platform support tickets api', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      'http://localhost:3000/api/admin/support-tickets?page=2&pageSize=10&status=pending&keyword=shipper-1',
+      'http://localhost:3000/api/admin/support-tickets?page=2&pageSize=10&status=pending&slaStatus=within_target&keyword=shipper-1',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -524,6 +525,8 @@ describe('platform support tickets api', () => {
       api.listAdminSupportTickets({ pageSize: 51 })],
     ['invalid admin status', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>
       api.listAdminSupportTickets({ status: 'closed' as never })],
+    ['invalid admin slaStatus', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>
+      api.listAdminSupportTickets({ slaStatus: 'missing' as never })],
     ['invalid admin keyword', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>
       api.listAdminSupportTickets({ keyword: '问'.repeat(81) })],
     ['empty admin ticket id', (api: ReturnType<typeof createPlatformSupportTicketsApi>) =>

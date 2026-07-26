@@ -1,7 +1,9 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type {
+  AdminSupportTicketListRecord,
   AdminSupportTicketListQuery,
+  AdminSupportTicketMatchQuery,
   CreateShipperSupportTicketRequest,
   ShipperSupportTicketRecord,
   UpdateShipperSupportTicketRequest,
@@ -37,6 +39,23 @@ export class SupportTicketsService {
 
   async listSupportTicketsForAdmin(query: AdminSupportTicketListQuery) {
     const currentTime = this.now();
+
+    if (query.slaStatus) {
+      const filteredItems = (
+        await this.repository.listSupportTicketsForAdminMatching(
+          toAdminSupportTicketMatchQuery(query),
+        )
+      )
+        .map(ticket => mapSupportTicketWithSla(ticket, currentTime))
+        .filter(ticket => ticket.sla?.status === query.slaStatus);
+
+      return createAdminSupportTicketPage(
+        filteredItems,
+        query.page,
+        query.pageSize,
+      );
+    }
+
     const result = await this.repository.listSupportTicketsForAdmin(query);
 
     return {
@@ -328,4 +347,28 @@ function parseTimestamp(value: string | undefined, fallback: number) {
 
 function calculateSlaMinutes(deltaMs: number) {
   return Math.max(0, Math.ceil(deltaMs / MILLIS_PER_MINUTE));
+}
+
+function toAdminSupportTicketMatchQuery(
+  query: AdminSupportTicketListQuery,
+): AdminSupportTicketMatchQuery {
+  return {
+    status: query.status,
+    keyword: query.keyword,
+  };
+}
+
+function createAdminSupportTicketPage(
+  items: ShipperSupportTicketRecord[],
+  page: number,
+  pageSize: number,
+): AdminSupportTicketListRecord {
+  const startIndex = (page - 1) * pageSize;
+
+  return {
+    items: items.slice(startIndex, startIndex + pageSize),
+    page,
+    pageSize,
+    total: items.length,
+  };
 }

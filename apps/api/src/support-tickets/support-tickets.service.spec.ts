@@ -422,6 +422,136 @@ describe('SupportTicketsService', () => {
     });
   });
 
+  it('filters admin support tickets by derived sla status before paging', async () => {
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(
+      repository,
+      () => new Date('2026-07-22T08:30:00.000Z'),
+    );
+
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '首响仍在时限内的工单',
+      status: 'pending',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T08:20:00.000Z',
+        },
+      ],
+      createdAtIso: '2026-07-22T08:20:00.000Z',
+      updatedAtIso: '2026-07-22T08:20:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '首响已经超时的工单',
+      status: 'pending',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T07:50:00.000Z',
+        },
+      ],
+      createdAtIso: '2026-07-22T07:50:00.000Z',
+      updatedAtIso: '2026-07-22T07:50:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-2', {
+      channelName: '订单咨询',
+      description: '处理中的时限内工单',
+      status: 'processing',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-22T08:00:00.000Z',
+        },
+        {
+          actionText: '客服已受理',
+          timestampIso: '2026-07-22T08:05:00.000Z',
+          fromStatus: 'pending',
+          toStatus: 'processing',
+          operatorUserId: 'admin-1',
+          content: '已联系货主核实问题。',
+        },
+      ],
+      createdAtIso: '2026-07-22T08:00:00.000Z',
+      updatedAtIso: '2026-07-22T08:05:00.000Z',
+    });
+    await repository.createSupportTicket('shipper-2', {
+      channelName: '订单咨询',
+      description: '处理中的超时工单',
+      status: 'processing',
+      statusHistory: [
+        {
+          actionText: '工单已提交',
+          timestampIso: '2026-07-21T06:50:00.000Z',
+        },
+        {
+          actionText: '客服已受理',
+          timestampIso: '2026-07-21T07:00:00.000Z',
+          fromStatus: 'pending',
+          toStatus: 'processing',
+          operatorUserId: 'admin-1',
+          content: '已受理并等待处理。',
+        },
+      ],
+      createdAtIso: '2026-07-21T06:50:00.000Z',
+      updatedAtIso: '2026-07-21T07:00:00.000Z',
+    });
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 2,
+        pageSize: 1,
+        slaStatus: 'overdue',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'support-ticket-platform-4',
+          status: 'processing',
+          sla: {
+            policyKey: 'support_ticket_default_v1',
+            stage: 'resolution',
+            status: 'overdue',
+            targetAtIso: '2026-07-22T07:00:00.000Z',
+            overdueMinutes: 90,
+          },
+        }),
+      ],
+      page: 2,
+      pageSize: 1,
+      total: 2,
+    });
+
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 20,
+        status: 'processing',
+        slaStatus: 'overdue',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'support-ticket-platform-4',
+          status: 'processing',
+          sla: expect.objectContaining({
+            status: 'overdue',
+          }),
+        }),
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+  });
+
   it('rejects admin support ticket transitions when the ticket state no longer matches', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({

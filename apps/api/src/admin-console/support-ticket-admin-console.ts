@@ -18,7 +18,8 @@ export function renderSupportTicketAdminConsole() {
     body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #17202a; }
     .console-shell { display: grid; grid-template-columns: minmax(360px, 42%) 1fr; gap: 16px; padding: 16px; }
     .panel { background: #fff; border: 1px solid #d8dee4; border-radius: 12px; padding: 16px; }
-    .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .full-span { grid-column: 1 / span 3; }
     input, select, textarea, button { box-sizing: border-box; width: 100%; padding: 9px; margin: 4px 0; }
     textarea { min-height: 88px; resize: vertical; }
     button { cursor: pointer; background: #1769aa; color: #fff; border: 0; border-radius: 8px; }
@@ -40,14 +41,14 @@ export function renderSupportTicketAdminConsole() {
     .badge.sla-overdue { background: #fdecec; color: #b42318; }
     .badge.sla-resolved { background: #eef4ff; color: #145ea8; }
     ${renderAdminConsoleNavStyles()}
-    @media (max-width: 820px) { .console-shell { grid-template-columns: 1fr; } }
+    @media (max-width: 820px) { .console-shell { grid-template-columns: 1fr; } .filters { grid-template-columns: 1fr; } .full-span { grid-column: auto; } }
   </style>
 </head>
 <body>
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
-      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒；但自动超时升级、坐席分配和在线会话还没补上。</p>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；但自动超时升级、坐席分配和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -57,8 +58,9 @@ export function renderSupportTicketAdminConsole() {
       })}
       <div class="filters">
         <label>状态<select id="supportTicketStatusInput"><option value="">全部</option><option value="pending">待受理</option><option value="processing">处理中</option><option value="resolved">已处理</option></select></label>
+        <label>SLA 状态<select id="supportTicketSlaStatusInput"><option value="">全部</option><option value="within_target">时限内</option><option value="overdue">已超时</option><option value="resolved_within_target">按时完成</option><option value="resolved_overdue">超时完成</option></select></label>
         <label>每页<input id="supportTicketPageSizeInput" type="number" value="20" min="1" max="50" /></label>
-        <label style="grid-column: 1 / span 2;">工单号/货主/渠道/内容<input id="supportTicketKeywordInput" /></label>
+        <label class="full-span">工单号/货主/渠道/内容<input id="supportTicketKeywordInput" /></label>
       </div>
       <button id="loadSupportTicketsButton" onclick="loadSupportTickets(1)">查询工单</button>
       <div id="supportTicketListNotice" class="error"></div>
@@ -174,6 +176,7 @@ export function renderSupportTicketAdminConsole() {
       );
       return {
         status: query.get('status') || '',
+        slaStatus: query.get('slaStatus') || '',
         keyword: query.get('keyword') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
@@ -183,6 +186,7 @@ export function renderSupportTicketAdminConsole() {
     function applySupportTicketRouteState() {
       const routeState = readSupportTicketRouteState();
       document.getElementById('supportTicketStatusInput').value = routeState.status;
+      document.getElementById('supportTicketSlaStatusInput').value = routeState.slaStatus;
       document.getElementById('supportTicketKeywordInput').value = routeState.keyword;
       if (routeState.pageSize) {
         document.getElementById('supportTicketPageSizeInput').value = String(
@@ -202,10 +206,12 @@ export function renderSupportTicketAdminConsole() {
 
       const query = new URLSearchParams();
       const status = document.getElementById('supportTicketStatusInput').value;
+      const slaStatus = document.getElementById('supportTicketSlaStatusInput').value;
       const keyword = document.getElementById('supportTicketKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('supportTicketPageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
       if (status) query.set('status', status);
+      if (slaStatus) query.set('slaStatus', slaStatus);
       if (keyword) query.set('keyword', keyword);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
@@ -319,11 +325,13 @@ export function renderSupportTicketAdminConsole() {
 
       const query = new URLSearchParams();
       const status = document.getElementById('supportTicketStatusInput').value;
+      const slaStatus = document.getElementById('supportTicketSlaStatusInput').value;
       const keyword = document.getElementById('supportTicketKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('supportTicketPageSizeInput').value || '20', 10) || 20));
       query.set('page', String(currentPage));
       query.set('pageSize', String(pageSize));
       if (status) query.set('status', status);
+      if (slaStatus) query.set('slaStatus', slaStatus);
       if (keyword) query.set('keyword', keyword);
 
       try {

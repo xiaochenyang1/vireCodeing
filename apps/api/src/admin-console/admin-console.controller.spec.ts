@@ -289,11 +289,13 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('formatSupportTicketSlaStatus');
     expect(html).toContain('renderSupportTicketSla');
     expect(html).toContain('supportTicketStatusInput');
+    expect(html).toContain('supportTicketSlaStatusInput');
     expect(html).toContain('supportTicketKeywordInput');
     expect(html).toContain('supportTicketPageSizeInput');
     expect(html).toContain('supportTicketActionContent');
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
     expect(html).toContain('首响 / 解决 SLA 提醒');
+    expect(html).toContain('按 SLA 状态筛队列');
     expect(html).toContain('SLA：');
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/finance-console');
@@ -311,6 +313,8 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('if (requestId !== latestSupportTicketDetailRequestId) return');
     expect(html).toContain('applySupportTicketRouteState');
     expect(html).toContain('syncSupportTicketRouteState');
+    expect(html).toContain("query.get('slaStatus')");
+    expect(html).toContain("query.set('slaStatus', slaStatus)");
     expect(html).toContain('clearSupportTicketSelection()');
   });
 });
