@@ -12,6 +12,7 @@ import {
   getOrderExceptionCaseAppealStatusText,
   getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseLifecycleFacts,
+  getOrderExceptionCaseSlaSummary,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
   sortOrderExceptionCases,
@@ -167,6 +168,7 @@ export function ExceptionCaseProgressPanel({
           getOrderExceptionCaseCompensationSummary(exceptionCase);
         const lifecycleFacts =
           getOrderExceptionCaseLifecycleFacts(exceptionCase);
+        const slaSummary = getOrderExceptionCaseSlaSummary(exceptionCase.sla);
         const canAppeal = canAppealOrderExceptionCase(exceptionCase);
         const appealDraft = appealDrafts[exceptionCase.id] ?? '';
         const isAppealing = appealingCaseId === exceptionCase.id;
@@ -187,6 +189,14 @@ export function ExceptionCaseProgressPanel({
               {exceptionCase.typeLabel}
             </Text>
             <Text style={styles.detailMeta}>{exceptionCase.description}</Text>
+            {slaSummary ? (
+              <Text
+                style={styles.detailMeta}
+                testID={`exception-case-sla-${exceptionCase.caseNo}`}
+              >
+                SLA：{slaSummary}
+              </Text>
+            ) : null}
             <Text style={styles.detailMeta}>
               提交时间：{lifecycleFacts.createdAtText}
             </Text>

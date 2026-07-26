@@ -56,6 +56,13 @@ describe('ExceptionCaseProgressPanel', () => {
       appealRequestedAtIso: '2026-07-25T02:40:00.000Z',
       resolvedAtIso: '2026-07-25T02:45:00.000Z',
       closedAtIso: '2026-07-25T02:50:00.000Z',
+      sla: {
+        policyKey: 'exception_case_default_v1',
+        stage: 'resolution',
+        status: 'resolved_within_target',
+        targetAtIso: '2026-07-25T03:30:00.000Z',
+        remainingMinutes: 45,
+      },
       createdAtIso: '2026-07-25T02:00:00.000Z',
       updatedAtIso: '2026-07-25T02:50:00.000Z',
       actions: [
@@ -98,6 +105,9 @@ describe('ExceptionCaseProgressPanel', () => {
     const renderedText = getRenderedText(renderer);
 
     expect(renderedText).toContain('提交时间：2026-07-25 10:00');
+    expect(renderedText).toContain(
+      'SLA：解决 SLA · 提前 45 分钟完成 · 目标 2026-07-25 11:30',
+    );
     expect(renderedText).toContain(
       '赔付决议：平台已赔付到账 · 对象：司机 · 金额：￥36.00 · 更新时间：2026-07-25 10:30',
     );

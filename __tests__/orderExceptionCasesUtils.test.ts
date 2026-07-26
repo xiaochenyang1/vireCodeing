@@ -5,6 +5,9 @@ import {
   getOrderExceptionCaseCompensationSummary,
   getOrderExceptionCaseCompensationTargetText,
   getOrderExceptionCaseLifecycleFacts,
+  getOrderExceptionCaseSlaStageText,
+  getOrderExceptionCaseSlaStatusText,
+  getOrderExceptionCaseSlaSummary,
   getOrderExceptionCaseSourceText,
   getOrderExceptionCaseStatusText,
   getOrderExceptionCaseSummaryHeadline,
@@ -146,6 +149,40 @@ describe('order exception case utilities', () => {
       resolvedAtText: '2026-07-25 10:45',
       closedAtText: '2026-07-25 10:50',
     });
+  });
+
+  it('formats exception case SLA summaries', () => {
+    expect(getOrderExceptionCaseSlaStageText('acceptance')).toBe('受理 SLA');
+    expect(getOrderExceptionCaseSlaStageText('resolution')).toBe('解决 SLA');
+    expect(getOrderExceptionCaseSlaStatusText('within_target')).toBe('时限内');
+    expect(getOrderExceptionCaseSlaStatusText('resolved_overdue')).toBe(
+      '超时解决',
+    );
+    expect(
+      getOrderExceptionCaseSlaSummary({
+        stage: 'acceptance',
+        status: 'within_target',
+        targetAtIso: '2026-07-25T02:15:00.000Z',
+        remainingMinutes: 5,
+      }),
+    ).toBe('受理 SLA · 剩余 5 分钟 · 目标 2026-07-25 10:15');
+    expect(
+      getOrderExceptionCaseSlaSummary({
+        stage: 'resolution',
+        status: 'resolved_within_target',
+        targetAtIso: '2026-07-25T03:30:00.000Z',
+        remainingMinutes: 45,
+      }),
+    ).toBe('解决 SLA · 提前 45 分钟完成 · 目标 2026-07-25 11:30');
+    expect(
+      getOrderExceptionCaseSlaSummary({
+        stage: 'resolution',
+        status: 'resolved_overdue',
+        targetAtIso: '2026-07-25T04:00:00.000Z',
+        overdueMinutes: 20,
+      }),
+    ).toBe('解决 SLA · 已超时 20 分钟 · 目标 2026-07-25 12:00');
+    expect(getOrderExceptionCaseSlaSummary()).toBeUndefined();
   });
 
   it('sorts actions chronologically without mutating the input', () => {

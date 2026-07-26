@@ -4,6 +4,7 @@ import type {
   PlatformOrderExceptionCaseCompensationStatus,
   PlatformOrderExceptionCaseCompensationTargetRole,
   PlatformOrderExceptionCaseSourceRole,
+  PlatformOrderExceptionCaseSlaSnapshot,
   PlatformOrderExceptionCaseStatus,
 } from '../services/platformOrderApi';
 import { formatPlatformIsoMinute } from './dateTime';
@@ -68,6 +69,67 @@ export function getOrderExceptionCaseAppealStatusText(
   };
 
   return textByStatus[status];
+}
+
+export function getOrderExceptionCaseSlaStageText(
+  stage: PlatformOrderExceptionCaseSlaSnapshot['stage'],
+) {
+  const textByStage: Record<
+    PlatformOrderExceptionCaseSlaSnapshot['stage'],
+    string
+  > = {
+    acceptance: '受理 SLA',
+    resolution: '解决 SLA',
+  };
+
+  return textByStage[stage];
+}
+
+export function getOrderExceptionCaseSlaStatusText(
+  status: PlatformOrderExceptionCaseSlaSnapshot['status'],
+) {
+  const textByStatus: Record<
+    PlatformOrderExceptionCaseSlaSnapshot['status'],
+    string
+  > = {
+    within_target: '时限内',
+    overdue: '已超时',
+    resolved_within_target: '按时解决',
+    resolved_overdue: '超时解决',
+  };
+
+  return textByStatus[status];
+}
+
+export function getOrderExceptionCaseSlaSummary(
+  sla?: Pick<
+    PlatformOrderExceptionCaseSlaSnapshot,
+    'stage' | 'status' | 'targetAtIso' | 'remainingMinutes' | 'overdueMinutes'
+  >,
+) {
+  if (!sla) {
+    return undefined;
+  }
+
+  const summaryParts = [getOrderExceptionCaseSlaStageText(sla.stage)];
+
+  if (typeof sla.overdueMinutes === 'number') {
+    summaryParts.push(`已超时 ${sla.overdueMinutes} 分钟`);
+  } else if (typeof sla.remainingMinutes === 'number') {
+    summaryParts.push(
+      sla.status === 'resolved_within_target'
+        ? `提前 ${sla.remainingMinutes} 分钟完成`
+        : `剩余 ${sla.remainingMinutes} 分钟`,
+    );
+  } else {
+    summaryParts.push(getOrderExceptionCaseSlaStatusText(sla.status));
+  }
+
+  if (sla.targetAtIso) {
+    summaryParts.push(`目标 ${formatOrderExceptionCaseTime(sla.targetAtIso)}`);
+  }
+
+  return summaryParts.join(' · ');
 }
 
 export function canAppealOrderExceptionCase(
