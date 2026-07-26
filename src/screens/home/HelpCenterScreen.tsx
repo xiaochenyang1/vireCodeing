@@ -283,6 +283,9 @@ export function HelpCenterScreen({
                 <Text style={styles.detailMeta}>
                   {`处理状态：${ticket.statusText}`}
                 </Text>
+                {ticket.slaText ? (
+                  <Text style={styles.detailMeta}>{`SLA：${ticket.slaText}`}</Text>
+                ) : null}
                 <Text style={styles.routeMeta}>
                   {`提交时间：${ticket.createdAtText}`}
                 </Text>

@@ -417,6 +417,7 @@ export type SupportTicket = {
   channelName: string;
   description: string;
   statusText: string;
+  slaText?: string;
   createdAtText: string;
   createdAtIso?: string;
   updatedAtText?: string;

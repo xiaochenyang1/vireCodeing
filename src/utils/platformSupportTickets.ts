@@ -20,6 +20,7 @@ export function mapPlatformSupportTicketToLocal(
     channelName: item.channelName,
     description: item.description,
     statusText: mapPlatformSupportTicketStatus(item.status),
+    slaText: mapPlatformSupportTicketSla(item.sla),
     createdAtText: formatSupportTicketTimestamp(item.createdAtIso, now, true),
     createdAtIso: item.createdAtIso,
     updatedAtText: formatSupportTicketTimestamp(item.updatedAtIso, now),
@@ -67,6 +68,32 @@ function mapPlatformSupportTicketStatus(
   };
 
   return statusTextMap[status];
+}
+
+function mapPlatformSupportTicketSla(sla?: PlatformSupportTicket['sla']) {
+  if (!sla) {
+    return undefined;
+  }
+
+  const stageText = sla.stage === 'first_response' ? '首响 SLA' : '解决 SLA';
+
+  if (typeof sla.overdueMinutes === 'number') {
+    return `${stageText} 已超时 ${sla.overdueMinutes} 分钟`;
+  }
+
+  if (typeof sla.remainingMinutes === 'number') {
+    if (sla.status === 'resolved_within_target') {
+      return `${stageText} 提前 ${sla.remainingMinutes} 分钟完成`;
+    }
+
+    return `${stageText} 剩余 ${sla.remainingMinutes} 分钟`;
+  }
+
+  if (sla.status === 'resolved_overdue') {
+    return `${stageText} 超时完成`;
+  }
+
+  return `${stageText} ${sla.status}`;
 }
 
 function formatSupportTicketTimestamp(

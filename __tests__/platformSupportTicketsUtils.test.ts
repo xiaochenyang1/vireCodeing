@@ -12,6 +12,13 @@ describe('platform support tickets utils', () => {
     channelName: '投诉建议',
     description: '司机沟通不及时，希望客服协助跟进',
     status: 'processing' as const,
+    sla: {
+      policyKey: 'support_ticket_default_v1' as const,
+      stage: 'resolution' as const,
+      status: 'overdue' as const,
+      targetAtIso: '2026-07-22T10:15:00.000Z',
+      overdueMinutes: 15,
+    },
     statusHistory: [
       {
         actionText: '工单已提交',
@@ -37,6 +44,7 @@ describe('platform support tickets utils', () => {
       channelName: '投诉建议',
       description: '司机沟通不及时，希望客服协助跟进',
       statusText: '客服已受理',
+      slaText: '解决 SLA 已超时 15 分钟',
       createdAtText: '2 小时前',
       createdAtIso: '2026-07-22T08:30:00.000Z',
       updatedAtText: '1 小时前',
@@ -62,6 +70,13 @@ describe('platform support tickets utils', () => {
         {
           ...platformTicket,
           status: 'pending',
+          sla: {
+            policyKey: 'support_ticket_default_v1',
+            stage: 'first_response',
+            status: 'within_target',
+            targetAtIso: '2026-07-22T10:40:00.000Z',
+            remainingMinutes: 10,
+          },
           createdAtIso: '2026-07-22T10:30:00.000Z',
           updatedAtIso: '2026-07-22T10:30:00.000Z',
           statusHistory: [
@@ -75,6 +90,7 @@ describe('platform support tickets utils', () => {
       ),
     ).toMatchObject({
       statusText: '待客服跟进',
+      slaText: '首响 SLA 剩余 10 分钟',
       createdAtText: '刚刚提交',
       updatedAtText: '刚刚',
       statusHistory: [

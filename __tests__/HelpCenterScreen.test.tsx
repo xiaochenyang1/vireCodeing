@@ -37,6 +37,7 @@ describe('HelpCenterScreen', () => {
       channelName: '投诉建议',
       description: '平台工单内容',
       statusText: '待客服跟进',
+      slaText: '首响 SLA 已超时 15 分钟',
       createdAtText: '2 小时前',
       createdAtIso: '2026-07-22T06:00:00.000Z',
       updatedAtText: '1 小时前',
@@ -88,6 +89,7 @@ describe('HelpCenterScreen', () => {
 
     expect(renderedText).toContain('来源：平台工单同步');
     expect(renderedText).toContain('来源：本地兜底工单');
+    expect(renderedText).toContain('SLA：首响 SLA 已超时 15 分钟');
     expect(renderedText).toContain('提交时间：2 小时前');
     expect(renderedText).toContain('最近更新：1 小时前');
   });
