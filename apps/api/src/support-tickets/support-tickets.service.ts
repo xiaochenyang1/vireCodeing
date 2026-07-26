@@ -1,4 +1,5 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type {
   AdminSupportTicketListQuery,
   CreateShipperSupportTicketRequest,
@@ -12,6 +13,7 @@ export class SupportTicketsService {
   constructor(
     private readonly repository: SupportTicketsRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async listSupportTickets(shipperId: string): Promise<ShipperSupportTicketListRecord> {
@@ -128,7 +130,36 @@ export class SupportTicketsService {
       );
     }
 
+    await this.safeNotifySupportTicketEvent({
+      event:
+        nextStatus === 'processing'
+          ? 'support_ticket_processing'
+          : 'support_ticket_resolved',
+      ticketId: result.id,
+      shipperId: result.shipperId,
+      channelName: result.channelName,
+      content: input.content,
+    });
+
     return result;
+  }
+
+  private async safeNotifySupportTicketEvent(input: {
+    event: 'support_ticket_processing' | 'support_ticket_resolved';
+    ticketId: string;
+    shipperId: string;
+    channelName: string;
+    content?: string;
+  }) {
+    if (!this.notificationsService) {
+      return;
+    }
+
+    try {
+      await this.notificationsService.notifySupportTicketEvent(input);
+    } catch {
+      // Inbox/push is best-effort and must not break support ticket workflows.
+    }
   }
 }
 

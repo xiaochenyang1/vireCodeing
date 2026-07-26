@@ -72,7 +72,8 @@ const defaultModules = [
     key: 'support-ticket',
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
-    summary: '分页查看货主帮助中心工单、打开详情并推进 pending -> processing -> resolved 状态流转。',
+    summary:
+      '分页查看货主帮助中心工单、打开详情并推进 pending -> processing -> resolved 状态流转，处理状态会通知货主。',
   },
   {
     key: 'order-exception-case',

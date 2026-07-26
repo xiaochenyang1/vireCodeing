@@ -254,6 +254,66 @@ describe('NotificationsService', () => {
     expect(driverMessages.items[0]?.content).toContain('审核说明：');
   });
 
+  it('notifies the shipper when a support ticket is processed or resolved', async () => {
+    const repository = new InMemoryNotificationsRepository({
+      now: () => new Date('2026-07-26T10:00:00.000Z'),
+      createId: (() => {
+        let index = 0;
+        return () => `msg-${++index}`;
+      })(),
+    });
+    const pushProvider = new FakePushProvider();
+    const service = new NotificationsService(repository, pushProvider);
+
+    await service.notifySupportTicketEvent({
+      event: 'support_ticket_processing',
+      ticketId: 'support-ticket-1',
+      shipperId: 'shipper-1',
+      channelName: ' 投诉建议 ',
+      content: ' 已联系货主补充订单信息。 ',
+    });
+    await service.notifySupportTicketEvent({
+      event: 'support_ticket_resolved',
+      ticketId: 'support-ticket-1',
+      shipperId: 'shipper-1',
+      channelName: '投诉建议',
+      content: '问题已确认并给出处理结果。',
+    });
+
+    const shipperMessages = await service.listMessages('shipper-1', {
+      page: 1,
+      pageSize: 20,
+    });
+    const processingMessage = shipperMessages.items.find(
+      item => item.title === '帮助中心工单已受理',
+    );
+    const resolvedMessage = shipperMessages.items.find(
+      item => item.title === '帮助中心工单已处理',
+    );
+
+    expect(shipperMessages.total).toBe(2);
+    expect(shipperMessages.unreadCount).toBe(2);
+    expect(pushProvider.sends).toHaveLength(2);
+    expect(processingMessage).toMatchObject({
+      audience: 'shipper',
+      category: 'service',
+      title: '帮助中心工单已受理',
+      content:
+        '投诉建议工单 support-ticket-1 已受理，客服正在跟进。 处理说明：已联系货主补充订单信息。',
+      referenceType: 'support_ticket',
+      referenceId: 'support_ticket_processing:support-ticket-1:shipper',
+    });
+    expect(resolvedMessage).toMatchObject({
+      audience: 'shipper',
+      category: 'service',
+      title: '帮助中心工单已处理',
+      content:
+        '投诉建议工单 support-ticket-1 已处理完成，请查看处理结果。 处理说明：问题已确认并给出处理结果。',
+      referenceType: 'support_ticket',
+      referenceId: 'support_ticket_resolved:support-ticket-1:shipper',
+    });
+  });
+
   it('returns not found when marking a foreign message', async () => {
     const repository = new InMemoryNotificationsRepository();
     const service = new NotificationsService(repository, new FakePushProvider());

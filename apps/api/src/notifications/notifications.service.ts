@@ -51,6 +51,14 @@ export type NotifyExceptionEventInput = {
   actorRole?: 'shipper' | 'driver';
 };
 
+export type NotifySupportTicketEventInput = {
+  event: 'support_ticket_processing' | 'support_ticket_resolved';
+  ticketId: string;
+  shipperId: string;
+  channelName: string;
+  content?: string;
+};
+
 export class NotificationsService {
   constructor(
     private readonly repository: NotificationsRepository,
@@ -192,6 +200,23 @@ export class NotificationsService {
         orderNo: input.orderNo,
         referenceType: 'exception_case',
         referenceId: `${input.event}:${input.caseId}:${recipient.audience}`,
+      });
+    }
+  }
+
+  async notifySupportTicketEvent(input: NotifySupportTicketEventInput) {
+    const recipients = buildSupportTicketEventRecipients(input).filter(
+      recipient => Boolean(recipient.userId),
+    );
+    for (const recipient of recipients) {
+      await this.createAndPush({
+        userId: recipient.userId,
+        audience: recipient.audience,
+        category: recipient.category,
+        title: recipient.title,
+        content: recipient.content,
+        referenceType: 'support_ticket',
+        referenceId: `${input.event}:${input.ticketId}:${recipient.audience}`,
       });
     }
   }
@@ -519,6 +544,44 @@ function buildExceptionEventRecipients(
   }
 }
 
+function buildSupportTicketEventRecipients(
+  input: NotifySupportTicketEventInput,
+): Array<
+  Required<Pick<RecipientMessage, 'userId' | 'audience' | 'title' | 'content'>> & {
+    category: InboxMessageCategory;
+  }
+> {
+  const channelLabel = input.channelName.trim() || '帮助中心';
+  const detailSuffix = formatSupportTicketDetailSuffix(input.content);
+
+  switch (input.event) {
+    case 'support_ticket_processing':
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '帮助中心工单已受理',
+          content:
+            `${channelLabel}工单 ${input.ticketId} 已受理，客服正在跟进。` +
+            detailSuffix,
+        },
+      ];
+    case 'support_ticket_resolved':
+      return [
+        {
+          userId: input.shipperId,
+          audience: 'shipper',
+          category: 'service',
+          title: '帮助中心工单已处理',
+          content:
+            `${channelLabel}工单 ${input.ticketId} 已处理完成，请查看处理结果。` +
+            detailSuffix,
+        },
+      ];
+  }
+}
+
 function uniqueRecipients<T extends { userId: string; audience: string }>(
   items: T[],
 ): T[] {
@@ -552,6 +615,12 @@ function formatReviewResultSuffix(reviewResultText?: string) {
   const normalizedText = reviewResultText?.trim();
 
   return normalizedText ? ` 审核说明：${normalizedText}` : '';
+}
+
+function formatSupportTicketDetailSuffix(content?: string) {
+  const normalizedText = content?.trim();
+
+  return normalizedText ? ` 处理说明：${normalizedText}` : '';
 }
 
 function formatOrderStatus(status?: string) {

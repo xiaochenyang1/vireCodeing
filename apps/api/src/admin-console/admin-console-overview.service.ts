@@ -296,7 +296,7 @@ function createModules(
       route: '/api/admin/support-ticket-console',
       stage: 'first_slice',
       summary:
-        '帮助中心工单后台列表、详情和 pending -> processing -> resolved 状态流转已经能跑，但还没 SLA、坐席分配、在线会话和通知联动。',
+        '帮助中心工单后台列表、详情、pending -> processing -> resolved 状态流转和货主通知已经能跑，但还没 SLA、坐席分配和在线会话。',
       metrics: [
         {
           label: '待处理工单',
@@ -314,7 +314,7 @@ function createModules(
           tone: queueTone(stats.supportTickets.processingCount),
         },
       ],
-      pendingGaps: ['SLA / 超时升级', '坐席分配', '在线客服会话', '通知联动'],
+      pendingGaps: ['SLA / 超时升级', '坐席分配', '在线客服会话'],
     },
     {
       key: 'order-exception-case',

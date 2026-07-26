@@ -1,9 +1,22 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { NotificationsService } from '../notifications/notifications.service';
 import { InMemorySupportTicketsRepository } from './support-tickets.repository';
 import { SupportTicketsService } from './support-tickets.service';
 
 describe('SupportTicketsService', () => {
   const now = new Date('2026-07-22T08:30:00.000Z');
+
+  type NotificationsServiceMock = {
+    notifySupportTicketEvent: jest.MockedFunction<
+      NotificationsService['notifySupportTicketEvent']
+    >;
+  };
+
+  function createNotificationsServiceMock(): NotificationsServiceMock {
+    return {
+      notifySupportTicketEvent: jest.fn().mockResolvedValue(undefined),
+    } as NotificationsServiceMock;
+  }
 
   function createService() {
     const repository = new InMemorySupportTicketsRepository({
@@ -13,9 +26,15 @@ describe('SupportTicketsService', () => {
         return () => `support-ticket-platform-${++sequence}`;
       })(),
     });
+    const notificationsService = createNotificationsServiceMock();
 
     return {
-      service: new SupportTicketsService(repository, () => now),
+      notificationsService,
+      service: new SupportTicketsService(
+        repository,
+        () => now,
+        notificationsService as unknown as NotificationsService,
+      ),
     };
   }
 
@@ -111,7 +130,12 @@ describe('SupportTicketsService', () => {
         return () => `support-ticket-platform-${++sequence}`;
       })(),
     });
-    const service = new SupportTicketsService(repository, () => currentTime);
+    const notificationsService = createNotificationsServiceMock();
+    const service = new SupportTicketsService(
+      repository,
+      () => currentTime,
+      notificationsService as unknown as NotificationsService,
+    );
 
     const created = await service.createSupportTicket('shipper-1', {
       channelName: '投诉建议',
@@ -166,6 +190,79 @@ describe('SupportTicketsService', () => {
         }),
       ]),
       updatedAtIso: '2026-07-22T08:40:00.000Z',
+    });
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenNthCalledWith(
+      1,
+      {
+        event: 'support_ticket_processing',
+        ticketId: created.id,
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        content: '已联系货主核实问题，转客服受理跟进。',
+      },
+    );
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenNthCalledWith(
+      2,
+      {
+        event: 'support_ticket_resolved',
+        ticketId: created.id,
+        shipperId: 'shipper-1',
+        channelName: '投诉建议',
+        content: '问题已确认并处理完成，通知货主查看结果。',
+      },
+    );
+  });
+
+  it('keeps support ticket transitions successful when notification delivery fails', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const notificationsService = createNotificationsServiceMock();
+    notificationsService.notifySupportTicketEvent.mockRejectedValue(
+      new Error('push unavailable'),
+    );
+    const service = new SupportTicketsService(
+      repository,
+      () => currentTime,
+      notificationsService as unknown as NotificationsService,
+    );
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    currentTime = new Date('2026-07-22T08:35:00.000Z');
+    await expect(
+      service.processSupportTicket('admin-1', created.id, {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '已联系货主核实问题，转客服受理跟进。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'processing',
+      updatedAtIso: '2026-07-22T08:35:00.000Z',
+    });
+    await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
+      status: 'processing',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已受理',
+          operatorUserId: 'admin-1',
+        }),
+      ]),
+    });
+    expect(notificationsService.notifySupportTicketEvent).toHaveBeenCalledWith({
+      event: 'support_ticket_processing',
+      ticketId: created.id,
+      shipperId: 'shipper-1',
+      channelName: '投诉建议',
+      content: '已联系货主核实问题，转客服受理跟进。',
     });
   });
 

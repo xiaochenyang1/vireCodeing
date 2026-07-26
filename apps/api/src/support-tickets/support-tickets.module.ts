@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { AdminOnlyGuard, ShipperOnlyGuard } from '../auth/role.guard';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -14,7 +16,7 @@ import {
 import { SupportTicketsService } from './support-tickets.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule],
+  imports: [AuthModule, PrismaModule, NotificationsModule],
   controllers: [SupportTicketsController, AdminSupportTicketsController],
   providers: [
     {
@@ -27,9 +29,11 @@ import { SupportTicketsService } from './support-tickets.service';
     },
     {
       provide: SupportTicketsService,
-      useFactory: (repository: PrismaSupportTicketsRepository) =>
-        new SupportTicketsService(repository),
-      inject: [PrismaSupportTicketsRepository],
+      useFactory: (
+        repository: PrismaSupportTicketsRepository,
+        notificationsService: NotificationsService,
+      ) => new SupportTicketsService(repository, undefined, notificationsService),
+      inject: [PrismaSupportTicketsRepository, NotificationsService],
     },
     AdminOnlyGuard,
     ShipperOnlyGuard,
