@@ -95,9 +95,22 @@ export type AdminShipperInvoiceReviewEventStage =
 export type AdminShipperInvoiceReviewEvent = {
   eventId: string;
   actorUserId?: string;
+  reviewerAdminId?: string;
+  fromStatus?: ShipperInvoiceApplicationStatus;
+  toStatus?: Extract<ShipperInvoiceApplicationStatus, 'approved' | 'rejected'>;
   eventType: AdminShipperInvoiceReviewEventType;
   stage: AdminShipperInvoiceReviewEventStage;
   noteText?: string;
+  createdAtIso: string;
+};
+
+export type ShipperInvoiceReviewDecisionRecord = {
+  id: string;
+  applicationId: string;
+  reviewerAdminId: string;
+  fromStatus: ShipperInvoiceApplicationStatus;
+  toStatus: Extract<ShipperInvoiceApplicationStatus, 'approved' | 'rejected'>;
+  rejectionReason?: string;
   createdAtIso: string;
 };
 import type { OrderPaymentStatus } from '../payments/payment-domain';

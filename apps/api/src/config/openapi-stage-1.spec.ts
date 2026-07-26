@@ -1705,6 +1705,50 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not a shipper');
   });
 
+  it('documents immutable admin shipper invoice review events', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const reviewEventsPath =
+      '/admin/shipper-invoices/{applicationId}/review-events';
+
+    expect(source).toContain('/admin/shipper-invoices:');
+    expect(source).toContain(
+      '/admin/shipper-invoices/{applicationId}/review:',
+    );
+    expect(source).toContain(`${reviewEventsPath}:`);
+    expectPathBlockToContain(
+      source,
+      reviewEventsPath,
+      'List shipper invoice review audit events',
+    );
+    expectPathBlockToContain(
+      source,
+      reviewEventsPath,
+      "$ref: '#/components/schemas/ShipperInvoiceReviewEventResponse'",
+    );
+    expect(source).toContain('ShipperInvoiceReviewEvent:');
+    expect(source).toContain('ShipperInvoiceReviewEventResponse:');
+    expectSchemaBlockToContain(
+      source,
+      'ShipperInvoiceReviewEvent',
+      'reviewerAdminId',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperInvoiceReviewEvent',
+      'fromStatus',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperInvoiceReviewEvent',
+      'toStatus',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/shipper-invoices/{applicationId}/review',
+      'appends an immutable review event with the authenticated admin actor',
+    );
+  });
+
   it('documents the current shipper spending record endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

@@ -8,6 +8,7 @@ import type {
   ShipperEnterpriseVerificationSnapshot,
   ShipperInvoiceApplicationRecord,
   ShipperInvoiceOrderRecord,
+  ShipperInvoiceReviewDecisionRecord,
 } from './dto';
 
 export interface ProfileInvoicesRepository {
@@ -32,6 +33,7 @@ export interface ProfileInvoicesRepository {
   ): Promise<AdminShipperInvoiceReviewEvent[]>;
   reviewApplication(
     applicationId: string,
+    reviewerAdminId: string,
     input: ReviewShipperInvoiceApplicationRequest,
   ): Promise<ShipperInvoiceApplicationRecord>;
 }
@@ -55,6 +57,7 @@ export class InMemoryProfileInvoicesRepository
     string,
     ShipperEnterpriseVerificationSnapshot
   >();
+  private readonly reviewEvents: ShipperInvoiceReviewDecisionRecord[];
 
   constructor(
     private readonly now: () => Date = () => new Date(),
@@ -65,9 +68,11 @@ export class InMemoryProfileInvoicesRepository
         string,
         ShipperEnterpriseVerificationSnapshot
       >;
+      reviewEvents?: ShipperInvoiceReviewDecisionRecord[];
     } = {},
   ) {
     this.orders = [...(seed.orders ?? [])];
+    this.reviewEvents = [...(seed.reviewEvents ?? [])];
 
     for (const application of seed.applications ?? []) {
       const currentApplications =
@@ -179,7 +184,12 @@ export class InMemoryProfileInvoicesRepository
         continue;
       }
 
-      return listAdminShipperInvoiceReviewEventsFromApplication(application);
+      return listAdminShipperInvoiceReviewEventsFromApplication(
+        application,
+        this.reviewEvents.filter(
+          event => event.applicationId === applicationId,
+        ),
+      );
     }
 
     throw new BusinessError(
@@ -190,6 +200,7 @@ export class InMemoryProfileInvoicesRepository
 
   async reviewApplication(
     applicationId: string,
+    reviewerAdminId: string,
     input: ReviewShipperInvoiceApplicationRequest,
   ): Promise<ShipperInvoiceApplicationRecord> {
     for (const [shipperId, applications] of this.applications.entries()) {
@@ -208,16 +219,28 @@ export class InMemoryProfileInvoicesRepository
         );
       }
 
+      const reviewedAtIso = this.now().toISOString();
       const updated: ShipperInvoiceApplicationRecord = {
         ...current,
         status: input.status,
         ...(input.status === 'rejected'
           ? { rejectionReason: input.rejectionReason }
           : { rejectionReason: undefined }),
-        updatedAtIso: this.now().toISOString(),
+        updatedAtIso: reviewedAtIso,
       };
       applications[index] = updated;
       this.applications.set(shipperId, applications);
+      this.reviewEvents.push({
+        id: `shipper-invoice-review-event-${this.reviewEvents.length + 1}`,
+        applicationId,
+        reviewerAdminId,
+        fromStatus: current.status,
+        toStatus: input.status,
+        ...(input.status === 'rejected'
+          ? { rejectionReason: input.rejectionReason }
+          : {}),
+        createdAtIso: reviewedAtIso,
+      });
       return updated;
     }
 
@@ -242,6 +265,16 @@ export type PrismaShipperInvoiceApplicationRecord = {
   rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type PrismaShipperInvoiceReviewEventRecord = {
+  id: string;
+  applicationId: string;
+  reviewerAdminId: string;
+  fromStatus: ShipperInvoiceReviewDecisionRecord['fromStatus'];
+  toStatus: ShipperInvoiceReviewDecisionRecord['toStatus'];
+  rejectionReason: string | null;
+  createdAt: Date;
 };
 
 export type PrismaProfileInvoicesOrderRecord = {
@@ -294,6 +327,12 @@ export type PrismaProfileInvoicesClient = {
       };
     }): Promise<PrismaProfileInvoicesEnterpriseVerificationRecord | null>;
   };
+  shipperInvoiceReviewEvent: {
+    findMany(args: {
+      where: { applicationId: string };
+      orderBy: { createdAt: 'desc' };
+    }): Promise<PrismaShipperInvoiceReviewEventRecord[]>;
+  };
 };
 
 export type PrismaProfileInvoicesTransactionClient = {
@@ -302,6 +341,9 @@ export type PrismaProfileInvoicesTransactionClient = {
     ...values: unknown[]
   ): Promise<T>;
   shipperInvoiceApplication: {
+    findUnique(args: {
+      where: { id: string };
+    }): Promise<PrismaShipperInvoiceApplicationRecord | null>;
     findFirst(args: {
       where: {
         shipperId: string;
@@ -326,6 +368,25 @@ export type PrismaProfileInvoicesTransactionClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaShipperInvoiceApplicationRecord>;
+    updateMany(args: {
+      where: { id: string; status: 'reviewing'; updatedAt: Date };
+      data: {
+        status: 'approved' | 'rejected';
+        rejectionReason: string | null;
+      };
+    }): Promise<{ count: number }>;
+  };
+  shipperInvoiceReviewEvent: {
+    create(args: {
+      data: {
+        applicationId: string;
+        reviewerAdminId: string;
+        fromStatus: ShipperInvoiceReviewDecisionRecord['fromStatus'];
+        toStatus: ShipperInvoiceReviewDecisionRecord['toStatus'];
+        rejectionReason: string | null;
+        createdAt: Date;
+      };
+    }): Promise<PrismaShipperInvoiceReviewEventRecord>;
   };
   order: {
     findMany(args: {
@@ -521,61 +582,84 @@ export class PrismaProfileInvoicesRepository implements ProfileInvoicesRepositor
         '发票申请不存在',
       );
     }
+    const reviewEvents = await this.prisma.shipperInvoiceReviewEvent.findMany({
+      where: { applicationId },
+      orderBy: { createdAt: 'desc' },
+    });
 
     return listAdminShipperInvoiceReviewEventsFromApplication(
       mapPrismaInvoiceApplication(application),
+      reviewEvents.map(mapPrismaInvoiceReviewDecision),
     );
   }
 
   async reviewApplication(
     applicationId: string,
+    reviewerAdminId: string,
     input: ReviewShipperInvoiceApplicationRequest,
   ): Promise<ShipperInvoiceApplicationRecord> {
-    const application = await this.prisma.shipperInvoiceApplication.findUnique({
-      where: { id: applicationId },
-    });
-    if (!application) {
-      throw new BusinessError(
-        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
-        '发票申请不存在',
-      );
-    }
-    if (application.status !== 'reviewing') {
-      throw new BusinessError(
-        ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
-        '当前发票申请状态不可审核',
-      );
-    }
+    return this.prisma.$transaction(async transaction => {
+      const application =
+        await transaction.shipperInvoiceApplication.findUnique({
+          where: { id: applicationId },
+        });
+      if (!application) {
+        throw new BusinessError(
+          ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+          '发票申请不存在',
+        );
+      }
+      if (application.status !== 'reviewing') {
+        throw new BusinessError(
+          ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+          '当前发票申请状态不可审核',
+        );
+      }
 
-    const transition = await this.prisma.shipperInvoiceApplication.updateMany({
-      where: {
-        id: applicationId,
-        status: 'reviewing',
-        updatedAt: application.updatedAt,
-      },
-      data: {
-        status: input.status,
-        rejectionReason:
-          input.status === 'rejected' ? input.rejectionReason : null,
-      },
-    });
-    if (transition.count !== 1) {
-      throw new BusinessError(
-        ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
-        '当前发票申请状态不可审核',
-      );
-    }
+      const transition =
+        await transaction.shipperInvoiceApplication.updateMany({
+          where: {
+            id: applicationId,
+            status: 'reviewing',
+            updatedAt: application.updatedAt,
+          },
+          data: {
+            status: input.status,
+            rejectionReason:
+              input.status === 'rejected' ? input.rejectionReason : null,
+          },
+        });
+      if (transition.count !== 1) {
+        throw new BusinessError(
+          ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+          '当前发票申请状态不可审核',
+        );
+      }
 
-    const updated = await this.prisma.shipperInvoiceApplication.findUnique({
-      where: { id: applicationId },
+      const updated =
+        await transaction.shipperInvoiceApplication.findUnique({
+          where: { id: applicationId },
+        });
+      if (!updated) {
+        throw new BusinessError(
+          ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+          '发票申请不存在',
+        );
+      }
+      await transaction.shipperInvoiceReviewEvent.create({
+        data: {
+          applicationId,
+          reviewerAdminId,
+          fromStatus: application.status,
+          toStatus: input.status,
+          rejectionReason:
+            input.status === 'rejected' ? input.rejectionReason : null,
+          createdAt: updated.updatedAt,
+        },
+      });
+
+      return mapPrismaInvoiceApplication(updated);
     });
-    if (!updated) {
-      throw new BusinessError(
-        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
-        '发票申请不存在',
-      );
-    }
-    return mapPrismaInvoiceApplication(updated);
   }
 }
 
@@ -698,6 +782,7 @@ function mapPrismaInvoiceApplication(
 
 function listAdminShipperInvoiceReviewEventsFromApplication(
   application: ShipperInvoiceApplicationRecord,
+  reviewDecisions: ShipperInvoiceReviewDecisionRecord[] = [],
 ): AdminShipperInvoiceReviewEvent[] {
   const events: AdminShipperInvoiceReviewEvent[] = [
     {
@@ -710,7 +795,10 @@ function listAdminShipperInvoiceReviewEventsFromApplication(
     },
   ];
 
-  if (application.status === 'approved' || application.status === 'rejected') {
+  if (
+    (application.status === 'approved' || application.status === 'rejected') &&
+    reviewDecisions.length === 0
+  ) {
     events.push({
       eventId: `${application.id}:${application.status}`,
       eventType:
@@ -718,10 +806,15 @@ function listAdminShipperInvoiceReviewEventsFromApplication(
           ? 'invoice_application_approved'
           : 'invoice_application_rejected',
       stage: application.status,
-      noteText: createInvoiceApplicationReviewNote(application),
+      noteText: createInvoiceReviewNote(
+        application.status,
+        application.rejectionReason,
+      ),
       createdAtIso: application.updatedAtIso,
     });
   }
+
+  events.push(...reviewDecisions.map(mapInvoiceReviewDecisionToAdminEvent));
 
   return events.sort((left, right) =>
     right.createdAtIso.localeCompare(left.createdAtIso),
@@ -734,14 +827,53 @@ function createInvoiceApplicationSubmittedNote(
   return `申请开票 ${formatInvoiceAmount(application.amountCents)}，订单 ${application.orderNos.join('、') || '无'}`;
 }
 
-function createInvoiceApplicationReviewNote(
-  application: ShipperInvoiceApplicationRecord,
+function mapInvoiceReviewDecisionToAdminEvent(
+  event: ShipperInvoiceReviewDecisionRecord,
+): AdminShipperInvoiceReviewEvent {
+  return {
+    eventId: event.id,
+    actorUserId: event.reviewerAdminId,
+    reviewerAdminId: event.reviewerAdminId,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    eventType:
+      event.toStatus === 'approved'
+        ? 'invoice_application_approved'
+        : 'invoice_application_rejected',
+    stage: event.toStatus,
+    noteText: createInvoiceReviewNote(event.toStatus, event.rejectionReason),
+    createdAtIso: event.createdAtIso,
+  };
+}
+
+function mapPrismaInvoiceReviewDecision(
+  event: PrismaShipperInvoiceReviewEventRecord,
+): ShipperInvoiceReviewDecisionRecord {
+  return {
+    id: event.id,
+    applicationId: event.applicationId,
+    reviewerAdminId: event.reviewerAdminId,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    ...(event.rejectionReason
+      ? { rejectionReason: event.rejectionReason }
+      : {}),
+    createdAtIso: event.createdAt.toISOString(),
+  };
+}
+
+function createInvoiceReviewNote(
+  status: Extract<
+    ShipperInvoiceApplicationRecord['status'],
+    'approved' | 'rejected'
+  >,
+  rejectionReason?: string,
 ) {
-  if (application.status === 'approved') {
+  if (status === 'approved') {
     return '管理员已通过发票申请';
   }
 
-  return application.rejectionReason || '管理员已驳回发票申请';
+  return rejectionReason || '管理员已驳回发票申请';
 }
 
 function formatInvoiceAmount(amountCents: number) {

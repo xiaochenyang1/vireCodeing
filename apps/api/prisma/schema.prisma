@@ -143,6 +143,7 @@ model User {
   shipperVerificationReviewEvents ShipperVerificationReviewEvent[] @relation("ShipperVerificationReviewEvents")
   shipperVerificationReviewerEvents ShipperVerificationReviewEvent[] @relation("ShipperVerificationReviewerEvents")
   shipperInvoiceApplications  ShipperInvoiceApplication[]
+  shipperInvoiceReviewerEvents ShipperInvoiceReviewEvent[] @relation("ShipperInvoiceReviewerEvents")
   driverIdentityCertification DriverIdentityCertification? @relation("DriverIdentityCertification")
   driverVehicleCertification  DriverVehicleCertification?  @relation("DriverVehicleCertification")
   driverAcceptanceSettings    DriverAcceptanceSettings?
@@ -656,8 +657,24 @@ model ShipperInvoiceApplication {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   shipper          User                @relation(fields: [shipperId], references: [id])
+  reviewEvents     ShipperInvoiceReviewEvent[] @relation("ShipperInvoiceReviewEvents")
 
   @@index([shipperId, createdAt], name: "ShipperInvoiceApplication_shipper_created_idx")
+}
+
+model ShipperInvoiceReviewEvent {
+  id              String                    @id @default(uuid())
+  applicationId   String
+  reviewerAdminId String
+  fromStatus      CertificationStatus
+  toStatus        CertificationStatus
+  rejectionReason String?
+  createdAt       DateTime                  @default(now())
+  application     ShipperInvoiceApplication @relation("ShipperInvoiceReviewEvents", fields: [applicationId], references: [id])
+  reviewerAdmin   User                      @relation("ShipperInvoiceReviewerEvents", fields: [reviewerAdminId], references: [id])
+
+  @@index([applicationId, createdAt], name: "ShipperInvoiceReviewEvent_application_created_idx")
+  @@index([reviewerAdminId, createdAt], name: "ShipperInvoiceReviewEvent_reviewer_created_idx")
 }
 
 model DriverIdentityCertification {

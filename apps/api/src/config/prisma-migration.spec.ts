@@ -189,6 +189,28 @@ describe('Prisma initial migration', () => {
     );
   });
 
+  it('contains shipper invoice review audit events', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TABLE "ShipperInvoiceReviewEvent"');
+    expect(sql).toContain('"applicationId" TEXT NOT NULL');
+    expect(sql).toContain('"reviewerAdminId" TEXT NOT NULL');
+    expect(sql).toContain('"fromStatus" "CertificationStatus" NOT NULL');
+    expect(sql).toContain('"toStatus" "CertificationStatus" NOT NULL');
+    expect(sql).toContain(
+      'CREATE INDEX "ShipperInvoiceReviewEvent_application_created_idx"',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX "ShipperInvoiceReviewEvent_reviewer_created_idx"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperInvoiceReviewEvent_applicationId_fkey"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperInvoiceReviewEvent_reviewerAdminId_fkey"',
+    );
+  });
+
   it('contains the evaluation file purpose migration', () => {
     const sql = readAllMigrations();
 

@@ -235,6 +235,12 @@ export type PlatformAdminShipperInvoiceReviewEventStage =
 export type PlatformAdminShipperInvoiceReviewEvent = {
   eventId: string;
   actorUserId?: string;
+  reviewerAdminId?: string;
+  fromStatus?: PlatformProfileVerificationStatus;
+  toStatus?: Extract<
+    PlatformProfileVerificationStatus,
+    'approved' | 'rejected'
+  >;
   eventType: PlatformAdminShipperInvoiceReviewEventType;
   stage: PlatformAdminShipperInvoiceReviewEventStage;
   noteText?: string;

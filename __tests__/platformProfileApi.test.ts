@@ -1811,12 +1811,15 @@ describe('platform profile api', () => {
           message: 'success',
           data: [
             {
-              eventId: 'invoice-platform-1:submitted',
-              actorUserId: 'shipper-1',
-              eventType: 'invoice_application_submitted',
-              stage: 'submitted',
-              noteText: '申请开票 ¥1110.00，订单 HY202607090001',
-              createdAtIso: '2026-07-09T08:00:00.000Z',
+              eventId: 'invoice-review-event-1',
+              actorUserId: 'admin-1',
+              reviewerAdminId: 'admin-1',
+              fromStatus: 'reviewing',
+              toStatus: 'approved',
+              eventType: 'invoice_application_approved',
+              stage: 'approved',
+              noteText: '管理员已通过发票申请',
+              createdAtIso: '2026-07-09T08:15:00.000Z',
             },
           ],
           requestId: 'req-admin-invoice-review-events',
@@ -1862,8 +1865,11 @@ describe('platform profile api', () => {
       api.listAdminInvoiceApplicationReviewEvents(' invoice-platform-1 '),
     ).resolves.toEqual([
       expect.objectContaining({
-        actorUserId: 'shipper-1',
-        stage: 'submitted',
+        actorUserId: 'admin-1',
+        reviewerAdminId: 'admin-1',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+        stage: 'approved',
       }),
     ]);
 

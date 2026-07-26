@@ -1500,10 +1500,50 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/shipper-invoices/{applicationId}/review-events:
+    get:
+      summary: List shipper invoice review audit events
+      description: Lists the synthetic submission snapshot and persisted review decisions newest first. Persisted decisions include the authenticated reviewer admin id; legacy projected decisions may omit it because historical actors cannot be reconstructed safely.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: invoice-application-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Shipper invoice submission and review audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperInvoiceReviewEventResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Invoice application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: INVOICE_APPLICATION_NOT_FOUND
+                message: 发票申请不存在
+                requestId: req_local
+                timestamp: '2026-07-26T08:00:00.000Z'
   /admin/shipper-invoices/{applicationId}/review:
     post:
       summary: Review a shipper invoice application
-      description: Approves or rejects a reviewing shipper invoice application.
+      description: Atomically approves or rejects a reviewing shipper invoice application and appends an immutable review event with the authenticated admin actor.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - name: applicationId
@@ -10268,6 +10308,55 @@ components:
           maxLength: 200
           description: Required when status is rejected. Ignored when status is approved.
           example: 抬头与企业认证不一致
+    ShipperInvoiceReviewEvent:
+      type: object
+      required: [eventId, eventType, stage, createdAtIso]
+      properties:
+        eventId:
+          type: string
+          example: shipper-invoice-review-event-1
+        actorUserId:
+          type: string
+          description: Shipper id for the synthetic submission event or reviewer admin id for a persisted decision.
+          example: admin-1
+        reviewerAdminId:
+          type: string
+          description: Authenticated admin who persisted the review decision. Omitted for the submission projection and legacy decisions whose actor is unknown.
+          example: admin-1
+        fromStatus:
+          $ref: '#/components/schemas/ShipperInvoiceApplicationStatus'
+        toStatus:
+          type: string
+          enum: [approved, rejected]
+          example: approved
+        eventType:
+          type: string
+          enum:
+            - invoice_application_submitted
+            - invoice_application_approved
+            - invoice_application_rejected
+          example: invoice_application_approved
+        stage:
+          type: string
+          enum: [submitted, approved, rejected]
+          example: approved
+        noteText:
+          type: string
+          example: 管理员已通过发票申请
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-26T08:00:00.000Z'
+    ShipperInvoiceReviewEventResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ShipperInvoiceReviewEvent'
     AdminShipperInvoiceListResult:
       type: object
       required: [items, page, pageSize, total]

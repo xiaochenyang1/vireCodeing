@@ -342,6 +342,10 @@ describe('ProfileInvoicesService', () => {
         expect.objectContaining({
           eventType: 'invoice_application_approved',
           stage: 'approved',
+          actorUserId: 'admin-1',
+          reviewerAdminId: 'admin-1',
+          fromStatus: 'reviewing',
+          toStatus: 'approved',
           noteText: '管理员已通过发票申请',
         }),
         expect.objectContaining({
@@ -351,6 +355,42 @@ describe('ProfileInvoicesService', () => {
         }),
       ]),
     );
+  });
+
+  it('keeps a reviewer-less fallback for legacy terminal applications', async () => {
+    const repository = new InMemoryProfileInvoicesRepository(() => new Date(), {
+      applications: [
+        {
+          id: 'invoice-legacy',
+          shipperId: 'shipper-1',
+          invoiceType: 'normal',
+          invoiceTitleType: 'personal',
+          invoiceTitle: '晨星货主',
+          receiverEmail: 'finance@chenxing.example',
+          orderIds: ['order-1'],
+          orderNos: ['HY202607240001'],
+          amountCents: 31000,
+          status: 'approved',
+          createdAtIso: '2026-07-24T08:00:00.000Z',
+          updatedAtIso: '2026-07-24T08:30:00.000Z',
+        },
+      ],
+    });
+    const service = new ProfileInvoicesService(repository);
+
+    const events = await service.listAdminApplicationReviewEvents(
+      { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+      'invoice-legacy',
+    );
+    const legacyDecision = events.find(event => event.stage === 'approved');
+
+    expect(legacyDecision).toMatchObject({
+      eventId: 'invoice-legacy:approved',
+      eventType: 'invoice_application_approved',
+      stage: 'approved',
+    });
+    expect(legacyDecision).not.toHaveProperty('reviewerAdminId');
+    expect(legacyDecision).not.toHaveProperty('actorUserId');
   });
 
   it('downloads an approved invoice application for the owning shipper', async () => {
@@ -579,6 +619,7 @@ describe('ProfileInvoicesService', () => {
 
   it('allows only one concurrent Prisma invoice review transition', async () => {
     const createdAt = new Date('2026-07-26T08:00:00.000Z');
+    const reviewedAt = new Date('2026-07-26T08:01:00.000Z');
     const initialApplication = {
       id: 'invoice-1',
       shipperId: 'shipper-1',
@@ -612,18 +653,28 @@ describe('ProfileInvoicesService', () => {
           currentApplication = {
             ...currentApplication,
             ...data,
-            updatedAt: new Date('2026-07-26T08:01:00.000Z'),
+            updatedAt: reviewedAt,
           };
           return { count: 1 };
         }),
       },
       shipperEnterpriseVerification: { findUnique: jest.fn() },
+      shipperInvoiceReviewEvent: {
+        findMany: jest.fn(),
+        create: jest.fn(async ({ data }) => ({
+          id: 'invoice-review-event-1',
+          ...data,
+        })),
+      },
     };
+    prisma.$transaction.mockImplementation(async callback => callback(prisma));
     const repository = new PrismaProfileInvoicesRepository(prisma);
 
     const results = await Promise.allSettled([
-      repository.reviewApplication('invoice-1', { status: 'approved' }),
-      repository.reviewApplication('invoice-1', {
+      repository.reviewApplication('invoice-1', 'admin-1', {
+        status: 'approved',
+      }),
+      repository.reviewApplication('invoice-1', 'admin-2', {
         status: 'rejected',
         rejectionReason: '抬头信息不完整',
       }),
@@ -652,6 +703,186 @@ describe('ProfileInvoicesService', () => {
       },
       data: { status: 'approved', rejectionReason: null },
     });
+    expect(prisma.shipperInvoiceReviewEvent.create).toHaveBeenCalledTimes(1);
+    expect(prisma.shipperInvoiceReviewEvent.create).toHaveBeenCalledWith({
+      data: {
+        applicationId: 'invoice-1',
+        reviewerAdminId: 'admin-1',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+        rejectionReason: null,
+        createdAt: reviewedAt,
+      },
+    });
+  });
+
+  it('rolls back the Prisma invoice status when review event persistence fails', async () => {
+    const createdAt = new Date('2026-07-26T08:00:00.000Z');
+    const reviewedAt = new Date('2026-07-26T08:01:00.000Z');
+    const initialApplication = {
+      id: 'invoice-1',
+      shipperId: 'shipper-1',
+      invoiceType: 'normal',
+      invoiceTitleType: 'personal',
+      invoiceTitle: '晨星货主',
+      receiverEmail: 'finance@chenxing.example',
+      orderIds: ['order-1'],
+      orderNos: ['HY202607260001'],
+      amountCents: 31000,
+      status: 'reviewing' as const,
+      rejectionReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    let committedApplication = { ...initialApplication };
+    const transactionEventCreate = jest.fn(async () => {
+      throw new Error('review event write failed');
+    });
+    const rootEventCreate = jest.fn(async () => {
+      throw new Error('review event write failed');
+    });
+    const prisma = {
+      $transaction: jest.fn(async callback => {
+        let pendingApplication = { ...committedApplication };
+        const transaction = {
+          $queryRawUnsafe: jest.fn(),
+          order: { findMany: jest.fn() },
+          shipperInvoiceApplication: {
+            findFirst: jest.fn(),
+            create: jest.fn(),
+            findUnique: jest.fn(async () => ({ ...pendingApplication })),
+            updateMany: jest.fn(async ({ where, data }) => {
+              if (
+                pendingApplication.id !== where.id ||
+                pendingApplication.status !== where.status ||
+                pendingApplication.updatedAt.getTime() !==
+                  where.updatedAt.getTime()
+              ) {
+                return { count: 0 };
+              }
+              pendingApplication = {
+                ...pendingApplication,
+                ...data,
+                updatedAt: reviewedAt,
+              };
+              return { count: 1 };
+            }),
+          },
+          shipperInvoiceReviewEvent: {
+            create: transactionEventCreate,
+          },
+        };
+
+        const result = await callback(transaction);
+        committedApplication = pendingApplication;
+        return result;
+      }),
+      shipperInvoiceApplication: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(async () => ({ ...committedApplication })),
+        updateMany: jest.fn(),
+      },
+      shipperEnterpriseVerification: { findUnique: jest.fn() },
+      shipperInvoiceReviewEvent: {
+        findMany: jest.fn(),
+        create: rootEventCreate,
+      },
+    };
+    const repository = new PrismaProfileInvoicesRepository(prisma);
+
+    await expect(
+      repository.reviewApplication('invoice-1', 'admin-1', {
+        status: 'approved',
+      }),
+    ).rejects.toThrow('review event write failed');
+
+    expect(committedApplication).toEqual(initialApplication);
+    expect(transactionEventCreate).toHaveBeenCalledTimes(1);
+    expect(rootEventCreate).not.toHaveBeenCalled();
+  });
+
+  it('reads the application before persisted decisions with their real admin actors', async () => {
+    const createdAt = new Date('2026-07-26T08:00:00.000Z');
+    const reviewedAt = new Date('2026-07-26T08:01:00.000Z');
+    const application = {
+      id: 'invoice-1',
+      shipperId: 'shipper-1',
+      invoiceType: 'normal',
+      invoiceTitleType: 'personal',
+      invoiceTitle: '晨星货主',
+      receiverEmail: 'finance@chenxing.example',
+      orderIds: ['order-1'],
+      orderNos: ['HY202607260001'],
+      amountCents: 31000,
+      status: 'rejected' as const,
+      rejectionReason: '抬头信息不完整',
+      createdAt,
+      updatedAt: reviewedAt,
+    };
+    let applicationReadCompleted = false;
+    const findUnique = jest.fn(async () => {
+      await Promise.resolve();
+      applicationReadCompleted = true;
+      return application;
+    });
+    const findMany = jest.fn(async () => {
+      expect(applicationReadCompleted).toBe(true);
+      return [
+        {
+          id: 'invoice-review-event-1',
+          applicationId: 'invoice-1',
+          reviewerAdminId: 'admin-2',
+          fromStatus: 'reviewing' as const,
+          toStatus: 'rejected' as const,
+          rejectionReason: '抬头信息不完整',
+          createdAt: reviewedAt,
+        },
+      ];
+    });
+    const repository = new PrismaProfileInvoicesRepository({
+      $transaction: jest.fn(),
+      shipperInvoiceApplication: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique,
+        updateMany: jest.fn(),
+      },
+      shipperEnterpriseVerification: { findUnique: jest.fn() },
+      shipperInvoiceReviewEvent: {
+        findMany,
+      },
+    });
+
+    const events = await repository.listAdminApplicationReviewEvents(
+      'invoice-1',
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        eventId: 'invoice-review-event-1',
+        actorUserId: 'admin-2',
+        reviewerAdminId: 'admin-2',
+        fromStatus: 'reviewing',
+        toStatus: 'rejected',
+        stage: 'rejected',
+        noteText: '抬头信息不完整',
+      }),
+      expect.objectContaining({
+        eventId: 'invoice-1:submitted',
+        actorUserId: 'shipper-1',
+        stage: 'submitted',
+      }),
+    ]);
+    expect(events).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventId: 'invoice-1:rejected' }),
+      ]),
+    );
+    expect(findMany).toHaveBeenCalledWith({
+      where: { applicationId: 'invoice-1' },
+      orderBy: { createdAt: 'desc' },
+    });
   });
 
   it('locks selected order rows before checking Prisma eligibility and occupancy', async () => {
@@ -673,6 +904,7 @@ describe('ProfileInvoicesService', () => {
         ]),
       },
       shipperInvoiceApplication: {
+        findUnique: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
           id: 'invoice-1',
@@ -689,7 +921,9 @@ describe('ProfileInvoicesService', () => {
           createdAt,
           updatedAt: createdAt,
         }),
+        updateMany: jest.fn(),
       },
+      shipperInvoiceReviewEvent: { create: jest.fn() },
     };
     const prisma = {
       $transaction: jest.fn(async callback => callback(transaction)),
@@ -700,6 +934,7 @@ describe('ProfileInvoicesService', () => {
         updateMany: jest.fn(),
       },
       shipperEnterpriseVerification: { findUnique: jest.fn() },
+      shipperInvoiceReviewEvent: { findMany: jest.fn() },
     };
     const repository = new PrismaProfileInvoicesRepository(prisma);
     const input = {

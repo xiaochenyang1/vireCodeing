@@ -38,7 +38,7 @@ export class ProfileInvoicesService {
     input: ReviewShipperInvoiceApplicationRequest,
   ) {
     this.assertAdmin(currentUser);
-    return this.repository.reviewApplication(applicationId, input);
+    return this.repository.reviewApplication(applicationId, currentUser.id, input);
   }
 
   async listAdminApplicationReviewEvents(

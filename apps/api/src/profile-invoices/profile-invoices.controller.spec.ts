@@ -135,7 +135,11 @@ describe('AdminShipperInvoicesController', () => {
     const service = {
       listAdminApplicationReviewEvents: jest.fn().mockResolvedValue([
         {
-          eventId: 'invoice-application-1:approved',
+          eventId: 'invoice-review-event-1',
+          actorUserId: 'admin-1',
+          reviewerAdminId: 'admin-1',
+          fromStatus: 'reviewing',
+          toStatus: 'approved',
           eventType: 'invoice_application_approved',
           stage: 'approved',
           noteText: '管理员已通过发票申请',
@@ -165,6 +169,9 @@ describe('AdminShipperInvoicesController', () => {
           expect.objectContaining({
             eventType: 'invoice_application_approved',
             stage: 'approved',
+            reviewerAdminId: 'admin-1',
+            fromStatus: 'reviewing',
+            toStatus: 'approved',
           }),
         ]),
         requestId: 'req_profile_invoices_test',

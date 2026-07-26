@@ -398,6 +398,9 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain('loadReviewEvents');
     expect(html).toContain('formatReviewEventStage');
     expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain(
+      "event.reviewerAdminId || event.actorUserId || '系统'",
+    );
     expect(html).toContain('暂无审核事件');
     expect(html).not.toContain('hero');
   });
