@@ -128,6 +128,17 @@ export function renderEvaluationAuditAdminConsole() {
       return rating + ' 星';
     }
 
+    function clearAuditAttachmentPanel() {
+      document.getElementById('auditPhotoNotice').textContent = '';
+      document.getElementById('auditPhotoList').innerHTML = '';
+      document.getElementById('auditPhotoPanel').hidden = true;
+    }
+
+    function invalidateAuditAttachments() {
+      latestAuditAttachmentRequestId += 1;
+      clearAuditAttachmentPanel();
+    }
+
     function readEvaluationAuditRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -231,9 +242,7 @@ export function renderEvaluationAuditAdminConsole() {
           syncEvaluationAuditRouteState(currentPage, pageSize, '');
           document.getElementById('auditDetail').innerHTML = '<p class="muted">当前筛选条件下暂无评价记录</p>';
           document.getElementById('auditTags').innerHTML = '';
-          document.getElementById('auditPhotoNotice').textContent = '';
-          document.getElementById('auditPhotoList').innerHTML = '';
-          document.getElementById('auditPhotoPanel').hidden = true;
+          invalidateAuditAttachments();
         }
       } catch (error) {
         if (requestId !== latestAuditRequestId) return;
@@ -258,9 +267,7 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditNextPage').disabled = true;
       document.getElementById('auditDetail').innerHTML = '<p class="muted">暂无可展示的评价详情</p>';
       document.getElementById('auditTags').innerHTML = '';
-      document.getElementById('auditPhotoNotice').textContent = '';
-      document.getElementById('auditPhotoList').innerHTML = '';
-      document.getElementById('auditPhotoPanel').hidden = true;
+      invalidateAuditAttachments();
     }
 
     function renderAuditPagination(pageSizeValue) {
@@ -293,7 +300,10 @@ export function renderEvaluationAuditAdminConsole() {
       );
       renderAuditList();
       const item = currentItems.find(candidate => candidate.id === auditId);
-      if (!item) return;
+      if (!item) {
+        invalidateAuditAttachments();
+        return;
+      }
       document.getElementById('auditDetail').innerHTML =
         '<div class="detail-grid">' +
           '<div class="detail-card"><strong>订单</strong><div>' + escapeHtml(item.orderNo) + '</div><div class="muted">' + escapeHtml(item.orderId) + '</div></div>' +
@@ -307,21 +317,19 @@ export function renderEvaluationAuditAdminConsole() {
     }
 
     async function loadAuditAttachments(item) {
+      const requestId = ++latestAuditAttachmentRequestId;
       const photoFileIds = Array.isArray(item.photoFileIds) ? item.photoFileIds : [];
       const panel = document.getElementById('auditPhotoPanel');
       const notice = document.getElementById('auditPhotoNotice');
       const list = document.getElementById('auditPhotoList');
       if (item.photoCount === 0 && photoFileIds.length === 0) {
-        notice.textContent = '';
-        list.innerHTML = '';
-        panel.hidden = true;
+        clearAuditAttachmentPanel();
         return;
       }
 
       panel.hidden = false;
       notice.textContent = '图片附件加载中...';
       list.innerHTML = '';
-      const requestId = ++latestAuditAttachmentRequestId;
 
       try {
         const preview = await api('/admin/evaluations/' + encodeURIComponent(item.id) + '/attachments');

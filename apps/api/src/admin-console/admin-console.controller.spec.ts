@@ -124,6 +124,27 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain('clearAuditResults()');
   });
 
+  it('invalidates pending attachment requests when the evaluation context clears', () => {
+    const html = renderEvaluationAuditAdminConsole();
+    const attachmentLoaderStart = html.indexOf(
+      'async function loadAuditAttachments(item)',
+    );
+    const requestIdIndex = html.indexOf(
+      'const requestId = ++latestAuditAttachmentRequestId',
+      attachmentLoaderStart,
+    );
+    const emptyAttachmentIndex = html.indexOf(
+      'if (item.photoCount === 0 && photoFileIds.length === 0)',
+      attachmentLoaderStart,
+    );
+
+    expect(html).toContain('function invalidateAuditAttachments()');
+    expect(html).toContain('latestAuditAttachmentRequestId += 1');
+    expect(html).toContain('clearAuditAttachmentPanel()');
+    expect(requestIdIndex).toBeGreaterThan(attachmentLoaderStart);
+    expect(requestIdIndex).toBeLessThan(emptyAttachmentIndex);
+  });
+
   it('syncs evaluation filters and selected audit detail into route state', () => {
     const html = renderEvaluationAuditAdminConsole();
 
