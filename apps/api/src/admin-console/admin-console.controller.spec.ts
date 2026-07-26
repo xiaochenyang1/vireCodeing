@@ -690,6 +690,7 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('/assign');
     expect(html).toContain('/unclaim');
     expect(html).toContain('sweepOverdueExceptionCases');
+    expect(html).toContain('recoverCaseFromConflict');
     expect(html).toContain('claimCase');
     expect(html).toContain('caseClaimButton');
     expect(html).toContain('takeoverCase');
@@ -713,6 +714,7 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('loadMyCases()');
     expect(html).toContain('currentAdminUserId');
     expect(html).toContain('我的认领单');
+    expect(html).toContain('工单已被其他管理员更新，正在刷新最新状态。');
     expect(html).toContain('最近更新：');
     expect(html).toContain("item.updatedAtIso || item.createdAtIso || '-'");
     expect(html).toContain('创建时间：');
@@ -1124,6 +1126,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('supportTicketActionContent');
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
     expect(html).toContain('claimSupportTicket');
+    expect(html).toContain('recoverSupportTicketFromConflict');
     expect(html).toContain('claimSupportTicketButton');
     expect(html).toContain('takeoverSupportTicket');
     expect(html).toContain('takeoverSupportTicketButton');
@@ -1141,6 +1144,8 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('转派给客服');
     expect(html).toContain('强制接管');
     expect(html).toContain('我的认领单');
+    expect(html).toContain('SUPPORT_TICKET_CONFLICT');
+    expect(html).toContain('工单已被其他管理员更新，正在刷新最新状态。');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');
     expect(html).toContain("query.get('claimStatus')");

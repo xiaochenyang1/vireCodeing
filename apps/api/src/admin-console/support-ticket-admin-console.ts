@@ -401,7 +401,7 @@ export function renderSupportTicketAdminConsole() {
 
       list.innerHTML = items.map(ticket => {
         const activeClass = ticket.id === selectedTicketId ? ' active' : '';
-        return '<div class="ticket-row' + activeClass + '" onclick="loadSupportTicketDetail(\\'' + encodeURIComponent(ticket.id) + '\\')">' +
+        return '<div class="ticket-row' + activeClass + '" data-ticket-id="' + escapeHtml(ticket.id) + '" onclick="loadSupportTicketDetail(\\'' + encodeURIComponent(ticket.id) + '\\')">' +
           '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
             '<div>' +
               '<strong>' + escapeHtml(ticket.channelName) + '</strong>' +
@@ -519,11 +519,31 @@ export function renderSupportTicketAdminConsole() {
     }
 
     function renderSupportTicketListFromSelection() {
-      const list = document.getElementById('supportTicketList');
-      if (!list.innerHTML) {
-        return;
+      Array.from(document.querySelectorAll('.ticket-row[data-ticket-id]')).forEach(function(row) {
+        if (!(row instanceof HTMLElement)) {
+          return;
+        }
+
+        row.classList.toggle(
+          'active',
+          typeof row.dataset.ticketId === 'string' &&
+            row.dataset.ticketId === selectedTicketId,
+        );
+      });
+    }
+
+    async function recoverSupportTicketFromConflict() {
+      const refreshTasks = [loadSupportTickets(currentPage)];
+
+      if (selectedTicketId) {
+        refreshTasks.push(
+          loadSupportTicketDetail(encodeURIComponent(selectedTicketId)),
+        );
       }
-      loadSupportTickets(currentPage);
+
+      await Promise.all(refreshTasks);
+      document.getElementById('supportTicketMutationNotice').textContent =
+        '工单已被其他管理员更新，正在刷新最新状态。';
     }
 
     async function mutateSupportTicket(action) {
@@ -571,10 +591,14 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
-        document.getElementById('supportTicketMutationNotice').textContent =
-          error.message || '更新工单失败';
-        if (selectedTicketId) {
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        if (error.code === 'SUPPORT_TICKET_CONFLICT') {
+          await recoverSupportTicketFromConflict();
+        } else {
+          document.getElementById('supportTicketMutationNotice').textContent =
+            error.message || '更新工单失败';
+          if (selectedTicketId) {
+            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+          }
         }
       } finally {
         mutationPending = false;
@@ -621,10 +645,14 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
-        document.getElementById('supportTicketMutationNotice').textContent =
-          error.message || '认领工单失败';
-        if (selectedTicketId) {
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        if (error.code === 'SUPPORT_TICKET_CONFLICT') {
+          await recoverSupportTicketFromConflict();
+        } else {
+          document.getElementById('supportTicketMutationNotice').textContent =
+            error.message || '认领工单失败';
+          if (selectedTicketId) {
+            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+          }
         }
       } finally {
         mutationPending = false;
@@ -672,10 +700,14 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
-        document.getElementById('supportTicketMutationNotice').textContent =
-          error.message || '强制接管工单失败';
-        if (selectedTicketId) {
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        if (error.code === 'SUPPORT_TICKET_CONFLICT') {
+          await recoverSupportTicketFromConflict();
+        } else {
+          document.getElementById('supportTicketMutationNotice').textContent =
+            error.message || '强制接管工单失败';
+          if (selectedTicketId) {
+            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+          }
         }
       } finally {
         mutationPending = false;
@@ -737,10 +769,14 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketAssignTargetAdminUserIdInput').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
-        document.getElementById('supportTicketMutationNotice').textContent =
-          error.message || '指派工单失败';
-        if (selectedTicketId) {
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        if (error.code === 'SUPPORT_TICKET_CONFLICT') {
+          await recoverSupportTicketFromConflict();
+        } else {
+          document.getElementById('supportTicketMutationNotice').textContent =
+            error.message || '指派工单失败';
+          if (selectedTicketId) {
+            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+          }
         }
       } finally {
         mutationPending = false;
@@ -788,10 +824,14 @@ export function renderSupportTicketAdminConsole() {
         document.getElementById('supportTicketActionContent').value = '';
         loadSupportTickets(currentPage);
       } catch (error) {
-        document.getElementById('supportTicketMutationNotice').textContent =
-          error.message || '释放认领失败';
-        if (selectedTicketId) {
-          loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+        if (error.code === 'SUPPORT_TICKET_CONFLICT') {
+          await recoverSupportTicketFromConflict();
+        } else {
+          document.getElementById('supportTicketMutationNotice').textContent =
+            error.message || '释放认领失败';
+          if (selectedTicketId) {
+            loadSupportTicketDetail(encodeURIComponent(selectedTicketId));
+          }
         }
       } finally {
         mutationPending = false;

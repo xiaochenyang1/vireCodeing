@@ -519,6 +519,18 @@ export function renderOrderExceptionCaseAdminConsole() {
       loadCases(1);
     }
 
+    async function recoverCaseFromConflict() {
+      const refreshTasks = [loadCases(currentPage)];
+
+      if (selectedCaseId) {
+        refreshTasks.push(loadCase(selectedCaseId));
+      }
+
+      await Promise.all(refreshTasks);
+      document.getElementById('caseMutationNotice').textContent =
+        '工单已被其他管理员更新，正在刷新最新状态。';
+    }
+
     async function sweepOverdueExceptionCases() {
       if (caseSweepPending) return;
 
@@ -616,8 +628,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
@@ -653,8 +664,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
@@ -690,8 +700,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
@@ -727,8 +736,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
@@ -778,8 +786,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
@@ -815,8 +822,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         await loadCases(currentPage);
       } catch (error) {
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
-          await loadCase(selectedCaseId);
+          await recoverCaseFromConflict();
         } else if (error.code === 'EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED') {
           document.getElementById('caseMutationNotice').textContent = '该工单赔付已执行，不能重复赔付。';
           await loadCase(selectedCaseId);
