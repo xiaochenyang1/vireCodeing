@@ -343,6 +343,25 @@ describe('order change request admin console page', () => {
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
   });
+
+  it('invalidates order change queue and audit requests before the missing-token return', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const queueStart = html.indexOf('async function loadQueue()');
+    const queueRequestIndex = html.indexOf(
+      'const requestId = ++latestQueueRequestId',
+      queueStart,
+    );
+    const auditInvalidationIndex = html.indexOf(
+      'latestReviewEventsRequestId += 1',
+      queueStart,
+    );
+    const missingTokenIndex = html.indexOf('if (!getToken())', queueStart);
+
+    expect(queueRequestIndex).toBeGreaterThan(queueStart);
+    expect(queueRequestIndex).toBeLessThan(missingTokenIndex);
+    expect(auditInvalidationIndex).toBeGreaterThan(queueStart);
+    expect(auditInvalidationIndex).toBeLessThan(missingTokenIndex);
+  });
 });
 
 describe('shipper invoice admin console page', () => {
