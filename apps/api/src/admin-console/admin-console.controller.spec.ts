@@ -619,6 +619,17 @@ describe('support ticket admin console page', () => {
 
   it('ignores stale support ticket requests and syncs route state', () => {
     const html = renderSupportTicketAdminConsole();
+    const clearSelectionStart = html.indexOf(
+      'function clearSupportTicketSelection(options = {})',
+    );
+    const clearSelectionEnd = html.indexOf(
+      'function readSupportTicketRouteState()',
+      clearSelectionStart,
+    );
+    const clearSelectionBody = html.slice(
+      clearSelectionStart,
+      clearSelectionEnd,
+    );
 
     expect(html).toContain('let latestSupportTicketRequestId = 0');
     expect(html).toContain('let latestSupportTicketDetailRequestId = 0');
@@ -635,7 +646,13 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('pendingRouteTicketId');
     expect(html).toContain('pendingRouteTicketId = supportTicketRouteState.ticketId');
     expect(html).toContain('await loadSupportTicketDetail(');
-    expect(html).toContain('clearSupportTicketSelection(options = {})');
+    expect(clearSelectionStart).toBeGreaterThan(-1);
+    expect(clearSelectionEnd).toBeGreaterThan(clearSelectionStart);
+    expect(clearSelectionBody).toContain(
+      'latestSupportTicketDetailRequestId += 1;',
+    );
+    expect(clearSelectionBody.indexOf('latestSupportTicketDetailRequestId += 1;'))
+      .toBeLessThan(clearSelectionBody.indexOf("selectedTicketId = '';"));
   });
 
   it('keeps support ticket mutation responses bound to their starting selection', () => {

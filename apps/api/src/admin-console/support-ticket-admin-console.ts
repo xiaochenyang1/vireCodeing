@@ -175,6 +175,7 @@ export function renderSupportTicketAdminConsole() {
     }
 
     function clearSupportTicketSelection(options = {}) {
+      latestSupportTicketDetailRequestId += 1;
       selectedTicketId = '';
       selectedTicketStatus = '';
       selectedTicketClaimedByAdminUserId = '';
