@@ -435,6 +435,7 @@ export function renderAccountManagementAdminConsole() {
     let currentAccountItems = [];
     let currentAccountDetail = null;
     let currentAccountReport = null;
+    let pendingAccountDetailUserId = '';
     const selectedAccountIds = new Set();
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/account-management-console',
@@ -614,6 +615,85 @@ export function renderAccountManagementAdminConsole() {
 
     function buildAccountExportQuery() {
       return buildAccountFilterQuery();
+    }
+
+    function currentAccountDetailUserId() {
+      return currentAccountDetail && currentAccountDetail.account
+        ? currentAccountDetail.account.userId
+        : '';
+    }
+
+    function readAccountManagementRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        userType: query.get('userType') || '',
+        status: query.get('status') || '',
+        keyword: query.get('keyword') || '',
+        riskOnly: query.get('riskOnly') || '',
+        riskTag: query.get('riskTag') || '',
+        riskLevel: query.get('riskLevel') || '',
+        userId: query.get('userId') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
+      };
+    }
+
+    function applyAccountManagementRouteState() {
+      const routeState = readAccountManagementRouteState();
+      document.getElementById('accountUserTypeInput').value = routeState.userType;
+      document.getElementById('accountStatusInput').value = routeState.status;
+      document.getElementById('accountKeywordInput').value = routeState.keyword;
+      document.getElementById('accountRiskOnlyInput').value =
+        routeState.riskOnly === 'true' ? 'true' : 'false';
+      document.getElementById('accountRiskTagInput').value = routeState.riskTag;
+      document.getElementById('accountRiskLevelInput').value = routeState.riskLevel;
+      if (routeState.page) {
+        currentAccountPage = Math.max(1, Number.parseInt(routeState.page, 10) || 1);
+      }
+      if (routeState.pageSize) {
+        document.getElementById('accountPageSizeInput').value = String(
+          Math.min(50, Math.max(1, Number.parseInt(routeState.pageSize, 10) || 20)),
+        );
+      }
+      pendingAccountDetailUserId = routeState.userId.trim();
+      return routeState;
+    }
+
+    function syncAccountManagementRouteState(pageOverride, userIdOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = buildAccountFilterQuery();
+      const page = Math.max(1, Number.parseInt(String(pageOverride || currentAccountPage || 1), 10) || 1);
+      const pageSize = Math.min(
+        50,
+        Math.max(
+          1,
+          Number.parseInt(String(document.getElementById('accountPageSizeInput').value || '20'), 10) || 20,
+        ),
+      );
+      const userId = String(
+        typeof userIdOverride === 'string'
+          ? userIdOverride
+          : currentAccountDetailUserId() || pendingAccountDetailUserId || '',
+      ).trim();
+      if (userId) {
+        query.set('userId', userId);
+      }
+      if (page > 1) {
+        query.set('page', String(page));
+      }
+      if (pageSize !== 20) {
+        query.set('pageSize', String(pageSize));
+      }
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
     }
 
     function selectedAccountUserIds() {
@@ -1295,6 +1375,7 @@ export function renderAccountManagementAdminConsole() {
       const requestedPage = Math.max(1, page || 1);
       document.getElementById('accountPaginationStatus').textContent = '正在拉账号目录...';
       try {
+        syncAccountManagementRouteState(requestedPage);
         const query = buildAccountQuery(requestedPage);
         const data = await api('/admin/auth/accounts?' + query.toString());
         if (requestId !== latestAccountRequestId) return;
@@ -1308,7 +1389,37 @@ export function renderAccountManagementAdminConsole() {
           data.pageSize || accountPageSizeValue(),
           currentAccountTotal,
         );
+        syncAccountManagementRouteState(currentAccountPage);
         updateAccountBulkSelectionUi();
+
+        if (
+          pendingAccountDetailUserId &&
+          currentAccountItems.some(function(account) {
+            return account.userId === pendingAccountDetailUserId;
+          })
+        ) {
+          const nextUserId = pendingAccountDetailUserId;
+          pendingAccountDetailUserId = '';
+          await loadAdminAuthAccountDetail(nextUserId);
+          return;
+        }
+
+        const detailUserId = currentAccountDetailUserId();
+        if (
+          detailUserId &&
+          currentAccountItems.some(function(account) {
+            return account.userId === detailUserId;
+          })
+        ) {
+          renderAccountListFromCurrentPage();
+          return;
+        }
+
+        if (detailUserId || pendingAccountDetailUserId) {
+          pendingAccountDetailUserId = '';
+          resetAccountDetail();
+          syncAccountManagementRouteState(currentAccountPage, '');
+        }
       } catch (error) {
         if (requestId !== latestAccountRequestId) return;
         document.getElementById('accountNotice').textContent = error.message;
@@ -1325,6 +1436,8 @@ export function renderAccountManagementAdminConsole() {
 
     async function loadAdminAuthAccountDetail(userId) {
       const requestId = ++latestAccountDetailRequestId;
+      pendingAccountDetailUserId = '';
+      syncAccountManagementRouteState(currentAccountPage, userId);
       document.getElementById('accountDetailNotice').textContent = '';
       document.getElementById('accountDetailStatus').textContent = '正在拉账号详情...';
       try {
@@ -1336,6 +1449,7 @@ export function renderAccountManagementAdminConsole() {
         if (requestId !== latestAccountDetailRequestId) return;
         document.getElementById('accountDetailNotice').textContent = error.message;
         resetAccountDetail();
+        syncAccountManagementRouteState(currentAccountPage, '');
       }
     }
 
@@ -1426,9 +1540,10 @@ export function renderAccountManagementAdminConsole() {
     resetAccountReport('当前还没拉账号报表，先别在脑子里编趋势图。');
     resetAccountDetail();
     updateAccountBulkSelectionUi();
+    applyAccountManagementRouteState();
     const storedSession = initializeAdminSession();
     if (storedSession && storedSession.accessToken) {
-      refreshAccountWorkspace();
+      refreshAccountWorkspace(currentAccountPage);
     }
   </script>
 </body>

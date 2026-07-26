@@ -522,6 +522,20 @@ describe('account management admin console page', () => {
     expect(html).toContain('风险账号');
     expect(html).toContain('不能禁用当前管理员账号');
   });
+
+  it('syncs account filters, pagination and selected account detail into route state', () => {
+    const html = renderAccountManagementAdminConsole();
+
+    expect(html).toContain('applyAccountManagementRouteState');
+    expect(html).toContain('syncAccountManagementRouteState');
+    expect(html).toContain("query.get('userType')");
+    expect(html).toContain("query.get('riskOnly')");
+    expect(html).toContain("query.get('userId')");
+    expect(html).toContain("query.set('userId', userId)");
+    expect(html).toContain("query.set('page', String(page))");
+    expect(html).toContain("query.set('pageSize', String(pageSize))");
+    expect(html).toContain('refreshAccountWorkspace(currentAccountPage)');
+  });
 });
 
 describe('permission matrix admin console page', () => {
