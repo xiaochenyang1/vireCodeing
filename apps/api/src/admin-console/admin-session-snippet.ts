@@ -110,9 +110,20 @@ export function renderAdminSessionScript({
     }
 
     function buildAdminLoginHref() {
-      return '/api/admin/login?redirect=' + encodeURIComponent(${JSON.stringify(
-        currentRoute,
-      )});
+      const hasAdminRuntimePath =
+        globalThis.location &&
+        typeof globalThis.location.pathname === 'string' &&
+        globalThis.location.pathname.startsWith('/api/admin/');
+      const runtimeRoute = hasAdminRuntimePath
+        ? globalThis.location.pathname +
+          (typeof globalThis.location.search === 'string'
+            ? globalThis.location.search
+            : '')
+        : ${JSON.stringify(currentRoute)};
+      return (
+        '/api/admin/login?redirect=' +
+        encodeURIComponent(runtimeRoute)
+      );
     }
 
     function initializeAdminSession() {
@@ -128,6 +139,9 @@ export function renderAdminSessionScript({
       const link = document.getElementById('${linkId}');
       if (link) {
         link.href = buildAdminLoginHref();
+        link.addEventListener('click', function() {
+          link.href = buildAdminLoginHref();
+        });
       }
       const hint = document.getElementById('${hintId}');
       if (hint) {
