@@ -680,6 +680,10 @@ describe('order exception case admin console page', () => {
   it('surfaces recent activity timestamps plus SLA and compensation filters in the list and detail view', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
+    expect(html).toContain('/admin/order-exception-cases/overdue-escalations/sweep');
+    expect(html).toContain('sweepOverdueExceptionCases');
+    expect(html).toContain('caseSweepNotice');
+    expect(html).toContain('sweepExceptionCaseOverdueButton');
     expect(html).toContain('最近更新：');
     expect(html).toContain("item.updatedAtIso || item.createdAtIso || '-'");
     expect(html).toContain('创建时间：');
@@ -700,6 +704,7 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('SLA：');
     expect(html).toContain('受理 SLA');
     expect(html).toContain('解决 SLA');
+    expect(html).toContain('可手动扫描 + 可选定时扫');
   });
 });
 
@@ -1015,8 +1020,10 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/process');
     expect(html).toContain('/resolve');
     expect(html).toContain('/close');
+    expect(html).toContain('/overdue-escalations/sweep');
     expect(html).toContain('/compensation/execute');
     expect(html).toContain('executeCompensation()');
+    expect(html).toContain('sweepOverdueExceptionCases');
     expect(html).toContain('平台已赔付到账');
     expect(html).toContain('申诉处理中');
     expect(html).toContain('baseUpdatedAtIso');

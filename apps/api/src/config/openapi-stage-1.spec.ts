@@ -1090,12 +1090,16 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/shipper/orders/{orderId}/exception-cases:');
     expect(source).toContain('/driver/orders/{orderId}/exception-cases:');
     expect(source).toContain('/admin/order-exception-cases:');
+    expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/resolve:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/close:');
+    expect(source).toContain('Run overdue exception-case escalation sweep');
     expect(source).toContain('OrderExceptionCaseRecord');
     expect(source).toContain('OrderExceptionCaseActionRecord');
+    expect(source).toContain('OrderExceptionCaseOverdueEscalationSweep');
+    expect(source).toContain('OrderExceptionCaseOverdueEscalationSweepResponse');
     expect(source).toContain('OrderExceptionCaseStatus');
     expect(source).toContain('OrderExceptionCaseCompensationStatus');
     expect(source).toContain('OrderExceptionCaseSourceRole');
@@ -1128,6 +1132,11 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases',
       'name: slaStatus',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/overdue-escalations/sweep',
+      "$ref: '#/components/schemas/OrderExceptionCaseOverdueEscalationSweepResponse'",
     );
   });
 

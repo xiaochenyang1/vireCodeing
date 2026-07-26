@@ -5685,6 +5685,28 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+  /admin/order-exception-cases/overdue-escalations/sweep:
+    post:
+      summary: Run overdue exception-case escalation sweep
+      description: >-
+        Scans open exception cases, derives acceptance and resolution SLA overdue queues, and
+        appends a system auto-escalation action once per overdue stage. This endpoint is intended
+        for admin backfill/manual execution; the optional scheduler uses the same sweep logic.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Overdue escalation sweep completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderExceptionCaseOverdueEscalationSweepResponse'
+        '403':
+          description: Current account is not an administrator
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
   /admin/order-exception-cases/{caseId}:
     get:
       summary: Get an order exception customer-service case
@@ -12962,6 +12984,52 @@ components:
           required: [data]
           properties:
             data: { $ref: '#/components/schemas/OrderExceptionCaseRecord' }
+    OrderExceptionCaseOverdueEscalationSweep:
+      type: object
+      required:
+        [trigger, triggeredAtIso, scannedCount, overdueCount, escalatedCount, skippedCount, conflictCount, escalatedCaseIds]
+      properties:
+        trigger:
+          type: string
+          enum: [admin, scheduler]
+          example: admin
+        triggeredAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-12T13:00:00.000Z'
+        scannedCount:
+          type: integer
+          minimum: 0
+          example: 12
+        overdueCount:
+          type: integer
+          minimum: 0
+          example: 4
+        escalatedCount:
+          type: integer
+          minimum: 0
+          example: 3
+        skippedCount:
+          type: integer
+          minimum: 0
+          example: 1
+        conflictCount:
+          type: integer
+          minimum: 0
+          example: 0
+        escalatedCaseIds:
+          type: array
+          items:
+            type: string
+          example: ['case-1', 'case-7']
+    OrderExceptionCaseOverdueEscalationSweepResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderExceptionCaseOverdueEscalationSweep'
     AuthenticatedUser:
       type: object
       required: [id, phone, userType]

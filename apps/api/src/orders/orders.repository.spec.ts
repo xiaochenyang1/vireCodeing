@@ -1419,6 +1419,46 @@ describe('InMemoryOrdersRepository exception cases', () => {
       items: [expect.objectContaining({ id: created.id, compensationStatus: 'pending' })],
     });
   });
+
+  it('appends exception case actions without changing status', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '异常工单待系统升级。',
+    });
+    const created = (await repository.listOrderExceptionCases(order.id)).items[0];
+
+    currentTime = new Date('2026-07-12T08:20:00.000Z');
+    await expect(
+      repository.appendOrderExceptionCaseAction(
+        created.id,
+        'system:auto-escalation:acceptance',
+        'pending',
+        {
+          baseUpdatedAtIso: created.updatedAtIso,
+          content:
+            '系统检测到异常工单 CASE202607120001 受理 SLA 已超时 5 分钟，已自动升级给值班客服跟进。',
+        },
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: created.id,
+        status: 'pending',
+        updatedAtIso: '2026-07-12T08:20:00.000Z',
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            adminUserId: 'system:auto-escalation:acceptance',
+            fromStatus: 'pending',
+            toStatus: 'pending',
+            content:
+              '系统检测到异常工单 CASE202607120001 受理 SLA 已超时 5 分钟，已自动升级给值班客服跟进。',
+          }),
+        ]),
+      }),
+    );
+  });
 });
 
 describe('PrismaOrdersRepository exception case lists', () => {
@@ -1611,6 +1651,86 @@ describe('PrismaOrdersRepository exception case lists', () => {
         eventType: 'exception_appeal_accepted',
         noteText: '异常工单申诉已受理：客服复核后改为待赔付跟进。',
       }),
+    });
+  });
+
+  it('appends exception case actions from Prisma without changing status', async () => {
+    const current = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'processing',
+      updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    const updated = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'processing',
+      updatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      actions: [
+        {
+          id: 'action-1',
+          adminUserId: 'system:auto-escalation:resolution',
+          fromStatus: 'processing',
+          toStatus: 'processing',
+          content:
+            '系统检测到异常工单 CASE202607120001 解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+          createdAt: new Date('2026-07-12T08:20:00.000Z'),
+        },
+      ],
+    });
+    const transaction = {
+      orderExceptionCaseAction: {
+        create: jest.fn().mockResolvedValue({ id: 'action-1' }),
+      },
+      orderExceptionCase: {
+        update: jest.fn().mockResolvedValue(updated),
+      },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(current),
+      },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const repository = new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:20:00.000Z'),
+    );
+
+    await expect(
+      repository.appendOrderExceptionCaseAction(
+        'case-1',
+        'system:auto-escalation:resolution',
+        'processing',
+        {
+          baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+          content:
+            '系统检测到异常工单 CASE202607120001 解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+        },
+      ),
+    ).resolves.toMatchObject({
+      id: 'case-1',
+      status: 'processing',
+      actions: [
+        expect.objectContaining({
+          adminUserId: 'system:auto-escalation:resolution',
+          fromStatus: 'processing',
+          toStatus: 'processing',
+        }),
+      ],
+      updatedAtIso: '2026-07-12T08:20:00.000Z',
+    });
+    expect(transaction.orderExceptionCaseAction.create).toHaveBeenCalledWith({
+      data: {
+        caseId: 'case-1',
+        adminUserId: 'system:auto-escalation:resolution',
+        fromStatus: 'processing',
+        toStatus: 'processing',
+        content:
+          '系统检测到异常工单 CASE202607120001 解决 SLA 已超时 30 分钟，已自动升级给值班客服继续处理。',
+        createdAt: new Date('2026-07-12T08:20:00.000Z'),
+      },
     });
   });
 });
@@ -2549,6 +2669,14 @@ function createPrismaExceptionCaseListRecord(
     closedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
+    actions: Array<{
+      id: string;
+      adminUserId: string;
+      fromStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+      toStatus: 'pending' | 'processing' | 'resolved' | 'closed';
+      content: string;
+      createdAt: Date;
+    }>;
   }> = {},
 ) {
   const orderNo = overrides.orderNo ?? 'HY202607120001';

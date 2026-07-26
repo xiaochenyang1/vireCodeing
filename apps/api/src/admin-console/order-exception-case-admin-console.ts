@@ -25,6 +25,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     button:disabled { cursor: not-allowed; opacity: .55; }
     .session-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .session-link { color: #1769aa; font-size: 13px; font-weight: 600; text-decoration: none; }
+    .inline-button { width: auto; }
     .secondary-button { width: auto; background: #fff; color: #1769aa; border: 1px solid #d8dee4; }
     .case-row { border-top: 1px solid #edf0f2; padding: 12px 0; cursor: pointer; }
     .muted { color: #667085; font-size: 13px; }
@@ -38,7 +39,7 @@ export function renderOrderExceptionCaseAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
-      <p class="muted">这页现在除了看异常工单流转、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级、坐席分配、会话联动和退款联动还没补上。</p>
+      <p class="muted">这页现在除了看异常工单流转、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -55,7 +56,11 @@ export function renderOrderExceptionCaseAdminConsole() {
         <label>订单号/工单号<input id="caseKeywordInput" /></label>
         <label>每页<input id="casePageSizeInput" type="number" value="20" min="1" max="50" /></label>
       </div>
-      <button id="loadCasesButton" onclick="loadCases(1)">查询工单</button>
+      <div class="session-row">
+        <button id="loadCasesButton" class="inline-button" onclick="loadCases(1)">查询工单</button>
+        <button id="sweepExceptionCaseOverdueButton" class="secondary-button" onclick="sweepOverdueExceptionCases()">执行超时升级扫描</button>
+      </div>
+      <div id="caseSweepNotice" class="error"></div>
       <div id="caseListNotice" class="error"></div>
       <div id="caseList"></div>
       <div class="filters"><button onclick="changePage(-1)">上一页</button><button onclick="changePage(1)">下一页</button></div>
@@ -82,6 +87,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     let selectedCaseId = '';
     let selectedCaseAppealStatus = 'none';
     let mutationPending = false;
+    let caseSweepPending = false;
     const mutationPaths = ['/process', '/resolve', '/close'];
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-exception-case-console',
@@ -416,6 +422,37 @@ export function renderOrderExceptionCaseAdminConsole() {
         renderMutationButtons(item);
       } catch (error) {
         document.getElementById('caseMutationNotice').textContent = error.message;
+      }
+    }
+
+    async function sweepOverdueExceptionCases() {
+      if (caseSweepPending) return;
+
+      caseSweepPending = true;
+      document.getElementById('caseSweepNotice').textContent = '超时升级扫描执行中...';
+      document.getElementById('sweepExceptionCaseOverdueButton').disabled = true;
+
+      try {
+        const data = await api('/admin/order-exception-cases/overdue-escalations/sweep', {
+          method: 'POST',
+        });
+        document.getElementById('caseSweepNotice').textContent =
+          '本次扫描检查 ' + String(data.scannedCount || 0) +
+          ' 条 open 工单，发现超时 ' + String(data.overdueCount || 0) +
+          ' 条，新增升级 ' + String(data.escalatedCount || 0) +
+          ' 条，跳过 ' + String(data.skippedCount || 0) +
+          ' 条，冲突 ' + String(data.conflictCount || 0) + ' 条';
+
+        if (selectedCaseId) {
+          await loadCase(selectedCaseId);
+        }
+        await loadCases(currentPage);
+      } catch (error) {
+        document.getElementById('caseSweepNotice').textContent =
+          error.message || '执行超时升级扫描失败';
+      } finally {
+        caseSweepPending = false;
+        document.getElementById('sweepExceptionCaseOverdueButton').disabled = false;
       }
     }
 

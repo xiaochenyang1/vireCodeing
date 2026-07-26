@@ -4,6 +4,7 @@ import {
   DriverOrderExceptionCasesController,
   ShipperOrderExceptionCasesController,
 } from './order-exception-cases.controller';
+import type { OrderExceptionCaseOverdueEscalationService } from './order-exception-case-overdue-escalation.service';
 
 describe('order exception case controllers', () => {
   const service = {
@@ -43,7 +44,10 @@ describe('order exception case controllers', () => {
   });
 
   it('lists and gets cases for an administrator', async () => {
-    const controller = new AdminOrderExceptionCasesController(service as never);
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
 
     await controller.listCases(createRequest('admin-1', 'admin'), {
       status: 'pending',
@@ -68,7 +72,10 @@ describe('order exception case controllers', () => {
     ['processCase', 'processCase', 'processing'],
     ['closeCase', 'closeCase', 'closed'],
   ] as const)('calls %s with normalized mutation input', async (method, serviceMethod, status) => {
-    const controller = new AdminOrderExceptionCasesController(service as never);
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
     const result = await controller[method](
       createRequest('admin-1', 'admin'),
       ' case-1 ',
@@ -86,7 +93,10 @@ describe('order exception case controllers', () => {
   });
 
   it('calls resolveCase with compensation tracking input', async () => {
-    const controller = new AdminOrderExceptionCasesController(service as never);
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
     const result = await controller.resolveCase(
       createRequest('admin-1', 'admin'),
       ' case-1 ',
@@ -110,6 +120,39 @@ describe('order exception case controllers', () => {
     });
     expect(result.data).toMatchObject({ status: 'resolved' });
   });
+
+  it('runs overdue escalation sweep for an administrator', async () => {
+    const overdueEscalationService = createOverdueEscalationService({
+      sweepOverdueCases: jest.fn().mockResolvedValue({
+        trigger: 'admin',
+        triggeredAtIso: '2026-07-12T08:20:00.000Z',
+        scannedCount: 4,
+        overdueCount: 2,
+        escalatedCount: 2,
+        skippedCount: 0,
+        conflictCount: 0,
+        escalatedCaseIds: ['case-1', 'case-2'],
+      }),
+    });
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      overdueEscalationService,
+    );
+
+    const result = await controller.sweepOverdueCases(
+      createRequest('admin-1', 'admin'),
+    );
+
+    expect(overdueEscalationService.sweepOverdueCases).toHaveBeenCalledWith(
+      'admin',
+    );
+    expect(result.data).toMatchObject({
+      trigger: 'admin',
+      overdueCount: 2,
+      escalatedCount: 2,
+      escalatedCaseIds: ['case-1', 'case-2'],
+    });
+  });
 });
 
 function createRequest(
@@ -120,4 +163,15 @@ function createRequest(
     currentUser: { id, phone: '13900139009', userType },
     headers: { 'x-request-id': 'req-exception-case' },
   } as unknown as AuthenticatedRequest;
+}
+
+function createOverdueEscalationService(
+  overrides: Partial<
+    Pick<OrderExceptionCaseOverdueEscalationService, 'sweepOverdueCases'>
+  > = {},
+): OrderExceptionCaseOverdueEscalationService {
+  return {
+    sweepOverdueCases: jest.fn(),
+    ...overrides,
+  } as unknown as OrderExceptionCaseOverdueEscalationService;
 }

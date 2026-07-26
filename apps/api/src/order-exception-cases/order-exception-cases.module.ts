@@ -14,6 +14,8 @@ import {
   DriverOrderExceptionCasesController,
   ShipperOrderExceptionCasesController,
 } from './order-exception-cases.controller';
+import { OrderExceptionCaseOverdueEscalationScheduler } from './order-exception-case-overdue-escalation.scheduler';
+import { OrderExceptionCaseOverdueEscalationService } from './order-exception-case-overdue-escalation.service';
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 
 @Module({
@@ -40,9 +42,40 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
       ) => new OrderExceptionCasesService(repository, notificationsService),
       inject: [PrismaOrdersRepository, NotificationsService],
     },
+    {
+      provide: OrderExceptionCaseOverdueEscalationService,
+      useFactory: (repository: PrismaOrdersRepository) =>
+        new OrderExceptionCaseOverdueEscalationService(repository),
+      inject: [PrismaOrdersRepository],
+    },
+    {
+      provide: OrderExceptionCaseOverdueEscalationScheduler,
+      useFactory: (service: OrderExceptionCaseOverdueEscalationService) =>
+        new OrderExceptionCaseOverdueEscalationScheduler(
+          service,
+          createOrderExceptionCaseOverdueEscalationSchedulerConfigFromEnv(
+            process.env,
+          ),
+        ),
+      inject: [OrderExceptionCaseOverdueEscalationService],
+    },
     ShipperOnlyGuard,
     DriverOnlyGuard,
     AdminOnlyGuard,
   ],
 })
 export class OrderExceptionCasesModule {}
+
+export function createOrderExceptionCaseOverdueEscalationSchedulerConfigFromEnv(
+  env: NodeJS.ProcessEnv,
+) {
+  return {
+    ...(env.ORDER_EXCEPTION_CASE_OVERDUE_ESCALATION_INTERVAL_SECONDS
+      ? {
+          intervalSeconds: Number(
+            env.ORDER_EXCEPTION_CASE_OVERDUE_ESCALATION_INTERVAL_SECONDS,
+          ),
+        }
+      : {}),
+  };
+}

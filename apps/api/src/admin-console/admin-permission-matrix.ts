@@ -342,12 +342,13 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     title: '处理异常客服工单',
     moduleKey: 'order-exception-case',
     summary:
-      '读取异常工单列表/详情，并能执行 process、resolve、close 状态流转。',
+      '读取异常工单列表/详情，并能执行 process、resolve、close 状态流转与超时升级扫描。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [
       '/admin/order-exception-cases',
       '/admin/order-exception-cases/{caseId}',
+      '/admin/order-exception-cases/overdue-escalations/sweep',
       '/admin/order-exception-cases/{caseId}/process',
       '/admin/order-exception-cases/{caseId}/resolve',
       '/admin/order-exception-cases/{caseId}/close',

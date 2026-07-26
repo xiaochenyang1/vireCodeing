@@ -251,6 +251,11 @@ export type AppealExceptionCaseInput = {
   reason: string;
 };
 
+export type AppendOrderExceptionCaseActionInput = {
+  baseUpdatedAtIso: string;
+  content: string;
+};
+
 export type AppealExceptionCaseResult =
   | {
       kind: 'success';
@@ -293,6 +298,14 @@ export interface OrdersRepository {
     expectedStatus: OrderExceptionCaseStatus,
     nextStatus: OrderExceptionCaseStatus,
     input: UpdateOrderExceptionCaseRequest | ResolveOrderExceptionCaseRequest,
+  ): Promise<
+    OrderExceptionCaseRecord | 'conflict' | 'state-invalid' | undefined
+  >;
+  appendOrderExceptionCaseAction(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    input: AppendOrderExceptionCaseActionInput,
   ): Promise<
     OrderExceptionCaseRecord | 'conflict' | 'state-invalid' | undefined
   >;
@@ -707,6 +720,48 @@ export class InMemoryOrdersRepository implements OrdersRepository {
           createdAtIso: updatedAtIso,
         });
       }
+      order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
+    }
+
+    return exceptionCase;
+  }
+
+  async appendOrderExceptionCaseAction(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    input: AppendOrderExceptionCaseActionInput,
+  ) {
+    const exceptionCase = this.exceptionCases.find(item => item.id === caseId);
+
+    if (!exceptionCase) {
+      return undefined;
+    }
+
+    if (exceptionCase.status !== expectedStatus) {
+      return 'state-invalid' as const;
+    }
+
+    if (exceptionCase.updatedAtIso !== input.baseUpdatedAtIso) {
+      return 'conflict' as const;
+    }
+
+    const updatedAtIso = createNextUpdatedAtIso(
+      exceptionCase.updatedAtIso,
+      this.now(),
+    );
+    exceptionCase.actions.push({
+      id: `exception-action-${exceptionCase.actions.length + 1}`,
+      adminUserId,
+      fromStatus: expectedStatus,
+      toStatus: expectedStatus,
+      content: input.content,
+      createdAtIso: updatedAtIso,
+    });
+    exceptionCase.updatedAtIso = updatedAtIso;
+
+    const order = this.orders.find(currentOrder => currentOrder.id === exceptionCase.orderId);
+    if (order) {
       order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
     }
 
@@ -4377,6 +4432,64 @@ export class PrismaOrdersRepository implements OrdersRepository {
       }
 
       return result;
+    });
+
+    return mapPrismaExceptionCase(updated);
+  }
+
+  async appendOrderExceptionCaseAction(
+    caseId: string,
+    adminUserId: string,
+    expectedStatus: OrderExceptionCaseStatus,
+    input: AppendOrderExceptionCaseActionInput,
+  ) {
+    if (!this.prisma.orderExceptionCase || !this.prisma.$transaction) {
+      return undefined;
+    }
+
+    const current = await this.prisma.orderExceptionCase.findUnique({
+      where: { id: caseId },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    if (!current) {
+      return undefined;
+    }
+
+    if (current.status !== expectedStatus) {
+      return 'state-invalid' as const;
+    }
+
+    if (current.updatedAt.toISOString() !== input.baseUpdatedAtIso) {
+      return 'conflict' as const;
+    }
+
+    const now = this.now();
+    const updated = await this.prisma.$transaction(async transaction => {
+      await transaction.orderExceptionCaseAction.create({
+        data: {
+          caseId,
+          adminUserId,
+          fromStatus: expectedStatus,
+          toStatus: expectedStatus,
+          content: input.content,
+          createdAt: now,
+        },
+      });
+
+      return transaction.orderExceptionCase.update({
+        where: { id: caseId },
+        data: {
+          updatedAt: createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+        },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
     });
 
     return mapPrismaExceptionCase(updated);

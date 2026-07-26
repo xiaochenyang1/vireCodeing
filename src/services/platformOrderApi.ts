@@ -259,6 +259,21 @@ export type PlatformOrderExceptionCaseListResult = {
   total: number;
 };
 
+export type PlatformOrderExceptionCaseOverdueEscalationSweepTrigger =
+  | 'admin'
+  | 'scheduler';
+
+export type PlatformOrderExceptionCaseOverdueEscalationSweepResult = {
+  trigger: PlatformOrderExceptionCaseOverdueEscalationSweepTrigger;
+  triggeredAtIso: string;
+  scannedCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  skippedCount: number;
+  conflictCount: number;
+  escalatedCaseIds: string[];
+};
+
 export type PlatformOrderListResult = {
   items: PlatformShipperOrder[];
   page: number;
@@ -671,6 +686,12 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
           normalizeAdminOrderExceptionCasesQuery(query),
         ),
       );
+    },
+    runAdminOrderExceptionCaseOverdueEscalationSweep() {
+      return platformPost<
+        Record<string, never>,
+        PlatformOrderExceptionCaseOverdueEscalationSweepResult
+      >(config, '/admin/order-exception-cases/overdue-escalations/sweep', {});
     },
     async getAdminOrderExceptionCase(caseId: string) {
       const normalizedCaseId = normalizeExceptionCaseId(caseId);

@@ -106,6 +106,21 @@ export type UpdateOrderExceptionCaseRequest = {
   content: string;
 };
 
+export type OrderExceptionCaseOverdueEscalationSweepTrigger =
+  | 'admin'
+  | 'scheduler';
+
+export type OrderExceptionCaseOverdueEscalationSweepResult = {
+  trigger: OrderExceptionCaseOverdueEscalationSweepTrigger;
+  triggeredAtIso: string;
+  scannedCount: number;
+  overdueCount: number;
+  escalatedCount: number;
+  skippedCount: number;
+  conflictCount: number;
+  escalatedCaseIds: string[];
+};
+
 export type ResolveOrderExceptionCaseRequest = UpdateOrderExceptionCaseRequest & {
   compensationStatus: OrderExceptionCaseCompensationStatus;
   appealDecision?: OrderExceptionCaseAppealDecision;

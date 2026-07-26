@@ -23,6 +23,7 @@ import type {
   ResolveOrderExceptionCaseRequest,
   UpdateOrderExceptionCaseRequest,
 } from './dto';
+import { OrderExceptionCaseOverdueEscalationService } from './order-exception-case-overdue-escalation.service';
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 import {
   appealOrderExceptionCaseSchema,
@@ -123,7 +124,10 @@ export class DriverOrderExceptionCasesController {
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
 @ApiTags('异常工单 (Exception Cases)')
 export class AdminOrderExceptionCasesController {
-  constructor(private readonly service: OrderExceptionCasesService) {}
+  constructor(
+    private readonly service: OrderExceptionCasesService,
+    private readonly overdueEscalationService: OrderExceptionCaseOverdueEscalationService,
+  ) {}
 
   @Get()
   async listCases(
@@ -136,6 +140,16 @@ export class AdminOrderExceptionCasesController {
       await this.service.listForAdmin(
         parseOrderExceptionCaseListQuery(query),
       ),
+      getRequestId(request),
+    );
+  }
+
+  @Post('overdue-escalations/sweep')
+  async sweepOverdueCases(@Req() request: AuthenticatedRequest) {
+    getCurrentUserId(request, 'admin');
+
+    return ok(
+      await this.overdueEscalationService.sweepOverdueCases('admin'),
       getRequestId(request),
     );
   }
