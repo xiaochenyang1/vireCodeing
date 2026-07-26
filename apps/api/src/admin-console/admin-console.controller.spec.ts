@@ -227,10 +227,17 @@ describe('finance admin console page', () => {
 
     expect(html).toContain('let latestFinanceRequestId = 0');
     expect(html).toContain('let latestFinanceReportRequestId = 0');
+    expect(html).toContain('let latestFinanceReconciliationRequestId = 0');
     expect(html).toContain('const requestId = ++latestFinanceRequestId');
     expect(html).toContain('const requestId = ++latestFinanceReportRequestId');
+    expect(html).toContain(
+      'const requestId = ++latestFinanceReconciliationRequestId',
+    );
     expect(html).toContain('if (requestId !== latestFinanceRequestId) return');
     expect(html).toContain('if (requestId !== latestFinanceReportRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestFinanceReconciliationRequestId) return',
+    );
     expect(html).toContain('resetFinanceReport');
     expect(html).toContain('clearFinanceSelection()');
     expect(html).toContain('clearLedgerDetail()');

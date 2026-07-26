@@ -191,6 +191,7 @@ export function renderFinanceAdminConsole() {
     let selectedWithdrawalIds = new Set();
     let latestFinanceRequestId = 0;
     let latestFinanceReportRequestId = 0;
+    let latestFinanceReconciliationRequestId = 0;
     let latestLedgerRequestId = 0;
     let financeMutationPending = false;
     ${renderAdminSessionScript({
@@ -404,10 +405,13 @@ export function renderFinanceAdminConsole() {
     }
 
     async function loadFinanceReconciliation() {
+      const requestId = ++latestFinanceReconciliationRequestId;
       try {
         const report = await api('/admin/finance/reconciliation');
+        if (requestId !== latestFinanceReconciliationRequestId) return;
         renderFinanceReconciliation(report);
       } catch (error) {
+        if (requestId !== latestFinanceReconciliationRequestId) return;
         resetFinanceReconciliation('一致性对账加载失败：' + error.message);
       }
     }
