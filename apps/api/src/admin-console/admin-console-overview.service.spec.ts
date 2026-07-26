@@ -100,7 +100,7 @@ describe('AdminConsoleOverviewService', () => {
             key: 'order-management',
             route: '/api/admin/order-management-console',
             summary:
-              '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，但真实赔付执行 / 退款联动还没补齐。',
+              '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，赔付执行也已能在异常工单台完成，但订单侧退款联动和更深资金处置还没补齐。',
             metrics: expect.arrayContaining([
               expect.objectContaining({
                 label: '待接单',
@@ -108,7 +108,14 @@ describe('AdminConsoleOverviewService', () => {
                 tone: 'warning',
               }),
             ]),
-            pendingGaps: ['真实赔付执行 / 退款联动'],
+            pendingGaps: ['订单侧退款联动 / 更深资金处置'],
+          }),
+          expect.objectContaining({
+            key: 'order-exception-case',
+            route: '/api/admin/order-exception-case-console',
+            summary:
+              '工单能推进状态、留痕、记录赔付决议并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
+            pendingGaps: ['SLA / 超时升级', '坐席分配', '会话联动', '退款联动'],
           }),
           expect.objectContaining({
             key: 'file-maintenance',
@@ -244,8 +251,13 @@ describe('AdminConsoleOverviewService', () => {
     });
     expect(overview.modules.find(module => module.key === 'order-management')).toMatchObject({
       summary:
-        '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，但真实赔付执行 / 退款联动还没补齐。',
-      pendingGaps: ['真实赔付执行 / 退款联动'],
+        '后台订单列表、详情、按单资金视图、筛选报表、CSV 导出、原子批量取消 waiting 订单，以及和财务台双向跳转的资金联动第一片已经能跑；异常快照里也会展示最新赔付决议摘要并可跳异常工单台，赔付执行也已能在异常工单台完成，但订单侧退款联动和更深资金处置还没补齐。',
+      pendingGaps: ['订单侧退款联动 / 更深资金处置'],
+    });
+    expect(overview.modules.find(module => module.key === 'order-exception-case')).toMatchObject({
+      summary:
+        '工单能推进状态、留痕、记录赔付决议并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
+      pendingGaps: ['SLA / 超时升级', '坐席分配', '会话联动', '退款联动'],
     });
     expect(
       overview.modules.find(module => module.key === 'order-change-request'),

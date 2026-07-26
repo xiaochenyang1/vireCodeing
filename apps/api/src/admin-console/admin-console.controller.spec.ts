@@ -568,6 +568,7 @@ describe('order management admin console page', () => {
     expect(html).toContain('/admin/orders/batch-cancel');
     expect(html).toContain('orderReportTopShippersLimitInput');
     expect(html).toContain('orderReportSummary');
+    expect(html).toContain('平台已赔付到账');
     expect(html).toContain('orderTopShippersReport');
     expect(html).toContain('viewSelectedOrderFinanceButton');
     expect(html).toContain('viewSelectedOrderExceptionCaseButton');

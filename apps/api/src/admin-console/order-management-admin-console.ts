@@ -311,7 +311,7 @@ export function renderOrderManagementAdminConsole() {
   <main class="console-shell">
     <section class="query-panel">
       <h1>订单管理台</h1>
-      <p class="muted">这页把后台订单列表、详情、筛选报表、CSV 导出和按当前筛选结果批量取消 waiting 订单拢到一块了，方便运营先把查单和明显脏单清理闭环。现在批量取消会直接调后端 <span class="mono">POST /admin/orders/batch-cancel</span> 做整批校验和原子写入；订单详情里也会按当前 orderId 并行拉支付 / 退款 / 结算做按单资金视图，异常快照里还会挂最新赔付决议摘要并能跳异常工单台；但真实赔付执行 / 退款联动和更深的资金处置还没补齐，别拿静态台硬装成完整 OMS。</p>
+      <p class="muted">这页把后台订单列表、详情、筛选报表、CSV 导出和按当前筛选结果批量取消 waiting 订单拢到一块了，方便运营先把查单和明显脏单清理闭环。现在批量取消会直接调后端 <span class="mono">POST /admin/orders/batch-cancel</span> 做整批校验和原子写入；订单详情里也会按当前 orderId 并行拉支付 / 退款 / 结算做按单资金视图，异常快照里还会挂最新赔付决议摘要并能跳异常工单台；异常工单台里的赔付执行已经接上，但订单侧退款联动和更深的资金处置还没补齐，别拿静态台硬装成完整 OMS。</p>
       <div class="toolbar">
         <input id="adminToken" type="password" aria-label="admin access token" title="admin access token" placeholder="粘贴 admin access token" />
       </div>
@@ -572,6 +572,7 @@ export function renderOrderManagementAdminConsole() {
       if (status === 'not_required') return '无需赔付';
       if (status === 'pending') return '待赔付跟进';
       if (status === 'offline_completed') return '线下已赔付';
+      if (status === 'executed') return '平台已赔付到账';
       return '未记录赔付决议';
     }
 
@@ -588,12 +589,21 @@ export function renderOrderManagementAdminConsole() {
       if (latestExceptionCase.compensationStatus === 'not_required') {
         return '赔付决议：无需赔付';
       }
-      return '赔付决议：' +
+      let summary = '赔付决议：' +
         formatCompensationStatus(latestExceptionCase.compensationStatus) +
         ' · 对象：' +
         formatCompensationTargetRole(latestExceptionCase.compensationTargetRole) +
         ' · 金额：' +
         formatPrice(latestExceptionCase.compensationAmountCents);
+
+      if (
+        latestExceptionCase.compensationStatus === 'executed' &&
+        latestExceptionCase.compensationExecutedAtIso
+      ) {
+        summary += ' · 到账：' + formatTime(latestExceptionCase.compensationExecutedAtIso);
+      }
+
+      return summary;
     }
 
     function authHeaders() {
