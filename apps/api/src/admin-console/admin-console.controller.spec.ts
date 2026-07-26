@@ -686,11 +686,14 @@ describe('order exception case admin console page', () => {
 
     expect(html).toContain('/admin/order-exception-cases/overdue-escalations/sweep');
     expect(html).toContain('/claim');
+    expect(html).toContain('/takeover');
     expect(html).toContain('/assign');
     expect(html).toContain('/unclaim');
     expect(html).toContain('sweepOverdueExceptionCases');
     expect(html).toContain('claimCase');
     expect(html).toContain('caseClaimButton');
+    expect(html).toContain('takeoverCase');
+    expect(html).toContain('caseTakeoverButton');
     expect(html).toContain('assignCase');
     expect(html).toContain('caseAssignButton');
     expect(html).toContain('releaseCaseClaim');
@@ -699,6 +702,7 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('认领到我');
     expect(html).toContain('指派给客服');
     expect(html).toContain('转派给客服');
+    expect(html).toContain('强制接管');
     expect(html).toContain('释放认领');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');
@@ -762,8 +766,8 @@ describe('admin console home page', () => {
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/evaluation-audit-console');
     expect(html).toContain('/api/admin/finance-console');
-    expect(html).toContain('认领、指派 / 转派或释放认领');
-    expect(html).toContain('认领到当前客服、再指派 / 转派或释放认领');
+    expect(html).toContain('对未认领 open 工单认领、对自己名下工单指派 / 转派或释放认领、对他人已认领工单强制接管');
+    expect(html).toContain('认领未认领工单、转派或释放自己名下工单、强制接管他人已认领工单');
     expect(html).toContain('进入工具台');
     expect(html).toContain('我的认领单');
     expect(html).toContain('module-card-links');
@@ -1106,6 +1110,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/admin/support-tickets');
     expect(html).toContain('/admin/support-tickets/overdue-escalations/sweep');
     expect(html).toContain('/claim');
+    expect(html).toContain('/takeover');
     expect(html).toContain('/assign');
     expect(html).toContain('/unclaim');
     expect(html).toContain('/process');
@@ -1120,6 +1125,8 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
     expect(html).toContain('claimSupportTicket');
     expect(html).toContain('claimSupportTicketButton');
+    expect(html).toContain('takeoverSupportTicket');
+    expect(html).toContain('takeoverSupportTicketButton');
     expect(html).toContain('assignSupportTicket');
     expect(html).toContain('assignSupportTicketButton');
     expect(html).toContain('releaseSupportTicketClaim');
@@ -1132,6 +1139,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('认领到我');
     expect(html).toContain('指派给客服');
     expect(html).toContain('转派给客服');
+    expect(html).toContain('强制接管');
     expect(html).toContain('我的认领单');
     expect(html).toContain('当前认领：');
     expect(html).toContain('认领：');

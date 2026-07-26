@@ -17,6 +17,7 @@ import type {
 import {
   createOrderExceptionCaseAssignContent,
   createOrderExceptionCaseClaimContent,
+  createOrderExceptionCaseTakeoverContent,
   createOrderExceptionCaseUnclaimContent,
   mapOrderExceptionCaseListWithSla,
   mapOrderExceptionCaseWithSla,
@@ -143,6 +144,25 @@ export class OrderExceptionCasesService {
       );
     }
 
+    const currentSnapshot = mapOrderExceptionCaseWithSla(
+      exceptionCase,
+      this.now(),
+    );
+
+    if (currentSnapshot.claimedByAdminUserId === adminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员已经是该异常工单的认领人，无需重复认领',
+      );
+    }
+
+    if (currentSnapshot.claimedByAdminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单已被其他客服认领，请使用强制接管流程',
+      );
+    }
+
     const result = await this.repository.appendOrderExceptionCaseAction(
       caseId,
       adminUserId,
@@ -150,6 +170,80 @@ export class OrderExceptionCasesService {
       {
         baseUpdatedAtIso: input.baseUpdatedAtIso,
         content: createOrderExceptionCaseClaimContent(input.content),
+      },
+    );
+
+    if (!result) {
+      throw notFoundError();
+    }
+
+    if (result === 'state-invalid') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    if (result === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+        '异常工单已被其他管理员更新，请刷新后重试',
+      );
+    }
+
+    return mapOrderExceptionCaseWithSla(result, this.now());
+  }
+
+  async takeoverCase(
+    adminUserId: string,
+    caseId: string,
+    input: ClaimOrderExceptionCaseRequest,
+  ) {
+    const exceptionCase = await this.repository.findOrderExceptionCaseById(caseId);
+
+    if (!exceptionCase) {
+      throw notFoundError();
+    }
+
+    if (
+      exceptionCase.status !== 'pending' &&
+      exceptionCase.status !== 'processing'
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      );
+    }
+
+    const currentSnapshot = mapOrderExceptionCaseWithSla(
+      exceptionCase,
+      this.now(),
+    );
+
+    if (!currentSnapshot.claimedByAdminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单尚未被认领，无法强制接管',
+      );
+    }
+
+    if (currentSnapshot.claimedByAdminUserId === adminUserId) {
+      throw new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员已经是该异常工单的认领人，无需强制接管',
+      );
+    }
+
+    const result = await this.repository.appendOrderExceptionCaseAction(
+      caseId,
+      adminUserId,
+      exceptionCase.status,
+      {
+        baseUpdatedAtIso: input.baseUpdatedAtIso,
+        content: createOrderExceptionCaseTakeoverContent(
+          currentSnapshot.claimedByAdminUserId,
+          input.content,
+        ),
       },
     );
 

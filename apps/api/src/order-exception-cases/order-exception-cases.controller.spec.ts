@@ -15,6 +15,9 @@ describe('order exception case controllers', () => {
     claimCase: jest
       .fn()
       .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-1' }),
+    takeoverCase: jest
+      .fn()
+      .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-1' }),
     assignCase: jest
       .fn()
       .mockResolvedValue({ id: 'case-1', claimedByAdminUserId: 'admin-2' }),
@@ -96,6 +99,30 @@ describe('order exception case controllers', () => {
     expect(service.claimCase).toHaveBeenCalledWith('admin-1', 'case-1', {
       baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       content: '当前客服先认领跟进。',
+    });
+    expect(result.data).toMatchObject({
+      id: 'case-1',
+      claimedByAdminUserId: 'admin-1',
+    });
+  });
+
+  it('force-takes over a case for the authenticated administrator', async () => {
+    const controller = new AdminOrderExceptionCasesController(
+      service as never,
+      createOverdueEscalationService(),
+    );
+    const result = await controller.takeoverCase(
+      createRequest('admin-1', 'admin'),
+      ' case-1 ',
+      {
+        baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+        content: ' 主管改派给当前客服继续跟进。 ',
+      },
+    );
+
+    expect(service.takeoverCase).toHaveBeenCalledWith('admin-1', 'case-1', {
+      baseUpdatedAtIso: '2026-07-12T08:05:00.000Z',
+      content: '主管改派给当前客服继续跟进。',
     });
     expect(result.data).toMatchObject({
       id: 'case-1',

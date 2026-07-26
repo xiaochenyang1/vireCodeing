@@ -388,6 +388,164 @@ describe('SupportTicketsService', () => {
     });
   });
 
+  it('rejects claiming a support ticket that is already claimed by the current or another admin', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '需要明确当前由哪位客服继续跟进。',
+    });
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    await expect(
+      service.claimSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前管理员已经是该工单的认领人，无需重复认领',
+      ),
+    );
+
+    await expect(
+      service.claimSupportTicket('admin-3', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单已被其他客服认领，请使用强制接管流程',
+      ),
+    );
+  });
+
+  it('lets another admin force-take over an already claimed open support ticket', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '原客服已跟进，主管需要直接改派。',
+    });
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    currentTime = new Date('2026-07-22T08:39:00.000Z');
+    await expect(
+      service.takeoverSupportTicket('admin-4', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '主管改派给当前客服继续跟进。',
+      }),
+    ).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      claimedByAdminUserId: 'admin-4',
+      claimedAtIso: '2026-07-22T08:39:00.000Z',
+      claimNote: '主管改派给当前客服继续跟进。',
+      statusHistory: expect.arrayContaining([
+        expect.objectContaining({
+          actionText: '客服已强制接管',
+          operatorUserId: 'admin-4',
+          content: '强制接管自 admin-2：主管改派给当前客服继续跟进。',
+        }),
+      ]),
+      updatedAtIso: '2026-07-22T08:39:00.000Z',
+    });
+
+    await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
+      id: created.id,
+      claimedByAdminUserId: 'admin-4',
+      claimNote: '主管改派给当前客服继续跟进。',
+    });
+    await expect(
+      service.listSupportTicketsForAdmin({
+        page: 1,
+        pageSize: 5,
+        claimedByAdminUserId: 'admin-4',
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: created.id,
+          claimedByAdminUserId: 'admin-4',
+        }),
+      ],
+      page: 1,
+      pageSize: 5,
+      total: 1,
+    });
+  });
+
+  it('rejects forcing takeover for an unclaimed support ticket or when the current admin already owns it', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '需要主管确认是否允许抢占工单。',
+    });
+
+    await expect(
+      service.takeoverSupportTicket('admin-3', created.id, {
+        baseUpdatedAtIso: created.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前帮助中心工单尚未被认领，无法强制接管',
+      ),
+    );
+
+    currentTime = new Date('2026-07-22T08:36:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: created.updatedAtIso,
+      content: '夜班客服先认领跟进。',
+    });
+
+    await expect(
+      service.takeoverSupportTicket('admin-2', created.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SUPPORT_TICKET_STATE_INVALID,
+        '当前管理员已经是该工单的认领人，无需强制接管',
+      ),
+    );
+  });
+
   it('rejects claiming a resolved support ticket', async () => {
     let currentTime = new Date('2026-07-22T08:30:00.000Z');
     const repository = new InMemorySupportTicketsRepository({
@@ -692,6 +850,82 @@ describe('SupportTicketsService', () => {
       status: 'resolved',
       claimedByAdminUserId: 'admin-2',
       claimNote: '夜班客服接手继续跟进。',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'resolved_overdue',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        overdueMinutes: 5,
+      },
+    });
+  });
+
+  it('does not reset the resolution SLA anchor when a processing ticket is force-taken over', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '订单咨询',
+      description: '咨询订单签收问题',
+    });
+
+    currentTime = new Date('2026-07-22T08:35:00.000Z');
+    const processing = await service.processSupportTicket(
+      'admin-1',
+      created.id,
+      {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '已联系货主核实问题，转客服受理跟进。',
+      },
+    );
+
+    currentTime = new Date('2026-07-22T09:00:00.000Z');
+    const claimed = await service.claimSupportTicket('admin-2', created.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '夜班客服接手继续跟进。',
+    });
+
+    currentTime = new Date('2026-07-22T09:10:00.000Z');
+    const takenOver = await service.takeoverSupportTicket(
+      'admin-3',
+      created.id,
+      {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '主管要求白班客服直接继续跟进。',
+      },
+    );
+
+    expect(takenOver).toMatchObject({
+      id: created.id,
+      status: 'processing',
+      claimedByAdminUserId: 'admin-3',
+      claimNote: '主管要求白班客服直接继续跟进。',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'within_target',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        remainingMinutes: 1405,
+      },
+    });
+
+    currentTime = new Date('2026-07-23T08:40:00.000Z');
+    await expect(
+      service.resolveSupportTicket('admin-3', created.id, {
+        baseUpdatedAtIso: takenOver.updatedAtIso,
+        content: '问题已确认并处理完成，通知货主查看结果。',
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      claimedByAdminUserId: 'admin-3',
+      claimNote: '主管要求白班客服直接继续跟进。',
       sla: {
         policyKey: 'support_ticket_default_v1',
         stage: 'resolution',

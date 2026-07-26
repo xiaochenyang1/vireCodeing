@@ -40,7 +40,7 @@ export function renderOrderExceptionCaseAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
-      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列，以及把 open 工单指派 / 转派给指定客服；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，自动派单、会话联动和退款联动还没补上。</p>
+      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列，以及对未认领 open 工单认领 / 指派、对自己名下工单转派 / 释放认领、对他人已认领工单执行强制接管；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，自动派单、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -73,7 +73,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       <h2>工单详情</h2>
       <div id="caseDetail" class="muted">请选择工单</div>
       <label>指派 / 转派给客服 ID<input id="caseAssignTargetAdminUserIdInput" placeholder="例如 admin-2" /></label>
-      <label>处理说明 / 认领 / 指派备注<textarea id="caseActionContent" placeholder="处理动作请输入 6-500 字；认领、释放认领、指派或转派备注可留空或填写最多 200 字"></textarea></label>
+      <label>处理说明 / 认领 / 指派 / 接管备注<textarea id="caseActionContent" placeholder="处理动作请输入 6-500 字；认领、释放认领、指派、转派或强制接管备注可留空或填写最多 200 字"></textarea></label>
       <div id="caseCompensationControls" class="filters">
         <label>赔付状态<select id="caseCompensationStatusInput"><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option></select></label>
         <label id="caseAppealDecisionField" style="display:none">申诉裁定<select id="caseAppealDecisionInput"><option value="">请选择</option><option value="accepted">受理申诉</option><option value="rejected">驳回申诉</option></select></label>
@@ -199,6 +199,28 @@ export function renderOrderExceptionCaseAdminConsole() {
       return item.claimedByAdminUserId + (item.claimedAtIso ? ' · ' + item.claimedAtIso : '');
     }
 
+    function canDetermineCurrentCaseAdmin() {
+      return currentAdminUserId.length > 0;
+    }
+
+    function isCaseClaimedByCurrentAdmin(item) {
+      return Boolean(
+        item &&
+        item.claimedByAdminUserId &&
+        canDetermineCurrentCaseAdmin() &&
+        item.claimedByAdminUserId === currentAdminUserId,
+      );
+    }
+
+    function isCaseClaimedByOtherAdmin(item) {
+      return Boolean(
+        item &&
+        item.claimedByAdminUserId &&
+        (!canDetermineCurrentCaseAdmin() ||
+          item.claimedByAdminUserId !== currentAdminUserId),
+      );
+    }
+
     function readOrderExceptionCaseRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -316,6 +338,10 @@ export function renderOrderExceptionCaseAdminConsole() {
       return document.getElementById('caseReleaseClaimButton');
     }
 
+    function getCaseTakeoverButton() {
+      return document.getElementById('caseTakeoverButton');
+    }
+
     function setCaseActionButtonsDisabled(disabled) {
       const button = getCaseMutationButton();
       if (button) button.disabled = disabled;
@@ -325,6 +351,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (assignButton) assignButton.disabled = disabled;
       const releaseClaimButton = getCaseReleaseClaimButton();
       if (releaseClaimButton) releaseClaimButton.disabled = disabled;
+      const takeoverButton = getCaseTakeoverButton();
+      if (takeoverButton) takeoverButton.disabled = disabled;
       const executeButton = document.getElementById('caseExecuteCompensationButton');
       if (executeButton) executeButton.disabled = disabled;
     }
@@ -530,10 +558,25 @@ export function renderOrderExceptionCaseAdminConsole() {
       const action = actionByStatus[status];
       let buttons = '';
       if (status === 'pending' || status === 'processing') {
-        buttons += '<button id="caseClaimButton" class="secondary-button" onclick="claimCase()">认领到我</button>';
-        buttons += '<button id="caseAssignButton" class="secondary-button" onclick="assignCase()">' + (item.claimedByAdminUserId ? '转派给客服' : '指派给客服') + '</button>';
-        if (item.claimedByAdminUserId) {
+        const canAssignOrTransfer =
+          !item.claimedByAdminUserId ||
+          isCaseClaimedByCurrentAdmin(item) ||
+          !canDetermineCurrentCaseAdmin();
+        const canReleaseClaim =
+          item.claimedByAdminUserId &&
+          (isCaseClaimedByCurrentAdmin(item) || !canDetermineCurrentCaseAdmin());
+
+        if (!item.claimedByAdminUserId) {
+          buttons += '<button id="caseClaimButton" class="secondary-button" onclick="claimCase()">认领到我</button>';
+        }
+        if (canAssignOrTransfer) {
+          buttons += '<button id="caseAssignButton" class="secondary-button" onclick="assignCase()">' + (item.claimedByAdminUserId ? '转派给客服' : '指派给客服') + '</button>';
+        }
+        if (canReleaseClaim) {
           buttons += '<button id="caseReleaseClaimButton" class="secondary-button" onclick="releaseCaseClaim()">释放认领</button>';
+        }
+        if (isCaseClaimedByOtherAdmin(item)) {
+          buttons += '<button id="caseTakeoverButton" class="secondary-button" onclick="takeoverCase()">强制接管</button>';
         }
       }
       if (action) {
@@ -606,6 +649,43 @@ export function renderOrderExceptionCaseAdminConsole() {
         });
         document.getElementById('caseActionContent').value = '';
         document.getElementById('caseMutationNotice').textContent = '工单已认领，当前客服可继续跟进。';
+        await loadCase(selectedCaseId);
+        await loadCases(currentPage);
+      } catch (error) {
+        if (error.code === 'EXCEPTION_CASE_CONFLICT') {
+          document.getElementById('caseMutationNotice').textContent = '工单已被其他管理员更新，正在刷新最新状态。';
+          await loadCase(selectedCaseId);
+        } else {
+          document.getElementById('caseMutationNotice').textContent = error.message;
+        }
+      } finally {
+        mutationPending = false;
+        setCaseActionButtonsDisabled(false);
+        syncCompensationInputsFromStatus();
+      }
+    }
+
+    async function takeoverCase() {
+      if (!selectedCaseId || mutationPending) return;
+      const content = document.getElementById('caseActionContent').value.trim();
+      if (content.length > 200) {
+        document.getElementById('caseMutationNotice').textContent = '强制接管备注最多 200 字';
+        return;
+      }
+      mutationPending = true;
+      document.getElementById('caseMutationNotice').textContent = '';
+      setCaseActionButtonsDisabled(true);
+      try {
+        const payload = {
+          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
+          ...(content ? { content } : {}),
+        };
+        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/takeover', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        document.getElementById('caseActionContent').value = '';
+        document.getElementById('caseMutationNotice').textContent = '工单已强制接管，当前客服可继续跟进。';
         await loadCase(selectedCaseId);
         await loadCases(currentPage);
       } catch (error) {

@@ -12,14 +12,18 @@ const SUPPORT_TICKET_CLAIM_ACTION_TEXT = '客服已认领';
 const SUPPORT_TICKET_UNCLAIM_ACTION_TEXT = '客服已释放认领';
 const SUPPORT_TICKET_ASSIGN_ACTION_TEXT = '客服已指派';
 const SUPPORT_TICKET_TRANSFER_ACTION_TEXT = '客服已转派';
+const SUPPORT_TICKET_TAKEOVER_ACTION_TEXT = '客服已强制接管';
 const SUPPORT_TICKET_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
 const SUPPORT_TICKET_DEFAULT_UNCLAIM_NOTE =
   '当前客服已释放认领，工单回到未认领队列。';
 const SUPPORT_TICKET_DEFAULT_ASSIGN_NOTE = '当前工单已指派给指定客服跟进。';
 const SUPPORT_TICKET_DEFAULT_TRANSFER_NOTE =
   '当前工单已转派给指定客服继续跟进。';
+const SUPPORT_TICKET_DEFAULT_TAKEOVER_NOTE =
+  '当前客服已强制接管并继续跟进。';
 const SUPPORT_TICKET_ASSIGN_CONTENT_PREFIX = '指派给 ';
 const SUPPORT_TICKET_TRANSFER_CONTENT_PREFIX = '转派给 ';
+const SUPPORT_TICKET_TAKEOVER_CONTENT_PREFIX = '强制接管自 ';
 
 export function mapSupportTicketWithSla(
   ticket: ShipperSupportTicketRecord,
@@ -77,6 +81,20 @@ export function createSupportTicketAssignHistoryItem(
       mode,
       content,
     ),
+  };
+}
+
+export function createSupportTicketTakeoverHistoryItem(
+  adminUserId: string,
+  fromAdminUserId: string,
+  timestampIso: string,
+  content?: string,
+): ShipperSupportTicketStatusHistoryItem {
+  return {
+    actionText: SUPPORT_TICKET_TAKEOVER_ACTION_TEXT,
+    timestampIso,
+    operatorUserId: adminUserId,
+    content: createSupportTicketTakeoverContent(fromAdminUserId, content),
   };
 }
 
@@ -165,6 +183,20 @@ export function createSupportTicketAssignContent(
       : mode === 'assign'
         ? SUPPORT_TICKET_DEFAULT_ASSIGN_NOTE
         : SUPPORT_TICKET_DEFAULT_TRANSFER_NOTE
+      }`;
+}
+
+export function createSupportTicketTakeoverContent(
+  fromAdminUserId: string,
+  content?: string,
+) {
+  const normalizedNote = content?.trim();
+  const normalizedFromAdminUserId = fromAdminUserId.trim();
+
+  return `${SUPPORT_TICKET_TAKEOVER_CONTENT_PREFIX}${normalizedFromAdminUserId}：${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : SUPPORT_TICKET_DEFAULT_TAKEOVER_NOTE
   }`;
 }
 
@@ -273,9 +305,21 @@ function buildSupportTicketClaimSnapshot(
       };
     }
 
+    const takeoverSnapshot =
+      buildSupportTicketTakeoverSnapshotFromHistoryItem(historyItem);
+
+    if (takeoverSnapshot) {
+      return {
+        claimedByAdminUserId: takeoverSnapshot.targetAdminUserId,
+        claimedAtIso: historyItem.timestampIso,
+        claimNote: takeoverSnapshot.note,
+      };
+    }
+
     if (
       !historyItem ||
-      historyItem.actionText !== SUPPORT_TICKET_CLAIM_ACTION_TEXT ||
+      (historyItem.actionText !== SUPPORT_TICKET_CLAIM_ACTION_TEXT &&
+        historyItem.actionText !== SUPPORT_TICKET_TAKEOVER_ACTION_TEXT) ||
       typeof historyItem.operatorUserId !== 'string'
     ) {
       continue;
@@ -338,6 +382,25 @@ function buildSupportTicketAssignedSnapshotFromHistoryItem(
   };
 }
 
+function buildSupportTicketTakeoverSnapshotFromHistoryItem(
+  historyItem: ShipperSupportTicketStatusHistoryItem | undefined,
+) {
+  if (
+    !historyItem ||
+    historyItem.actionText !== SUPPORT_TICKET_TAKEOVER_ACTION_TEXT ||
+    typeof historyItem.operatorUserId !== 'string'
+  ) {
+    return null;
+  }
+
+  const note = extractSupportTicketTakeoverNote(historyItem.content);
+
+  return {
+    targetAdminUserId: historyItem.operatorUserId,
+    note,
+  };
+}
+
 function findSupportTicketAssignmentSeparatorIndex(content: string) {
   const chineseSeparatorIndex = content.indexOf('：');
 
@@ -346,4 +409,20 @@ function findSupportTicketAssignmentSeparatorIndex(content: string) {
   }
 
   return content.indexOf(':');
+}
+
+function extractSupportTicketTakeoverNote(content: string | undefined) {
+  if (
+    typeof content !== 'string' ||
+    !content.startsWith(SUPPORT_TICKET_TAKEOVER_CONTENT_PREFIX)
+  ) {
+    return extractSupportTicketClaimNote(content);
+  }
+
+  const remainder = content.slice(SUPPORT_TICKET_TAKEOVER_CONTENT_PREFIX.length);
+  const separatorIndex = findSupportTicketAssignmentSeparatorIndex(remainder);
+
+  return separatorIndex === -1
+    ? undefined
+    : remainder.slice(separatorIndex + 1).trim() || undefined;
 }

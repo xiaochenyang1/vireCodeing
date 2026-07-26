@@ -155,6 +155,23 @@ export class AdminSupportTicketsController {
     );
   }
 
+  @Post(':ticketId/takeover')
+  async takeoverSupportTicket(
+    @Req() request: AuthenticatedRequest,
+    @Param('ticketId') ticketId: string,
+    @Body(new ZodValidationPipe(claimSupportTicketSchema))
+    body: ClaimSupportTicketRequest,
+  ) {
+    return ok(
+      await this.supportTicketsService.takeoverSupportTicket(
+        getCurrentUserId(request, 'admin'),
+        parseSupportTicketId(ticketId),
+        parseClaimSupportTicketRequest(body),
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Post(':ticketId/assign')
   async assignSupportTicket(
     @Req() request: AuthenticatedRequest,

@@ -14,6 +14,7 @@ const EXCEPTION_CASE_CLAIM_CONTENT_PREFIX = '客服认领：';
 const EXCEPTION_CASE_UNCLAIM_CONTENT_PREFIX = '客服释放认领：';
 const EXCEPTION_CASE_ASSIGN_CONTENT_PREFIX = '客服指派给 ';
 const EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX = '客服转派给 ';
+const EXCEPTION_CASE_TAKEOVER_CONTENT_PREFIX = '客服强制接管自 ';
 const EXCEPTION_CASE_DEFAULT_CLAIM_NOTE = '当前客服已认领并接手跟进。';
 const EXCEPTION_CASE_DEFAULT_UNCLAIM_NOTE =
   '当前客服已释放认领，工单回到未认领队列。';
@@ -21,6 +22,8 @@ const EXCEPTION_CASE_DEFAULT_ASSIGN_NOTE =
   '当前异常工单已指派给指定客服跟进。';
 const EXCEPTION_CASE_DEFAULT_TRANSFER_NOTE =
   '当前异常工单已转派给指定客服继续跟进。';
+const EXCEPTION_CASE_DEFAULT_TAKEOVER_NOTE =
+  '当前客服已强制接管并继续跟进。';
 
 export function mapOrderExceptionCaseListWithSla(
   result: { items: OrderExceptionCaseRecord[]; total: number },
@@ -83,6 +86,20 @@ export function createOrderExceptionCaseAssignContent(
       : mode === 'assign'
         ? EXCEPTION_CASE_DEFAULT_ASSIGN_NOTE
         : EXCEPTION_CASE_DEFAULT_TRANSFER_NOTE
+  }`;
+}
+
+export function createOrderExceptionCaseTakeoverContent(
+  fromAdminUserId: string,
+  content?: string,
+) {
+  const normalizedNote = content?.trim();
+  const normalizedFromAdminUserId = fromAdminUserId.trim();
+
+  return `${EXCEPTION_CASE_TAKEOVER_CONTENT_PREFIX}${normalizedFromAdminUserId}：${
+    normalizedNote && normalizedNote.length > 0
+      ? normalizedNote
+      : EXCEPTION_CASE_DEFAULT_TAKEOVER_NOTE
   }`;
 }
 
@@ -189,6 +206,15 @@ export function isOrderExceptionCaseTransferContent(
   return (
     typeof content === 'string' &&
     content.startsWith(EXCEPTION_CASE_TRANSFER_CONTENT_PREFIX)
+  );
+}
+
+export function isOrderExceptionCaseTakeoverContent(
+  content: string | undefined,
+) {
+  return (
+    typeof content === 'string' &&
+    content.startsWith(EXCEPTION_CASE_TAKEOVER_CONTENT_PREFIX)
   );
 }
 
@@ -305,6 +331,16 @@ function buildOrderExceptionCaseClaimSnapshot(
       };
     }
 
+    const takeoverSnapshot = extractOrderExceptionCaseTakeoverSnapshot(action);
+
+    if (takeoverSnapshot) {
+      return {
+        claimedByAdminUserId: takeoverSnapshot.targetAdminUserId,
+        claimedAtIso: action.createdAtIso,
+        claimNote: takeoverSnapshot.note,
+      };
+    }
+
     if (!isOrderExceptionCaseClaimContent(action.content)) {
       continue;
     }
@@ -335,7 +371,8 @@ function shouldIgnoreOrderExceptionCaseActionForSlaAnchor(
     isOrderExceptionCaseClaimContent(action.content) ||
     isOrderExceptionCaseUnclaimContent(action.content) ||
     isOrderExceptionCaseAssignContent(action.content) ||
-    isOrderExceptionCaseTransferContent(action.content)
+    isOrderExceptionCaseTransferContent(action.content) ||
+    isOrderExceptionCaseTakeoverContent(action.content)
   );
 }
 
@@ -369,6 +406,33 @@ function extractOrderExceptionCaseAssignedSnapshot(content: string | undefined) 
 
   return {
     targetAdminUserId,
+    note,
+  };
+}
+
+function extractOrderExceptionCaseTakeoverSnapshot(
+  action: OrderExceptionCaseActionRecord,
+) {
+  if (
+    typeof action.adminUserId !== 'string' ||
+    !isOrderExceptionCaseTakeoverContent(action.content)
+  ) {
+    return null;
+  }
+
+  const remainder = action.content.slice(
+    EXCEPTION_CASE_TAKEOVER_CONTENT_PREFIX.length,
+  );
+  const separatorIndex = findOrderExceptionCaseAssignmentSeparatorIndex(
+    remainder,
+  );
+  const note =
+    separatorIndex === -1
+      ? undefined
+      : remainder.slice(separatorIndex + 1).trim() || undefined;
+
+  return {
+    targetAdminUserId: action.adminUserId,
     note,
   };
 }

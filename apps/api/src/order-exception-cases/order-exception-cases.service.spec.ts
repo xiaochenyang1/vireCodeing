@@ -469,6 +469,110 @@ describe('OrderExceptionCasesService', () => {
     });
   });
 
+  it('rejects claiming a case that is already claimed by the current or another admin', async () => {
+    const { exceptionCase, service } = await createCase();
+
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    await expect(
+      service.claimCase('admin-2', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员已经是该异常工单的认领人，无需重复认领',
+      ),
+    );
+
+    await expect(
+      service.claimCase('admin-3', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单已被其他客服认领，请使用强制接管流程',
+      ),
+    );
+  });
+
+  it('lets another admin force-take over an already claimed open case', async () => {
+    const { exceptionCase, service } = await createCase();
+
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    await expect(
+      service.takeoverCase('admin-4', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+        content: '主管改派给当前客服继续跟进。',
+      }),
+    ).resolves.toMatchObject({
+      claimedByAdminUserId: 'admin-4',
+      claimNote: '主管改派给当前客服继续跟进。',
+      actions: expect.arrayContaining([
+        expect.objectContaining({
+          adminUserId: 'admin-4',
+          fromStatus: 'pending',
+          toStatus: 'pending',
+          content: '客服强制接管自 admin-2：主管改派给当前客服继续跟进。',
+        }),
+      ]),
+    });
+
+    await expect(service.getForAdmin(exceptionCase.id)).resolves.toMatchObject({
+      claimedByAdminUserId: 'admin-4',
+      claimNote: '主管改派给当前客服继续跟进。',
+    });
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimedByAdminUserId: 'admin-4',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: exceptionCase.id })],
+    });
+  });
+
+  it('rejects forcing takeover for an unclaimed case or when the current admin already owns it', async () => {
+    const { exceptionCase, service } = await createCase();
+
+    await expect(
+      service.takeoverCase('admin-3', exceptionCase.id, {
+        baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单尚未被认领，无法强制接管',
+      ),
+    );
+
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    await expect(
+      service.takeoverCase('admin-2', exceptionCase.id, {
+        baseUpdatedAtIso: claimed.updatedAtIso,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前管理员已经是该异常工单的认领人，无需强制接管',
+      ),
+    );
+  });
+
   it('rejects claiming a resolved case', async () => {
     const { exceptionCase, service } = await createCase();
     const processing = await service.processCase('admin-1', exceptionCase.id, {
@@ -767,6 +871,55 @@ describe('OrderExceptionCasesService', () => {
     await expect(currentSnapshotService.getForAdmin(exceptionCase.id)).resolves.toMatchObject({
       claimedByAdminUserId: 'admin-3',
       claimNote: '白班客服接手继续跟进。',
+      sla: {
+        policyKey: 'exception_case_default_v1',
+        stage: 'resolution',
+        status: 'overdue',
+        targetAtIso: '2026-07-12T12:30:00.000Z',
+        overdueMinutes: 30,
+      },
+    });
+  });
+
+  it('does not reset the resolution SLA anchor when a processing case is force-taken over', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const service = new OrderExceptionCasesService(repository);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货物损坏',
+      description: '装货时发现外包装已经破损。',
+    });
+    const exceptionCase = (await repository.listOrderExceptionCases(order.id)).items[0];
+
+    currentTime = new Date('2026-07-12T08:30:00.000Z');
+    const processing = await service.processCase('admin-1', exceptionCase.id, {
+      baseUpdatedAtIso: exceptionCase.updatedAtIso,
+      content: '客服已经联系司机核实异常情况。',
+    });
+
+    currentTime = new Date('2026-07-12T09:00:00.000Z');
+    const claimed = await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: processing.updatedAtIso,
+      content: '夜班客服接手继续跟进。',
+    });
+
+    currentTime = new Date('2026-07-12T09:10:00.000Z');
+    await service.takeoverCase('admin-3', exceptionCase.id, {
+      baseUpdatedAtIso: claimed.updatedAtIso,
+      content: '主管要求白班客服直接继续跟进。',
+    });
+
+    const currentSnapshotService = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => new Date('2026-07-12T13:00:00.000Z'),
+    );
+
+    await expect(currentSnapshotService.getForAdmin(exceptionCase.id)).resolves.toMatchObject({
+      claimedByAdminUserId: 'admin-3',
+      claimNote: '主管要求白班客服直接继续跟进。',
       sla: {
         policyKey: 'exception_case_default_v1',
         stage: 'resolution',

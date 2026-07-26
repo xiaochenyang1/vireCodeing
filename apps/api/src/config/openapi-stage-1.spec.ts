@@ -1093,6 +1093,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/claim:');
+    expect(source).toContain('/admin/order-exception-cases/{caseId}/takeover:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/assign:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/unclaim:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/process:');
@@ -1165,7 +1166,17 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/order-exception-cases/{caseId}/claim',
-      'transfer uses the /assign endpoint.',
+      'Forced takeover of a',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/takeover',
+      "$ref: '#/components/schemas/ClaimOrderExceptionCaseRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases/{caseId}/takeover',
+      'Case force-taken over',
     );
     expectPathBlockToContain(
       source,
@@ -1175,7 +1186,7 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/order-exception-cases/{caseId}/assign',
-      'Case assigned or transferred',
+      'Forced takeover uses the',
     );
     expectPathBlockToContain(
       source,
@@ -1912,6 +1923,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/support-tickets/overdue-escalations/sweep:');
     expect(source).toContain('/admin/support-tickets/{ticketId}:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/claim:');
+    expect(source).toContain('/admin/support-tickets/{ticketId}/takeover:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/assign:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/unclaim:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
@@ -1919,7 +1931,10 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('List help-center support tickets for admin handling');
     expect(source).toContain('Run overdue support-ticket escalation sweep');
     expect(source).toContain('Get help-center support ticket detail');
-    expect(source).toContain('Claim an open help-center support ticket');
+    expect(source).toContain('Claim an unclaimed open help-center support ticket');
+    expect(source).toContain(
+      'Force-take over an already claimed open help-center support ticket',
+    );
     expect(source).toContain(
       'Assign or transfer an open help-center support ticket',
     );
@@ -1959,7 +1974,17 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/support-tickets/{ticketId}/claim',
-      'latest claim, assign, transfer or unclaim history item',
+      'latest claim, takeover, assign, transfer or unclaim history item',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/takeover',
+      "$ref: '#/components/schemas/ClaimSupportTicketRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/support-tickets/{ticketId}/takeover',
+      'Support ticket force-taken over',
     );
     expectPathBlockToContain(
       source,
@@ -1984,7 +2009,7 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/support-tickets/{ticketId}/unclaim',
-      'latest claim, assign, transfer or unclaim history item',
+      'latest claim, takeover, assign, transfer or unclaim history item',
     );
     expectPathBlockToContain(
       source,
@@ -1999,7 +2024,7 @@ describe('stage 1 OpenAPI contract', () => {
     expectSchemaBlockToContain(
       source,
       'ClaimSupportTicketRequest',
-      'Optional claim or release note shown in admin history and the derived claim snapshot.',
+      'Optional claim, takeover or release note shown in admin history and the derived claim snapshot.',
     );
     expectSchemaBlockToContain(
       source,
@@ -2009,7 +2034,7 @@ describe('stage 1 OpenAPI contract', () => {
     expectSchemaBlockToContain(
       source,
       'ClaimOrderExceptionCaseRequest',
-      'Optional claim or release note shown in admin audit history and the derived claim snapshot.',
+      'Optional claim, takeover or release note shown in admin audit history and the derived claim snapshot.',
     );
     expect(source).toContain('AdminOnlyError:');
   });

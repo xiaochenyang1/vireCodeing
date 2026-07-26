@@ -73,14 +73,14 @@ const defaultModules = [
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
     summary:
-      '分页查看货主帮助中心工单、按 SLA/认领状态筛队列、查看 SLA 提醒和详情，并可对 open 工单认领、指派 / 转派或释放认领后再推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
+      '分页查看货主帮助中心工单、按 SLA/认领状态筛队列、查看 SLA 提醒和详情，并可对未认领 open 工单认领、对自己名下工单指派 / 转派或释放认领、对他人已认领工单强制接管后再推进 pending -> processing -> resolved 状态流转；也支持执行超时升级扫描并把升级消息回流给货主。',
   },
   {
     key: 'order-exception-case',
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
     summary:
-      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；也能先认领到当前客服、再指派 / 转派或释放认领，再执行超时升级扫描并把升级消息回流给相关方。',
+      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；也能认领未认领工单、转派或释放自己名下工单、强制接管他人已认领工单，再执行超时升级扫描并把升级消息回流给相关方。',
   },
   {
     key: 'shipper-coupon',

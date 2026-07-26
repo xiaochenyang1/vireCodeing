@@ -2264,8 +2264,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
   /admin/support-tickets/{ticketId}/claim:
     post:
-      summary: Claim an open help-center support ticket
-      description: Appends a same-status claim history item so the current administrator can explicitly take over a pending or processing help-center support ticket. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, assign, transfer or unclaim history item. Targeted seat assignment or transfer uses the /assign endpoint.
+      summary: Claim an unclaimed open help-center support ticket
+      description: Appends a same-status claim history item so the current administrator can explicitly claim an unclaimed pending or processing help-center support ticket. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, takeover, assign, transfer or unclaim history item. Forced takeover of a ticket already claimed by another administrator uses the /takeover endpoint. Targeted seat assignment or transfer uses the /assign endpoint.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: ticketId, in: path, required: true, schema: { type: string } }
@@ -2298,10 +2298,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /admin/support-tickets/{ticketId}/takeover:
+    post:
+      summary: Force-take over an already claimed open help-center support ticket
+      description: Appends a same-status takeover history item so the current administrator can explicitly force-take over a pending or processing help-center support ticket that is already claimed by another administrator. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, takeover, assign, transfer or unclaim history item.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: ticketId, in: path, required: true, schema: { type: string } }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimSupportTicketRequest'
+      responses:
+        '200':
+          description: Support ticket force-taken over
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperSupportTicketResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: SUPPORT_TICKET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /admin/support-tickets/{ticketId}/assign:
     post:
       summary: Assign or transfer an open help-center support ticket
-      description: Appends a same-status assignment history item so an administrator can assign an unclaimed pending or processing help-center support ticket to a specific administrator, or the current claimer can transfer it to another administrator, without changing business status. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, assign, transfer or unclaim history item.
+      description: Appends a same-status assignment history item so an administrator can assign an unclaimed pending or processing help-center support ticket to a specific administrator, or the current claimer can transfer it to another administrator, without changing business status. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, takeover, assign, transfer or unclaim history item.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: ticketId, in: path, required: true, schema: { type: string } }
@@ -2337,7 +2373,7 @@ paths:
   /admin/support-tickets/{ticketId}/unclaim:
     post:
       summary: Release a claimed help-center support ticket
-      description: Appends a same-status unclaim history item so the current claiming administrator can release a pending or processing help-center support ticket back to the shared queue. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, assign, transfer or unclaim history item.
+      description: Appends a same-status unclaim history item so the current claiming administrator can release a pending or processing help-center support ticket back to the shared queue. Uses baseUpdatedAtIso optimistic concurrency and derives claimedByAdminUserId/claimedAtIso/claimNote from the latest claim, takeover, assign, transfer or unclaim history item.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: ticketId, in: path, required: true, schema: { type: string } }
@@ -5842,12 +5878,13 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
   /admin/order-exception-cases/{caseId}/claim:
     post:
-      summary: Claim an open exception case for the current administrator
+      summary: Claim an unclaimed open exception case for the current administrator
       description: >-
-        Appends a same-status claim audit so the current administrator can explicitly take over an
-        open exception case without changing its business status. Targeted seat assignment or
-        transfer uses the /assign endpoint. This first slice still does not include automatic load
-        balancing or staffing rules.
+        Appends a same-status claim audit so the current administrator can explicitly claim an
+        unclaimed open exception case without changing its business status. Forced takeover of a
+        case already claimed by another administrator uses the /takeover endpoint. Targeted seat
+        assignment or transfer uses the /assign endpoint. This first slice still does not include
+        automatic load balancing or staffing rules.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: caseId, in: path, required: true, schema: { type: string } }
@@ -5860,14 +5897,34 @@ paths:
       responses:
         '200': { description: Case claimed, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
         '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /admin/order-exception-cases/{caseId}/takeover:
+    post:
+      summary: Force-take over an already claimed open exception case
+      description: >-
+        Appends a same-status takeover audit so the current administrator can explicitly
+        force-take over an open exception case that is already claimed by another administrator,
+        without changing business status.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimOrderExceptionCaseRequest' }
+      responses:
+        '200': { description: Case force-taken over, content: { application/json: { schema: { $ref: '#/components/schemas/OrderExceptionCaseResponse' } } } }
+        '409': { description: EXCEPTION_CASE_STATE_INVALID or EXCEPTION_CASE_CONFLICT, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
   /admin/order-exception-cases/{caseId}/assign:
     post:
       summary: Assign or transfer an open exception case to a specific administrator
       description: >-
         Appends a same-status assignment audit so an administrator can assign an unclaimed open
         exception case to a specific administrator, or the current claimer can transfer it to
-        another administrator, without changing business status. This first slice still does not
-        include automatic load balancing, staffing rules or supervisor forced takeover.
+        another administrator, without changing business status. Forced takeover uses the
+        /takeover endpoint. This first slice still does not include automatic load balancing or
+        staffing rules.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: caseId, in: path, required: true, schema: { type: string } }
@@ -12823,7 +12880,7 @@ components:
         content:
           type: string
           maxLength: 200
-          description: Optional claim or release note shown in admin history and the derived claim snapshot.
+          description: Optional claim, takeover or release note shown in admin history and the derived claim snapshot.
           example: 夜班客服先认领跟进。
     AssignSupportTicketRequest:
       type: object
@@ -13150,7 +13207,7 @@ components:
         content:
           type: string
           maxLength: 200
-          description: Optional claim or release note shown in admin audit history and the derived claim snapshot.
+          description: Optional claim, takeover or release note shown in admin audit history and the derived claim snapshot.
     AssignOrderExceptionCaseRequest:
       type: object
       required: [baseUpdatedAtIso, targetAdminUserId]
