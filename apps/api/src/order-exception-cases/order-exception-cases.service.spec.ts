@@ -215,6 +215,133 @@ describe('OrderExceptionCasesService', () => {
     );
   });
 
+  it('filters admin exception queues by derived claim snapshot and SLA status', async () => {
+    let currentTime = new Date('2026-07-12T08:00:00.000Z');
+    const repository = new InMemoryOrdersRepository(() => currentTime);
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => currentTime,
+    );
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '司机延误',
+      description: '第一张异常工单已认领并超时。',
+    });
+    currentTime = new Date('2026-07-12T08:01:00.000Z');
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '货损',
+      description: '第二张异常工单未认领但已超时。',
+    });
+    currentTime = new Date('2026-07-12T08:10:00.000Z');
+    await repository.reportOrderException(order.id, 'shipper-1', {
+      typeLabel: '沟通异常',
+      description: '第三张异常工单已认领仍在时限内。',
+    });
+
+    const snapshot = await repository.listOrderExceptionCases(order.id);
+    const firstCase = snapshot.items.find(
+      item => item.description === '第一张异常工单已认领并超时。',
+    );
+    const secondCase = snapshot.items.find(
+      item => item.description === '第二张异常工单未认领但已超时。',
+    );
+    const thirdCase = snapshot.items.find(
+      item => item.description === '第三张异常工单已认领仍在时限内。',
+    );
+
+    if (!firstCase || !secondCase || !thirdCase) {
+      throw new Error('expected seeded exception cases to exist');
+    }
+
+    currentTime = new Date('2026-07-12T08:12:00.000Z');
+    await service.claimCase('admin-2', firstCase.id, {
+      baseUpdatedAtIso: firstCase.updatedAtIso,
+      content: '客服 A 先认领。',
+    });
+
+    currentTime = new Date('2026-07-12T08:13:00.000Z');
+    await service.claimCase('admin-3', thirdCase.id, {
+      baseUpdatedAtIso: thirdCase.updatedAtIso,
+      content: '客服 B 先认领。',
+    });
+
+    currentTime = new Date('2026-07-12T08:20:00.000Z');
+
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimStatus: 'claimed',
+      }),
+    ).resolves.toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({
+          id: thirdCase.id,
+          claimedByAdminUserId: 'admin-3',
+          sla: expect.objectContaining({ status: 'within_target' }),
+        }),
+        expect.objectContaining({
+          id: firstCase.id,
+          claimedByAdminUserId: 'admin-2',
+          sla: expect.objectContaining({ status: 'overdue' }),
+        }),
+      ],
+    });
+
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimStatus: 'unclaimed',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: secondCase.id,
+          sla: expect.objectContaining({ status: 'overdue' }),
+        }),
+      ],
+    });
+
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimedByAdminUserId: 'admin-2',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: firstCase.id,
+          claimedByAdminUserId: 'admin-2',
+        }),
+      ],
+    });
+
+    await expect(
+      service.listForAdmin({
+        page: 1,
+        pageSize: 20,
+        claimStatus: 'claimed',
+        slaStatus: 'overdue',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: firstCase.id,
+          claimedByAdminUserId: 'admin-2',
+          sla: expect.objectContaining({ status: 'overdue' }),
+        }),
+      ],
+    });
+  });
+
   it('processes, resolves and closes a case with public action history', async () => {
     const { exceptionCase, service } = await createCase();
 

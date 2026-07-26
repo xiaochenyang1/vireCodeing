@@ -1871,6 +1871,9 @@ describe('platform order api', () => {
         sourceRole: 'driver',
         compensationStatus: 'pending',
         appealStatus: 'requested',
+        slaStatus: ' overdue ' as 'overdue',
+        claimStatus: ' claimed ' as 'claimed',
+        claimedByAdminUserId: ' admin-2 ',
         keyword: '  YC202607250001  ',
         createdFromIso: ' 2026-07-01T00:00:00.000Z ',
         createdToIso: ' 2026-07-03T00:00:00.000Z ',
@@ -1892,7 +1895,7 @@ describe('platform order api', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/admin/order-exception-cases?status=processing&sourceRole=driver&compensationStatus=pending&appealStatus=requested&keyword=YC202607250001&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=2&pageSize=10',
+      'http://localhost:3000/api/admin/order-exception-cases?status=processing&sourceRole=driver&compensationStatus=pending&appealStatus=requested&slaStatus=overdue&claimStatus=claimed&claimedByAdminUserId=admin-2&keyword=YC202607250001&createdFromIso=2026-07-01T00%3A00%3A00.000Z&createdToIso=2026-07-03T00%3A00%3A00.000Z&page=2&pageSize=10',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -2189,6 +2192,12 @@ describe('platform order api', () => {
     const invalidAppealStatusQuery = {
       appealStatus: 'missing',
     } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
+    const invalidClaimStatusQuery = {
+      claimStatus: 'mine',
+    } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
+    const invalidClaimedByAdminUserIdQuery = {
+      claimedByAdminUserId: 'a'.repeat(121),
+    } as unknown as Parameters<typeof api.listAdminOrderExceptionCases>[0];
     const invalidProcessRequest = {
       baseUpdatedAtIso: 'invalid',
       content: 'short',
@@ -2232,6 +2241,18 @@ describe('platform order api', () => {
     } satisfies Partial<PlatformApiError>);
     await expect(
       api.listAdminOrderExceptionCases(invalidAppealStatusQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.listAdminOrderExceptionCases(invalidClaimStatusQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.listAdminOrderExceptionCases(invalidClaimedByAdminUserIdQuery),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
       status: 0,

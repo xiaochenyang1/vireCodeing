@@ -21,6 +21,7 @@ export type OrderExceptionCaseAppealDecision = Extract<
   OrderExceptionCaseAppealStatus,
   'rejected' | 'accepted'
 >;
+export type OrderExceptionCaseClaimStatus = 'claimed' | 'unclaimed';
 
 export type OrderExceptionCaseSlaPolicyKey =
   'exception_case_default_v1';
@@ -92,6 +93,8 @@ export type OrderExceptionCaseListQuery = {
   compensationStatus?: OrderExceptionCaseCompensationStatus;
   appealStatus?: OrderExceptionCaseAppealStatus;
   slaStatus?: OrderExceptionCaseSlaStatus;
+  claimStatus?: OrderExceptionCaseClaimStatus;
+  claimedByAdminUserId?: string;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;

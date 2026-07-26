@@ -22,6 +22,8 @@ describe('order exception case validation', () => {
         compensationStatus: 'pending',
         appealStatus: 'requested',
         slaStatus: 'overdue',
+        claimStatus: 'claimed',
+        claimedByAdminUserId: ' admin-2 ',
         keyword: ' HY2026 ',
         createdFromIso: '2026-07-01T00:00:00.000Z',
         createdToIso: '2026-08-01T00:00:00.000Z',
@@ -34,6 +36,8 @@ describe('order exception case validation', () => {
       compensationStatus: 'pending',
       appealStatus: 'requested',
       slaStatus: 'overdue',
+      claimStatus: 'claimed',
+      claimedByAdminUserId: 'admin-2',
       keyword: 'HY2026',
       createdFromIso: '2026-07-01T00:00:00.000Z',
       createdToIso: '2026-08-01T00:00:00.000Z',
@@ -63,6 +67,16 @@ describe('order exception case validation', () => {
     expect(() =>
       parseOrderExceptionCaseListQuery({
         slaStatus: 'bad-status',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseOrderExceptionCaseListQuery({
+        claimStatus: 'bad-status',
+      }),
+    ).toThrow();
+    expect(() =>
+      parseOrderExceptionCaseListQuery({
+        claimedByAdminUserId: 'a'.repeat(121),
       }),
     ).toThrow();
   });

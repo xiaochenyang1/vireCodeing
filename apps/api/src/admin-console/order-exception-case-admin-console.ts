@@ -18,7 +18,8 @@ export function renderOrderExceptionCaseAdminConsole() {
     body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #17202a; }
     .console-shell { display: grid; grid-template-columns: minmax(360px, 42%) 1fr; gap: 16px; padding: 16px; }
     .panel { background: #fff; border: 1px solid #d8dee4; border-radius: 12px; padding: 16px; }
-    .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .full-span { grid-column: 1 / span 4; }
     input, select, textarea, button { box-sizing: border-box; width: 100%; padding: 9px; margin: 4px 0; }
     textarea { min-height: 88px; resize: vertical; }
     button { cursor: pointer; background: #1769aa; color: #fff; border: 0; border-radius: 8px; }
@@ -32,14 +33,14 @@ export function renderOrderExceptionCaseAdminConsole() {
     .error { color: #b42318; white-space: pre-wrap; }
     .action { border-left: 3px solid #98a2b3; padding-left: 10px; margin: 10px 0; }
     ${renderAdminConsoleNavStyles()}
-    @media (max-width: 820px) { .console-shell { grid-template-columns: 1fr; } }
+    @media (max-width: 820px) { .console-shell { grid-template-columns: 1fr; } .filters { grid-template-columns: 1fr; } .full-span { grid-column: auto; } }
   </style>
 </head>
 <body>
   <main class="console-shell">
     <section class="panel">
       <h1>异常客服工单</h1>
-      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按 SLA 状态筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
+      <p class="muted">这页现在除了看异常工单流转、认领、赔付执行和申诉裁定，也会直接给出受理 / 解决 SLA 提醒，并支持按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；自动超时升级第一片也已经补到“可手动扫描 + 可选定时扫”，坐席分配、会话联动和退款联动还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/order-exception-case-console',
@@ -53,8 +54,10 @@ export function renderOrderExceptionCaseAdminConsole() {
         <label>赔付<select id="caseListCompensationStatusInput"><option value="">全部</option><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option><option value="executed">平台已赔付到账</option></select></label>
         <label>申诉<select id="caseListAppealStatusInput"><option value="">全部</option><option value="none">未申诉</option><option value="requested">申诉处理中</option><option value="rejected">申诉已驳回</option><option value="accepted">申诉已受理</option></select></label>
         <label>SLA 状态<select id="caseListSlaStatusInput"><option value="">全部</option><option value="within_target">时限内</option><option value="overdue">已超时</option><option value="resolved_within_target">按时解决</option><option value="resolved_overdue">超时解决</option></select></label>
-        <label>订单号/工单号<input id="caseKeywordInput" /></label>
+        <label>认领状态<select id="caseClaimStatusInput"><option value="">全部</option><option value="claimed">已认领</option><option value="unclaimed">未认领</option></select></label>
         <label>每页<input id="casePageSizeInput" type="number" value="20" min="1" max="50" /></label>
+        <label>认领客服 ID<input id="caseClaimedByAdminUserIdInput" placeholder="例如 admin-1" /></label>
+        <label class="full-span">订单号/工单号<input id="caseKeywordInput" /></label>
       </div>
       <div class="session-row">
         <button id="loadCasesButton" class="inline-button" onclick="loadCases(1)">查询工单</button>
@@ -204,6 +207,8 @@ export function renderOrderExceptionCaseAdminConsole() {
         compensationStatus: query.get('compensationStatus') || '',
         appealStatus: query.get('appealStatus') || '',
         slaStatus: query.get('slaStatus') || '',
+        claimStatus: query.get('claimStatus') || '',
+        claimedByAdminUserId: query.get('claimedByAdminUserId') || '',
         keyword: query.get('keyword') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
@@ -217,6 +222,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       document.getElementById('caseListCompensationStatusInput').value = routeState.compensationStatus;
       document.getElementById('caseListAppealStatusInput').value = routeState.appealStatus;
       document.getElementById('caseListSlaStatusInput').value = routeState.slaStatus;
+      document.getElementById('caseClaimStatusInput').value = routeState.claimStatus;
+      document.getElementById('caseClaimedByAdminUserIdInput').value = routeState.claimedByAdminUserId;
       document.getElementById('caseKeywordInput').value = routeState.keyword;
       if (routeState.pageSize) {
         document.getElementById('casePageSizeInput').value = String(
@@ -240,6 +247,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
       const appealStatus = document.getElementById('caseListAppealStatusInput').value;
       const slaStatus = document.getElementById('caseListSlaStatusInput').value;
+      const claimStatus = document.getElementById('caseClaimStatusInput').value;
+      const claimedByAdminUserId = document.getElementById('caseClaimedByAdminUserIdInput').value.trim();
       const keyword = document.getElementById('caseKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('casePageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
@@ -248,6 +257,8 @@ export function renderOrderExceptionCaseAdminConsole() {
       if (compensationStatus) query.set('compensationStatus', compensationStatus);
       if (appealStatus) query.set('appealStatus', appealStatus);
       if (slaStatus) query.set('slaStatus', slaStatus);
+      if (claimStatus) query.set('claimStatus', claimStatus);
+      if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
       if (keyword) query.set('keyword', keyword);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
@@ -401,12 +412,16 @@ export function renderOrderExceptionCaseAdminConsole() {
         const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
         const appealStatus = document.getElementById('caseListAppealStatusInput').value;
         const slaStatus = document.getElementById('caseListSlaStatusInput').value;
+        const claimStatus = document.getElementById('caseClaimStatusInput').value;
+        const claimedByAdminUserId = document.getElementById('caseClaimedByAdminUserIdInput').value.trim();
         const keyword = document.getElementById('caseKeywordInput').value.trim();
         if (status) query.set('status', status);
         if (sourceRole) query.set('sourceRole', sourceRole);
         if (compensationStatus) query.set('compensationStatus', compensationStatus);
         if (appealStatus) query.set('appealStatus', appealStatus);
         if (slaStatus) query.set('slaStatus', slaStatus);
+        if (claimStatus) query.set('claimStatus', claimStatus);
+        if (claimedByAdminUserId) query.set('claimedByAdminUserId', claimedByAdminUserId);
         if (keyword) query.set('keyword', keyword);
         syncOrderExceptionCaseRouteState(currentPage);
         const result = await api('/admin/order-exception-cases?' + query.toString());

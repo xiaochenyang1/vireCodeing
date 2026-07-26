@@ -80,7 +80,7 @@ const defaultModules = [
     title: '异常客服工单台',
     route: '/api/admin/order-exception-case-console',
     summary:
-      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态和 SLA 状态筛队列；也能先认领到当前客服，再执行超时升级扫描并把升级消息回流给相关方。',
+      '处理货主/司机异常工单，查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列；也能先认领到当前客服，再执行超时升级扫描并把升级消息回流给相关方。',
   },
   {
     key: 'shipper-coupon',

@@ -57,6 +57,8 @@ describe('order exception case controllers', () => {
       compensationStatus: 'pending',
       appealStatus: 'requested',
       slaStatus: 'overdue',
+      claimStatus: 'claimed',
+      claimedByAdminUserId: 'admin-2',
     });
     await controller.getCase(createRequest('admin-1', 'admin'), ' case-1 ');
 
@@ -67,6 +69,8 @@ describe('order exception case controllers', () => {
       compensationStatus: 'pending',
       appealStatus: 'requested',
       slaStatus: 'overdue',
+      claimStatus: 'claimed',
+      claimedByAdminUserId: 'admin-2',
     });
     expect(service.getForAdmin).toHaveBeenCalledWith('case-1');
   });

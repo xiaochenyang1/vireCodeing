@@ -58,14 +58,21 @@ export class OrderExceptionCasesService {
   async listForAdmin(query: OrderExceptionCaseListQuery) {
     const currentTime = this.now();
 
-    if (query.slaStatus) {
+    if (query.slaStatus || query.claimStatus || query.claimedByAdminUserId) {
       const filteredItems = (
         await this.listAllAdminExceptionCasesMatching(query)
       )
         .map(exceptionCase =>
           mapOrderExceptionCaseWithSla(exceptionCase, currentTime),
         )
-        .filter(exceptionCase => exceptionCase.sla?.status === query.slaStatus);
+        .filter(exceptionCase =>
+          matchesOrderExceptionCaseClaimFilters(exceptionCase, query),
+        )
+        .filter(
+          exceptionCase =>
+            query.slaStatus === undefined ||
+            exceptionCase.sla?.status === query.slaStatus,
+        );
 
       return createAdminOrderExceptionCasePage(
         filteredItems,
@@ -475,4 +482,32 @@ function createAdminOrderExceptionCasePage(
     pageSize,
     total: items.length,
   };
+}
+
+function matchesOrderExceptionCaseClaimFilters(
+  exceptionCase: OrderExceptionCaseRecord,
+  query: OrderExceptionCaseListQuery,
+) {
+  if (
+    query.claimStatus === 'claimed' &&
+    !exceptionCase.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  if (
+    query.claimStatus === 'unclaimed' &&
+    exceptionCase.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  if (
+    query.claimedByAdminUserId &&
+    exceptionCase.claimedByAdminUserId !== query.claimedByAdminUserId
+  ) {
+    return false;
+  }
+
+  return true;
 }

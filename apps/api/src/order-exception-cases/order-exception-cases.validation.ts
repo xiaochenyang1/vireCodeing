@@ -41,6 +41,10 @@ export const orderExceptionCaseListQuerySchema = z
         'resolved_overdue',
       ])
       .optional(),
+    claimStatus: z.enum(['claimed', 'unclaimed']).optional(),
+    claimedByAdminUserId: optionalTrimmedString.pipe(
+      z.string().max(120).optional(),
+    ),
     keyword: z
       .string()
       .trim()

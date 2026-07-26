@@ -5708,6 +5708,8 @@ paths:
         - { name: compensationStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus' } }
         - { name: appealStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseAppealStatus' } }
         - { name: slaStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseSlaStatus' } }
+        - { name: claimStatus, in: query, schema: { $ref: '#/components/schemas/OrderExceptionCaseClaimStatus' } }
+        - { name: claimedByAdminUserId, in: query, schema: { type: string, maxLength: 120 } }
         - { name: keyword, in: query, schema: { type: string, maxLength: 80 } }
         - { name: createdFromIso, in: query, schema: { type: string, format: date-time } }
         - { name: createdToIso, in: query, schema: { type: string, format: date-time } }
@@ -12876,6 +12878,13 @@ components:
         appealDecision.
       enum: [none, requested, rejected, accepted]
       example: none
+    OrderExceptionCaseClaimStatus:
+      type: string
+      description: >-
+        Derived lightweight seat-claim snapshot for admin queue triage. claimed
+        means the latest open-case claim action resolved to a specific admin.
+      enum: [claimed, unclaimed]
+      example: claimed
     OrderExceptionCaseSlaStage:
       type: string
       description: >-

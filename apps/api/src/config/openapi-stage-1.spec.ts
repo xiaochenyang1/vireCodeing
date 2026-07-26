@@ -1108,6 +1108,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('OrderExceptionCaseSla');
     expect(source).toContain('OrderExceptionCaseSlaStage');
     expect(source).toContain('OrderExceptionCaseSlaStatus');
+    expect(source).toContain('OrderExceptionCaseClaimStatus');
     expect(source).toContain('ResolveOrderExceptionCaseRequest');
     expect(source).toContain('compensationStatus');
     expect(source).toContain('appealDecision');
@@ -1137,6 +1138,16 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/order-exception-cases',
       'name: slaStatus',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases',
+      'name: claimStatus',
+    );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases',
+      'name: claimedByAdminUserId',
     );
     expectPathBlockToContain(
       source,

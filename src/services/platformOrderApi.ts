@@ -150,6 +150,9 @@ export type PlatformOrderExceptionCaseAppealDecision = Extract<
   PlatformOrderExceptionCaseAppealStatus,
   'accepted' | 'rejected'
 >;
+export type PlatformOrderExceptionCaseClaimStatus =
+  | 'claimed'
+  | 'unclaimed';
 
 export type PlatformOrderExceptionCaseSlaPolicyKey =
   'exception_case_default_v1';
@@ -524,6 +527,8 @@ export type PlatformListAdminOrderExceptionCasesQuery = {
   compensationStatus?: PlatformOrderExceptionCaseCompensationStatus;
   appealStatus?: PlatformOrderExceptionCaseAppealStatus;
   slaStatus?: PlatformOrderExceptionCaseSlaStatus;
+  claimStatus?: PlatformOrderExceptionCaseClaimStatus;
+  claimedByAdminUserId?: string;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;
@@ -1911,6 +1916,18 @@ function normalizeAdminOrderExceptionCasesQuery(
     'Platform admin order exception slaStatus is invalid',
     ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
   ) as PlatformOrderExceptionCaseSlaStatus | undefined;
+  const claimStatus = normalizeOptionalTrimmedString(
+    query.claimStatus,
+    20,
+    'Platform admin order exception claimStatus is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as PlatformOrderExceptionCaseClaimStatus | undefined;
+  const claimedByAdminUserId = normalizeOptionalTrimmedString(
+    query.claimedByAdminUserId,
+    120,
+    'Platform admin order exception claimedByAdminUserId is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  );
   const keyword = normalizeOptionalTrimmedString(
     query.keyword,
     80,
@@ -2000,6 +2017,18 @@ function normalizeAdminOrderExceptionCasesQuery(
     );
   }
 
+  if (
+    claimStatus !== undefined &&
+    claimStatus !== 'claimed' &&
+    claimStatus !== 'unclaimed'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception claimStatus is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
   if (!Number.isInteger(page) || page < 1) {
     throw new PlatformApiError(
       'Platform admin order exception page is invalid',
@@ -2045,6 +2074,8 @@ function normalizeAdminOrderExceptionCasesQuery(
     ...(compensationStatus ? { compensationStatus } : {}),
     ...(appealStatus ? { appealStatus } : {}),
     ...(slaStatus ? { slaStatus } : {}),
+    ...(claimStatus ? { claimStatus } : {}),
+    ...(claimedByAdminUserId ? { claimedByAdminUserId } : {}),
     ...(keyword ? { keyword } : {}),
     ...(createdFromIso ? { createdFromIso } : {}),
     ...(createdToIso ? { createdToIso } : {}),
