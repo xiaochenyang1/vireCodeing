@@ -325,6 +325,24 @@ describe('order change request admin console page', () => {
     expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
     expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
   });
+
+  it('executes the shared admin session bootstrap before auto-loading the order change queue', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+    const applicationScriptStart = html.lastIndexOf('<script>');
+    const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
+    const sessionBootstrapIndex = html.indexOf(
+      "const adminSessionStorageKey = 'stage1AdminSession'",
+    );
+
+    expect(sessionBootstrapIndex).toBeGreaterThan(applicationScriptStart);
+    expect(sessionBootstrapIndex).toBeLessThan(applicationScriptEnd);
+    expect(html).toContain('const stored = readStoredAdminSession()');
+    expect(html).toContain('stored.session?.accessToken');
+    expect(html).toContain('const currentAdminSession = initializeAdminSession()');
+    expect(html).toContain(
+      'if (currentAdminSession && currentAdminSession.accessToken)',
+    );
+  });
 });
 
 describe('shipper invoice admin console page', () => {

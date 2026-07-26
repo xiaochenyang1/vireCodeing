@@ -170,9 +170,6 @@ export function renderOrderChangeRequestAdminConsole() {
       </div>
     </section>
   </div>
-  ${renderAdminSessionScript({
-    currentRoute: '/api/admin/order-change-request-console',
-  })}
   <script>
     const listApiBase = document.querySelector('meta[name="admin-order-change-request-api"]').content;
     const orderApiBase = document.querySelector('meta[name="admin-order-api"]').content;
@@ -180,9 +177,13 @@ export function renderOrderChangeRequestAdminConsole() {
     let currentItems = [];
     let latestQueueRequestId = 0;
     let latestReviewEventsRequestId = 0;
+    ${renderAdminSessionScript({
+      currentRoute: '/api/admin/order-change-request-console',
+    })}
 
     function getToken() {
-      return window.__adminSession?.getAccessToken?.() || localStorage.getItem('adminAccessToken') || '';
+      const stored = readStoredAdminSession();
+      return stored.session?.accessToken || localStorage.getItem('adminAccessToken') || '';
     }
 
     function setText(id, text) {
@@ -468,7 +469,10 @@ export function renderOrderChangeRequestAdminConsole() {
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
     applyOrderChangeRequestRouteState();
-    loadQueue();
+    const currentAdminSession = initializeAdminSession();
+    if (currentAdminSession && currentAdminSession.accessToken) {
+      loadQueue();
+    }
   </script>
 </body>
 </html>`;
