@@ -521,6 +521,144 @@ export function renderSessionGovernanceAdminConsole() {
       return query;
     }
 
+    function readSessionGovernanceRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        sessionScope: query.get('sessionScope') || 'current_admin',
+        sessionUserType: query.get('sessionUserType') || '',
+        sessionKeyword: query.get('sessionKeyword') || '',
+        sessionRiskOnly: query.get('sessionRiskOnly') || '',
+        sessionRiskTag: query.get('sessionRiskTag') || '',
+        sessionPage: query.get('sessionPage') || '',
+        sessionPageSize: query.get('sessionPageSize') || '',
+        auditAction: query.get('auditAction') || '',
+        auditResult: query.get('auditResult') || '',
+        auditKeyword: query.get('auditKeyword') || '',
+        auditPage: query.get('auditPage') || '',
+        auditPageSize: query.get('auditPageSize') || '',
+      };
+    }
+
+    function applySessionGovernanceRouteState() {
+      const routeState = readSessionGovernanceRouteState();
+      document.getElementById('sessionScopeInput').value = routeState.sessionScope;
+      document.getElementById('sessionUserTypeInput').value = routeState.sessionUserType;
+      document.getElementById('sessionKeywordInput').value = routeState.sessionKeyword;
+      document.getElementById('sessionRiskOnlyInput').value =
+        routeState.sessionRiskOnly === 'true' ? 'true' : 'false';
+      document.getElementById('sessionRiskTagInput').value = routeState.sessionRiskTag;
+      if (routeState.sessionPage) {
+        currentSessionPage = Math.max(1, Number.parseInt(routeState.sessionPage, 10) || 1);
+      }
+      if (routeState.sessionPageSize) {
+        document.getElementById('sessionPageSizeInput').value = String(
+          Math.min(50, Math.max(1, Number.parseInt(routeState.sessionPageSize, 10) || 20)),
+        );
+      }
+
+      document.getElementById('sessionAuditActionInput').value = routeState.auditAction;
+      document.getElementById('sessionAuditResultInput').value = routeState.auditResult;
+      document.getElementById('sessionAuditKeywordInput').value = routeState.auditKeyword;
+      if (routeState.auditPage) {
+        currentSessionAuditPage = Math.max(1, Number.parseInt(routeState.auditPage, 10) || 1);
+      }
+      if (routeState.auditPageSize) {
+        document.getElementById('sessionAuditPageSizeInput').value = String(
+          Math.min(50, Math.max(1, Number.parseInt(routeState.auditPageSize, 10) || 20)),
+        );
+      }
+      return routeState;
+    }
+
+    function syncSessionGovernanceRouteState(sessionPageOverride, auditPageOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const sessionScope = document.getElementById('sessionScopeInput').value || 'current_admin';
+      const sessionUserType = document.getElementById('sessionUserTypeInput').value;
+      const sessionKeyword = document.getElementById('sessionKeywordInput').value.trim();
+      const sessionRiskOnly = document.getElementById('sessionRiskOnlyInput').value === 'true';
+      const sessionRiskTag = document.getElementById('sessionRiskTagInput').value;
+      const sessionPage = Math.max(
+        1,
+        Number.parseInt(String(sessionPageOverride || currentSessionPage || 1), 10) || 1,
+      );
+      const sessionPageSize = Math.min(
+        50,
+        Math.max(
+          1,
+          Number.parseInt(
+            String(document.getElementById('sessionPageSizeInput').value || '20'),
+            10,
+          ) || 20,
+        ),
+      );
+      const auditAction = document.getElementById('sessionAuditActionInput').value;
+      const auditResult = document.getElementById('sessionAuditResultInput').value;
+      const auditKeyword = document.getElementById('sessionAuditKeywordInput').value.trim();
+      const auditPage = Math.max(
+        1,
+        Number.parseInt(String(auditPageOverride || currentSessionAuditPage || 1), 10) || 1,
+      );
+      const auditPageSize = Math.min(
+        50,
+        Math.max(
+          1,
+          Number.parseInt(
+            String(document.getElementById('sessionAuditPageSizeInput').value || '20'),
+            10,
+          ) || 20,
+        ),
+      );
+
+      if (sessionScope && sessionScope !== 'current_admin') {
+        query.set('sessionScope', sessionScope);
+      }
+      if (sessionUserType) {
+        query.set('sessionUserType', sessionUserType);
+      }
+      if (sessionKeyword) {
+        query.set('sessionKeyword', sessionKeyword);
+      }
+      if (sessionRiskOnly) {
+        query.set('sessionRiskOnly', 'true');
+      }
+      if (sessionRiskTag) {
+        query.set('sessionRiskTag', sessionRiskTag);
+      }
+      if (sessionPage > 1) {
+        query.set('sessionPage', String(sessionPage));
+      }
+      if (sessionPageSize !== 20) {
+        query.set('sessionPageSize', String(sessionPageSize));
+      }
+      if (auditAction) {
+        query.set('auditAction', auditAction);
+      }
+      if (auditResult) {
+        query.set('auditResult', auditResult);
+      }
+      if (auditKeyword) {
+        query.set('auditKeyword', auditKeyword);
+      }
+      if (auditPage > 1) {
+        query.set('auditPage', String(auditPage));
+      }
+      if (auditPageSize !== 20) {
+        query.set('auditPageSize', String(auditPageSize));
+      }
+
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     function sessionScopeLabel(scope) {
       return scope === 'all' ? '全平台' : '当前 admin';
     }
@@ -730,6 +868,7 @@ export function renderSessionGovernanceAdminConsole() {
       const requestedPage = Math.max(1, page || 1);
       document.getElementById('sessionStatus').textContent = '正在拉活跃会话...';
       try {
+        syncSessionGovernanceRouteState(requestedPage, currentSessionAuditPage);
         const query = buildSessionQuery(requestedPage);
         const data = await api('/admin/auth/sessions?' + query.toString());
         if (requestId !== latestSessionRequestId) return;
@@ -743,6 +882,7 @@ export function renderSessionGovernanceAdminConsole() {
           data.pageSize || sessionPageSizeValue(),
           currentSessionTotal,
         );
+        syncSessionGovernanceRouteState(currentSessionPage, currentSessionAuditPage);
       } catch (error) {
         if (requestId !== latestSessionRequestId) return;
         document.getElementById('sessionNotice').textContent = error.message;
@@ -760,6 +900,7 @@ export function renderSessionGovernanceAdminConsole() {
       const requestedPage = Math.max(1, page || 1);
       document.getElementById('sessionAuditStatus').textContent = '正在拉会话治理审计...';
       try {
+        syncSessionGovernanceRouteState(currentSessionPage, requestedPage);
         const query = buildSessionAuditQuery(requestedPage);
         const data = await api('/admin/auth/sessions/audit-events?' + query.toString());
         if (requestId !== latestSessionAuditRequestId) return;
@@ -771,6 +912,7 @@ export function renderSessionGovernanceAdminConsole() {
           data.pageSize || sessionAuditPageSizeValue(),
           currentSessionAuditTotal,
         );
+        syncSessionGovernanceRouteState(currentSessionPage, currentSessionAuditPage);
       } catch (error) {
         if (requestId !== latestSessionAuditRequestId) return;
         document.getElementById('sessionAuditNotice').textContent = error.message;
@@ -828,14 +970,15 @@ export function renderSessionGovernanceAdminConsole() {
       }
     }
 
+    applySessionGovernanceRouteState();
     const storedSession = initializeAdminSession();
     renderSessionRiskSummary();
     if (storedSession && storedSession.deviceId) {
       document.getElementById('currentDeviceId').value = storedSession.deviceId;
     }
     if (storedSession && storedSession.accessToken) {
-      loadAdminSessions();
-      loadSessionAuditEvents();
+      loadAdminSessions(currentSessionPage);
+      loadSessionAuditEvents(currentSessionAuditPage);
     }
   </script>
 </body>

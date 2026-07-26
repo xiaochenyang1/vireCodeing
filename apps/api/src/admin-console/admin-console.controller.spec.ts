@@ -446,6 +446,21 @@ describe('session governance admin console page', () => {
     expect(html).toContain('renderSessionAuditList');
     expect(html).toContain('refresh 失效后需要重新登录');
   });
+
+  it('syncs session and audit filters into route state', () => {
+    const html = renderSessionGovernanceAdminConsole();
+
+    expect(html).toContain('applySessionGovernanceRouteState');
+    expect(html).toContain('syncSessionGovernanceRouteState');
+    expect(html).toContain("query.get('sessionScope') || 'current_admin'");
+    expect(html).toContain("query.get('sessionRiskOnly')");
+    expect(html).toContain("query.get('auditAction')");
+    expect(html).toContain("query.set('sessionPage', String(sessionPage))");
+    expect(html).toContain("query.set('auditPageSize', String(auditPageSize))");
+    expect(html).toContain('loadAdminSessions(currentSessionPage)');
+    expect(html).toContain('loadSessionAuditEvents(currentSessionAuditPage)');
+    expect(html).toContain('history.replaceState');
+  });
 });
 
 describe('account management admin console page', () => {
