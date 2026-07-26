@@ -7,6 +7,28 @@ import {
 
 export type PlatformSupportTicketStatus = 'pending' | 'processing' | 'resolved';
 
+export type PlatformSupportTicketSlaPolicyKey =
+  'support_ticket_default_v1';
+
+export type PlatformSupportTicketSlaStage =
+  | 'first_response'
+  | 'resolution';
+
+export type PlatformSupportTicketSlaStatus =
+  | 'within_target'
+  | 'overdue'
+  | 'resolved_within_target'
+  | 'resolved_overdue';
+
+export type PlatformSupportTicketSlaSnapshot = {
+  policyKey: PlatformSupportTicketSlaPolicyKey;
+  stage: PlatformSupportTicketSlaStage;
+  status: PlatformSupportTicketSlaStatus;
+  targetAtIso: string;
+  remainingMinutes?: number;
+  overdueMinutes?: number;
+};
+
 export type PlatformSupportTicketStatusHistoryItem = {
   actionText: string;
   timestampIso: string;
@@ -23,6 +45,7 @@ export type PlatformSupportTicket = {
   description: string;
   status: PlatformSupportTicketStatus;
   statusHistory: PlatformSupportTicketStatusHistoryItem[];
+  sla?: PlatformSupportTicketSlaSnapshot;
   createdAtIso: string;
   updatedAtIso: string;
 };

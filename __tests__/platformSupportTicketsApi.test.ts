@@ -30,6 +30,13 @@ describe('platform support tickets api', () => {
                   timestampIso: '2026-07-22T08:30:00.000Z',
                 },
               ],
+              sla: {
+                policyKey: 'support_ticket_default_v1',
+                stage: 'resolution',
+                status: 'within_target',
+                targetAtIso: '2026-07-23T08:35:00.000Z',
+                remainingMinutes: 1440,
+              },
               createdAtIso: '2026-07-22T08:30:00.000Z',
               updatedAtIso: '2026-07-22T08:35:00.000Z',
             },
@@ -51,6 +58,9 @@ describe('platform support tickets api', () => {
         {
           id: 'ticket-1',
           channelName: '投诉建议',
+          sla: {
+            stage: 'resolution',
+          },
         },
       ],
     });
@@ -85,6 +95,13 @@ describe('platform support tickets api', () => {
               timestampIso: '2026-07-22T08:30:00.000Z',
             },
           ],
+          sla: {
+            policyKey: 'support_ticket_default_v1',
+            stage: 'first_response',
+            status: 'within_target',
+            targetAtIso: '2026-07-22T09:00:00.000Z',
+            remainingMinutes: 30,
+          },
           createdAtIso: '2026-07-22T08:30:00.000Z',
           updatedAtIso: '2026-07-22T08:30:00.000Z',
         },
@@ -107,6 +124,9 @@ describe('platform support tickets api', () => {
       id: 'ticket-1',
       channelName: '投诉建议',
       status: 'pending',
+      sla: {
+        stage: 'first_response',
+      },
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -138,6 +158,13 @@ describe('platform support tickets api', () => {
           description: '司机沟通不及时，希望客服协助跟进',
           status: 'pending',
           statusHistory: [],
+          sla: {
+            policyKey: 'support_ticket_default_v1',
+            stage: 'first_response',
+            status: 'within_target',
+            targetAtIso: '2026-07-22T09:00:00.000Z',
+            remainingMinutes: 30,
+          },
           createdAtIso: '2026-07-22T08:30:00.000Z',
           updatedAtIso: '2026-07-22T08:30:00.000Z',
         },
@@ -191,6 +218,13 @@ describe('platform support tickets api', () => {
                     timestampIso: '2026-07-22T08:30:00.000Z',
                   },
                 ],
+                sla: {
+                  policyKey: 'support_ticket_default_v1',
+                  stage: 'first_response',
+                  status: 'within_target',
+                  targetAtIso: '2026-07-22T09:00:00.000Z',
+                  remainingMinutes: 30,
+                },
                 createdAtIso: '2026-07-22T08:30:00.000Z',
                 updatedAtIso: '2026-07-22T08:30:00.000Z',
               },
@@ -221,6 +255,13 @@ describe('platform support tickets api', () => {
                 timestampIso: '2026-07-22T08:30:00.000Z',
               },
             ],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'first_response',
+              status: 'within_target',
+              targetAtIso: '2026-07-22T09:00:00.000Z',
+              remainingMinutes: 30,
+            },
             createdAtIso: '2026-07-22T08:30:00.000Z',
             updatedAtIso: '2026-07-22T08:30:00.000Z',
           },
@@ -254,6 +295,13 @@ describe('platform support tickets api', () => {
                 content: '已联系货主核实问题，转客服受理跟进。',
               },
             ],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'resolution',
+              status: 'within_target',
+              targetAtIso: '2026-07-23T08:35:00.000Z',
+              remainingMinutes: 1440,
+            },
             createdAtIso: '2026-07-22T08:30:00.000Z',
             updatedAtIso: '2026-07-22T08:35:00.000Z',
           },
@@ -295,6 +343,13 @@ describe('platform support tickets api', () => {
                 content: '问题已确认并处理完成，通知货主查看结果。',
               },
             ],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'resolution',
+              status: 'resolved_within_target',
+              targetAtIso: '2026-07-23T08:35:00.000Z',
+              remainingMinutes: 1435,
+            },
             createdAtIso: '2026-07-22T08:30:00.000Z',
             updatedAtIso: '2026-07-22T08:40:00.000Z',
           },
@@ -319,13 +374,24 @@ describe('platform support tickets api', () => {
       page: 2,
       pageSize: 10,
       total: 11,
-      items: [expect.objectContaining({ id: 'ticket-1', status: 'pending' })],
+      items: [
+        expect.objectContaining({
+          id: 'ticket-1',
+          status: 'pending',
+          sla: expect.objectContaining({
+            stage: 'first_response',
+          }),
+        }),
+      ],
     });
 
     await expect(api.getAdminSupportTicket(' ticket-1 ')).resolves.toMatchObject(
       {
         id: 'ticket-1',
         status: 'pending',
+        sla: {
+          stage: 'first_response',
+        },
       },
     );
 
@@ -337,6 +403,9 @@ describe('platform support tickets api', () => {
     ).resolves.toMatchObject({
       id: 'ticket-1',
       status: 'processing',
+      sla: {
+        stage: 'resolution',
+      },
       statusHistory: [
         expect.objectContaining({
           actionText: '工单已提交',
@@ -356,6 +425,10 @@ describe('platform support tickets api', () => {
     ).resolves.toMatchObject({
       id: 'ticket-1',
       status: 'resolved',
+      sla: {
+        stage: 'resolution',
+        status: 'resolved_within_target',
+      },
       statusHistory: expect.arrayContaining([
         expect.objectContaining({
           actionText: '客服已处理',

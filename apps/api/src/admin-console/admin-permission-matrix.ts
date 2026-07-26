@@ -145,7 +145,7 @@ const adminPermissionModules: AdminPermissionModuleCatalogItem[] = [
     key: 'support-ticket',
     title: '帮助中心工单台',
     route: '/api/admin/support-ticket-console',
-    summary: '查看帮助中心工单列表/详情，并推进 pending / processing / resolved 流程。',
+    summary: '查看帮助中心工单列表/详情、SLA 提醒，并推进 pending / processing / resolved 流程。',
   },
   {
     key: 'order-exception-case',
@@ -325,7 +325,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     key: 'support_ticket_manage',
     title: '处理帮助中心工单',
     moduleKey: 'support-ticket',
-    summary: '读取帮助中心工单列表/详情，并能执行 process、resolve 状态流转。',
+    summary: '读取帮助中心工单列表/详情、SLA 提醒，并能执行 process、resolve 状态流转。',
     actions: ['read', 'write'],
     riskLevel: 'high',
     apiPaths: [

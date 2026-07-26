@@ -285,11 +285,16 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('loadSupportTickets');
     expect(html).toContain('loadSupportTicketDetail');
     expect(html).toContain('mutateSupportTicket');
+    expect(html).toContain('formatSupportTicketSlaStage');
+    expect(html).toContain('formatSupportTicketSlaStatus');
+    expect(html).toContain('renderSupportTicketSla');
     expect(html).toContain('supportTicketStatusInput');
     expect(html).toContain('supportTicketKeywordInput');
     expect(html).toContain('supportTicketPageSizeInput');
     expect(html).toContain('supportTicketActionContent');
     expect(html).toContain('supportTicketBaseUpdatedAtIso');
+    expect(html).toContain('首响 / 解决 SLA 提醒');
+    expect(html).toContain('SLA：');
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/finance-console');
     expect(html).not.toContain('hero');

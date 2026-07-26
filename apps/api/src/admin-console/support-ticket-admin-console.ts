@@ -36,6 +36,9 @@ export function renderSupportTicketAdminConsole() {
     .badge.pending { background: #fff4d6; color: #8f4b00; }
     .badge.processing { background: #e7f0fb; color: #145ea8; }
     .badge.resolved { background: #e8f7eb; color: #17663d; }
+    .badge.sla-within { background: #eef9f1; color: #17663d; }
+    .badge.sla-overdue { background: #fdecec; color: #b42318; }
+    .badge.sla-resolved { background: #eef4ff; color: #145ea8; }
     ${renderAdminConsoleNavStyles()}
     @media (max-width: 820px) { .console-shell { grid-template-columns: 1fr; } }
   </style>
@@ -44,6 +47,7 @@ export function renderSupportTicketAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>帮助中心工单台</h1>
+      <p class="muted">这页现在除了看工单列表、详情和流转动作，也会直接给出首响 / 解决 SLA 提醒；但自动超时升级、坐席分配和在线会话还没补上。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/support-ticket-console',
@@ -118,6 +122,40 @@ export function renderSupportTicketAdminConsole() {
       if (status === 'processing') return 'processing';
       if (status === 'resolved') return 'resolved';
       return 'pending';
+    }
+
+    function formatSupportTicketSlaStage(stage) {
+      if (stage === 'first_response') return '首响 SLA';
+      if (stage === 'resolution') return '解决 SLA';
+      return 'SLA';
+    }
+
+    function formatSupportTicketSlaStatus(status) {
+      if (status === 'within_target') return '时限内';
+      if (status === 'overdue') return '已超时';
+      if (status === 'resolved_within_target') return '按时完成';
+      if (status === 'resolved_overdue') return '超时完成';
+      return '未定义';
+    }
+
+    function formatSupportTicketSlaClass(status) {
+      if (status === 'overdue' || status === 'resolved_overdue') return 'sla-overdue';
+      if (status === 'resolved_within_target') return 'sla-resolved';
+      return 'sla-within';
+    }
+
+    function formatSupportTicketSlaMeta(sla) {
+      if (!sla || !sla.stage) return 'SLA 暂无数据';
+      if (typeof sla.overdueMinutes === 'number') {
+        return formatSupportTicketSlaStage(sla.stage) + ' · 已超时 ' + String(sla.overdueMinutes) + ' 分钟';
+      }
+      if (typeof sla.remainingMinutes === 'number') {
+        if (sla.status === 'resolved_within_target') {
+          return formatSupportTicketSlaStage(sla.stage) + ' · 提前 ' + String(sla.remainingMinutes) + ' 分钟完成';
+        }
+        return formatSupportTicketSlaStage(sla.stage) + ' · 剩余 ' + String(sla.remainingMinutes) + ' 分钟';
+      }
+      return formatSupportTicketSlaStage(sla.stage) + ' · ' + formatSupportTicketSlaStatus(sla.status);
     }
 
     function clearSupportTicketSelection() {
@@ -214,6 +252,20 @@ export function renderSupportTicketAdminConsole() {
       return '<div class="action-grid">' + actions.join('') + '</div>';
     }
 
+    function renderSupportTicketSla(ticket) {
+      const sla = ticket && ticket.sla ? ticket.sla : null;
+      if (!sla) {
+        return '<p class="muted">SLA 暂无数据</p>';
+      }
+
+      return '<div class="action">' +
+        '<strong>SLA</strong>' +
+        '<div style="margin-top:6px;"><span class="badge ' + escapeHtml(formatSupportTicketSlaClass(sla.status)) + '">' + escapeHtml(formatSupportTicketSlaStatus(sla.status)) + '</span></div>' +
+        '<div class="muted">' + escapeHtml(formatSupportTicketSlaStage(sla.stage)) + ' · 目标时间：' + escapeHtml(sla.targetAtIso || '-') + '</div>' +
+        '<div class="muted">' + escapeHtml(formatSupportTicketSlaMeta(sla)) + '</div>' +
+        '</div>';
+    }
+
     function renderSupportTicketDetail(ticket) {
       selectedTicketId = ticket.id;
       document.getElementById('supportTicketBaseUpdatedAtIso').value = ticket.updatedAtIso || '';
@@ -225,6 +277,8 @@ export function renderSupportTicketAdminConsole() {
         '<p>问题说明：' + escapeHtml(ticket.description) + '</p>',
         '<p>创建时间：' + escapeHtml(ticket.createdAtIso) + '</p>',
         '<p>更新时间：' + escapeHtml(ticket.updatedAtIso) + '</p>',
+        '<h3>SLA</h3>',
+        renderSupportTicketSla(ticket),
         '<h3>处理记录</h3>',
         renderSupportTicketHistory(ticket.statusHistory),
       ].join('');
@@ -250,6 +304,7 @@ export function renderSupportTicketAdminConsole() {
             '<span class="badge ' + escapeHtml(formatSupportTicketStatusClass(ticket.status)) + '">' + escapeHtml(formatSupportTicketStatus(ticket.status)) + '</span>' +
           '</div>' +
           '<div class="muted" style="margin-top:6px;">' + escapeHtml(ticket.description) + '</div>' +
+          '<div class="muted" style="margin-top:6px;">SLA：' + escapeHtml(formatSupportTicketSlaMeta(ticket.sla)) + '</div>' +
           '<div class="muted" style="margin-top:6px;">更新时间：' + escapeHtml(ticket.updatedAtIso || ticket.createdAtIso || '-') + '</div>' +
         '</div>';
       }).join('');

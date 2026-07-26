@@ -67,6 +67,13 @@ describe('SupportTicketsService', () => {
           timestampIso: now.toISOString(),
         },
       ],
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'first_response',
+        status: 'within_target',
+        targetAtIso: '2026-07-22T09:00:00.000Z',
+        remainingMinutes: 30,
+      },
       createdAtIso: now.toISOString(),
       updatedAtIso: now.toISOString(),
     });
@@ -159,11 +166,19 @@ describe('SupportTicketsService', () => {
         expect.objectContaining({
           id: first.id,
           status: 'processing',
+          sla: expect.objectContaining({
+            stage: 'resolution',
+            status: 'within_target',
+          }),
           updatedAtIso: '2026-07-22T08:40:00.000Z',
         }),
         expect.objectContaining({
           id: 'support-ticket-platform-2',
           status: 'pending',
+          sla: expect.objectContaining({
+            stage: 'first_response',
+            status: 'within_target',
+          }),
           updatedAtIso: '2026-07-22T08:35:00.000Z',
         }),
       ],
@@ -204,6 +219,13 @@ describe('SupportTicketsService', () => {
     expect(processing).toMatchObject({
       id: created.id,
       status: 'processing',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'within_target',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        remainingMinutes: 1440,
+      },
       statusHistory: [
         {
           actionText: '工单已提交',
@@ -229,6 +251,13 @@ describe('SupportTicketsService', () => {
     ).resolves.toMatchObject({
       id: created.id,
       status: 'resolved',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'resolved_within_target',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        remainingMinutes: 1435,
+      },
       statusHistory: expect.arrayContaining([
         expect.objectContaining({
           actionText: '客服已处理',
@@ -295,10 +324,20 @@ describe('SupportTicketsService', () => {
     ).resolves.toMatchObject({
       id: created.id,
       status: 'processing',
+      sla: {
+        stage: 'resolution',
+        status: 'within_target',
+        targetAtIso: '2026-07-23T08:35:00.000Z',
+        remainingMinutes: 1440,
+      },
       updatedAtIso: '2026-07-22T08:35:00.000Z',
     });
     await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
       status: 'processing',
+      sla: expect.objectContaining({
+        stage: 'resolution',
+        status: 'within_target',
+      }),
       statusHistory: expect.arrayContaining([
         expect.objectContaining({
           actionText: '客服已受理',
@@ -312,6 +351,74 @@ describe('SupportTicketsService', () => {
       shipperId: 'shipper-1',
       channelName: '投诉建议',
       content: '已联系货主核实问题，转客服受理跟进。',
+    });
+  });
+
+  it('derives overdue first-response and resolution SLA snapshots', async () => {
+    let currentTime = new Date('2026-07-22T08:30:00.000Z');
+    const repository = new InMemorySupportTicketsRepository({
+      createId: (() => {
+        let sequence = 0;
+
+        return () => `support-ticket-platform-${++sequence}`;
+      })(),
+    });
+    const service = new SupportTicketsService(repository, () => currentTime);
+
+    const created = await service.createSupportTicket('shipper-1', {
+      channelName: '投诉建议',
+      description: '司机沟通不及时，希望客服协助跟进',
+    });
+
+    currentTime = new Date('2026-07-22T09:10:00.000Z');
+    await expect(service.getSupportTicketForAdmin(created.id)).resolves.toMatchObject({
+      id: created.id,
+      status: 'pending',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'first_response',
+        status: 'overdue',
+        targetAtIso: '2026-07-22T09:00:00.000Z',
+        overdueMinutes: 10,
+      },
+    });
+
+    currentTime = new Date('2026-07-22T09:15:00.000Z');
+    const processing = await service.processSupportTicket(
+      'admin-1',
+      created.id,
+      {
+        baseUpdatedAtIso: created.updatedAtIso,
+        content: '已联系货主核实问题，转客服受理跟进。',
+      },
+    );
+
+    expect(processing).toMatchObject({
+      status: 'processing',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'within_target',
+        targetAtIso: '2026-07-23T09:15:00.000Z',
+        remainingMinutes: 1440,
+      },
+    });
+
+    currentTime = new Date('2026-07-23T10:30:00.000Z');
+    await expect(
+      service.resolveSupportTicket('admin-1', created.id, {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '问题已确认并处理完成，通知货主查看结果。',
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      sla: {
+        policyKey: 'support_ticket_default_v1',
+        stage: 'resolution',
+        status: 'resolved_overdue',
+        targetAtIso: '2026-07-23T09:15:00.000Z',
+        overdueMinutes: 75,
+      },
     });
   });
 

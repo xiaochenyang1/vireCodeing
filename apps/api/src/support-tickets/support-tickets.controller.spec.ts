@@ -24,6 +24,13 @@ describe('SupportTicketsController', () => {
                 timestampIso: '2026-07-22T08:30:00.000Z',
               },
             ],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'first_response',
+              status: 'within_target',
+              targetAtIso: '2026-07-22T09:00:00.000Z',
+              remainingMinutes: 30,
+            },
             createdAtIso: '2026-07-22T08:30:00.000Z',
             updatedAtIso: '2026-07-22T08:30:00.000Z',
           },
@@ -42,6 +49,9 @@ describe('SupportTicketsController', () => {
           {
             id: 'ticket-1',
             channelName: '投诉建议',
+            sla: {
+              stage: 'first_response',
+            },
           },
         ],
       },
@@ -64,6 +74,13 @@ describe('SupportTicketsController', () => {
             timestampIso: '2026-07-22T08:30:00.000Z',
           },
         ],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'first_response',
+          status: 'within_target',
+          targetAtIso: '2026-07-22T09:00:00.000Z',
+          remainingMinutes: 30,
+        },
         createdAtIso: '2026-07-22T08:30:00.000Z',
         updatedAtIso: '2026-07-22T08:30:00.000Z',
       }),
@@ -81,6 +98,9 @@ describe('SupportTicketsController', () => {
       data: {
         id: 'ticket-1',
         channelName: '投诉建议',
+        sla: {
+          stage: 'first_response',
+        },
       },
       requestId: 'req_support_tickets_test',
     });
@@ -112,6 +132,13 @@ describe('SupportTicketsController', () => {
             description: '司机沟通不及时，希望客服协助跟进',
             status: 'processing',
             statusHistory: [],
+            sla: {
+              policyKey: 'support_ticket_default_v1',
+              stage: 'resolution',
+              status: 'within_target',
+              targetAtIso: '2026-07-23T08:35:00.000Z',
+              remainingMinutes: 1440,
+            },
             createdAtIso: '2026-07-22T08:30:00.000Z',
             updatedAtIso: '2026-07-22T08:35:00.000Z',
           },
@@ -140,6 +167,9 @@ describe('SupportTicketsController', () => {
           {
             id: 'ticket-1',
             status: 'processing',
+            sla: {
+              stage: 'resolution',
+            },
           },
         ],
       },
@@ -171,6 +201,13 @@ describe('SupportTicketsController', () => {
             content: '已联系货主核实问题，转客服受理跟进。',
           },
         ],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1440,
+        },
         createdAtIso: '2026-07-22T08:30:00.000Z',
         updatedAtIso: '2026-07-22T08:35:00.000Z',
       }),
@@ -184,6 +221,9 @@ describe('SupportTicketsController', () => {
       data: {
         id: 'ticket-1',
         status: 'processing',
+        sla: {
+          stage: 'resolution',
+        },
       },
       requestId: 'req_support_tickets_test',
     });
@@ -199,6 +239,13 @@ describe('SupportTicketsController', () => {
         description: '司机沟通不及时，希望客服协助跟进',
         status: 'processing',
         statusHistory: [],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1440,
+        },
         createdAtIso: '2026-07-22T08:30:00.000Z',
         updatedAtIso: '2026-07-22T08:35:00.000Z',
       }),
@@ -220,6 +267,9 @@ describe('SupportTicketsController', () => {
       data: {
         id: 'ticket-1',
         status: 'processing',
+        sla: {
+          stage: 'resolution',
+        },
       },
       requestId: 'req_support_tickets_test',
     });
@@ -239,6 +289,13 @@ describe('SupportTicketsController', () => {
         description: '司机沟通不及时，希望客服协助跟进',
         status: 'resolved',
         statusHistory: [],
+        sla: {
+          policyKey: 'support_ticket_default_v1',
+          stage: 'resolution',
+          status: 'resolved_within_target',
+          targetAtIso: '2026-07-23T08:35:00.000Z',
+          remainingMinutes: 1435,
+        },
         createdAtIso: '2026-07-22T08:30:00.000Z',
         updatedAtIso: '2026-07-22T08:40:00.000Z',
       }),
@@ -260,6 +317,9 @@ describe('SupportTicketsController', () => {
       data: {
         id: 'ticket-1',
         status: 'resolved',
+        sla: {
+          stage: 'resolution',
+        },
       },
       requestId: 'req_support_tickets_test',
     });

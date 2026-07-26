@@ -1786,15 +1786,25 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ShipperSupportTicketResponse');
     expect(source).toContain('ShipperSupportTicket');
     expect(source).toContain('ShipperSupportTicketStatus');
+    expect(source).toContain('ShipperSupportTicketSla');
+    expect(source).toContain('ShipperSupportTicketSlaStage');
+    expect(source).toContain('ShipperSupportTicketSlaStatus');
     expect(source).toContain('ShipperSupportTicketStatusHistoryItem');
     expect(source).toContain('UpdateShipperSupportTicketRequest');
     expect(source).toContain('enum: [pending, processing, resolved]');
+    expect(source).toContain('enum: [first_response, resolution]');
+    expect(source).toContain(
+      'enum: [within_target, overdue, resolved_within_target, resolved_overdue]',
+    );
+    expect(source).toContain('targetAtIso');
+    expect(source).toContain('remainingMinutes');
+    expect(source).toContain('overdueMinutes');
     expect(source).toContain('工单已提交');
     expect(source).toContain(
-      'Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow.',
+      'Each ticket now includes a derived first-response or resolution SLA snapshot.',
     );
     expect(source).toContain(
-      'This first slice still does not include online chat or a complete customer-service handling audit trail.',
+      'This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.',
     );
     expectPathBlockToContain(
       source,
@@ -1822,6 +1832,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('baseUpdatedAtIso');
     expect(source).toContain('operatorUserId');
     expect(source).toContain('content');
+    expect(source).toContain(
+      'Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.',
+    );
     expectPathBlockToContain(
       source,
       '/admin/support-tickets',

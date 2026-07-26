@@ -2106,7 +2106,7 @@ paths:
   /shipper/support-tickets:
     get:
       summary: List current shipper support tickets
-      description: Lists the current shipper's support tickets in reverse createdAt order. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow. This first slice still does not include online chat or a complete customer-service handling audit trail.
+      description: Lists the current shipper's support tickets ordered by latest updatedAt first. Each ticket now includes a derived first-response or resolution SLA snapshot. Shippers can create and track their own support tickets here, while administrators can process them through the dedicated admin workflow. This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2128,7 +2128,7 @@ paths:
           $ref: '#/components/responses/ShipperOnlyError'
     post:
       summary: Create current shipper support ticket
-      description: Creates a new pending support ticket for the current shipper. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include online chat or a complete customer-service handling audit trail.
+      description: Creates a new pending support ticket for the current shipper and returns the initial first-response SLA snapshot. Administrators handle later status transitions through the admin support-ticket workflow. This first slice still does not include automatic SLA escalation, online chat or a complete customer-service handling audit trail.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
       security:
@@ -2157,7 +2157,7 @@ paths:
   /admin/support-tickets:
     get:
       summary: List help-center support tickets for admin handling
-      description: Lists help-center support tickets for administrators. Supports paging, status filtering and keyword search across ticket id, shipper id, channel name and description.
+      description: Lists help-center support tickets for administrators ordered by latest updatedAt first. Supports paging, status filtering and keyword search across ticket id, shipper id, channel name and description. Each ticket includes a derived first-response or resolution SLA snapshot for queue triage.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
@@ -12503,6 +12503,40 @@ components:
     ShipperSupportTicketStatus:
       type: string
       enum: [pending, processing, resolved]
+    ShipperSupportTicketSlaPolicyKey:
+      type: string
+      enum: [support_ticket_default_v1]
+      example: support_ticket_default_v1
+    ShipperSupportTicketSlaStage:
+      type: string
+      enum: [first_response, resolution]
+      example: first_response
+    ShipperSupportTicketSlaStatus:
+      type: string
+      enum: [within_target, overdue, resolved_within_target, resolved_overdue]
+      example: within_target
+    ShipperSupportTicketSla:
+      type: object
+      required: [policyKey, stage, status, targetAtIso]
+      properties:
+        policyKey:
+          $ref: '#/components/schemas/ShipperSupportTicketSlaPolicyKey'
+        stage:
+          $ref: '#/components/schemas/ShipperSupportTicketSlaStage'
+        status:
+          $ref: '#/components/schemas/ShipperSupportTicketSlaStatus'
+        targetAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-22T09:00:00.000Z'
+        remainingMinutes:
+          type: integer
+          minimum: 0
+          example: 30
+        overdueMinutes:
+          type: integer
+          minimum: 0
+          example: 10
     ShipperSupportTicketStatusHistoryItem:
       type: object
       required: [actionText, timestampIso]
@@ -12559,7 +12593,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/CreateShipperSupportTicketRequest'
         - type: object
-          required: [id, shipperId, status, statusHistory, createdAtIso, updatedAtIso]
+          required: [id, shipperId, status, statusHistory, sla, createdAtIso, updatedAtIso]
           properties:
             id:
               type: string
@@ -12573,6 +12607,8 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/ShipperSupportTicketStatusHistoryItem'
+            sla:
+              $ref: '#/components/schemas/ShipperSupportTicketSla'
             createdAtIso:
               type: string
               format: date-time
