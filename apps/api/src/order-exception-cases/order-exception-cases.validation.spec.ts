@@ -92,6 +92,7 @@ describe('order exception case validation', () => {
         baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         content: '  客服确认货主承担损失，待后续赔付跟进。  ',
         compensationStatus: 'pending',
+        appealDecision: 'accepted',
         compensationTargetRole: 'shipper',
         compensationAmountCents: 3600,
       }),
@@ -99,6 +100,7 @@ describe('order exception case validation', () => {
       baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       content: '客服确认货主承担损失，待后续赔付跟进。',
       compensationStatus: 'pending',
+      appealDecision: 'accepted',
       compensationTargetRole: 'shipper',
       compensationAmountCents: 3600,
     });
@@ -140,6 +142,16 @@ describe('order exception case validation', () => {
         compensationTargetRole: 'driver',
       }),
     ).toThrow('无需赔付时不能再填赔付对象或金额');
+    expect(() =>
+      parseResolveOrderExceptionCaseRequest({
+        baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
+        content: '客服确认需要重新核定赔付。',
+        compensationStatus: 'pending',
+        appealDecision: 'requested',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+      }),
+    ).toThrow();
   });
 
   it('trims order and case ids and rejects blank ids', () => {

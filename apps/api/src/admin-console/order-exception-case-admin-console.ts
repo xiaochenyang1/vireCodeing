@@ -64,6 +64,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       <label>处理说明<textarea id="caseActionContent" placeholder="请输入 6-500 字处理说明"></textarea></label>
       <div id="caseCompensationControls" class="filters">
         <label>赔付状态<select id="caseCompensationStatusInput"><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option></select></label>
+        <label id="caseAppealDecisionField" style="display:none">申诉裁定<select id="caseAppealDecisionInput"><option value="">请选择</option><option value="accepted">受理申诉</option><option value="rejected">驳回申诉</option></select></label>
         <label>赔付对象<select id="caseCompensationTargetRoleInput"><option value="">请选择</option><option value="shipper">货主</option><option value="driver">司机</option></select></label>
         <label>赔付金额（分）<input id="caseCompensationAmountInput" type="number" min="1" step="1" placeholder="例如 3600" /></label>
       </div>
@@ -77,6 +78,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     let currentPage = 1;
     let total = 0;
     let selectedCaseId = '';
+    let selectedCaseAppealStatus = 'none';
     let mutationPending = false;
     const mutationPaths = ['/process', '/resolve', '/close'];
     ${renderAdminSessionScript({
@@ -209,8 +211,11 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     function resetCompensationInputs() {
       document.getElementById('caseCompensationStatusInput').value = 'not_required';
+      document.getElementById('caseAppealDecisionInput').value = '';
       document.getElementById('caseCompensationTargetRoleInput').value = '';
       document.getElementById('caseCompensationAmountInput').value = '';
+      selectedCaseAppealStatus = 'none';
+      toggleAppealDecisionInput(false);
     }
 
     function toggleCompensationInputs(enabled) {
@@ -222,13 +227,26 @@ export function renderOrderExceptionCaseAdminConsole() {
       amountInput.disabled = !enabled || mutationPending || statusInput.value === 'not_required';
     }
 
+    function toggleAppealDecisionInput(enabled) {
+      const field = document.getElementById('caseAppealDecisionField');
+      const input = document.getElementById('caseAppealDecisionInput');
+      field.style.display = enabled ? 'block' : 'none';
+      input.disabled = !enabled || mutationPending;
+      input.dataset.required = enabled ? 'true' : 'false';
+      if (!enabled) {
+        input.value = '';
+      }
+    }
+
     function getCaseMutationButton() {
       return document.getElementById('caseMutationButton');
     }
 
     function syncCompensationInputsFromStatus() {
       const button = getCaseMutationButton();
-      toggleCompensationInputs(Boolean(button && button.dataset.action === 'resolve'));
+      const isResolveAction = Boolean(button && button.dataset.action === 'resolve');
+      toggleCompensationInputs(isResolveAction);
+      toggleAppealDecisionInput(isResolveAction && selectedCaseAppealStatus === 'requested');
     }
 
     function renderCompensationSnapshot(item) {
@@ -254,11 +272,19 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     function readResolveCompensationInput() {
       const compensationStatus = document.getElementById('caseCompensationStatusInput').value;
+      const appealDecisionInput = document.getElementById('caseAppealDecisionInput');
+      const appealDecision = appealDecisionInput.value;
+      if (appealDecisionInput.dataset.required === 'true' && !appealDecision) {
+        throw new Error('申诉中的工单解决时必须选择申诉裁定');
+      }
       if (!compensationStatus) {
         throw new Error('请选择赔付状态');
       }
       if (compensationStatus === 'not_required') {
-        return { compensationStatus };
+        return {
+          compensationStatus,
+          ...(appealDecision ? { appealDecision } : {}),
+        };
       }
       const compensationTargetRole = document.getElementById('caseCompensationTargetRoleInput').value;
       if (!compensationTargetRole) {
@@ -273,6 +299,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       }
       return {
         compensationStatus,
+        ...(appealDecision ? { appealDecision } : {}),
         compensationTargetRole,
         compensationAmountCents,
       };
@@ -337,12 +364,14 @@ export function renderOrderExceptionCaseAdminConsole() {
         selectedCaseId = caseId;
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
+        selectedCaseAppealStatus = item.appealStatus || 'none';
         document.getElementById('baseUpdatedAtIso').value = item.updatedAtIso;
         document.getElementById('caseDetail').innerHTML = renderCaseDetail(item);
         document.getElementById('caseActions').innerHTML = (item.actions || []).length
           ? (item.actions || []).map(action => '<div class="action">' + escapeHtml(action.fromStatus) + ' → ' + escapeHtml(action.toStatus) + '<br>' + escapeHtml(action.content) + '<div class="muted">' + escapeHtml(action.createdAtIso) + '</div></div>').join('')
           : '<p class="muted">暂无处理留痕</p>';
         document.getElementById('caseCompensationStatusInput').value = item.compensationStatus || 'not_required';
+        document.getElementById('caseAppealDecisionInput').value = item.appealStatus === 'accepted' || item.appealStatus === 'rejected' ? item.appealStatus : '';
         document.getElementById('caseCompensationTargetRoleInput').value = item.compensationTargetRole || '';
         document.getElementById('caseCompensationAmountInput').value = item.compensationAmountCents ? String(item.compensationAmountCents) : '';
         renderMutationButtons(item);
@@ -367,7 +396,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         buttons += '<button id="caseExecuteCompensationButton" class="secondary-button" onclick="executeCompensation()">执行平台赔付</button>';
       }
       target.innerHTML += buttons;
-      toggleCompensationInputs(action === 'resolve');
+      syncCompensationInputsFromStatus();
     }
 
     async function mutateCase(action) {

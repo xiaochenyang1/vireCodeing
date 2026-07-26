@@ -1899,6 +1899,75 @@ describe('InMemoryOrdersRepository exception appeal', () => {
     });
   });
 
+  it('requires an appeal decision when resolving an appealed case', async () => {
+    const { repository, order, caseId, resolved } = await seedResolvedCase();
+    const appealed = await repository.appealExceptionCase({
+      caseId,
+      orderId: order.id,
+      actorUserId: 'shipper-1',
+      actorRole: 'shipper',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      reason: '货主要求重新核定处理结果。',
+    });
+
+    if (appealed.kind !== 'success') {
+      throw new Error('appeal failed');
+    }
+
+    await expect(
+      repository.transitionOrderExceptionCase(
+        caseId,
+        'admin-1',
+        'processing',
+        'resolved',
+        {
+          baseUpdatedAtIso: appealed.exceptionCase.updatedAtIso,
+          content: '客服完成二次复核，但漏填申诉裁定。',
+          compensationStatus: 'not_required',
+        },
+      ),
+    ).resolves.toBe('state-invalid');
+  });
+
+  it('records appeal adjudication when an appealed case is resolved again', async () => {
+    const { repository, order, caseId, resolved } = await seedResolvedCase();
+    const appealed = await repository.appealExceptionCase({
+      caseId,
+      orderId: order.id,
+      actorUserId: 'shipper-1',
+      actorRole: 'shipper',
+      baseUpdatedAtIso: resolved.updatedAtIso,
+      reason: '货主要求重新核定处理结果。',
+    });
+
+    if (appealed.kind !== 'success') {
+      throw new Error('appeal failed');
+    }
+
+    await expect(
+      repository.transitionOrderExceptionCase(
+        caseId,
+        'admin-1',
+        'processing',
+        'resolved',
+        {
+          baseUpdatedAtIso: appealed.exceptionCase.updatedAtIso,
+          content: '客服复核后改为待赔付跟进。',
+          compensationStatus: 'pending',
+          appealDecision: 'accepted',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 4200,
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      appealStatus: 'accepted',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 4200,
+    });
+  });
+
   it('rejects an appeal from an unrelated user with not-found', async () => {
     const { repository, order, caseId, resolved } = await seedResolvedCase();
 

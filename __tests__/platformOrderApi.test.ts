@@ -2071,6 +2071,57 @@ describe('platform order api', () => {
     );
   });
 
+  it('resolves an appealed admin order exception case with a normalized appeal decision', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      createJsonResponse(
+        createAdminOrderExceptionCase({
+          status: 'resolved',
+          appealStatus: 'accepted',
+          resolutionText: '复核后改为待赔付跟进。',
+          compensationStatus: 'pending',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 4200,
+        }),
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.resolveAdminOrderExceptionCase(' case-1 ', {
+        baseUpdatedAtIso: '2026-07-25T10:00:00.000Z',
+        content: '  复核后改为待赔付跟进。  ',
+        compensationStatus: 'pending',
+        appealDecision: ' accepted ' as 'accepted',
+        compensationTargetRole: ' shipper ' as 'shipper',
+        compensationAmountCents: 4200,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      appealStatus: 'accepted',
+      compensationStatus: 'pending',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/order-exception-cases/case-1/resolve',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          baseUpdatedAtIso: '2026-07-25T10:00:00.000Z',
+          content: '复核后改为待赔付跟进。',
+          compensationStatus: 'pending',
+          appealDecision: 'accepted',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 4200,
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid admin order exception inputs before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -2096,6 +2147,14 @@ describe('platform order api', () => {
       baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
       content: '货损属实，等待赔付跟进。',
       compensationStatus: 'pending',
+    } as unknown as Parameters<typeof api.resolveAdminOrderExceptionCase>[1];
+    const invalidResolveAppealDecisionRequest = {
+      baseUpdatedAtIso: '2026-07-25T08:30:00.000Z',
+      content: '货损属实，等待赔付跟进。',
+      compensationStatus: 'pending',
+      appealDecision: 'requested',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 3600,
     } as unknown as Parameters<typeof api.resolveAdminOrderExceptionCase>[1];
     const invalidExecutionRequest = {
       baseUpdatedAtIso: '2026-07-25T09:30:00.000Z',
@@ -2131,6 +2190,15 @@ describe('platform order api', () => {
     } satisfies Partial<PlatformApiError>);
     await expect(
       api.resolveAdminOrderExceptionCase('case-1', invalidResolveRequest),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.resolveAdminOrderExceptionCase(
+        'case-1',
+        invalidResolveAppealDecisionRequest,
+      ),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_ORDER_EXCEPTION_REQUEST_INVALID',
       status: 0,

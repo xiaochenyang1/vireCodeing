@@ -1101,6 +1101,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('OrderExceptionCaseSourceRole');
     expect(source).toContain('ResolveOrderExceptionCaseRequest');
     expect(source).toContain('compensationStatus');
+    expect(source).toContain('appealDecision');
     expect(source).toContain('compensationTargetRole');
     expect(source).toContain('compensationAmountCents');
     expect(source).toContain('baseUpdatedAtIso');
@@ -1134,6 +1135,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ExecuteOrderExceptionCaseCompensationRequest');
     expect(source).toContain('AppealOrderExceptionCaseRequest');
     expect(source).toContain('OrderExceptionCaseAppealStatus');
+    expect(source).toContain('appealDecision');
     expect(source).toContain('compensationTransactionId');
     expect(source).toContain('compensationExecutedAtIso');
     expect(source).toContain('appealStatus');

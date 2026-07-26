@@ -146,6 +146,10 @@ export type PlatformOrderExceptionCaseAppealStatus =
   | 'requested'
   | 'rejected'
   | 'accepted';
+export type PlatformOrderExceptionCaseAppealDecision = Extract<
+  PlatformOrderExceptionCaseAppealStatus,
+  'accepted' | 'rejected'
+>;
 
 export type PlatformOrderLatestExceptionCase = {
   id: string;
@@ -505,6 +509,7 @@ export type PlatformAdminResolveOrderExceptionCaseRequest =
       PlatformOrderExceptionCaseCompensationStatus,
       'not_required' | 'pending' | 'offline_completed'
     >;
+    appealDecision?: PlatformOrderExceptionCaseAppealDecision;
     compensationTargetRole?: PlatformOrderExceptionCaseCompensationTargetRole;
     compensationAmountCents?: number;
   };
@@ -2023,6 +2028,12 @@ function normalizeAdminOrderExceptionCaseResolveRequest(
     'Platform admin order exception compensationStatus is invalid',
     ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
   ) as PlatformAdminResolveOrderExceptionCaseRequest['compensationStatus'];
+  const appealDecision = normalizeOptionalTrimmedString(
+    request.appealDecision,
+    20,
+    'Platform admin order exception appealDecision is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as PlatformOrderExceptionCaseAppealDecision | undefined;
   const compensationTargetRole = normalizeOptionalTrimmedString(
     request.compensationTargetRole,
     20,
@@ -2040,6 +2051,18 @@ function normalizeAdminOrderExceptionCaseResolveRequest(
   ) {
     throw new PlatformApiError(
       'Platform admin order exception compensationStatus is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
+  if (
+    appealDecision !== undefined &&
+    appealDecision !== 'accepted' &&
+    appealDecision !== 'rejected'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception appealDecision is invalid',
       ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
       0,
     );
@@ -2072,6 +2095,7 @@ function normalizeAdminOrderExceptionCaseResolveRequest(
     return {
       ...normalizedUpdateRequest,
       compensationStatus,
+      ...(appealDecision ? { appealDecision } : {}),
     };
   }
 
@@ -2098,6 +2122,7 @@ function normalizeAdminOrderExceptionCaseResolveRequest(
   return {
     ...normalizedUpdateRequest,
     compensationStatus,
+    ...(appealDecision ? { appealDecision } : {}),
     compensationTargetRole,
     compensationAmountCents: Number(compensationAmountCents),
   };

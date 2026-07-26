@@ -70,6 +70,7 @@ export const updateOrderExceptionCaseSchema = z.object({
 export const resolveOrderExceptionCaseSchema = updateOrderExceptionCaseSchema
   .extend({
     compensationStatus: z.enum(['not_required', 'pending', 'offline_completed']),
+    appealDecision: z.enum(['accepted', 'rejected']).optional(),
     compensationTargetRole: z.enum(['shipper', 'driver']).optional(),
     compensationAmountCents: z
       .number()

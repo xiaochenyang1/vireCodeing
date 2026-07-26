@@ -92,6 +92,7 @@ describe('order exception case controllers', () => {
         baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
         content: '  客服确认需要后续赔付。  ',
         compensationStatus: 'pending',
+        appealDecision: 'accepted',
         compensationTargetRole: 'shipper',
         compensationAmountCents: 3600,
       },
@@ -101,6 +102,7 @@ describe('order exception case controllers', () => {
       baseUpdatedAtIso: '2026-07-12T08:00:00.000Z',
       content: '客服确认需要后续赔付。',
       compensationStatus: 'pending',
+      appealDecision: 'accepted',
       compensationTargetRole: 'shipper',
       compensationAmountCents: 3600,
     });

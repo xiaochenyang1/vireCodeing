@@ -280,6 +280,66 @@ describe('OrderExceptionCasesService', () => {
     });
   });
 
+  it('requires an appeal decision when resolving an appealed case', async () => {
+    const { order, exceptionCase, service, resolved } =
+      await resolvePendingCompensation();
+    const appealed = await service.appealForShipper(
+      'shipper-1',
+      order.id,
+      exceptionCase.id,
+      {
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        reason: '货主认为赔付金额过低，申请重新核定。',
+      },
+    );
+
+    await expect(
+      service.resolveCase('admin-1', exceptionCase.id, {
+        baseUpdatedAtIso: appealed.updatedAtIso,
+        content: '客服完成二次复核，但漏填申诉裁定。',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 4200,
+      }),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
+        '当前异常工单状态不允许执行该操作',
+      ),
+    );
+  });
+
+  it('records appeal adjudication when resolving an appealed case', async () => {
+    const { order, exceptionCase, service, resolved } =
+      await resolvePendingCompensation();
+    const appealed = await service.appealForShipper(
+      'shipper-1',
+      order.id,
+      exceptionCase.id,
+      {
+        baseUpdatedAtIso: resolved.updatedAtIso,
+        reason: '货主认为赔付金额过低，申请重新核定。',
+      },
+    );
+
+    await expect(
+      service.resolveCase('admin-1', exceptionCase.id, {
+        baseUpdatedAtIso: appealed.updatedAtIso,
+        content: '客服复核后改为待赔付跟进。',
+        compensationStatus: 'pending',
+        appealDecision: 'accepted',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 4200,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      appealStatus: 'accepted',
+      compensationStatus: 'pending',
+      compensationTargetRole: 'shipper',
+      compensationAmountCents: 4200,
+    });
+  });
+
   it('rejects an appeal from an unrelated driver with not found', async () => {
     const { order, exceptionCase, service, resolved } =
       await resolvePendingCompensation();

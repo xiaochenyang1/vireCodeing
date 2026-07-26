@@ -651,6 +651,18 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       return 'conflict' as const;
     }
 
+    const appealDecision =
+      'appealDecision' in input ? input.appealDecision : undefined;
+    if (nextStatus === 'resolved') {
+      if (exceptionCase.appealStatus === 'requested' && !appealDecision) {
+        return 'state-invalid' as const;
+      }
+
+      if (exceptionCase.appealStatus !== 'requested' && appealDecision) {
+        return 'state-invalid' as const;
+      }
+    }
+
     const updatedAtIso = createNextUpdatedAtIso(
       exceptionCase.updatedAtIso,
       this.now(),
@@ -669,6 +681,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (nextStatus === 'resolved') {
       exceptionCase.resolutionText = input.content;
       exceptionCase.resolvedAtIso = updatedAtIso;
+      if (appealDecision) {
+        exceptionCase.appealStatus = appealDecision;
+      }
       if ('compensationStatus' in input) {
         exceptionCase.compensationStatus = input.compensationStatus;
         exceptionCase.compensationTargetRole = input.compensationTargetRole;
@@ -4280,6 +4295,18 @@ export class PrismaOrdersRepository implements OrdersRepository {
       return 'conflict' as const;
     }
 
+    const appealDecision =
+      'appealDecision' in input ? input.appealDecision : undefined;
+    if (nextStatus === 'resolved') {
+      if (current.appealStatus === 'requested' && !appealDecision) {
+        return 'state-invalid' as const;
+      }
+
+      if (current.appealStatus !== 'requested' && appealDecision) {
+        return 'state-invalid' as const;
+      }
+    }
+
     const now = this.now();
     const updated = await this.prisma.$transaction(async transaction => {
       await transaction.orderExceptionCaseAction.create({
@@ -4301,6 +4328,11 @@ export class PrismaOrdersRepository implements OrdersRepository {
             ? {
                 resolutionText: input.content,
                 resolvedAt: now,
+                ...(appealDecision
+                  ? {
+                      appealStatus: appealDecision,
+                    }
+                  : {}),
                 ...('compensationStatus' in input
                   ? {
                       compensationStatus: input.compensationStatus,

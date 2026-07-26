@@ -17,6 +17,10 @@ export type OrderExceptionCaseAppealStatus =
   | 'requested'
   | 'rejected'
   | 'accepted';
+export type OrderExceptionCaseAppealDecision = Extract<
+  OrderExceptionCaseAppealStatus,
+  'rejected' | 'accepted'
+>;
 
 export type OrderExceptionCaseActionRecord = {
   id: string;
@@ -82,6 +86,7 @@ export type UpdateOrderExceptionCaseRequest = {
 
 export type ResolveOrderExceptionCaseRequest = UpdateOrderExceptionCaseRequest & {
   compensationStatus: OrderExceptionCaseCompensationStatus;
+  appealDecision?: OrderExceptionCaseAppealDecision;
   compensationTargetRole?: OrderExceptionCaseCompensationTargetRole;
   compensationAmountCents?: number;
 };

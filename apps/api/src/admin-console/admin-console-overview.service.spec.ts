@@ -114,7 +114,7 @@ describe('AdminConsoleOverviewService', () => {
             key: 'order-exception-case',
             route: '/api/admin/order-exception-case-console',
             summary:
-              '工单能推进状态、留痕、记录赔付决议、响应申诉回退，后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
+              '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
             pendingGaps: ['SLA / 超时升级', '坐席分配', '会话联动', '退款联动'],
           }),
           expect.objectContaining({
@@ -256,7 +256,7 @@ describe('AdminConsoleOverviewService', () => {
     });
     expect(overview.modules.find(module => module.key === 'order-exception-case')).toMatchObject({
       summary:
-        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
+        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
       pendingGaps: ['SLA / 超时升级', '坐席分配', '会话联动', '退款联动'],
     });
     expect(

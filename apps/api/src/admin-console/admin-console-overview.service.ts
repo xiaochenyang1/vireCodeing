@@ -322,7 +322,7 @@ function createModules(
       route: '/api/admin/order-exception-case-console',
       stage: 'first_slice',
       summary:
-        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
+        '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台也能按赔付状态和申诉状态筛队列并执行平台赔付，但还没 SLA、分配、会话和退款联动。',
       metrics: [
         {
           label: '待处理工单',

@@ -12698,8 +12698,9 @@ components:
       type: string
       description: >-
         Appeal lifecycle for a resolved case. requested reopens the case to
-        processing for a second customer-service review. rejected and accepted are
-        reserved for a later slice and are not yet produced by any endpoint.
+        processing for a second customer-service review. accepted and rejected are
+        written when admin resolves an appealed case with an explicit
+        appealDecision.
       enum: [none, requested, rejected, accepted]
       example: none
     OrderExceptionCaseActionRecord:
@@ -12784,6 +12785,10 @@ components:
           properties:
             compensationStatus:
               $ref: '#/components/schemas/OrderExceptionCaseCompensationStatus'
+            appealDecision:
+              type: string
+              enum: [accepted, rejected]
+              description: Required when the current case is a reopened appeal with appealStatus=requested.
             compensationTargetRole:
               $ref: '#/components/schemas/OrderExceptionCaseSourceRole'
             compensationAmountCents:
@@ -12791,7 +12796,7 @@ components:
               minimum: 1
               maximum: 100000000
               example: 3600
-          description: Compensation decision first slice. not_required forbids target and amount; pending or offline_completed require both fields. This step records the decision only; use the compensation/execute endpoint to move money.
+          description: Compensation decision first slice. not_required forbids target and amount; pending or offline_completed require both fields. When the current case was reopened by an appeal, appealDecision is also required so admin can write accepted or rejected before resolving again. This step records the decision only; use the compensation/execute endpoint to move money.
     ExecuteOrderExceptionCaseCompensationRequest:
       type: object
       required: [baseUpdatedAtIso, idempotencyKey, content]
