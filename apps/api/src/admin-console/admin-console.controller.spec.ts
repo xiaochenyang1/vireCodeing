@@ -777,6 +777,26 @@ describe('account management admin console page', () => {
     expect(html).toContain('不能禁用当前管理员账号');
   });
 
+  it('restores account report controls when csv export preflight fails', () => {
+    const html = renderAccountManagementAdminConsole();
+    const exportStart = html.indexOf(
+      'async function exportAdminAuthAccountsCsv()',
+    );
+    const exportEnd = html.indexOf(
+      'function updateAccountBulkSelectionUi()',
+      exportStart,
+    );
+    const exportScript = html.slice(exportStart, exportEnd);
+
+    expect(exportScript).toContain(
+      "setAccountReportControlsDisabled(true);\n      try {\n        const accessToken = token();\n        const query = buildAccountExportQuery();",
+    );
+    expect(exportScript).toContain('finally {');
+    expect(exportScript).toContain('setAccountReportControlsDisabled(false)');
+    expect(exportScript).not.toContain('let accessToken;');
+    expect(exportScript).not.toContain('let query;');
+  });
+
   it('syncs account filters, pagination and selected account detail into route state', () => {
     const html = renderAccountManagementAdminConsole();
 

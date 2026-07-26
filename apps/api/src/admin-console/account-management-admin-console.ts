@@ -747,20 +747,12 @@ export function renderAccountManagementAdminConsole() {
     }
 
     async function exportAdminAuthAccountsCsv() {
-      let accessToken;
-      let query;
       document.getElementById('accountExportStatus').textContent = '';
       setAccountReportControlsDisabled(true);
       try {
-        accessToken = token();
-        query = buildAccountExportQuery();
-      } catch (error) {
-        document.getElementById('accountExportStatus').textContent = error.message;
-        return;
-      }
-
-      document.getElementById('accountExportStatus').textContent = '正在导出当前筛选账号 CSV...';
-      try {
+        const accessToken = token();
+        const query = buildAccountExportQuery();
+        document.getElementById('accountExportStatus').textContent = '正在导出当前筛选账号 CSV...';
         const response = await fetch(
           apiBase + '/admin/auth/accounts/export?' + query.toString(),
           {
