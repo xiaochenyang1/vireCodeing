@@ -283,13 +283,13 @@ export type PrismaProfileVerificationClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaShipperIdentityVerificationRecord>;
-    update(args: {
-      where: { shipperId: string };
+    updateManyAndReturn(args: {
+      where: { shipperId: string; status: 'reviewing'; updatedAt: Date };
       data: {
         status: 'approved' | 'rejected';
         rejectionReason: string | null;
       };
-    }): Promise<PrismaShipperIdentityVerificationRecord>;
+    }): Promise<PrismaShipperIdentityVerificationRecord[]>;
   };
   shipperEnterpriseVerification: {
     findUnique(args: {
@@ -323,13 +323,13 @@ export type PrismaProfileVerificationClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaShipperEnterpriseVerificationRecord>;
-    update(args: {
-      where: { shipperId: string };
+    updateManyAndReturn(args: {
+      where: { shipperId: string; status: 'reviewing'; updatedAt: Date };
       data: {
         status: 'approved' | 'rejected';
         rejectionReason: string | null;
       };
-    }): Promise<PrismaShipperEnterpriseVerificationRecord>;
+    }): Promise<PrismaShipperEnterpriseVerificationRecord[]>;
   };
 };
 
@@ -526,14 +526,25 @@ export class PrismaProfileVerificationRepository
       );
     }
 
-    const updated = await this.prisma.shipperIdentityVerification.update({
-      where: { shipperId },
-      data: {
-        status: input.status,
-        rejectionReason:
-          input.status === 'rejected' ? input.rejectionReason : null,
-      },
-    });
+    const [updated] =
+      await this.prisma.shipperIdentityVerification.updateManyAndReturn({
+        where: {
+          shipperId,
+          status: 'reviewing',
+          updatedAt: identity.updatedAt,
+        },
+        data: {
+          status: input.status,
+          rejectionReason:
+            input.status === 'rejected' ? input.rejectionReason : null,
+        },
+      });
+    if (!updated) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前实名认证状态不可审核',
+      );
+    }
     return mapPrismaIdentityVerification(updated);
   }
 
@@ -558,14 +569,25 @@ export class PrismaProfileVerificationRepository
       );
     }
 
-    const updated = await this.prisma.shipperEnterpriseVerification.update({
-      where: { shipperId },
-      data: {
-        status: input.status,
-        rejectionReason:
-          input.status === 'rejected' ? input.rejectionReason : null,
-      },
-    });
+    const [updated] =
+      await this.prisma.shipperEnterpriseVerification.updateManyAndReturn({
+        where: {
+          shipperId,
+          status: 'reviewing',
+          updatedAt: enterprise.updatedAt,
+        },
+        data: {
+          status: input.status,
+          rejectionReason:
+            input.status === 'rejected' ? input.rejectionReason : null,
+        },
+      });
+    if (!updated) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+        '当前企业认证状态不可审核',
+      );
+    }
     return mapPrismaEnterpriseVerification(updated);
   }
 }
