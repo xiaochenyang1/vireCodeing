@@ -99,10 +99,14 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
       .mockResolvedValueOnce(3);
     prisma.shipperSupportTicket.count
       .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(2);
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(3);
     prisma.orderExceptionCase.count
       .mockResolvedValueOnce(7)
-      .mockResolvedValueOnce(4);
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(1);
     prisma.shipperCoupon.count
       .mockResolvedValueOnce(12)
       .mockResolvedValueOnce(3)
@@ -154,11 +158,13 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         pendingCount: 5,
         processingCount: 2,
         openCount: 7,
+        overdueCount: 4,
       },
       orderExceptions: {
         pendingCount: 7,
         processingCount: 4,
         openCount: 11,
+        overdueCount: 3,
       },
       shipperCoupons: {
         usableCount: 12,
@@ -298,6 +304,36 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
     });
     expect(prisma.shipperSupportTicket.count).toHaveBeenNthCalledWith(2, {
       where: { status: 'processing' },
+    });
+    expect(prisma.shipperSupportTicket.count).toHaveBeenNthCalledWith(3, {
+      where: {
+        status: 'pending',
+        createdAt: { lt: new Date('2026-07-18T02:50:00.000Z') },
+      },
+    });
+    expect(prisma.shipperSupportTicket.count).toHaveBeenNthCalledWith(4, {
+      where: {
+        status: 'processing',
+        updatedAt: { lt: new Date('2026-07-17T03:20:00.000Z') },
+      },
+    });
+    expect(prisma.orderExceptionCase.count).toHaveBeenNthCalledWith(1, {
+      where: { status: 'pending' },
+    });
+    expect(prisma.orderExceptionCase.count).toHaveBeenNthCalledWith(2, {
+      where: { status: 'processing' },
+    });
+    expect(prisma.orderExceptionCase.count).toHaveBeenNthCalledWith(3, {
+      where: {
+        status: 'pending',
+        createdAt: { lt: new Date('2026-07-18T03:05:00.000Z') },
+      },
+    });
+    expect(prisma.orderExceptionCase.count).toHaveBeenNthCalledWith(4, {
+      where: {
+        status: 'processing',
+        updatedAt: { lt: new Date('2026-07-17T23:20:00.000Z') },
+      },
     });
   });
 });

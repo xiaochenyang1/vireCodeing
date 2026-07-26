@@ -40,11 +40,13 @@ describe('AdminConsoleOverviewService', () => {
           pendingCount: 3,
           processingCount: 2,
           openCount: 5,
+          overdueCount: 2,
         },
         orderExceptions: {
           pendingCount: 4,
           processingCount: 2,
           openCount: 6,
+          overdueCount: 1,
         },
         shipperCoupons: {
           usableCount: 15,
@@ -115,6 +117,13 @@ describe('AdminConsoleOverviewService', () => {
             route: '/api/admin/order-exception-case-console',
             summary:
               '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，并按赔付状态、申诉状态和 SLA 状态筛队列后执行平台赔付，但自动超时升级、分配、会话和退款联动还没补上。',
+            metrics: expect.arrayContaining([
+              expect.objectContaining({
+                label: '已超时',
+                value: 1,
+                tone: 'warning',
+              }),
+            ]),
             pendingGaps: ['自动超时升级', '坐席分配', '会话联动', '退款联动'],
           }),
           expect.objectContaining({
@@ -145,6 +154,11 @@ describe('AdminConsoleOverviewService', () => {
               expect.objectContaining({
                 label: '待处理工单',
                 value: 5,
+                tone: 'warning',
+              }),
+              expect.objectContaining({
+                label: '已超时',
+                value: 2,
                 tone: 'warning',
               }),
             ]),

@@ -313,6 +313,11 @@ function createModules(
           value: stats.supportTickets.processingCount,
           tone: queueTone(stats.supportTickets.processingCount),
         },
+        {
+          label: '已超时',
+          value: stats.supportTickets.overdueCount,
+          tone: queueTone(stats.supportTickets.overdueCount),
+        },
       ],
       pendingGaps: ['自动超时升级', '坐席分配', '在线客服会话'],
     },
@@ -338,6 +343,11 @@ function createModules(
           label: '处理中',
           value: stats.orderExceptions.processingCount,
           tone: queueTone(stats.orderExceptions.processingCount),
+        },
+        {
+          label: '已超时',
+          value: stats.orderExceptions.overdueCount,
+          tone: queueTone(stats.orderExceptions.overdueCount),
         },
       ],
       pendingGaps: ['自动超时升级', '坐席分配', '会话联动', '退款联动'],

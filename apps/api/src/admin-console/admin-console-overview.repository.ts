@@ -1,5 +1,10 @@
 import { buildAdminAuthSessionRiskProfile } from '../auth/admin-auth-session-risk';
 
+const SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS = 30 * 60 * 1000;
+const SUPPORT_TICKET_RESOLUTION_TARGET_MS = 24 * 60 * 60 * 1000;
+const ORDER_EXCEPTION_ACCEPTANCE_TARGET_MS = 15 * 60 * 1000;
+const ORDER_EXCEPTION_RESOLUTION_TARGET_MS = 4 * 60 * 60 * 1000;
+
 export type AdminConsoleOverviewStats = {
   driverCertification: {
     reviewingDriverCount: number;
@@ -34,11 +39,13 @@ export type AdminConsoleOverviewStats = {
     pendingCount: number;
     processingCount: number;
     openCount: number;
+    overdueCount: number;
   };
   orderExceptions: {
     pendingCount: number;
     processingCount: number;
     openCount: number;
+    overdueCount: number;
   };
   shipperCoupons: {
     usableCount: number;
@@ -168,7 +175,20 @@ export class PrismaAdminConsoleOverviewRepository
   ) {}
 
   async getStats(): Promise<AdminConsoleOverviewStats> {
+    const now = this.config.now ? this.config.now() : new Date();
     const expiredPendingCutoff = this.getFileExpiredPendingCutoff();
+    const supportTicketFirstResponseCutoff = new Date(
+      now.getTime() - SUPPORT_TICKET_FIRST_RESPONSE_TARGET_MS,
+    );
+    const supportTicketResolutionCutoff = new Date(
+      now.getTime() - SUPPORT_TICKET_RESOLUTION_TARGET_MS,
+    );
+    const orderExceptionAcceptanceCutoff = new Date(
+      now.getTime() - ORDER_EXCEPTION_ACCEPTANCE_TARGET_MS,
+    );
+    const orderExceptionResolutionCutoff = new Date(
+      now.getTime() - ORDER_EXCEPTION_RESOLUTION_TARGET_MS,
+    );
     const [
       reviewingDriverCount,
       identityReviewingCount,
@@ -186,8 +206,12 @@ export class PrismaAdminConsoleOverviewRepository
       expiredPendingFileCount,
       pendingSupportTicketCount,
       processingSupportTicketCount,
+      pendingSupportTicketOverdueCount,
+      processingSupportTicketOverdueCount,
       pendingCaseCount,
       processingCaseCount,
+      pendingCaseOverdueCount,
+      processingCaseOverdueCount,
       usableCouponCount,
       lockedCouponCount,
       expiredCouponCount,
@@ -314,11 +338,35 @@ export class PrismaAdminConsoleOverviewRepository
       this.prisma.shipperSupportTicket.count({
         where: { status: 'processing' },
       }),
+      this.prisma.shipperSupportTicket.count({
+        where: {
+          status: 'pending',
+          createdAt: { lt: supportTicketFirstResponseCutoff },
+        },
+      }),
+      this.prisma.shipperSupportTicket.count({
+        where: {
+          status: 'processing',
+          updatedAt: { lt: supportTicketResolutionCutoff },
+        },
+      }),
       this.prisma.orderExceptionCase.count({
         where: { status: 'pending' },
       }),
       this.prisma.orderExceptionCase.count({
         where: { status: 'processing' },
+      }),
+      this.prisma.orderExceptionCase.count({
+        where: {
+          status: 'pending',
+          createdAt: { lt: orderExceptionAcceptanceCutoff },
+        },
+      }),
+      this.prisma.orderExceptionCase.count({
+        where: {
+          status: 'processing',
+          updatedAt: { lt: orderExceptionResolutionCutoff },
+        },
       }),
       this.prisma.shipperCoupon.count({
         where: { status: 'usable' },
@@ -439,11 +487,15 @@ export class PrismaAdminConsoleOverviewRepository
         pendingCount: pendingSupportTicketCount,
         processingCount: processingSupportTicketCount,
         openCount: pendingSupportTicketCount + processingSupportTicketCount,
+        overdueCount:
+          pendingSupportTicketOverdueCount +
+          processingSupportTicketOverdueCount,
       },
       orderExceptions: {
         pendingCount: pendingCaseCount,
         processingCount: processingCaseCount,
         openCount: pendingCaseCount + processingCaseCount,
+        overdueCount: pendingCaseOverdueCount + processingCaseOverdueCount,
       },
       shipperCoupons: {
         usableCount: usableCouponCount,
@@ -466,10 +518,12 @@ export class PrismaAdminConsoleOverviewRepository
   }
 
   private getFileExpiredPendingCutoff() {
-    const now = this.config.now ? this.config.now() : new Date();
     const uploadExpiresInSeconds =
       this.config.fileUploadExpiresInSeconds ?? defaultFileUploadExpiresInSeconds;
 
-    return new Date(now.getTime() - uploadExpiresInSeconds * 1000);
+    return new Date(
+      (this.config.now ? this.config.now() : new Date()).getTime() -
+        uploadExpiresInSeconds * 1000,
+    );
   }
 }
