@@ -107,7 +107,7 @@ export function renderOrderChangeRequestAdminConsole() {
       <div class="topbar">
         <div>
           <h1>订单修改申请审核台</h1>
-          <p class="muted">第一片：列表筛选、审核事件，以及费用/退款/司机通知快照录入。</p>
+          <p class="muted">第一片：列表筛选、审核事件，以及费用/退款/司机通知快照录入；留空时系统会自动补全。</p>
         </div>
         ${renderAdminSessionControls({
           currentRoute: '/api/admin/order-change-request-console',
@@ -140,6 +140,7 @@ export function renderOrderChangeRequestAdminConsole() {
           审核说明
           <textarea id="reviewResultText" placeholder="可选，通过/驳回都可填写"></textarea>
         </label>
+        <p class="muted">费用/退款/司机通知留空时，系统会按订单金额、支付状态和司机分配状态自动补全。</p>
         <div class="review-fields">
           <label>
             费用影响快照

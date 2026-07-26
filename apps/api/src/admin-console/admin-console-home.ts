@@ -36,7 +36,7 @@ const defaultModules = [
     key: 'order-change-request',
     title: '订单修改申请审核台',
     route: '/api/admin/order-change-request-console',
-    summary: '查看货主修改申请队列、审核事件，录入费用/退款/司机通知快照，并在通过/驳回后同步按订单可深链的司机通知。',
+    summary: '查看货主修改申请队列、审核事件，录入或自动补全费用/退款/司机通知快照，并在通过/驳回后同步按订单可深链的司机通知。',
   },
   {
     key: 'session-governance',

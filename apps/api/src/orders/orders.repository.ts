@@ -1373,7 +1373,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         input.decision === 'approved'
           ? 'change_request_approved'
           : 'change_request_rejected',
-      noteText: createOrderChangeReviewNote(input),
+      noteText: createOrderChangeReviewNote(order, input),
       createdAtIso: nowIso,
     });
 
@@ -5348,7 +5348,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
               input.decision === 'approved'
                 ? 'change_request_approved'
                 : 'change_request_rejected',
-            noteText: createOrderChangeReviewNote(input),
+            noteText: createOrderChangeReviewNote(mapPrismaOrder(current), input),
           },
         },
       },
@@ -6282,21 +6282,16 @@ function createShipperBonusAddedNote(
   return `货主追加曝光赏金 ${addedBonusCents} 分，当前总赏金 ${totalBonusCents} 分`;
 }
 
-function createOrderChangeReviewNote(input: ReviewShipperOrderChangeRequest) {
-  const reviewPayload = createOrderChangeReviewPayload(input);
-
-  if (
-    !reviewPayload.costImpactText &&
-    !reviewPayload.refundText &&
-    !reviewPayload.driverNoticeText
-  ) {
-    return reviewPayload.reviewResultText;
-  }
-
+function createOrderChangeReviewNote(
+  order: ShipperOrderRecord,
+  input: ReviewShipperOrderChangeRequest,
+) {
+  const reviewPayload = createOrderChangeReviewPayload(order, input);
   return JSON.stringify(reviewPayload);
 }
 
 function createOrderChangeReviewPayload(
+  order: ShipperOrderRecord,
   input: ReviewShipperOrderChangeRequest,
 ): Required<Pick<OrderChangeRequestReviewSnapshot, 'reviewResultText'>> &
   Omit<OrderChangeRequestReviewSnapshot, 'reviewResultText'> {
@@ -6305,9 +6300,14 @@ function createOrderChangeReviewPayload(
       ? '平台客服已通过修改申请'
       : '平台客服已驳回修改申请';
   const reviewResultText = input.reviewResultText?.trim() || defaultText;
-  const costImpactText = input.costImpactText?.trim();
-  const refundText = input.refundText?.trim();
-  const driverNoticeText = input.driverNoticeText?.trim();
+  const automaticSnapshot = createAutomaticOrderChangeReviewSnapshot(
+    order,
+    input.decision,
+  );
+  const costImpactText = input.costImpactText?.trim() || automaticSnapshot.costImpactText;
+  const refundText = input.refundText?.trim() || automaticSnapshot.refundText;
+  const driverNoticeText =
+    input.driverNoticeText?.trim() || automaticSnapshot.driverNoticeText;
 
   return {
     reviewResultText,
@@ -6366,6 +6366,96 @@ function parseOrderChangeReviewNote(
       reviewResultText: trimmedNoteText,
     };
   }
+}
+
+function createAutomaticOrderChangeReviewSnapshot(
+  order: ShipperOrderRecord,
+  decision: ReviewShipperOrderChangeRequest['decision'],
+): Omit<OrderChangeRequestReviewSnapshot, 'reviewResultText'> {
+  return {
+    costImpactText: createAutomaticOrderChangeCostImpactText(order, decision),
+    refundText: createAutomaticOrderChangeRefundText(order, decision),
+    driverNoticeText: createAutomaticOrderChangeDriverNoticeText(
+      order,
+      decision,
+    ),
+  };
+}
+
+function createAutomaticOrderChangeCostImpactText(
+  order: ShipperOrderRecord,
+  decision: ReviewShipperOrderChangeRequest['decision'],
+) {
+  const amountCents = resolveOrderSettlementAmountCents(order);
+  const amountText =
+    amountCents === undefined
+      ? '当前订单金额待进一步确认'
+      : `当前订单金额 ${formatOrderAmountCents(amountCents)}`;
+
+  if (decision === 'rejected') {
+    return `${amountText}，本次修改申请驳回后不做变更。`;
+  }
+
+  if (order.paymentMethod === 'online') {
+    switch (order.paymentStatus) {
+      case 'escrowed':
+        return `${amountText}，已进入在线托管，系统暂不自动改价；如需补差或退差额请走人工处理。`;
+      case 'refund_pending':
+        return `${amountText}，对应资金已在退款处理中，当前不再重复调整金额。`;
+      case 'refunded':
+      case 'refund_failed':
+        return `${amountText}，已进入退款链路，当前不再自动调整金额。`;
+      case 'settled':
+        return `${amountText}，已进入结算，当前不再自动调整金额。`;
+      default:
+        return `${amountText}，暂未进入稳定托管状态，系统先不自动改价。`;
+    }
+  }
+
+  return `${amountText}，暂不自动改价；如需调整运费请线下补收或人工处理。`;
+}
+
+function createAutomaticOrderChangeRefundText(
+  order: ShipperOrderRecord,
+  decision: ReviewShipperOrderChangeRequest['decision'],
+) {
+  if (decision === 'rejected') {
+    return order.paymentMethod === 'online'
+      ? '修改申请已驳回，当前支付资金不做变更。'
+      : '修改申请已驳回，货到付款订单无需退款。';
+  }
+
+  if (order.paymentMethod !== 'online') {
+    return '货到付款订单无需在线退款。';
+  }
+
+  switch (order.paymentStatus) {
+    case 'escrowed':
+      return '当前托管资金暂不自动退款；如需处理差额退款请由客服人工跟进。';
+    case 'refund_pending':
+      return '当前订单退款已在处理中，无需重复发起退款。';
+    case 'refunded':
+      return '当前订单已退款完成，无需再次退款。';
+    case 'refund_failed':
+      return '当前订单存在退款失败记录，需人工复核后再处理差额退款。';
+    case 'settled':
+      return '订单已完成结算，当前不支持自动退款。';
+    default:
+      return '当前订单尚未形成可退款托管资金，无需发起退款。';
+  }
+}
+
+function createAutomaticOrderChangeDriverNoticeText(
+  order: ShipperOrderRecord,
+  decision: ReviewShipperOrderChangeRequest['decision'],
+) {
+  if (!order.assignedDriverId) {
+    return '订单尚未分配司机，当前无需发送司机通知。';
+  }
+
+  return decision === 'approved'
+    ? '已生成司机通知，按审核后的修改结果继续执行。'
+    : '已生成司机通知，继续按原订单要求执行。';
 }
 
 function isOrderChangeRequestReviewEvent(
@@ -6629,6 +6719,10 @@ function createExceptionCompensationNote(
   const amountYuan = (amountCents / 100).toFixed(2);
 
   return `平台向${COMPENSATION_TARGET_LABEL[targetRole]}赔付 ${amountYuan} 元已入账`;
+}
+
+function formatOrderAmountCents(amountCents: number) {
+  return `${(amountCents / 100).toFixed(2)} 元`;
 }
 
 function resolveCompensationTargetUserId(

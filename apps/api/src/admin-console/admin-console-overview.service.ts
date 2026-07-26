@@ -125,9 +125,9 @@ function createModules(
       route: '/api/admin/order-change-request-console',
       stage: 'first_slice',
       summary:
-        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上，但自动费用重算和退款执行还没补完。',
+        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上；留空的审核快照也会按订单金额、支付状态和司机分配自动补全，但真实金额变更执行和差额资金处理还没补完。',
       metrics: [],
-      pendingGaps: ['自动费用重算 / 退款执行'],
+      pendingGaps: ['真实金额变更执行 / 差额资金处理'],
     },
     {
       key: 'order-management',
