@@ -1,4 +1,5 @@
 import type { DriverAcceptOrderEventPayload } from '../driver-orders/dto';
+import { ApiErrorCode } from '../common/errors';
 import {
   createAdminOrderBatchCancelFingerprint,
   createOrderCreateFingerprint,
@@ -848,6 +849,149 @@ describe('PrismaOrdersRepository admin batch cancel idempotency', () => {
     await expect(
       repository.executeIdempotentAdminBatchCancel(input),
     ).resolves.toEqual(responseSnapshot);
+  });
+});
+
+describe('PrismaOrdersRepository order change reviews', () => {
+  it('allows only one concurrent reviewer to claim the pending request', async () => {
+    const observedAt = new Date('2026-07-14T08:00:00.000Z');
+    const expectedUpdatedAt = new Date('2026-07-14T08:00:00.001Z');
+    const current = createPrismaOrderRecord(createOrderInput(), observedAt, {
+      id: 'order-change-1',
+      status: 'transporting',
+      events: [
+        {
+          id: 'event-created',
+          actorUserId: 'shipper-1',
+          eventType: 'created',
+          noteText: '货主发布订单',
+          attachmentFileIds: [],
+          createdAt: new Date('2026-07-14T07:50:00.000Z'),
+        },
+        {
+          id: 'event-change-requested',
+          actorUserId: 'shipper-1',
+          eventType: 'change_requested',
+          noteText: '请把卸货地址改到南山门店二期',
+          attachmentFileIds: [],
+          createdAt: observedAt,
+        },
+      ],
+    });
+    let persisted: PrismaOrderRecord = {
+      ...current,
+      events: [...current.events],
+    };
+    const readPersisted = () => ({
+      ...persisted,
+      events: [...persisted.events],
+    });
+    const updateMany = jest.fn(
+      async (args: {
+        where: { id: string; updatedAt: Date };
+        data: { updatedAt: Date };
+      }) => {
+        if (
+          args.where.id !== persisted.id ||
+          args.where.updatedAt.getTime() !== persisted.updatedAt.getTime()
+        ) {
+          return { count: 0 };
+        }
+
+        persisted = { ...persisted, updatedAt: args.data.updatedAt };
+        return { count: 1 };
+      },
+    );
+    const createEvent = jest.fn(
+      async (args: {
+        data: {
+          orderId: string;
+          actorUserId: string;
+          eventType: string;
+          noteText: string;
+          attachmentFileIds: string[];
+          createdAt: Date;
+        };
+      }) => {
+        const event = {
+          id: 'event-change-reviewed',
+          actorUserId: args.data.actorUserId,
+          eventType: args.data.eventType,
+          noteText: args.data.noteText,
+          attachmentFileIds: args.data.attachmentFileIds,
+          createdAt: args.data.createdAt,
+        };
+        persisted = { ...persisted, events: [...persisted.events, event] };
+        return event;
+      },
+    );
+    const transaction = {
+      order: {
+        findUnique: jest.fn(async () => readPersisted()),
+        updateMany,
+      },
+      orderEvent: { create: createEvent },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const repository = new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => observedAt,
+    );
+
+    const results = await Promise.allSettled([
+      repository.reviewOrderChangeRequest('order-change-1', 'admin-1', {
+        decision: 'approved',
+        reviewResultText: '同意改址',
+      }),
+      repository.reviewOrderChangeRequest('order-change-1', 'admin-2', {
+        decision: 'rejected',
+        reviewResultText: '拒绝改址',
+      }),
+    ]);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    const rejected = results.find(result => result.status === 'rejected');
+    expect(rejected).toMatchObject({
+      reason: {
+        code: ApiErrorCode.ORDER_CONFLICT,
+        message: '订单已被其他操作更新',
+      },
+    });
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'order-change-1', updatedAt: observedAt },
+      data: { updatedAt: expectedUpdatedAt },
+    });
+    expect(createEvent).toHaveBeenCalledTimes(1);
+    expect(createEvent).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: 'order-change-1',
+        actorUserId: 'admin-1',
+        eventType: 'change_request_approved',
+        attachmentFileIds: [],
+        createdAt: expectedUpdatedAt,
+      }),
+    });
+
+    const fulfilled = results.find(result => result.status === 'fulfilled');
+    expect(fulfilled).toMatchObject({
+      value: {
+        updatedAtIso: expectedUpdatedAt.toISOString(),
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            actorUserId: 'admin-1',
+            eventType: 'change_request_approved',
+          }),
+        ]),
+      },
+    });
   });
 });
 

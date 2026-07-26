@@ -5511,40 +5511,72 @@ export class PrismaOrdersRepository implements OrdersRepository {
     actorUserId: string,
     input: ReviewShipperOrderChangeRequest,
   ): Promise<ShipperOrderRecord> {
-    const current = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: orderInclude,
-    });
-    if (!current) {
-      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
-    }
-
-    const latestRequest = findLatestOrderChangeRequest(mapPrismaOrder(current));
-    if (!latestRequest || latestRequest.status !== 'pending') {
-      throw new BusinessError(
-        ApiErrorCode.ORDER_STATE_INVALID,
-        '当前订单没有待审核的修改申请',
+    if (!this.prisma.$transaction) {
+      throw new Error(
+        'Prisma transaction client is required for order change reviews',
       );
     }
 
-    const order = await this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        events: {
-          create: {
-            actorUserId,
-            eventType:
-              input.decision === 'approved'
-                ? 'change_request_approved'
-                : 'change_request_rejected',
-            noteText: createOrderChangeReviewNote(mapPrismaOrder(current), input),
-          },
-        },
-      },
-      include: orderInclude,
-    });
+    return this.prisma.$transaction(async transaction => {
+      const current = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+      if (!current) {
+        throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+      }
 
-    return mapPrismaOrder(order);
+      const currentOrder = mapPrismaOrder(current);
+      const latestRequest = findLatestOrderChangeRequest(currentOrder);
+      if (!latestRequest || latestRequest.status !== 'pending') {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_STATE_INVALID,
+          '当前订单没有待审核的修改申请',
+        );
+      }
+
+      const updatedAt = new Date(
+        createNextUpdatedAtIso(current.updatedAt.toISOString(), this.now()),
+      );
+      const claim = await transaction.order.updateMany({
+        where: {
+          id: orderId,
+          updatedAt: current.updatedAt,
+        },
+        data: { updatedAt },
+      });
+
+      if (claim.count !== 1) {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      }
+
+      await transaction.orderEvent.create({
+        data: {
+          orderId,
+          actorUserId,
+          eventType:
+            input.decision === 'approved'
+              ? 'change_request_approved'
+              : 'change_request_rejected',
+          noteText: createOrderChangeReviewNote(currentOrder, input),
+          attachmentFileIds: [],
+          createdAt: updatedAt,
+        },
+      });
+
+      const order = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+      if (!order) {
+        throw new Error(`Order not found after change request review: ${orderId}`);
+      }
+
+      return mapPrismaOrder(order);
+    });
   }
 
   async submitOrderEvaluation(

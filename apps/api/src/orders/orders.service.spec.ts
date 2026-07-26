@@ -2082,6 +2082,63 @@ describe('OrdersService', () => {
     });
   });
 
+  it('notifies only the winner when concurrent change request reviews conflict', async () => {
+    const repository = {
+      reviewOrderChangeRequest: jest
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'order-change-1',
+          orderNo: 'HY202607010001',
+          shipperId: 'shipper-1',
+          assignedDriverId: 'driver-1',
+        })
+        .mockRejectedValueOnce(
+          new BusinessError(
+            ApiErrorCode.ORDER_CONFLICT,
+            '订单已被其他操作更新',
+          ),
+        ),
+    } as unknown as InMemoryOrdersRepository;
+    const notificationsService = {
+      notifyOrderEvent: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new OrdersService(
+      repository,
+      new InMemoryFilesRepository(() => now),
+      undefined,
+      () => now,
+      86400,
+      notificationsService as never,
+    );
+
+    const results = await Promise.allSettled([
+      service.reviewOrderChangeRequest('admin-1', 'order-change-1', {
+        decision: 'approved',
+        reviewResultText: '已确认地址变更',
+      }),
+      service.reviewOrderChangeRequest('admin-2', 'order-change-1', {
+        decision: 'rejected',
+        reviewResultText: '不同意地址变更',
+      }),
+    ]);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({
+      reason: { code: ApiErrorCode.ORDER_CONFLICT },
+    });
+    expect(notificationsService.notifyOrderEvent).toHaveBeenCalledTimes(1);
+    expect(notificationsService.notifyOrderEvent).toHaveBeenCalledWith({
+      event: 'change_request_approved',
+      orderId: 'order-change-1',
+      orderNo: 'HY202607010001',
+      shipperId: 'shipper-1',
+      driverId: 'driver-1',
+      reviewResultText: '已确认地址变更',
+    });
+  });
+
   it('replays an idempotent shipper cancellation without duplicating events', async () => {
     const { repository, service } = createService();
     const order = await createOrderForTest(service,
