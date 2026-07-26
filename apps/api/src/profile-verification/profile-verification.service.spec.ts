@@ -263,6 +263,11 @@ describe('ProfileVerificationService', () => {
       createUploadedIdentityFile('file-back'),
     ]);
     const admin = { id: 'admin-1', phone: '13900000000', userType: 'admin' as const };
+    const secondAdmin = {
+      id: 'admin-2',
+      phone: '13900000001',
+      userType: 'admin' as const,
+    };
 
     await service.saveIdentity('shipper-1', {
       realName: '张先生',
@@ -298,7 +303,7 @@ describe('ProfileVerificationService', () => {
     });
 
     await expect(
-      service.reviewIdentity(admin, 'shipper-1', {
+      service.reviewIdentity(secondAdmin, 'shipper-1', {
         status: 'rejected',
         rejectionReason: '证件照片不清晰',
       }),
@@ -308,13 +313,25 @@ describe('ProfileVerificationService', () => {
       rejectionReason: '证件照片不清晰',
     });
 
-    await expect(service.listReviewEvents(admin, 'shipper-1')).resolves.toEqual(
+    const reviewEvents = await service.listReviewEvents(admin, 'shipper-1');
+
+    expect(reviewEvents).toHaveLength(3);
+    expect(reviewEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           verificationType: 'identity',
           eventType: 'shipper_identity_verification_rejected',
           stage: 'rejected',
+          actorUserId: 'admin-2',
+          reviewerAdminId: 'admin-2',
           noteText: '证件照片不清晰',
+        }),
+        expect.objectContaining({
+          verificationType: 'identity',
+          eventType: 'shipper_identity_verification_approved',
+          stage: 'approved',
+          actorUserId: 'admin-1',
+          reviewerAdminId: 'admin-1',
         }),
         expect.objectContaining({
           verificationType: 'identity',

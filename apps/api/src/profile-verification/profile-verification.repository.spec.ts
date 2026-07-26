@@ -38,7 +38,14 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         return [{ ...current }];
       }),
     };
-    const repository = new PrismaProfileVerificationRepository({
+    const reviewEvent = {
+      findMany: jest.fn(),
+      create: jest.fn(async ({ data }) => ({
+        id: 'review-event-identity-1',
+        ...data,
+      })),
+    };
+    const prisma = {
       shipperIdentityVerification: identity,
       shipperEnterpriseVerification: {
         findUnique: jest.fn(),
@@ -46,11 +53,17 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         upsert: jest.fn(),
         updateManyAndReturn: jest.fn(),
       },
-    });
+      shipperVerificationReviewEvent: reviewEvent,
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async callback => callback(prisma));
+    const repository = new PrismaProfileVerificationRepository(prisma);
 
     const results = await Promise.allSettled([
-      repository.reviewIdentity('shipper-1', { status: 'approved' }),
-      repository.reviewIdentity('shipper-1', {
+      repository.reviewIdentity('shipper-1', 'admin-1', {
+        status: 'approved',
+      }),
+      repository.reviewIdentity('shipper-1', 'admin-2', {
         status: 'rejected',
         rejectionReason: '证件照片不清晰',
       }),
@@ -64,6 +77,18 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         updatedAt: createdAt,
       },
       data: { status: 'approved', rejectionReason: null },
+    });
+    expect(reviewEvent.create).toHaveBeenCalledTimes(1);
+    expect(reviewEvent.create).toHaveBeenCalledWith({
+      data: {
+        shipperId: 'shipper-1',
+        reviewerAdminId: 'admin-1',
+        verificationType: 'identity',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+        rejectionReason: null,
+        createdAt: reviewedAt,
+      },
     });
   });
 
@@ -97,7 +122,14 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         return [{ ...current }];
       }),
     };
-    const repository = new PrismaProfileVerificationRepository({
+    const reviewEvent = {
+      findMany: jest.fn(),
+      create: jest.fn(async ({ data }) => ({
+        id: 'review-event-enterprise-1',
+        ...data,
+      })),
+    };
+    const prisma = {
       shipperIdentityVerification: {
         findUnique: jest.fn(),
         findMany: jest.fn(),
@@ -105,11 +137,17 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         updateManyAndReturn: jest.fn(),
       },
       shipperEnterpriseVerification: enterprise,
-    });
+      shipperVerificationReviewEvent: reviewEvent,
+      $transaction: jest.fn(),
+    };
+    prisma.$transaction.mockImplementation(async callback => callback(prisma));
+    const repository = new PrismaProfileVerificationRepository(prisma);
 
     const results = await Promise.allSettled([
-      repository.reviewEnterprise('shipper-2', { status: 'approved' }),
-      repository.reviewEnterprise('shipper-2', {
+      repository.reviewEnterprise('shipper-2', 'admin-1', {
+        status: 'approved',
+      }),
+      repository.reviewEnterprise('shipper-2', 'admin-2', {
         status: 'rejected',
         rejectionReason: '营业执照信息不完整',
       }),
@@ -123,6 +161,103 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
         updatedAt: createdAt,
       },
       data: { status: 'approved', rejectionReason: null },
+    });
+    expect(reviewEvent.create).toHaveBeenCalledTimes(1);
+    expect(reviewEvent.create).toHaveBeenCalledWith({
+      data: {
+        shipperId: 'shipper-2',
+        reviewerAdminId: 'admin-1',
+        verificationType: 'enterprise',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+        rejectionReason: null,
+        createdAt: reviewedAt,
+      },
+    });
+  });
+
+  it('lists persisted review decisions with their real admin actors', async () => {
+    const identity: PrismaShipperIdentityVerificationRecord = {
+      shipperId: 'shipper-1',
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+      status: 'rejected',
+      rejectionReason: '证件照片不清晰',
+      createdAt,
+      updatedAt: new Date('2026-07-26T09:02:00.000Z'),
+    };
+    const reviewEvents = [
+      {
+        id: 'review-event-2',
+        shipperId: 'shipper-1',
+        reviewerAdminId: 'admin-2',
+        verificationType: 'identity' as const,
+        fromStatus: 'reviewing' as const,
+        toStatus: 'rejected' as const,
+        rejectionReason: '证件照片不清晰',
+        createdAt: new Date('2026-07-26T09:02:00.000Z'),
+      },
+      {
+        id: 'review-event-1',
+        shipperId: 'shipper-1',
+        reviewerAdminId: 'admin-1',
+        verificationType: 'identity' as const,
+        fromStatus: 'reviewing' as const,
+        toStatus: 'approved' as const,
+        rejectionReason: null,
+        createdAt: reviewedAt,
+      },
+    ];
+    const findMany = jest.fn().mockResolvedValue(reviewEvents);
+    const repository = new PrismaProfileVerificationRepository({
+      shipperIdentityVerification: {
+        findUnique: jest.fn().mockResolvedValue(identity),
+        findMany: jest.fn(),
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperEnterpriseVerification: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(),
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperVerificationReviewEvent: {
+        findMany,
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    });
+
+    await expect(repository.listReviewEvents('shipper-1')).resolves.toEqual([
+      expect.objectContaining({
+        eventId: 'review-event-2',
+        actorUserId: 'admin-2',
+        reviewerAdminId: 'admin-2',
+        fromStatus: 'reviewing',
+        toStatus: 'rejected',
+        stage: 'rejected',
+      }),
+      expect.objectContaining({
+        eventId: 'review-event-1',
+        actorUserId: 'admin-1',
+        reviewerAdminId: 'admin-1',
+        fromStatus: 'reviewing',
+        toStatus: 'approved',
+        stage: 'approved',
+      }),
+      expect.objectContaining({
+        eventId: 'shipper-1:identity:submitted',
+        actorUserId: 'shipper-1',
+        stage: 'submitted',
+      }),
+    ]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { shipperId: 'shipper-1' },
+      orderBy: { createdAt: 'desc' },
     });
   });
 });

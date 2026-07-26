@@ -1618,6 +1618,51 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not a shipper');
   });
 
+  it('documents immutable admin shipper verification review events', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const reviewEventsPath =
+      '/admin/shipper-verifications/{shipperId}/review-events';
+
+    expect(source).toContain('/admin/shipper-verifications:');
+    expect(source).toContain(
+      '/admin/shipper-verifications/{shipperId}/identity/review:',
+    );
+    expect(source).toContain(
+      '/admin/shipper-verifications/{shipperId}/enterprise/review:',
+    );
+    expect(source).toContain(`${reviewEventsPath}:`);
+    expectPathBlockToContain(
+      source,
+      reviewEventsPath,
+      'List shipper verification review audit events',
+    );
+    expectPathBlockToContain(
+      source,
+      reviewEventsPath,
+      "$ref: '#/components/schemas/ShipperVerificationReviewEventResponse'",
+    );
+    expect(source).toContain('ShipperVerificationReviewEvent:');
+    expect(source).toContain('ShipperVerificationReviewEventResponse:');
+    expectSchemaBlockToContain(
+      source,
+      'ShipperVerificationReviewEvent',
+      'reviewerAdminId',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperVerificationReviewEvent',
+      'fromStatus',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ShipperVerificationReviewEvent',
+      'toStatus',
+    );
+    expect(source).toContain(
+      'appends an immutable review event with the authenticated admin actor',
+    );
+  });
+
   it('documents the current shipper profile enterprise verification endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

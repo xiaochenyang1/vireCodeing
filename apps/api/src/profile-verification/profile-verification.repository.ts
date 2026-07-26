@@ -8,6 +8,7 @@ import type {
   ShipperEnterpriseVerificationRecord,
   ShipperIdentityVerificationRecord,
   ShipperVerificationListResult,
+  ShipperVerificationReviewDecisionRecord,
   ShipperVerificationSnapshot,
 } from './dto';
 
@@ -34,10 +35,12 @@ export interface ProfileVerificationRepository {
   ): Promise<AdminShipperVerificationReviewEvent[]>;
   reviewIdentity(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperIdentityVerificationRecord>;
   reviewEnterprise(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperEnterpriseVerificationRecord>;
 }
@@ -53,6 +56,7 @@ export class InMemoryProfileVerificationRepository
     string,
     ShipperEnterpriseVerificationRecord
   >();
+  private readonly reviewEvents: ShipperVerificationReviewDecisionRecord[] = [];
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
@@ -161,11 +165,13 @@ export class InMemoryProfileVerificationRepository
       shipperId,
       identity,
       enterprise,
+      this.reviewEvents.filter(event => event.shipperId === shipperId),
     );
   }
 
   async reviewIdentity(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperIdentityVerificationRecord> {
     const identity = this.identities.get(shipperId);
@@ -182,20 +188,30 @@ export class InMemoryProfileVerificationRepository
       );
     }
 
+    const reviewedAtIso = this.now().toISOString();
     const record: ShipperIdentityVerificationRecord = {
       ...identity,
       status: input.status,
       ...(input.status === 'rejected'
         ? { rejectionReason: input.rejectionReason }
         : { rejectionReason: undefined }),
-      updatedAtIso: this.now().toISOString(),
+      updatedAtIso: reviewedAtIso,
     };
     this.identities.set(shipperId, record);
+    this.recordReviewEvent(
+      shipperId,
+      reviewerAdminId,
+      'identity',
+      identity.status,
+      input,
+      reviewedAtIso,
+    );
     return record;
   }
 
   async reviewEnterprise(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperEnterpriseVerificationRecord> {
     const enterprise = this.enterprises.get(shipperId);
@@ -212,16 +228,47 @@ export class InMemoryProfileVerificationRepository
       );
     }
 
+    const reviewedAtIso = this.now().toISOString();
     const record: ShipperEnterpriseVerificationRecord = {
       ...enterprise,
       status: input.status,
       ...(input.status === 'rejected'
         ? { rejectionReason: input.rejectionReason }
         : { rejectionReason: undefined }),
-      updatedAtIso: this.now().toISOString(),
+      updatedAtIso: reviewedAtIso,
     };
     this.enterprises.set(shipperId, record);
+    this.recordReviewEvent(
+      shipperId,
+      reviewerAdminId,
+      'enterprise',
+      enterprise.status,
+      input,
+      reviewedAtIso,
+    );
     return record;
+  }
+
+  private recordReviewEvent(
+    shipperId: string,
+    reviewerAdminId: string,
+    verificationType: ShipperVerificationReviewDecisionRecord['verificationType'],
+    fromStatus: ShipperVerificationReviewDecisionRecord['fromStatus'],
+    input: ReviewShipperVerificationRequest,
+    createdAtIso: string,
+  ) {
+    this.reviewEvents.push({
+      id: `shipper-verification-review-event-${this.reviewEvents.length + 1}`,
+      shipperId,
+      reviewerAdminId,
+      verificationType,
+      fromStatus,
+      toStatus: input.status,
+      ...(input.status === 'rejected'
+        ? { rejectionReason: input.rejectionReason }
+        : {}),
+      createdAtIso,
+    });
   }
 }
 
@@ -252,7 +299,21 @@ export type PrismaShipperEnterpriseVerificationRecord = {
   updatedAt: Date;
 };
 
+export type PrismaShipperVerificationReviewEventRecord = {
+  id: string;
+  shipperId: string;
+  reviewerAdminId: string;
+  verificationType: ShipperVerificationReviewDecisionRecord['verificationType'];
+  fromStatus: ShipperVerificationReviewDecisionRecord['fromStatus'];
+  toStatus: ShipperVerificationReviewDecisionRecord['toStatus'];
+  rejectionReason: string | null;
+  createdAt: Date;
+};
+
 export type PrismaProfileVerificationClient = {
+  $transaction<T>(
+    callback: (prisma: PrismaProfileVerificationClient) => Promise<T>,
+  ): Promise<T>;
   shipperIdentityVerification: {
     findUnique(args: {
       where: { shipperId: string };
@@ -330,6 +391,23 @@ export type PrismaProfileVerificationClient = {
         rejectionReason: string | null;
       };
     }): Promise<PrismaShipperEnterpriseVerificationRecord[]>;
+  };
+  shipperVerificationReviewEvent: {
+    findMany(args: {
+      where: { shipperId: string };
+      orderBy: { createdAt: 'desc' };
+    }): Promise<PrismaShipperVerificationReviewEventRecord[]>;
+    create(args: {
+      data: {
+        shipperId: string;
+        reviewerAdminId: string;
+        verificationType: ShipperVerificationReviewDecisionRecord['verificationType'];
+        fromStatus: ShipperVerificationReviewDecisionRecord['fromStatus'];
+        toStatus: ShipperVerificationReviewDecisionRecord['toStatus'];
+        rejectionReason: string | null;
+        createdAt: Date;
+      };
+    }): Promise<PrismaShipperVerificationReviewEventRecord>;
   };
 };
 
@@ -483,16 +561,20 @@ export class PrismaProfileVerificationRepository
   async listReviewEvents(
     shipperId: string,
   ): Promise<AdminShipperVerificationReviewEvent[]> {
-    const [identity, enterprise] = await Promise.all([
+    const [identity, enterprise, reviewEvents] = await Promise.all([
       this.prisma.shipperIdentityVerification.findUnique({
         where: { shipperId },
       }),
       this.prisma.shipperEnterpriseVerification.findUnique({
         where: { shipperId },
       }),
+      this.prisma.shipperVerificationReviewEvent.findMany({
+        where: { shipperId },
+        orderBy: { createdAt: 'desc' },
+      }),
     ]);
 
-    if (!identity && !enterprise) {
+    if (!identity && !enterprise && reviewEvents.length === 0) {
       throw new BusinessError(
         ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
         '货主认证记录不存在',
@@ -503,92 +585,125 @@ export class PrismaProfileVerificationRepository
       shipperId,
       identity ? mapPrismaIdentityVerification(identity) : undefined,
       enterprise ? mapPrismaEnterpriseVerification(enterprise) : undefined,
+      reviewEvents.map(mapPrismaReviewDecision),
     );
   }
 
   async reviewIdentity(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperIdentityVerificationRecord> {
-    const identity = await this.prisma.shipperIdentityVerification.findUnique({
-      where: { shipperId },
-    });
-    if (!identity) {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
-        '货主实名认证记录不存在',
-      );
-    }
-    if (identity.status !== 'reviewing') {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
-        '当前实名认证状态不可审核',
-      );
-    }
+    return this.prisma.$transaction(async prisma => {
+      const identity = await prisma.shipperIdentityVerification.findUnique({
+        where: { shipperId },
+      });
+      if (!identity) {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+          '货主实名认证记录不存在',
+        );
+      }
+      if (identity.status !== 'reviewing') {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+          '当前实名认证状态不可审核',
+        );
+      }
 
-    const [updated] =
-      await this.prisma.shipperIdentityVerification.updateManyAndReturn({
-        where: {
-          shipperId,
-          status: 'reviewing',
-          updatedAt: identity.updatedAt,
-        },
+      const [updated] =
+        await prisma.shipperIdentityVerification.updateManyAndReturn({
+          where: {
+            shipperId,
+            status: 'reviewing',
+            updatedAt: identity.updatedAt,
+          },
+          data: {
+            status: input.status,
+            rejectionReason:
+              input.status === 'rejected' ? input.rejectionReason : null,
+          },
+        });
+      if (!updated) {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+          '当前实名认证状态不可审核',
+        );
+      }
+      await prisma.shipperVerificationReviewEvent.create({
         data: {
-          status: input.status,
+          shipperId,
+          reviewerAdminId,
+          verificationType: 'identity',
+          fromStatus: identity.status,
+          toStatus: input.status,
           rejectionReason:
             input.status === 'rejected' ? input.rejectionReason : null,
+          createdAt: updated.updatedAt,
         },
       });
-    if (!updated) {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
-        '当前实名认证状态不可审核',
-      );
-    }
-    return mapPrismaIdentityVerification(updated);
+
+      return mapPrismaIdentityVerification(updated);
+    });
   }
 
   async reviewEnterprise(
     shipperId: string,
+    reviewerAdminId: string,
     input: ReviewShipperVerificationRequest,
   ): Promise<ShipperEnterpriseVerificationRecord> {
-    const enterprise =
-      await this.prisma.shipperEnterpriseVerification.findUnique({
-        where: { shipperId },
-      });
-    if (!enterprise) {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
-        '货主企业认证记录不存在',
-      );
-    }
-    if (enterprise.status !== 'reviewing') {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
-        '当前企业认证状态不可审核',
-      );
-    }
+    return this.prisma.$transaction(async prisma => {
+      const enterprise =
+        await prisma.shipperEnterpriseVerification.findUnique({
+          where: { shipperId },
+        });
+      if (!enterprise) {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+          '货主企业认证记录不存在',
+        );
+      }
+      if (enterprise.status !== 'reviewing') {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+          '当前企业认证状态不可审核',
+        );
+      }
 
-    const [updated] =
-      await this.prisma.shipperEnterpriseVerification.updateManyAndReturn({
-        where: {
-          shipperId,
-          status: 'reviewing',
-          updatedAt: enterprise.updatedAt,
-        },
+      const [updated] =
+        await prisma.shipperEnterpriseVerification.updateManyAndReturn({
+          where: {
+            shipperId,
+            status: 'reviewing',
+            updatedAt: enterprise.updatedAt,
+          },
+          data: {
+            status: input.status,
+            rejectionReason:
+              input.status === 'rejected' ? input.rejectionReason : null,
+          },
+        });
+      if (!updated) {
+        throw new BusinessError(
+          ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
+          '当前企业认证状态不可审核',
+        );
+      }
+      await prisma.shipperVerificationReviewEvent.create({
         data: {
-          status: input.status,
+          shipperId,
+          reviewerAdminId,
+          verificationType: 'enterprise',
+          fromStatus: enterprise.status,
+          toStatus: input.status,
           rejectionReason:
             input.status === 'rejected' ? input.rejectionReason : null,
+          createdAt: updated.updatedAt,
         },
       });
-    if (!updated) {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_STATE_INVALID,
-        '当前企业认证状态不可审核',
-      );
-    }
-    return mapPrismaEnterpriseVerification(updated);
+
+      return mapPrismaEnterpriseVerification(updated);
+    });
   }
 }
 
@@ -608,6 +723,7 @@ function listAdminShipperVerificationReviewEvents(
   shipperId: string,
   identity?: ShipperIdentityVerificationRecord,
   enterprise?: ShipperEnterpriseVerificationRecord,
+  reviewDecisions: ShipperVerificationReviewDecisionRecord[] = [],
 ): AdminShipperVerificationReviewEvent[] {
   const events: AdminShipperVerificationReviewEvent[] = [];
 
@@ -622,7 +738,10 @@ function listAdminShipperVerificationReviewEvents(
       createdAtIso: identity.createdAtIso,
     });
 
-    if (identity.status === 'approved' || identity.status === 'rejected') {
+    if (
+      (identity.status === 'approved' || identity.status === 'rejected') &&
+      !reviewDecisions.some(event => event.verificationType === 'identity')
+    ) {
       events.push({
         eventId: `${shipperId}:identity:${identity.status}`,
         verificationType: 'identity',
@@ -651,7 +770,10 @@ function listAdminShipperVerificationReviewEvents(
       createdAtIso: enterprise.createdAtIso,
     });
 
-    if (enterprise.status === 'approved' || enterprise.status === 'rejected') {
+    if (
+      (enterprise.status === 'approved' || enterprise.status === 'rejected') &&
+      !reviewDecisions.some(event => event.verificationType === 'enterprise')
+    ) {
       events.push({
         eventId: `${shipperId}:enterprise:${enterprise.status}`,
         verificationType: 'enterprise',
@@ -669,9 +791,58 @@ function listAdminShipperVerificationReviewEvents(
     }
   }
 
+  events.push(...reviewDecisions.map(mapReviewDecisionToAdminEvent));
+
   return events.sort((left, right) =>
     right.createdAtIso.localeCompare(left.createdAtIso),
   );
+}
+
+function mapReviewDecisionToAdminEvent(
+  event: ShipperVerificationReviewDecisionRecord,
+): AdminShipperVerificationReviewEvent {
+  const isIdentity = event.verificationType === 'identity';
+  const approved = event.toStatus === 'approved';
+
+  return {
+    eventId: event.id,
+    verificationType: event.verificationType,
+    actorUserId: event.reviewerAdminId,
+    reviewerAdminId: event.reviewerAdminId,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    eventType: isIdentity
+      ? approved
+        ? 'shipper_identity_verification_approved'
+        : 'shipper_identity_verification_rejected'
+      : approved
+        ? 'shipper_enterprise_verification_approved'
+        : 'shipper_enterprise_verification_rejected',
+    stage: event.toStatus,
+    noteText: approved
+      ? isIdentity
+        ? '实名认证已通过'
+        : '企业认证已通过'
+      : event.rejectionReason || (isIdentity ? '实名认证已驳回' : '企业认证已驳回'),
+    createdAtIso: event.createdAtIso,
+  };
+}
+
+function mapPrismaReviewDecision(
+  event: PrismaShipperVerificationReviewEventRecord,
+): ShipperVerificationReviewDecisionRecord {
+  return {
+    id: event.id,
+    shipperId: event.shipperId,
+    reviewerAdminId: event.reviewerAdminId,
+    verificationType: event.verificationType,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    ...(event.rejectionReason
+      ? { rejectionReason: event.rejectionReason }
+      : {}),
+    createdAtIso: event.createdAt.toISOString(),
+  };
 }
 
 function mapPrismaIdentityVerification(

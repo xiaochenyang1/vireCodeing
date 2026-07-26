@@ -431,7 +431,7 @@ export function renderShipperVerificationAdminConsole() {
       root.innerHTML = currentReviewEvents.map(event => {
         return '<div class="event-item">' +
           '<strong>' + escapeHtml(formatReviewEventStage(event)) + '</strong>' +
-          '<div class="muted">操作者：' + escapeHtml(event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
+          '<div class="muted">操作者：' + escapeHtml(event.reviewerAdminId || event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
           '<div class="muted">' + escapeHtml(event.noteText || '无附加说明') + '</div>' +
         '</div>';
       }).join('');

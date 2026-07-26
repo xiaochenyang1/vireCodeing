@@ -52,6 +52,11 @@ enum DriverCertificationType {
   vehicle
 }
 
+enum ShipperVerificationType {
+  identity
+  enterprise
+}
+
 enum OrderExceptionCaseSourceRole {
   shipper
   driver
@@ -135,6 +140,8 @@ model User {
   shipperCoupons              ShipperCoupon[]
   shipperIdentityVerification ShipperIdentityVerification?
   shipperEnterpriseVerification ShipperEnterpriseVerification?
+  shipperVerificationReviewEvents ShipperVerificationReviewEvent[] @relation("ShipperVerificationReviewEvents")
+  shipperVerificationReviewerEvents ShipperVerificationReviewEvent[] @relation("ShipperVerificationReviewerEvents")
   shipperInvoiceApplications  ShipperInvoiceApplication[]
   driverIdentityCertification DriverIdentityCertification? @relation("DriverIdentityCertification")
   driverVehicleCertification  DriverVehicleCertification?  @relation("DriverVehicleCertification")
@@ -616,6 +623,22 @@ model ShipperEnterpriseVerification {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   shipper          User                @relation(fields: [shipperId], references: [id])
+}
+
+model ShipperVerificationReviewEvent {
+  id                String                  @id @default(uuid())
+  shipperId         String
+  reviewerAdminId   String
+  verificationType ShipperVerificationType
+  fromStatus        CertificationStatus
+  toStatus          CertificationStatus
+  rejectionReason   String?
+  createdAt         DateTime                @default(now())
+  shipper           User                    @relation("ShipperVerificationReviewEvents", fields: [shipperId], references: [id])
+  reviewerAdmin     User                    @relation("ShipperVerificationReviewerEvents", fields: [reviewerAdminId], references: [id])
+
+  @@index([shipperId, createdAt], name: "ShipperVerificationReviewEvent_shipper_created_idx")
+  @@index([reviewerAdminId, createdAt], name: "ShipperVerificationReviewEvent_reviewer_created_idx")
 }
 
 model ShipperInvoiceApplication {

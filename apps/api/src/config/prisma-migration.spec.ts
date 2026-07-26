@@ -294,6 +294,25 @@ describe('Prisma initial migration', () => {
     );
   });
 
+  it('contains shipper verification review audit events', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain('CREATE TYPE "ShipperVerificationType"');
+    expect(sql).toContain('CREATE TABLE "ShipperVerificationReviewEvent"');
+    expect(sql).toContain('"reviewerAdminId" TEXT NOT NULL');
+    expect(sql).toContain('"fromStatus" "CertificationStatus" NOT NULL');
+    expect(sql).toContain('"toStatus" "CertificationStatus" NOT NULL');
+    expect(sql).toContain(
+      'CREATE INDEX "ShipperVerificationReviewEvent_shipper_created_idx"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperVerificationReviewEvent_shipperId_fkey"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "ShipperVerificationReviewEvent_reviewerAdminId_fkey"',
+    );
+  });
+
   it('contains driver acceptance settings storage', () => {
     const sql = readAllMigrations();
 

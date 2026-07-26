@@ -111,8 +111,22 @@ export type AdminShipperVerificationReviewEvent = {
   eventId: string;
   verificationType: ShipperVerificationType;
   actorUserId?: string;
+  reviewerAdminId?: string;
+  fromStatus?: ShipperProfileVerificationStatus;
+  toStatus?: Extract<ShipperProfileVerificationStatus, 'approved' | 'rejected'>;
   eventType: AdminShipperVerificationReviewEventType;
   stage: AdminShipperVerificationReviewEventStage;
   noteText?: string;
+  createdAtIso: string;
+};
+
+export type ShipperVerificationReviewDecisionRecord = {
+  id: string;
+  shipperId: string;
+  reviewerAdminId: string;
+  verificationType: ShipperVerificationType;
+  fromStatus: ShipperProfileVerificationStatus;
+  toStatus: Extract<ShipperProfileVerificationStatus, 'approved' | 'rejected'>;
+  rejectionReason?: string;
   createdAtIso: string;
 };

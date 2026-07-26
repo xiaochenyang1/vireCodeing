@@ -117,7 +117,7 @@ export class ProfileVerificationService {
     input: ReviewShipperVerificationRequest,
   ) {
     this.assertAdmin(currentUser);
-    return this.repository.reviewIdentity(shipperId, input);
+    return this.repository.reviewIdentity(shipperId, currentUser.id, input);
   }
 
   async reviewEnterprise(
@@ -126,7 +126,7 @@ export class ProfileVerificationService {
     input: ReviewShipperVerificationRequest,
   ) {
     this.assertAdmin(currentUser);
-    return this.repository.reviewEnterprise(shipperId, input);
+    return this.repository.reviewEnterprise(shipperId, currentUser.id, input);
   }
 
   private assertAdmin(currentUser: AuthenticatedUser) {
