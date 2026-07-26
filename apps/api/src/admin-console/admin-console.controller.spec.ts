@@ -1193,6 +1193,25 @@ describe('AdminConsoleController', () => {
     expect(html).not.toContain('hero');
   });
 
+  it('syncs coupon form inputs and report filters into route state', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getShipperCouponConsole: () => string;
+      }
+    ).getShipperCouponConsole();
+
+    expect(html).toContain('applyShipperCouponRouteState');
+    expect(html).toContain('syncShipperCouponRouteState');
+    expect(html).toContain("query.get('shipperId')");
+    expect(html).toContain("query.get('batchShipperIds')");
+    expect(html).toContain("query.get('topShippersLimit')");
+    expect(html).toContain("query.set('couponTitle', couponTitle)");
+    expect(html).toContain("query.set('discountCents', discountCents)");
+    expect(html).toContain("query.set('topShippersLimit', topShippersLimit)");
+    expect(html).toContain('history.replaceState');
+  });
+
   it('serves the file maintenance console html', () => {
     const controller = new AdminConsoleController();
     const html = (

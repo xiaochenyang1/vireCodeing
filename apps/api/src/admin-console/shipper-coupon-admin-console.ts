@@ -313,6 +313,80 @@ export function renderShipperCouponAdminConsole() {
       return value;
     }
 
+    function readShipperCouponRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        shipperId: query.get('shipperId') || '',
+        batchShipperIds: query.get('batchShipperIds') || '',
+        couponTitle: query.get('couponTitle') || '',
+        conditionText: query.get('conditionText') || '',
+        discountCents: query.get('discountCents') || '',
+        minOrderAmountCents: query.get('minOrderAmountCents') || '',
+        validFromIso: query.get('validFromIso') || '',
+        validUntilIso: query.get('validUntilIso') || '',
+        sourceText: query.get('sourceText') || '',
+        topShippersLimit: query.get('topShippersLimit') || '',
+      };
+    }
+
+    function applyShipperCouponRouteState() {
+      const routeState = readShipperCouponRouteState();
+      document.getElementById('shipperIdInput').value = routeState.shipperId;
+      document.getElementById('batchShipperIdsInput').value = routeState.batchShipperIds;
+      document.getElementById('couponTitleInput').value = routeState.couponTitle;
+      document.getElementById('conditionTextInput').value = routeState.conditionText;
+      document.getElementById('discountCentsInput').value = routeState.discountCents;
+      document.getElementById('minOrderAmountCentsInput').value = routeState.minOrderAmountCents;
+      document.getElementById('validFromIsoInput').value = routeState.validFromIso;
+      document.getElementById('validUntilIsoInput').value = routeState.validUntilIso;
+      document.getElementById('sourceTextInput').value = routeState.sourceText;
+      if (routeState.topShippersLimit) {
+        document.getElementById('couponReportTopShippersLimitInput').value = String(
+          Math.min(20, Math.max(1, Number.parseInt(routeState.topShippersLimit, 10) || 5)),
+        );
+      }
+      return routeState;
+    }
+
+    function syncShipperCouponRouteState() {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const query = new URLSearchParams();
+      const shipperId = readTrimmed('shipperIdInput');
+      const batchShipperIds = readTrimmed('batchShipperIdsInput');
+      const couponTitle = readTrimmed('couponTitleInput');
+      const conditionText = readTrimmed('conditionTextInput');
+      const discountCents = readTrimmed('discountCentsInput');
+      const minOrderAmountCents = readTrimmed('minOrderAmountCentsInput');
+      const validFromIso = readTrimmed('validFromIsoInput');
+      const validUntilIso = readTrimmed('validUntilIsoInput');
+      const sourceText = readTrimmed('sourceTextInput');
+      const topShippersLimit = readTrimmed('couponReportTopShippersLimitInput');
+
+      if (shipperId) query.set('shipperId', shipperId);
+      if (batchShipperIds) query.set('batchShipperIds', batchShipperIds);
+      if (couponTitle) query.set('couponTitle', couponTitle);
+      if (conditionText) query.set('conditionText', conditionText);
+      if (discountCents) query.set('discountCents', discountCents);
+      if (minOrderAmountCents) query.set('minOrderAmountCents', minOrderAmountCents);
+      if (validFromIso) query.set('validFromIso', validFromIso);
+      if (validUntilIso) query.set('validUntilIso', validUntilIso);
+      if (sourceText) query.set('sourceText', sourceText);
+      if (topShippersLimit && topShippersLimit !== '5') {
+        query.set('topShippersLimit', topShippersLimit);
+      }
+
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
     function setStatus(message, isError) {
       const status = document.getElementById('couponConsoleStatus');
       status.textContent = message;
@@ -377,6 +451,7 @@ export function renderShipperCouponAdminConsole() {
         return;
       }
       persistAdminAccessToken();
+      syncShipperCouponRouteState();
 
       let topShippersLimit;
       try {
@@ -425,6 +500,7 @@ export function renderShipperCouponAdminConsole() {
         return;
       }
       persistAdminAccessToken();
+      syncShipperCouponRouteState();
 
       let request;
       try {
@@ -476,6 +552,7 @@ export function renderShipperCouponAdminConsole() {
         return;
       }
       persistAdminAccessToken();
+      syncShipperCouponRouteState();
 
       let request;
       try {
@@ -520,6 +597,26 @@ export function renderShipperCouponAdminConsole() {
       }
     }
 
+    applyShipperCouponRouteState();
+    [
+      'shipperIdInput',
+      'batchShipperIdsInput',
+      'couponTitleInput',
+      'conditionTextInput',
+      'discountCentsInput',
+      'minOrderAmountCentsInput',
+      'validFromIsoInput',
+      'validUntilIsoInput',
+      'sourceTextInput',
+      'couponReportTopShippersLimitInput',
+    ].forEach(function(id) {
+      const node = document.getElementById(id);
+      if (!node) {
+        return;
+      }
+      node.addEventListener('input', syncShipperCouponRouteState);
+      node.addEventListener('change', syncShipperCouponRouteState);
+    });
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadCouponReport();
