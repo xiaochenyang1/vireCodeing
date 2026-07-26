@@ -178,6 +178,7 @@ export function renderOrderChangeRequestAdminConsole() {
     const orderApiBase = document.querySelector('meta[name="admin-order-api"]').content;
     let selectedOrderId = '';
     let currentItems = [];
+    let latestQueueRequestId = 0;
     let latestReviewEventsRequestId = 0;
 
     function getToken() {
@@ -410,17 +411,24 @@ export function renderOrderChangeRequestAdminConsole() {
         resetReviewEvents('请先填写 admin token。');
         return;
       }
+      const requestId = ++latestQueueRequestId;
       setText('queueStatus', '加载中...');
       syncOrderChangeRequestRouteState(selectedOrderId);
       try {
         const status = document.getElementById('statusFilter').value;
         const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
         const data = await apiGet(listApiBase + '?' + query.toString());
+        if (requestId !== latestQueueRequestId) {
+          return;
+        }
         renderQueue(data.items || []);
         setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
         renderDetail();
         await loadReviewEvents();
       } catch (error) {
+        if (requestId !== latestQueueRequestId) {
+          return;
+        }
         setText('queueStatus', error.message || '加载失败');
         resetReviewEvents('审核事件尚未加载');
       }

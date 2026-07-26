@@ -270,6 +270,17 @@ describe('order change request admin console page', () => {
     expect(html).toContain("query.set('orderId', orderId)");
     expect(html).toContain('history.replaceState');
   });
+
+  it('ignores stale order change queue responses and keeps the latest review context', () => {
+    const html = renderOrderChangeRequestAdminConsole();
+
+    expect(html).toContain('let latestQueueRequestId = 0');
+    expect(html).toContain('let latestReviewEventsRequestId = 0');
+    expect(html).toContain('const requestId = ++latestQueueRequestId');
+    expect(html).toContain('if (requestId !== latestQueueRequestId) {');
+    expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
+    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+  });
 });
 
 describe('shipper invoice admin console page', () => {
