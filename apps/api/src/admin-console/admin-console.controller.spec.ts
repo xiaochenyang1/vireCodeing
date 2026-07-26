@@ -473,10 +473,16 @@ describe('shipper verification admin console page', () => {
       'latestReviewEventsRequestId += 1',
       queueStart,
     );
+    const queueRequestIndex = html.indexOf(
+      'const requestId = ++latestQueueRequestId',
+      queueStart,
+    );
     const missingTokenIndex = html.indexOf('if (!getToken())', queueStart);
 
     expect(selectRequestIndex).toBeGreaterThan(selectStart);
     expect(selectRequestIndex).toBeLessThan(emptySelectionIndex);
+    expect(queueRequestIndex).toBeGreaterThan(queueStart);
+    expect(queueRequestIndex).toBeLessThan(missingTokenIndex);
     expect(queueInvalidationIndex).toBeGreaterThan(queueStart);
     expect(queueInvalidationIndex).toBeLessThan(missingTokenIndex);
   });

@@ -481,6 +481,7 @@ export function renderShipperVerificationAdminConsole() {
     }
 
     async function loadQueue() {
+      const requestId = ++latestQueueRequestId;
       latestReviewEventsRequestId += 1;
       if (!getToken()) {
         setText('queueStatus', '请先填写 admin token。');
@@ -489,7 +490,6 @@ export function renderShipperVerificationAdminConsole() {
         resetReviewEvents('请先填写 admin token。');
         return;
       }
-      const requestId = ++latestQueueRequestId;
       setText('queueStatus', '加载中...');
       syncShipperVerificationRouteState(selectedShipperId);
       try {
