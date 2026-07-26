@@ -247,7 +247,6 @@ export function renderAdminConsoleHome() {
     }
     .module-card {
       display: block;
-      text-decoration: none;
       color: inherit;
       border: 1px solid var(--border);
       border-radius: 18px;
@@ -255,6 +254,7 @@ export function renderAdminConsoleHome() {
       background: rgba(255, 255, 255, 0.95);
       box-shadow: 0 14px 36px rgba(19, 34, 56, 0.05);
       transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+      cursor: pointer;
     }
     .module-card:hover {
       transform: translateY(-2px);
@@ -276,6 +276,12 @@ export function renderAdminConsoleHome() {
       font-size: 12px;
       font-weight: 700;
     }
+    .module-card-link {
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+    }
     .module-card h3 { margin: 10px 0 8px; font-size: 18px; }
     .metric-row {
       display: flex;
@@ -291,6 +297,15 @@ export function renderAdminConsoleHome() {
       border-radius: 12px;
       font-size: 13px;
       font-weight: 600;
+    }
+    .metric-link {
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform .14s ease, box-shadow .14s ease;
+    }
+    .metric-link:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(19, 34, 56, 0.08);
     }
     .metric-tone-warning { background: var(--warning-bg); color: var(--warning-text); }
     .metric-tone-positive { background: var(--positive-bg); color: var(--positive-text); }
@@ -420,6 +435,16 @@ export function renderAdminConsoleHome() {
       return stage === 'first_slice' ? '第一片' : String(stage || '');
     }
 
+    function handleOverviewModuleCardClick(event, route) {
+      if (!route) {
+        return;
+      }
+      if (event && event.target && typeof event.target.closest === 'function' && event.target.closest('a')) {
+        return;
+      }
+      window.location.href = route;
+    }
+
     function renderSummaryCards(overview) {
       const summaryGrid = document.getElementById('overviewSummaryGrid');
       const implementedCount = overview ? Number(overview.implementedConsoleCount || 0) : defaultModules.length;
@@ -455,18 +480,27 @@ export function renderAdminConsoleHome() {
       moduleGrid.innerHTML = (Array.isArray(modules) ? modules : defaultModules).map(function(module) {
         const metrics = Array.isArray(module.metrics) ? module.metrics : [];
         const pendingGaps = Array.isArray(module.pendingGaps) ? module.pendingGaps : [];
-        return '<a class="module-card" href="' + escapeHtml(module.route) + '">' +
+        return '<article class="module-card" data-route="' + escapeHtml(module.route) + '" onclick="handleOverviewModuleCardClick(event, this.dataset.route)">' +
           '<div class="module-top">' +
             '<div>' +
               '<span class="eyebrow">' + escapeHtml(module.key || 'console') + '</span>' +
               '<h3>' + escapeHtml(module.title) + '</h3>' +
             '</div>' +
-            '<span class="stage-chip">' + escapeHtml(formatStage(module.stage || 'first_slice')) + '</span>' +
+            '<div>' +
+              '<span class="stage-chip">' + escapeHtml(formatStage(module.stage || 'first_slice')) + '</span>' +
+              '<div style="margin-top:8px;text-align:right"><a class="module-card-link" href="' + escapeHtml(module.route) + '" onclick="event.stopPropagation()">进入工具台</a></div>' +
+            '</div>' +
           '</div>' +
           '<p class="muted">' + escapeHtml(module.summary || '') + '</p>' +
           (metrics.length
             ? '<div class="metric-row">' + metrics.map(function(metric) {
                 const tone = ['warning', 'positive', 'neutral'].indexOf(metric.tone) >= 0 ? metric.tone : 'neutral';
+                if (metric.route) {
+                  return '<a class="metric-pill metric-link metric-tone-' + escapeHtml(tone) + '" href="' + escapeHtml(metric.route) + '" onclick="event.stopPropagation()">' +
+                    '<span>' + escapeHtml(metric.label) + '</span>' +
+                    '<strong>' + escapeHtml(formatCount(metric.value)) + '</strong>' +
+                  '</a>';
+                }
                 return '<span class="metric-pill metric-tone-' + escapeHtml(tone) + '">' +
                   '<span>' + escapeHtml(metric.label) + '</span>' +
                   '<strong>' + escapeHtml(formatCount(metric.value)) + '</strong>' +
@@ -478,7 +512,7 @@ export function renderAdminConsoleHome() {
                 return '<span class="gap-chip">' + escapeHtml(gap) + '</span>';
               }).join('') + '</div>'
             : '') +
-        '</a>';
+        '</article>';
       }).join('');
     }
 

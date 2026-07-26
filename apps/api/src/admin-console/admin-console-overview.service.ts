@@ -13,6 +13,7 @@ export type AdminConsoleOverviewMetric = {
   label: string;
   value: number;
   tone: AdminConsoleOverviewMetricTone;
+  route?: string;
 };
 
 export type AdminConsoleOverviewModule = {
@@ -307,26 +308,41 @@ function createModules(
           label: '待受理',
           value: stats.supportTickets.pendingCount,
           tone: queueTone(stats.supportTickets.pendingCount),
+          route: buildOverviewConsoleRoute('/api/admin/support-ticket-console', {
+            status: 'pending',
+          }),
         },
         {
           label: '处理中',
           value: stats.supportTickets.processingCount,
           tone: queueTone(stats.supportTickets.processingCount),
+          route: buildOverviewConsoleRoute('/api/admin/support-ticket-console', {
+            status: 'processing',
+          }),
         },
         {
           label: '已认领',
           value: stats.supportTickets.claimedCount,
           tone: queueTone(stats.supportTickets.claimedCount),
+          route: buildOverviewConsoleRoute('/api/admin/support-ticket-console', {
+            claimStatus: 'claimed',
+          }),
         },
         {
           label: '未认领',
           value: stats.supportTickets.unclaimedCount,
           tone: queueTone(stats.supportTickets.unclaimedCount),
+          route: buildOverviewConsoleRoute('/api/admin/support-ticket-console', {
+            claimStatus: 'unclaimed',
+          }),
         },
         {
           label: '已超时',
           value: stats.supportTickets.overdueCount,
           tone: queueTone(stats.supportTickets.overdueCount),
+          route: buildOverviewConsoleRoute('/api/admin/support-ticket-console', {
+            slaStatus: 'overdue',
+          }),
         },
       ],
       pendingGaps: ['更完整的坐席分配 / 转派规则', '在线客服会话'],
@@ -348,26 +364,56 @@ function createModules(
           label: '待受理',
           value: stats.orderExceptions.pendingCount,
           tone: queueTone(stats.orderExceptions.pendingCount),
+          route: buildOverviewConsoleRoute(
+            '/api/admin/order-exception-case-console',
+            {
+              status: 'pending',
+            },
+          ),
         },
         {
           label: '处理中',
           value: stats.orderExceptions.processingCount,
           tone: queueTone(stats.orderExceptions.processingCount),
+          route: buildOverviewConsoleRoute(
+            '/api/admin/order-exception-case-console',
+            {
+              status: 'processing',
+            },
+          ),
         },
         {
           label: '已认领',
           value: stats.orderExceptions.claimedCount,
           tone: queueTone(stats.orderExceptions.claimedCount),
+          route: buildOverviewConsoleRoute(
+            '/api/admin/order-exception-case-console',
+            {
+              claimStatus: 'claimed',
+            },
+          ),
         },
         {
           label: '未认领',
           value: stats.orderExceptions.unclaimedCount,
           tone: queueTone(stats.orderExceptions.unclaimedCount),
+          route: buildOverviewConsoleRoute(
+            '/api/admin/order-exception-case-console',
+            {
+              claimStatus: 'unclaimed',
+            },
+          ),
         },
         {
           label: '已超时',
           value: stats.orderExceptions.overdueCount,
           tone: queueTone(stats.orderExceptions.overdueCount),
+          route: buildOverviewConsoleRoute(
+            '/api/admin/order-exception-case-console',
+            {
+              slaStatus: 'overdue',
+            },
+          ),
         },
       ],
       pendingGaps: ['更完整的坐席分配 / 转派规则', '会话联动', '退款联动'],
@@ -469,4 +515,13 @@ function queueTone(value: number): AdminConsoleOverviewMetricTone {
 
 function errorTone(value: number): AdminConsoleOverviewMetricTone {
   return value > 0 ? 'warning' : 'positive';
+}
+
+function buildOverviewConsoleRoute(
+  baseRoute: string,
+  query: Record<string, string>,
+) {
+  const search = new URLSearchParams(query).toString();
+
+  return search ? `${baseRoute}?${search}` : baseRoute;
 }

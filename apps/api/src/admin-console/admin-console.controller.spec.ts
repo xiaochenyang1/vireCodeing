@@ -753,6 +753,10 @@ describe('admin console home page', () => {
     expect(html).toContain('/api/admin/finance-console');
     expect(html).toContain('认领或释放认领');
     expect(html).toContain('认领到当前客服或释放认领');
+    expect(html).toContain('进入工具台');
+    expect(html).toContain('handleOverviewModuleCardClick');
+    expect(html).toContain('metric.route');
+    expect(html).toContain('metric-link');
     expect(html).toContain('统一入口 + 实时概览');
     expect(html).toContain('stage1AdminSession');
     expect(html).toContain('clearStoredAdminSession');

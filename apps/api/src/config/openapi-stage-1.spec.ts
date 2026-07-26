@@ -2245,6 +2245,16 @@ describe('stage 1 OpenAPI contract', () => {
       'AdminConsoleOverviewMetric',
       'enum: [neutral, warning, positive]',
     );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverviewMetric',
+      'Optional admin-console drill-down route',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminConsoleOverviewMetric',
+      '/api/admin/support-ticket-console?claimStatus=unclaimed',
+    );
   });
 
   it('documents the admin permission matrix endpoint and schemas', () => {

@@ -126,16 +126,22 @@ describe('AdminConsoleOverviewService', () => {
                 label: '已超时',
                 value: 1,
                 tone: 'warning',
+                route:
+                  '/api/admin/order-exception-case-console?slaStatus=overdue',
               }),
               expect.objectContaining({
                 label: '已认领',
                 value: 4,
                 tone: 'warning',
+                route:
+                  '/api/admin/order-exception-case-console?claimStatus=claimed',
               }),
               expect.objectContaining({
                 label: '未认领',
                 value: 2,
                 tone: 'warning',
+                route:
+                  '/api/admin/order-exception-case-console?claimStatus=unclaimed',
               }),
             ]),
             pendingGaps: ['更完整的坐席分配 / 转派规则', '会话联动', '退款联动'],
@@ -174,16 +180,21 @@ describe('AdminConsoleOverviewService', () => {
                 label: '已超时',
                 value: 2,
                 tone: 'warning',
+                route: '/api/admin/support-ticket-console?slaStatus=overdue',
               }),
               expect.objectContaining({
                 label: '已认领',
                 value: 2,
                 tone: 'warning',
+                route:
+                  '/api/admin/support-ticket-console?claimStatus=claimed',
               }),
               expect.objectContaining({
                 label: '未认领',
                 value: 3,
                 tone: 'warning',
+                route:
+                  '/api/admin/support-ticket-console?claimStatus=unclaimed',
               }),
             ]),
             pendingGaps: ['更完整的坐席分配 / 转派规则', '在线客服会话'],
@@ -295,6 +306,12 @@ describe('AdminConsoleOverviewService', () => {
     expect(overview.modules.find(module => module.key === 'order-exception-case')).toMatchObject({
       summary:
         '工单能推进状态、留痕、记录赔付决议、响应申诉回退，并在二次复核时补录 accepted / rejected 申诉裁定；后台现在也能查看受理 / 解决 SLA 提醒，按赔付状态、申诉状态、SLA 状态、认领状态和认领客服筛队列后执行平台赔付，也支持先认领到当前客服或释放认领，再手动/定时执行超时升级扫描并向相关方回流超时升级消息，但更完整的坐席分配、会话和退款联动还没补上。',
+      metrics: expect.arrayContaining([
+        expect.objectContaining({
+          label: '待受理',
+          route: '/api/admin/order-exception-case-console?status=pending',
+        }),
+      ]),
       pendingGaps: ['更完整的坐席分配 / 转派规则', '会话联动', '退款联动'],
     });
     expect(

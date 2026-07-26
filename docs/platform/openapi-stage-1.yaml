@@ -10282,6 +10282,10 @@ components:
           type: string
           enum: [neutral, warning, positive]
           example: warning
+        route:
+          type: string
+          description: Optional admin-console drill-down route that opens the prefiltered queue behind the metric.
+          example: /api/admin/support-ticket-console?claimStatus=unclaimed
     AdminConsoleOverviewModule:
       type: object
       required: [key, title, route, stage, summary, metrics, pendingGaps]
