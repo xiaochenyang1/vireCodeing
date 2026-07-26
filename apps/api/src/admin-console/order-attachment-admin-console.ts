@@ -152,6 +152,10 @@ export function renderOrderAttachmentAdminConsole() {
       min-height: 0;
     }
     .summary-row:hover { border-color: var(--accent); }
+    .summary-row.active {
+      border-color: var(--accent);
+      background: #ecfeff;
+    }
     .summary-row strong { font-size: 13px; }
     .pill {
       display: inline-block;
@@ -327,11 +331,95 @@ export function renderOrderAttachmentAdminConsole() {
       return { page, pageSize };
     }
 
+    function readOrderAttachmentRouteState() {
+      const query = new URLSearchParams(
+        globalThis.location && typeof globalThis.location.search === 'string'
+          ? location.search
+          : '',
+      );
+      return {
+        orderId: query.get('orderId') || '',
+        keyword: query.get('keyword') || '',
+        status: query.get('status') || '',
+        shipperId: query.get('shipperId') || '',
+        createdFromIso: query.get('createdFromIso') || '',
+        createdToIso: query.get('createdToIso') || '',
+        hasMissingFiles: query.get('hasMissingFiles') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
+      };
+    }
+
+    function applyOrderAttachmentRouteState() {
+      const routeState = readOrderAttachmentRouteState();
+      document.getElementById('orderIdInput').value = routeState.orderId;
+      document.getElementById('auditKeywordInput').value = routeState.keyword;
+      document.getElementById('auditStatusInput').value = routeState.status;
+      document.getElementById('auditShipperIdInput').value = routeState.shipperId;
+      document.getElementById('auditCreatedFromInput').value = routeState.createdFromIso;
+      document.getElementById('auditCreatedToInput').value = routeState.createdToIso;
+      document.getElementById('auditMissingStateInput').value = routeState.hasMissingFiles;
+      if (routeState.page) {
+        document.getElementById('auditPageInput').value = String(
+          Math.max(1, Number.parseInt(routeState.page, 10) || 1),
+        );
+      }
+      if (routeState.pageSize) {
+        const pageSize = Number.parseInt(routeState.pageSize, 10) || 20;
+        document.getElementById('auditPageSizeInput').value = String(
+          [10, 20, 50].includes(pageSize) ? pageSize : 20,
+        );
+      }
+      return routeState;
+    }
+
+    function syncOrderAttachmentRouteState(pageOverride) {
+      if (!globalThis.history || !globalThis.location) {
+        return;
+      }
+
+      const orderId = document.getElementById('orderIdInput').value.trim();
+      const keyword = document.getElementById('auditKeywordInput').value.trim();
+      const status = document.getElementById('auditStatusInput').value;
+      const shipperId = document.getElementById('auditShipperIdInput').value.trim();
+      const createdFromIso = document.getElementById('auditCreatedFromInput').value.trim();
+      const createdToIso = document.getElementById('auditCreatedToInput').value.trim();
+      const missingState = document.getElementById('auditMissingStateInput').value;
+      const paging = readAuditListPaging(pageOverride);
+      const query = new URLSearchParams();
+
+      if (orderId) query.set('orderId', orderId);
+      if (keyword) query.set('keyword', keyword);
+      if (status) query.set('status', status);
+      if (shipperId) query.set('shipperId', shipperId);
+      if (createdFromIso) query.set('createdFromIso', createdFromIso);
+      if (createdToIso) query.set('createdToIso', createdToIso);
+      if (missingState) query.set('hasMissingFiles', missingState);
+      if (paging.page > 1) query.set('page', String(paging.page));
+      if (paging.pageSize !== 20) query.set('pageSize', String(paging.pageSize));
+
+      const nextQuery = query.toString();
+      const nextPath = globalThis.location.pathname + (nextQuery ? '?' + nextQuery : '');
+      globalThis.history.replaceState(null, '', nextPath);
+    }
+
+    function syncAuditSummarySelection() {
+      const selectedOrderId = document.getElementById('orderIdInput').value.trim();
+      document.querySelectorAll('[data-order-id]').forEach(button => {
+        if (button.getAttribute('data-order-id') === selectedOrderId) {
+          button.classList.add('active');
+        } else {
+          button.classList.remove('active');
+        }
+      });
+    }
+
     async function loadAudit() {
       try {
         setNotice('');
         const orderId = document.getElementById('orderIdInput').value.trim();
         if (!orderId) throw new Error('请填写订单 ID');
+        syncOrderAttachmentRouteState();
         const response = await fetch(apiBase + '/admin/orders/' + encodeURIComponent(orderId) + '/attachments', {
           headers: authHeaders()
         });
@@ -339,6 +427,7 @@ export function renderOrderAttachmentAdminConsole() {
         if (!response.ok || body.code !== 'OK') throw new Error(body.message || body.code || '请求失败');
         state.audit = body.data;
         renderAudit();
+        syncAuditSummarySelection();
       } catch (error) {
         setNotice(error.message);
       }
@@ -354,6 +443,7 @@ export function renderOrderAttachmentAdminConsole() {
         const createdToIso = document.getElementById('auditCreatedToInput').value.trim();
         const missingState = document.getElementById('auditMissingStateInput').value;
         const { page, pageSize } = readAuditListPaging(pageOverride);
+        syncOrderAttachmentRouteState(page);
         const query = new URLSearchParams();
         query.set('page', String(page));
         query.set('pageSize', String(pageSize));
@@ -371,6 +461,7 @@ export function renderOrderAttachmentAdminConsole() {
         state.summaries = body.data.items || [];
         renderAuditSummaries(body.data);
         renderAuditPagination(body.data);
+        syncOrderAttachmentRouteState(body.data.page || page);
       } catch (error) {
         setNotice(error.message);
       }
@@ -414,6 +505,7 @@ export function renderOrderAttachmentAdminConsole() {
           loadAudit();
         });
       });
+      syncAuditSummarySelection();
     }
 
     function renderAuditPagination(result) {
@@ -488,7 +580,14 @@ export function renderOrderAttachmentAdminConsole() {
     document.getElementById('loadAuditList').addEventListener('click', () => loadAuditList());
     document.getElementById('auditPreviousPage').addEventListener('click', () => loadAdjacentAuditPage(-1));
     document.getElementById('auditNextPage').addEventListener('click', () => loadAdjacentAuditPage(1));
-    initializeAdminSession();
+    applyOrderAttachmentRouteState();
+    const storedSession = initializeAdminSession();
+    if (storedSession && storedSession.accessToken) {
+      loadAuditList(Number.parseInt(document.getElementById('auditPageInput').value, 10) || 1);
+      if (document.getElementById('orderIdInput').value.trim()) {
+        loadAudit();
+      }
+    }
   </script>
 </body>
 </html>`;

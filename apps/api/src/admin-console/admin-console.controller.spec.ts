@@ -1021,6 +1021,25 @@ describe('AdminConsoleController', () => {
     expect(html).not.toContain('hero');
   });
 
+  it('syncs order attachment filters, pagination and selected order into route state', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getOrderAttachmentAuditConsole: () => string;
+      }
+    ).getOrderAttachmentAuditConsole();
+
+    expect(html).toContain('applyOrderAttachmentRouteState');
+    expect(html).toContain('syncOrderAttachmentRouteState');
+    expect(html).toContain("query.get('orderId')");
+    expect(html).toContain("query.get('hasMissingFiles')");
+    expect(html).toContain("query.set('orderId', orderId)");
+    expect(html).toContain("query.set('page', String(paging.page))");
+    expect(html).toContain("query.set('pageSize', String(paging.pageSize))");
+    expect(html).toContain('syncAuditSummarySelection');
+    expect(html).toContain('history.replaceState');
+  });
+
   it('serves the order management console html', () => {
     const controller = new AdminConsoleController();
     const html = (
