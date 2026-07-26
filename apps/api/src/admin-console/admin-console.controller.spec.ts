@@ -304,6 +304,17 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain("query.set('applicationId', applicationId)");
     expect(html).toContain('history.replaceState');
   });
+
+  it('ignores stale shipper invoice queue responses and keeps the latest audit context', () => {
+    const html = renderShipperInvoiceAdminConsole();
+
+    expect(html).toContain('let latestQueueRequestId = 0');
+    expect(html).toContain('let latestReviewEventsRequestId = 0');
+    expect(html).toContain('const requestId = ++latestQueueRequestId');
+    expect(html).toContain('if (requestId !== latestQueueRequestId) {');
+    expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
+    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+  });
 });
 
 describe('shipper verification admin console page', () => {
