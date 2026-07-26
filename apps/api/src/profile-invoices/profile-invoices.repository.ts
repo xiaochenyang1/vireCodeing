@@ -277,13 +277,13 @@ export type PrismaProfileInvoicesClient = {
     findUnique(args: {
       where: { id: string };
     }): Promise<PrismaShipperInvoiceApplicationRecord | null>;
-    update(args: {
-      where: { id: string };
+    updateMany(args: {
+      where: { id: string; status: 'reviewing'; updatedAt: Date };
       data: {
         status: 'approved' | 'rejected';
         rejectionReason: string | null;
       };
-    }): Promise<PrismaShipperInvoiceApplicationRecord>;
+    }): Promise<{ count: number }>;
   };
   shipperEnterpriseVerification: {
     findUnique(args: {
@@ -547,14 +547,34 @@ export class PrismaProfileInvoicesRepository implements ProfileInvoicesRepositor
       );
     }
 
-    const updated = await this.prisma.shipperInvoiceApplication.update({
-      where: { id: applicationId },
+    const transition = await this.prisma.shipperInvoiceApplication.updateMany({
+      where: {
+        id: applicationId,
+        status: 'reviewing',
+        updatedAt: application.updatedAt,
+      },
       data: {
         status: input.status,
         rejectionReason:
           input.status === 'rejected' ? input.rejectionReason : null,
       },
     });
+    if (transition.count !== 1) {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+        '当前发票申请状态不可审核',
+      );
+    }
+
+    const updated = await this.prisma.shipperInvoiceApplication.findUnique({
+      where: { id: applicationId },
+    });
+    if (!updated) {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+        '发票申请不存在',
+      );
+    }
     return mapPrismaInvoiceApplication(updated);
   }
 }

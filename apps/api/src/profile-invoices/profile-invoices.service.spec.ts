@@ -577,6 +577,83 @@ describe('ProfileInvoicesService', () => {
     );
   });
 
+  it('allows only one concurrent Prisma invoice review transition', async () => {
+    const createdAt = new Date('2026-07-26T08:00:00.000Z');
+    const initialApplication = {
+      id: 'invoice-1',
+      shipperId: 'shipper-1',
+      invoiceType: 'normal',
+      invoiceTitleType: 'personal',
+      invoiceTitle: '晨星货主',
+      receiverEmail: 'finance@chenxing.example',
+      orderIds: ['order-1'],
+      orderNos: ['HY202607260001'],
+      amountCents: 31000,
+      status: 'reviewing' as const,
+      rejectionReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    let currentApplication = { ...initialApplication };
+    const prisma = {
+      $transaction: jest.fn(),
+      shipperInvoiceApplication: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+        findUnique: jest.fn(async () => ({ ...currentApplication })),
+        updateMany: jest.fn(async ({ where, data }) => {
+          if (
+            currentApplication.id !== where.id ||
+            currentApplication.status !== where.status ||
+            currentApplication.updatedAt.getTime() !== where.updatedAt.getTime()
+          ) {
+            return { count: 0 };
+          }
+          currentApplication = {
+            ...currentApplication,
+            ...data,
+            updatedAt: new Date('2026-07-26T08:01:00.000Z'),
+          };
+          return { count: 1 };
+        }),
+      },
+      shipperEnterpriseVerification: { findUnique: jest.fn() },
+    };
+    const repository = new PrismaProfileInvoicesRepository(prisma);
+
+    const results = await Promise.allSettled([
+      repository.reviewApplication('invoice-1', { status: 'approved' }),
+      repository.reviewApplication('invoice-1', {
+        status: 'rejected',
+        rejectionReason: '抬头信息不完整',
+      }),
+    ]);
+
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'fulfilled',
+          value: expect.objectContaining({ status: 'approved' }),
+        }),
+        expect.objectContaining({
+          status: 'rejected',
+          reason: expect.objectContaining({
+            code: ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
+          }),
+        }),
+      ]),
+    );
+    expect(prisma.shipperInvoiceApplication.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.shipperInvoiceApplication.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'invoice-1',
+        status: 'reviewing',
+        updatedAt: createdAt,
+      },
+      data: { status: 'approved', rejectionReason: null },
+    });
+  });
+
   it('locks selected order rows before checking Prisma eligibility and occupancy', async () => {
     const createdAt = new Date('2026-07-15T08:00:00.000Z');
     const transaction = {
@@ -620,7 +697,7 @@ describe('ProfileInvoicesService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
-        update: jest.fn(),
+        updateMany: jest.fn(),
       },
       shipperEnterpriseVerification: { findUnique: jest.fn() },
     };
