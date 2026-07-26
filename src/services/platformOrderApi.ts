@@ -479,6 +479,7 @@ export type PlatformListAdminOrderExceptionCasesQuery = {
   status?: PlatformOrderExceptionCaseStatus;
   sourceRole?: PlatformOrderExceptionCaseSourceRole;
   compensationStatus?: PlatformOrderExceptionCaseCompensationStatus;
+  appealStatus?: PlatformOrderExceptionCaseAppealStatus;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;
@@ -1825,6 +1826,12 @@ function normalizeAdminOrderExceptionCasesQuery(
     'Platform admin order exception compensationStatus is invalid',
     ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
   ) as PlatformOrderExceptionCaseCompensationStatus | undefined;
+  const appealStatus = normalizeOptionalTrimmedString(
+    query.appealStatus,
+    20,
+    'Platform admin order exception appealStatus is invalid',
+    ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+  ) as PlatformOrderExceptionCaseAppealStatus | undefined;
   const keyword = normalizeOptionalTrimmedString(
     query.keyword,
     80,
@@ -1886,6 +1893,20 @@ function normalizeAdminOrderExceptionCasesQuery(
     );
   }
 
+  if (
+    appealStatus !== undefined &&
+    appealStatus !== 'none' &&
+    appealStatus !== 'requested' &&
+    appealStatus !== 'rejected' &&
+    appealStatus !== 'accepted'
+  ) {
+    throw new PlatformApiError(
+      'Platform admin order exception appealStatus is invalid',
+      ADMIN_ORDER_EXCEPTION_REQUEST_INVALID,
+      0,
+    );
+  }
+
   if (!Number.isInteger(page) || page < 1) {
     throw new PlatformApiError(
       'Platform admin order exception page is invalid',
@@ -1929,6 +1950,7 @@ function normalizeAdminOrderExceptionCasesQuery(
     ...(status ? { status } : {}),
     ...(sourceRole ? { sourceRole } : {}),
     ...(compensationStatus ? { compensationStatus } : {}),
+    ...(appealStatus ? { appealStatus } : {}),
     ...(keyword ? { keyword } : {}),
     ...(createdFromIso ? { createdFromIso } : {}),
     ...(createdToIso ? { createdToIso } : {}),

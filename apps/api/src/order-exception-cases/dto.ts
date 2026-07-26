@@ -62,6 +62,7 @@ export type OrderExceptionCaseListQuery = {
   status?: OrderExceptionCaseStatus;
   sourceRole?: OrderExceptionCaseSourceRole;
   compensationStatus?: OrderExceptionCaseCompensationStatus;
+  appealStatus?: OrderExceptionCaseAppealStatus;
   keyword?: string;
   createdFromIso?: string;
   createdToIso?: string;

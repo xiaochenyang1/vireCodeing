@@ -48,6 +48,7 @@ describe('order exception case controllers', () => {
     await controller.listCases(createRequest('admin-1', 'admin'), {
       status: 'pending',
       compensationStatus: 'pending',
+      appealStatus: 'requested',
     });
     await controller.getCase(createRequest('admin-1', 'admin'), ' case-1 ');
 
@@ -56,6 +57,7 @@ describe('order exception case controllers', () => {
       pageSize: 20,
       status: 'pending',
       compensationStatus: 'pending',
+      appealStatus: 'requested',
     });
     expect(service.getForAdmin).toHaveBeenCalledWith('case-1');
   });

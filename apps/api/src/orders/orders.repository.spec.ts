@@ -1345,6 +1345,7 @@ describe('InMemoryOrdersRepository exception cases', () => {
         pageSize: 20,
         status: 'processing',
         sourceRole: 'shipper',
+        appealStatus: 'none',
         keyword: order.orderNo,
       }),
     ).resolves.toMatchObject({
@@ -1503,6 +1504,38 @@ describe('PrismaOrdersRepository exception case lists', () => {
     ).resolves.toMatchObject({
       total: 1,
       items: [expect.objectContaining({ id: 'case-1', compensationStatus: 'pending' })],
+    });
+  });
+
+  it('filters admin exception case lists by appeal status', async () => {
+    const findMany = jest.fn().mockResolvedValue([
+      createPrismaExceptionCaseListRecord({
+        id: 'case-1',
+        caseNo: 'CASE202607120001',
+        appealStatus: 'requested',
+      }),
+      createPrismaExceptionCaseListRecord({
+        id: 'case-2',
+        caseNo: 'CASE202607120002',
+        appealStatus: 'accepted',
+      }),
+    ]);
+    const repository = new PrismaOrdersRepository(
+      {
+        orderExceptionCase: { findMany },
+      } as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:35:00.000Z'),
+    );
+
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+        appealStatus: 'requested',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 'case-1', appealStatus: 'requested' })],
     });
   });
 });
@@ -1852,6 +1885,17 @@ describe('InMemoryOrdersRepository exception appeal', () => {
     expect(result.exceptionCase.actions.at(-1)).toMatchObject({
       fromStatus: 'resolved',
       toStatus: 'processing',
+    });
+    await expect(
+      repository.listAdminOrderExceptionCases({
+        page: 1,
+        pageSize: 20,
+        appealStatus: 'requested',
+        keyword: order.orderNo,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: caseId, appealStatus: 'requested' })],
     });
   });
 
@@ -2344,6 +2388,7 @@ function createPrismaExceptionCaseListRecord(
     compensationUpdatedAt: Date | null;
     compensationTransactionId: string | null;
     compensationExecutedAt: Date | null;
+    appealStatus: 'none' | 'requested' | 'rejected' | 'accepted';
     createdAt: Date;
     updatedAt: Date;
   }> = {},

@@ -29,6 +29,9 @@ export const orderExceptionCaseListQuerySchema = z
     compensationStatus: z
       .enum(['not_required', 'pending', 'offline_completed', 'executed'])
       .optional(),
+    appealStatus: z
+      .enum(['none', 'requested', 'rejected', 'accepted'])
+      .optional(),
     keyword: z
       .string()
       .trim()

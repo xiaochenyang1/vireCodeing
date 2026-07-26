@@ -679,9 +679,13 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('创建时间：');
     expect(html).toContain('更新时间：');
     expect(html).toContain('caseListCompensationStatusInput');
+    expect(html).toContain('caseListAppealStatusInput');
     expect(html).toContain("query.get('compensationStatus')");
+    expect(html).toContain("query.get('appealStatus')");
     expect(html).toContain("query.set('compensationStatus', compensationStatus)");
+    expect(html).toContain("query.set('appealStatus', appealStatus)");
     expect(html).toContain('平台已赔付到账');
+    expect(html).toContain('申诉：');
   });
 });
 

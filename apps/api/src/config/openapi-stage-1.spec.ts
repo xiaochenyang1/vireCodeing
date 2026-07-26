@@ -1112,6 +1112,11 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/order-exception-cases',
       'name: compensationStatus',
     );
+    expectPathBlockToContain(
+      source,
+      '/admin/order-exception-cases',
+      'name: appealStatus',
+    );
   });
 
   it('documents exception case compensation execution and appeal workflows', () => {

@@ -49,6 +49,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         <label>状态<select id="caseStatusInput"><option value="">全部</option><option value="pending">待受理</option><option value="processing">处理中</option><option value="resolved">已解决</option><option value="closed">已关闭</option></select></label>
         <label>来源<select id="caseSourceRoleInput"><option value="">全部</option><option value="shipper">货主</option><option value="driver">司机</option></select></label>
         <label>赔付<select id="caseListCompensationStatusInput"><option value="">全部</option><option value="not_required">无需赔付</option><option value="pending">待赔付跟进</option><option value="offline_completed">线下已赔付</option><option value="executed">平台已赔付到账</option></select></label>
+        <label>申诉<select id="caseListAppealStatusInput"><option value="">全部</option><option value="none">未申诉</option><option value="requested">申诉处理中</option><option value="rejected">申诉已驳回</option><option value="accepted">申诉已受理</option></select></label>
         <label>订单号/工单号<input id="caseKeywordInput" /></label>
         <label>每页<input id="casePageSizeInput" type="number" value="20" min="1" max="50" /></label>
       </div>
@@ -156,6 +157,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         status: query.get('status') || '',
         sourceRole: query.get('sourceRole') || '',
         compensationStatus: query.get('compensationStatus') || '',
+        appealStatus: query.get('appealStatus') || '',
         keyword: query.get('keyword') || '',
         page: query.get('page') || '',
         pageSize: query.get('pageSize') || '',
@@ -167,6 +169,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       document.getElementById('caseStatusInput').value = routeState.status;
       document.getElementById('caseSourceRoleInput').value = routeState.sourceRole;
       document.getElementById('caseListCompensationStatusInput').value = routeState.compensationStatus;
+      document.getElementById('caseListAppealStatusInput').value = routeState.appealStatus;
       document.getElementById('caseKeywordInput').value = routeState.keyword;
       if (routeState.pageSize) {
         document.getElementById('casePageSizeInput').value = String(
@@ -188,12 +191,14 @@ export function renderOrderExceptionCaseAdminConsole() {
       const status = document.getElementById('caseStatusInput').value;
       const sourceRole = document.getElementById('caseSourceRoleInput').value;
       const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
+      const appealStatus = document.getElementById('caseListAppealStatusInput').value;
       const keyword = document.getElementById('caseKeywordInput').value.trim();
       const pageSize = Math.min(50, Math.max(1, Number.parseInt(document.getElementById('casePageSizeInput').value || '20', 10) || 20));
       const page = Math.max(1, Number.parseInt(pageOverride || currentPage || 1, 10) || 1);
       if (status) query.set('status', status);
       if (sourceRole) query.set('sourceRole', sourceRole);
       if (compensationStatus) query.set('compensationStatus', compensationStatus);
+      if (appealStatus) query.set('appealStatus', appealStatus);
       if (keyword) query.set('keyword', keyword);
       if (page > 1) query.set('page', String(page));
       if (pageSize !== 20) query.set('pageSize', String(pageSize));
@@ -280,6 +285,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         '<div class="muted">' + escapeHtml(item.sourceRole) + ' · 创建：' + escapeHtml(item.createdAtIso || '-') + '</div>' +
         '<div class="muted">最近更新：' + escapeHtml(formatCaseRecentActivity(item)) + '</div>' +
         '<div class="muted">赔付：' + escapeHtml(formatCompensationStatus(item.compensationStatus)) + '</div>' +
+        '<div class="muted">申诉：' + escapeHtml(formatAppealStatus(item.appealStatus)) + '</div>' +
       '</div>';
     }
 
@@ -301,10 +307,12 @@ export function renderOrderExceptionCaseAdminConsole() {
         const status = document.getElementById('caseStatusInput').value;
         const sourceRole = document.getElementById('caseSourceRoleInput').value;
         const compensationStatus = document.getElementById('caseListCompensationStatusInput').value;
+        const appealStatus = document.getElementById('caseListAppealStatusInput').value;
         const keyword = document.getElementById('caseKeywordInput').value.trim();
         if (status) query.set('status', status);
         if (sourceRole) query.set('sourceRole', sourceRole);
         if (compensationStatus) query.set('compensationStatus', compensationStatus);
+        if (appealStatus) query.set('appealStatus', appealStatus);
         if (keyword) query.set('keyword', keyword);
         syncOrderExceptionCaseRouteState(currentPage);
         const result = await api('/admin/order-exception-cases?' + query.toString());
