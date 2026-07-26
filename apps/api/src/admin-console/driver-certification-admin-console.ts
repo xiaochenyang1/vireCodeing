@@ -220,6 +220,8 @@ export function renderDriverCertificationAdminConsole() {
     const state = { token: '', items: [], selected: null, attachments: null, events: [] };
     const selectedDriverIds = new Set();
     let selectedDriverId = '';
+    let latestQueueRequestId = 0;
+    let latestDriverDetailRequestId = 0;
     const apiBase = '/api';
     const apiPaths = {
       list: '/admin/driver-certifications',
@@ -403,11 +405,13 @@ export function renderDriverCertificationAdminConsole() {
     }
 
     async function loadQueue() {
+      const requestId = ++latestQueueRequestId;
       try {
         setNotice('');
         const status = document.getElementById('statusFilter').value;
         syncDriverCertificationRouteState();
         const data = await request(apiPaths.list + '?status=' + encodeURIComponent(status) + '&page=1&pageSize=20');
+        if (requestId !== latestQueueRequestId) return;
         state.items = data.items || [];
         syncSelectedDriversToCurrentQueue();
         renderQueue();
@@ -418,6 +422,7 @@ export function renderDriverCertificationAdminConsole() {
           renderEmptyDetail();
         }
       } catch (error) {
+        if (requestId !== latestQueueRequestId) return;
         setNotice(error.message);
       }
     }
@@ -472,6 +477,7 @@ export function renderDriverCertificationAdminConsole() {
     }
 
     async function selectDriver(driverId) {
+      const requestId = ++latestDriverDetailRequestId;
       try {
         setNotice('');
         selectedDriverId = driverId;
@@ -481,11 +487,13 @@ export function renderDriverCertificationAdminConsole() {
           request(apiPaths.list + '/' + encodeURIComponent(driverId) + apiPaths.attachments),
           request(apiPaths.list + '/' + encodeURIComponent(driverId) + apiPaths.reviewEvents),
         ]);
+        if (requestId !== latestDriverDetailRequestId) return;
         state.attachments = attachments;
         state.events = events;
         renderQueue();
         renderDetail();
       } catch (error) {
+        if (requestId !== latestDriverDetailRequestId) return;
         setNotice(error.message);
       }
     }

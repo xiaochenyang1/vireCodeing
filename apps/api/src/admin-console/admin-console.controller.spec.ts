@@ -84,6 +84,17 @@ describe('driver certification admin console page', () => {
     expect(html).toContain('history.replaceState');
     expect(html).toContain('loadQueue()');
   });
+
+  it('ignores stale driver queue and detail responses while preserving the latest selection', () => {
+    const html = renderDriverCertificationAdminConsole();
+
+    expect(html).toContain('let latestQueueRequestId = 0');
+    expect(html).toContain('let latestDriverDetailRequestId = 0');
+    expect(html).toContain('const requestId = ++latestQueueRequestId');
+    expect(html).toContain('if (requestId !== latestQueueRequestId) return');
+    expect(html).toContain('const requestId = ++latestDriverDetailRequestId');
+    expect(html).toContain('if (requestId !== latestDriverDetailRequestId) return');
+  });
 });
 
 describe('evaluation audit admin console page', () => {
