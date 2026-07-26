@@ -370,6 +370,16 @@ export type PrismaDriverCertificationUserRecord = {
   phone: string;
 };
 
+type PrismaDriverCertificationReviewBaseline = {
+  driverId: string;
+  status: DriverIdentityCertificationRecord['status'];
+  updatedAt: Date;
+};
+
+type PrismaDriverCertificationReviewWhere =
+  | PrismaDriverCertificationReviewBaseline
+  | { OR: PrismaDriverCertificationReviewBaseline[] };
+
 export type PrismaDriverCertificationClient = {
   $transaction<T>(
     callback: (prisma: PrismaDriverCertificationClient) => Promise<T>,
@@ -411,13 +421,13 @@ export type PrismaDriverCertificationClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaDriverIdentityCertificationRecord>;
-    update(args: {
-      where: { driverId: string };
+    updateManyAndReturn(args: {
+      where: PrismaDriverCertificationReviewWhere;
       data: {
         status: 'approved' | 'rejected';
         rejectionReason: string | null;
       };
-    }): Promise<PrismaDriverIdentityCertificationRecord>;
+    }): Promise<PrismaDriverIdentityCertificationRecord[]>;
   };
   driverVehicleCertification: {
     findUnique(args: {
@@ -462,13 +472,13 @@ export type PrismaDriverCertificationClient = {
         rejectionReason: null;
       };
     }): Promise<PrismaDriverVehicleCertificationRecord>;
-    update(args: {
-      where: { driverId: string };
+    updateManyAndReturn(args: {
+      where: PrismaDriverCertificationReviewWhere;
       data: {
         status: 'approved' | 'rejected';
         rejectionReason: string | null;
       };
-    }): Promise<PrismaDriverVehicleCertificationRecord>;
+    }): Promise<PrismaDriverVehicleCertificationRecord[]>;
   };
   driverCertificationReviewEvent: {
     findMany(args: {
@@ -667,10 +677,18 @@ export class PrismaDriverCertificationRepository
         );
       }
 
-      const updatedIdentity = await prisma.driverIdentityCertification.update({
-        where: { driverId },
-        data: createPrismaReviewData(input),
-      });
+      const [updatedIdentity] =
+        await prisma.driverIdentityCertification.updateManyAndReturn({
+          where: {
+            driverId,
+            status: identity.status,
+            updatedAt: identity.updatedAt,
+          },
+          data: createPrismaReviewData(input),
+        });
+      if (!updatedIdentity) {
+        throw createDriverCertificationConflict();
+      }
       await prisma.driverCertificationReviewEvent.create({
         data: {
           driverId,
@@ -715,10 +733,18 @@ export class PrismaDriverCertificationRepository
         );
       }
 
-      const updatedVehicle = await prisma.driverVehicleCertification.update({
-        where: { driverId },
-        data: createPrismaReviewData(input),
-      });
+      const [updatedVehicle] =
+        await prisma.driverVehicleCertification.updateManyAndReturn({
+          where: {
+            driverId,
+            status: vehicle.status,
+            updatedAt: vehicle.updatedAt,
+          },
+          data: createPrismaReviewData(input),
+        });
+      if (!updatedVehicle) {
+        throw createDriverCertificationConflict();
+      }
       await prisma.driverCertificationReviewEvent.create({
         data: {
           driverId,
@@ -776,19 +802,29 @@ export class PrismaDriverCertificationRepository
 
         this.assertBatchReviewRecordsExist(driverIds, identityByDriverId);
 
-        const updatedIdentityByDriverId = new Map<
-          string,
-          PrismaDriverIdentityCertificationRecord
-        >();
+        const updatedIdentities =
+          await prisma.driverIdentityCertification.updateManyAndReturn({
+            where: {
+              OR: driverIds.map(driverId => {
+                const identity = identityByDriverId.get(driverId)!;
+                return {
+                  driverId,
+                  status: identity.status,
+                  updatedAt: identity.updatedAt,
+                };
+              }),
+            },
+            data: reviewData,
+          });
+        if (updatedIdentities.length !== driverIds.length) {
+          throw createDriverCertificationConflict();
+        }
+        const updatedIdentityByDriverId = new Map(
+          updatedIdentities.map(identity => [identity.driverId, identity] as const),
+        );
 
         for (const driverId of driverIds) {
           const identity = identityByDriverId.get(driverId)!;
-          const updatedIdentity = await prisma.driverIdentityCertification.update({
-            where: { driverId },
-            data: reviewData,
-          });
-
-          updatedIdentityByDriverId.set(driverId, updatedIdentity);
           await prisma.driverCertificationReviewEvent.create({
             data: {
               driverId,
@@ -841,19 +877,29 @@ export class PrismaDriverCertificationRepository
 
       this.assertBatchReviewRecordsExist(driverIds, vehicleByDriverId);
 
-      const updatedVehicleByDriverId = new Map<
-        string,
-        PrismaDriverVehicleCertificationRecord
-      >();
+      const updatedVehicles =
+        await prisma.driverVehicleCertification.updateManyAndReturn({
+          where: {
+            OR: driverIds.map(driverId => {
+              const vehicle = vehicleByDriverId.get(driverId)!;
+              return {
+                driverId,
+                status: vehicle.status,
+                updatedAt: vehicle.updatedAt,
+              };
+            }),
+          },
+          data: reviewData,
+        });
+      if (updatedVehicles.length !== driverIds.length) {
+        throw createDriverCertificationConflict();
+      }
+      const updatedVehicleByDriverId = new Map(
+        updatedVehicles.map(vehicle => [vehicle.driverId, vehicle] as const),
+      );
 
       for (const driverId of driverIds) {
         const vehicle = vehicleByDriverId.get(driverId)!;
-        const updatedVehicle = await prisma.driverVehicleCertification.update({
-          where: { driverId },
-          data: reviewData,
-        });
-
-        updatedVehicleByDriverId.set(driverId, updatedVehicle);
         await prisma.driverCertificationReviewEvent.create({
           data: {
             driverId,
@@ -1022,4 +1068,11 @@ function createPrismaReviewData(input: ReviewDriverCertificationRequest) {
     status: input.status,
     rejectionReason: getPrismaReviewRejectionReason(input),
   };
+}
+
+function createDriverCertificationConflict() {
+  return new BusinessError(
+    ApiErrorCode.DRIVER_CERTIFICATION_CONFLICT,
+    '司机认证记录已被其他管理员更新',
+  );
 }

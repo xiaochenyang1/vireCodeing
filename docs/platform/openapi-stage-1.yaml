@@ -4569,6 +4569,17 @@ paths:
                 message: 司机认证记录不存在
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Driver identity certification changed after the review baseline was read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_CONFLICT
+                message: 司机认证记录已被其他管理员更新
+                requestId: req_local
+                timestamp: '2026-07-26T10:00:00.000Z'
   /admin/driver-certifications/batch-review:
     post:
       summary: Batch review driver certifications
@@ -4624,6 +4635,17 @@ paths:
                 message: 司机认证记录不存在：driver-3
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Any requested certification changed after its batch baseline was read, so the whole batch is rolled back
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_CONFLICT
+                message: 司机认证记录已被其他管理员更新
+                requestId: req_local
+                timestamp: '2026-07-26T10:00:00.000Z'
   /admin/driver-certifications/{driverId}/vehicle/review:
     post:
       summary: Review driver vehicle certification
@@ -4685,6 +4707,17 @@ paths:
                 message: 司机认证记录不存在
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
+        '409':
+          description: Driver vehicle certification changed after the review baseline was read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_CONFLICT
+                message: 司机认证记录已被其他管理员更新
+                requestId: req_local
+                timestamp: '2026-07-26T10:00:00.000Z'
   /admin/driver-certifications/{driverId}/attachments:
     get:
       summary: Get driver certification attachment previews

@@ -1362,7 +1362,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('toStatus');
     expect(source).toContain('enum: [approved, rejected]');
     expect(source).toContain('DRIVER_CERTIFICATION_NOT_FOUND');
+    expect(source).toContain('DRIVER_CERTIFICATION_CONFLICT');
     expect(source).toContain('司机认证记录不存在');
+    expect(source).toContain('司机认证记录已被其他管理员更新');
     expect(source).toContain('Current authenticated user is not an admin');
     expect(source).toContain('driver phone');
   });

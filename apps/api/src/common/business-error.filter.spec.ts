@@ -488,6 +488,7 @@ describe('BusinessErrorFilter', () => {
   });
 
   it.each([
+    ApiErrorCode.DRIVER_CERTIFICATION_CONFLICT,
     ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
     ApiErrorCode.EXCEPTION_CASE_CONFLICT,
     ApiErrorCode.EXCEPTION_CASE_COMPENSATION_NOT_EXECUTABLE,

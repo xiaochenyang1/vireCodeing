@@ -923,13 +923,13 @@ describe('PrismaDriverCertificationRepository', () => {
         }),
         findMany: jest.fn(),
         upsert: jest.fn(),
-        update: jest.fn(),
+        updateManyAndReturn: jest.fn(),
       },
       driverVehicleCertification: {
         findUnique: jest.fn().mockResolvedValue(null),
         findMany: jest.fn(),
         upsert: jest.fn(),
-        update: jest.fn(),
+        updateManyAndReturn: jest.fn(),
       },
       driverCertificationReviewEvent: {
         findMany: jest.fn(),
@@ -1010,17 +1010,15 @@ describe('PrismaDriverCertificationRepository', () => {
             identityByDriverId['driver-2'],
           ]),
         upsert: jest.fn(),
-        update: jest
+        updateManyAndReturn: jest
           .fn()
-          .mockImplementation(({ where }: { where: { driverId: string } }) =>
-            Promise.resolve(updatedIdentityByDriverId[where.driverId]),
-          ),
+          .mockResolvedValue(Object.values(updatedIdentityByDriverId)),
       },
       driverVehicleCertification: {
         findUnique: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
-        update: jest.fn(),
+        updateManyAndReturn: jest.fn(),
       },
       driverCertificationReviewEvent: {
         findMany: jest.fn(),
@@ -1063,15 +1061,23 @@ describe('PrismaDriverCertificationRepository', () => {
         },
       ],
     });
-    expect(prisma.driverIdentityCertification.update).toHaveBeenNthCalledWith(1, {
-      where: { driverId: 'driver-2' },
-      data: {
-        status: 'approved',
-        rejectionReason: null,
+    expect(
+      prisma.driverIdentityCertification.updateManyAndReturn,
+    ).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          {
+            driverId: 'driver-2',
+            status: 'rejected',
+            updatedAt: createdAt,
+          },
+          {
+            driverId: 'driver-1',
+            status: 'reviewing',
+            updatedAt: createdAt,
+          },
+        ],
       },
-    });
-    expect(prisma.driverIdentityCertification.update).toHaveBeenNthCalledWith(2, {
-      where: { driverId: 'driver-1' },
       data: {
         status: 'approved',
         rejectionReason: null,
@@ -1129,13 +1135,13 @@ describe('PrismaDriverCertificationRepository', () => {
           },
         ]),
         upsert: jest.fn(),
-        update: jest.fn(),
+        updateManyAndReturn: jest.fn(),
       },
       driverVehicleCertification: {
         findUnique: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
-        update: jest.fn(),
+        updateManyAndReturn: jest.fn(),
       },
       driverCertificationReviewEvent: {
         findMany: jest.fn(),
@@ -1168,7 +1174,9 @@ describe('PrismaDriverCertificationRepository', () => {
         '司机认证记录不存在：driver-missing',
       ),
     );
-    expect(prisma.driverIdentityCertification.update).not.toHaveBeenCalled();
+    expect(
+      prisma.driverIdentityCertification.updateManyAndReturn,
+    ).not.toHaveBeenCalled();
     expect(prisma.driverCertificationReviewEvent.create).not.toHaveBeenCalled();
   });
 });
