@@ -5727,7 +5727,13 @@ describe('AdminConsoleController', () => {
     ).getOrderAttachmentAuditConsole();
 
     expect(html).toContain('let latestAuditDetailRequestId = 0');
+    expect(html).toContain("let auditDetailTargetOrderId = ''");
     expect(html).toContain('const requestId = ++latestAuditDetailRequestId');
+    expect(html).toContain('isCurrentAuditDetailRequest(requestId, orderId)');
+    expect(html).toContain('auditDetailTargetOrderId === orderId');
+    expect(html).toContain(
+      "document.getElementById('orderIdInput').value.trim() === orderId",
+    );
     expect(html).toContain(
       'if (requestId !== latestAuditDetailRequestId) return',
     );
@@ -5735,6 +5741,35 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('const requestId = ++latestAuditListRequestId');
     expect(html).toContain(
       'if (requestId !== latestAuditListRequestId) return',
+    );
+  });
+
+  it('clears stale order attachment content while a target loads or fails', () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getOrderAttachmentAuditConsole: () => string;
+      }
+    ).getOrderAttachmentAuditConsole();
+    const detailStart = html.indexOf('async function loadAudit()');
+    const listStart = html.indexOf(
+      'async function loadAuditList(pageOverride)',
+      detailStart,
+    );
+    const detailBody = html.slice(detailStart, listStart);
+
+    expect(detailBody).toContain(
+      "resetAuditDetail('正在加载订单 ' + orderId + ' 的附件审计...')",
+    );
+    expect(detailBody).toContain(
+      "resetAuditDetail('订单 ' + orderId + ' 的附件审计加载失败，可重试。')",
+    );
+    expect(html).toContain('state.audit = null');
+    expect(html).toContain(
+      "document.getElementById('cargoAttachmentList').innerHTML",
+    );
+    expect(html).toContain(
+      "document.getElementById('eventAttachmentList').innerHTML",
     );
   });
 

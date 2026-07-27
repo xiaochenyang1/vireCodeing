@@ -297,6 +297,7 @@ export function renderOrderAttachmentAdminConsole() {
     const state = { audit: null, summaries: [] };
     let latestAuditDetailRequestId = 0;
     let latestAuditListRequestId = 0;
+    let auditDetailTargetOrderId = '';
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/order-attachment-console',
     })}
@@ -416,25 +417,54 @@ export function renderOrderAttachmentAdminConsole() {
       });
     }
 
+    function resetAuditDetail(message) {
+      state.audit = null;
+      document.getElementById('summary').innerHTML =
+        '<h2>等待加载</h2><div class="empty">' + escapeHtml(message) + '</div>';
+      document.getElementById('cargoAttachmentList').innerHTML =
+        '<div class="empty">暂无货物图片附件</div>';
+      document.getElementById('eventAttachmentList').innerHTML =
+        '<div class="empty">暂无订单事件附件</div>';
+    }
+
+    function isCurrentAuditDetailRequest(requestId, orderId) {
+      return (
+        requestId === latestAuditDetailRequestId &&
+        auditDetailTargetOrderId === orderId &&
+        document.getElementById('orderIdInput').value.trim() === orderId
+      );
+    }
+
     async function loadAudit() {
       const requestId = ++latestAuditDetailRequestId;
+      const orderId = document.getElementById('orderIdInput').value.trim();
       try {
         setNotice('');
-        const orderId = document.getElementById('orderIdInput').value.trim();
         if (!orderId) throw new Error('请填写订单 ID');
+        auditDetailTargetOrderId = orderId;
+        resetAuditDetail('正在加载订单 ' + orderId + ' 的附件审计...');
+        syncAuditSummarySelection();
         syncOrderAttachmentRouteState();
         const response = await fetch(apiBase + '/admin/orders/' + encodeURIComponent(orderId) + '/attachments', {
           headers: authHeaders()
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok || body.code !== 'OK') throw new Error(body.message || body.code || '请求失败');
-        if (requestId !== latestAuditDetailRequestId) return;
+        if (!isCurrentAuditDetailRequest(requestId, orderId)) return;
 
         state.audit = body.data;
         renderAudit();
         syncAuditSummarySelection();
       } catch (error) {
-        if (requestId !== latestAuditDetailRequestId) return;
+        if (!orderId) {
+          if (requestId !== latestAuditDetailRequestId) return;
+          auditDetailTargetOrderId = '';
+          resetAuditDetail('请输入 admin token 和订单 ID。');
+          setNotice(error.message);
+          return;
+        }
+        if (!isCurrentAuditDetailRequest(requestId, orderId)) return;
+        resetAuditDetail('订单 ' + orderId + ' 的附件审计加载失败，可重试。');
         setNotice(error.message);
       }
     }
