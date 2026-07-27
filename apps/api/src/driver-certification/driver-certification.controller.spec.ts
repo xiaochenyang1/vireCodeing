@@ -261,6 +261,54 @@ describe('DriverCertificationController', () => {
     );
   });
 
+  it('gets a driver certification snapshot as admin', async () => {
+    const service = {
+      getAdminCertification: jest.fn().mockResolvedValue({
+        driver: { id: 'driver-1', phone: '13900139009' },
+        identity: {
+          driverId: 'driver-1',
+          realName: '张三',
+          status: 'reviewing',
+        },
+        vehicle: { driverId: 'driver-1', status: 'unsubmitted' },
+      }),
+    } as unknown as DriverCertificationService;
+    const controller = new AdminDriverCertificationController(service);
+
+    await expect(
+      controller.getCertification(createRequest('admin-1', 'admin'), 'driver-1'),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        driver: { id: 'driver-1', phone: '13900139009' },
+        identity: {
+          driverId: 'driver-1',
+          realName: '张三',
+          status: 'reviewing',
+        },
+      },
+    });
+    expect(service.getAdminCertification).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'admin-1', userType: 'admin' }),
+      'driver-1',
+    );
+  });
+
+  it('rejects non-admin driver certification detail access', async () => {
+    const service = {
+      getAdminCertification: jest.fn(),
+    } as unknown as DriverCertificationService;
+    const controller = new AdminDriverCertificationController(service);
+
+    await expect(
+      controller.getCertification(createRequest('driver-1'), 'driver-1'),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.AUTH_FORBIDDEN,
+      message: '当前账号不是管理员',
+    });
+    expect(service.getAdminCertification).not.toHaveBeenCalled();
+  });
+
   it('reviews driver vehicle certification as admin', async () => {
     const service = {
       reviewVehicle: jest.fn().mockResolvedValue({

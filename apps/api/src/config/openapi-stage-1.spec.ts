@@ -1320,14 +1320,27 @@ describe('stage 1 OpenAPI contract', () => {
 
   it('documents admin driver certification review endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const detailPath = '/admin/driver-certifications/{driverId}';
 
     expect(source).toContain('/admin/driver-certifications:');
+    expect(source).toContain(`${detailPath}:`);
     expect(source).toContain('/admin/driver-certifications/batch-review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/identity/review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/vehicle/review:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/attachments:');
     expect(source).toContain('/admin/driver-certifications/{driverId}/review-events:');
     expect(source).toContain('List driver certifications for admin review');
+    expect(source).toContain('Get driver certification detail for admin review');
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      "$ref: '#/components/schemas/DriverCertificationResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'DRIVER_CERTIFICATION_NOT_FOUND',
+    );
     expect(source).toContain('Batch review driver certifications');
     expect(source).toContain('Get driver certification attachment previews');
     expect(source).toContain('List driver certification review audit events');

@@ -264,6 +264,104 @@ describe('PrismaDriverCertificationRepository review concurrency', () => {
   });
 });
 
+describe('PrismaDriverCertificationRepository review queue', () => {
+  it('hydrates both certification records after selecting drivers by status', async () => {
+    const identityUpdatedAt = new Date('2026-07-26T10:01:00.000Z');
+    const vehicleUpdatedAt = new Date('2026-07-26T10:00:00.000Z');
+    const identity: PrismaDriverIdentityCertificationRecord = {
+      driverId: 'driver-1',
+      realName: '张三',
+      identityNumber: '110101199003071234',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      status: 'reviewing',
+      rejectionReason: null,
+      createdAt: identityUpdatedAt,
+      updatedAt: identityUpdatedAt,
+    };
+    const vehicle: PrismaDriverVehicleCertificationRecord = {
+      driverId: 'driver-1',
+      plateNumber: '粤B12345',
+      vehicleType: 'medium',
+      vehicleLengthText: '6.8 米',
+      loadCapacityText: '8 吨',
+      hasTailboard: true,
+      drivingLicenseFileId: 'file-driving-license',
+      driverLicenseFileId: 'file-driver-license',
+      transportQualificationFileId: 'file-qualification',
+      operationPermitFileId: 'file-operation-permit',
+      vehiclePhotoFileId: 'file-vehicle-photo',
+      status: 'approved',
+      rejectionReason: null,
+      createdAt: vehicleUpdatedAt,
+      updatedAt: vehicleUpdatedAt,
+    };
+    const identityFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([identity])
+      .mockResolvedValueOnce([identity]);
+    const vehicleFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([vehicle]);
+    const repository = createRepository({
+      user: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: 'driver-1', phone: '13900139009' }]),
+      },
+      driverIdentityCertification: {
+        findUnique: jest.fn(),
+        findMany: identityFindMany,
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      driverVehicleCertification: {
+        findUnique: jest.fn(),
+        findMany: vehicleFindMany,
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      driverCertificationReviewEvent: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    });
+
+    await expect(
+      repository.listCertifications({
+        status: 'reviewing',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          driver: { id: 'driver-1', phone: '13900139009' },
+          identity: { driverId: 'driver-1', status: 'reviewing' },
+          vehicle: { driverId: 'driver-1', status: 'approved' },
+        },
+      ],
+      total: 1,
+    });
+    expect(identityFindMany).toHaveBeenNthCalledWith(1, {
+      where: { status: 'reviewing' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(vehicleFindMany).toHaveBeenNthCalledWith(1, {
+      where: { status: 'reviewing' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(identityFindMany).toHaveBeenNthCalledWith(2, {
+      where: { driverId: { in: ['driver-1'] } },
+    });
+    expect(vehicleFindMany).toHaveBeenNthCalledWith(2, {
+      where: { driverId: { in: ['driver-1'] } },
+    });
+  });
+});
+
 function createRepository(prisma: unknown) {
   return new PrismaDriverCertificationRepository(
     prisma as ConstructorParameters<typeof PrismaDriverCertificationRepository>[0],

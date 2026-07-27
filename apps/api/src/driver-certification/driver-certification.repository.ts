@@ -553,18 +553,26 @@ export class PrismaDriverCertificationRepository
       );
     }
 
-    const identityByDriverId = new Map(
-      identities.map(identity => [identity.driverId, identity] as const),
-    );
-    const vehicleByDriverId = new Map(
-      vehicles.map(vehicle => [vehicle.driverId, vehicle] as const),
-    );
     const orderedDriverIds = [...latestUpdatedAtByDriverId.entries()]
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .map(([driverId]) => driverId);
     const start = (query.page - 1) * query.pageSize;
     const pageDriverIds = orderedDriverIds.slice(start, start + query.pageSize);
-    const drivers = await this.findDrivers(pageDriverIds);
+    const [pageIdentities, pageVehicles, drivers] = await Promise.all([
+      this.prisma.driverIdentityCertification.findMany({
+        where: { driverId: { in: pageDriverIds } },
+      }),
+      this.prisma.driverVehicleCertification.findMany({
+        where: { driverId: { in: pageDriverIds } },
+      }),
+      this.findDrivers(pageDriverIds),
+    ]);
+    const identityByDriverId = new Map(
+      pageIdentities.map(identity => [identity.driverId, identity] as const),
+    );
+    const vehicleByDriverId = new Map(
+      pageVehicles.map(vehicle => [vehicle.driverId, vehicle] as const),
+    );
 
     return {
       items: pageDriverIds.map(driverId =>

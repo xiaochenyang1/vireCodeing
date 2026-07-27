@@ -614,6 +614,67 @@ describe('DriverCertificationService', () => {
     );
   });
 
+  it('gets a submitted driver certification snapshot for admins', async () => {
+    const { filesRepository, service } = createService();
+    const frontFile = await createUploadedFile(filesRepository, 'driver-1');
+    const backFile = await createUploadedFile(filesRepository, 'driver-1');
+    await service.submitIdentity(
+      { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+      {
+        realName: '张三',
+        identityNumber: '110101199003071234',
+        identityFrontFileId: frontFile.id,
+        identityBackFileId: backFile.id,
+      },
+    );
+
+    await expect(
+      service.getAdminCertification(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'driver-1',
+      ),
+    ).resolves.toMatchObject({
+      driver: { id: 'driver-1', phone: '13900139009' },
+      identity: {
+        driverId: 'driver-1',
+        realName: '张三',
+        status: 'reviewing',
+      },
+      vehicle: { driverId: 'driver-1', status: 'unsubmitted' },
+    });
+  });
+
+  it('rejects admin detail access when no certification was submitted', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.getAdminCertification(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'driver-missing',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+        '司机认证记录不存在',
+      ),
+    );
+  });
+
+  it('rejects non-admin certification detail access before repository reads', async () => {
+    const { repository, service } = createService();
+    const getCertification = jest.spyOn(repository, 'getCertification');
+
+    await expect(
+      service.getAdminCertification(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        'driver-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(getCertification).not.toHaveBeenCalled();
+  });
+
   it('rejects non-admin certification review event access', async () => {
     const { service } = createService();
 

@@ -9,7 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -103,6 +103,20 @@ export class AdminDriverCertificationController {
       await this.driverCertificationService.listCertifications(
         getCurrentAdmin(request),
         parseListDriverCertificationQuery(query),
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get(':driverId')
+  async getCertification(
+    @Req() request: AuthenticatedRequest,
+    @Param('driverId') driverId: string,
+  ) {
+    return ok(
+      await this.driverCertificationService.getAdminCertification(
+        getCurrentAdmin(request),
+        driverId,
       ),
       getRequestId(request),
     );

@@ -4591,6 +4591,55 @@ paths:
                 message: 当前账号不是管理员
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
+  /admin/driver-certifications/{driverId}:
+    get:
+      summary: Get driver certification detail for admin review
+      description: Returns the complete identity and vehicle certification snapshot for one driver, independent of the current review queue page or status filter.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: driver-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver certification detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverCertificationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Current authenticated user is not an admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: AUTH_FORBIDDEN
+                message: 当前账号不是管理员
+                requestId: req_local
+                timestamp: '2026-07-26T08:00:00.000Z'
+        '404':
+          description: Driver has no submitted identity or vehicle certification record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: DRIVER_CERTIFICATION_NOT_FOUND
+                message: 司机认证记录不存在
+                requestId: req_local
+                timestamp: '2026-07-26T08:00:00.000Z'
   /admin/driver-certifications/{driverId}/identity/review:
     post:
       summary: Review driver identity certification

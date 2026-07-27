@@ -195,6 +195,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     riskLevel: 'high',
     apiPaths: [
       '/admin/driver-certifications',
+      '/admin/driver-certifications/{driverId}',
       '/admin/driver-certifications/{driverId}/attachments',
       '/admin/driver-certifications/{driverId}/review-events',
       '/admin/driver-certifications/batch-review',

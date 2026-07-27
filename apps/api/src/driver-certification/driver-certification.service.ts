@@ -45,6 +45,26 @@ export class DriverCertificationService {
     return this.repository.listCertifications(query);
   }
 
+  async getAdminCertification(
+    currentUser: AuthenticatedUser,
+    driverId: string,
+  ) {
+    this.assertAdmin(currentUser);
+
+    const certification = await this.repository.getCertification(driverId);
+    if (
+      certification.identity.status === 'unsubmitted' &&
+      certification.vehicle.status === 'unsubmitted'
+    ) {
+      throw new BusinessError(
+        ApiErrorCode.DRIVER_CERTIFICATION_NOT_FOUND,
+        '司机认证记录不存在',
+      );
+    }
+
+    return certification;
+  }
+
   async listReviewEvents(
     currentUser: AuthenticatedUser,
     driverId: string,

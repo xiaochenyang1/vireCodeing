@@ -222,6 +222,8 @@ export function renderDriverCertificationAdminConsole() {
     let selectedDriverId = '';
     let latestQueueRequestId = 0;
     let latestDriverDetailRequestId = 0;
+    let latestReviewMutationRequestId = 0;
+    let reviewMutationPending = false;
     const apiBase = '/api';
     const apiPaths = {
       list: '/admin/driver-certifications',
@@ -248,7 +250,9 @@ export function renderDriverCertificationAdminConsole() {
       const response = await fetch(apiBase + path, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body.code !== 'OK') {
-        throw new Error(body.message || body.code || '请求失败');
+        const error = new Error(body.message || body.code || '请求失败');
+        error.code = body.code;
+        throw error;
       }
       return body.data;
     }
@@ -317,9 +321,12 @@ export function renderDriverCertificationAdminConsole() {
       return '<span class="status ' + escapeHtml(status) + '">' + escapeHtml(statusText[status] || status) + '</span>';
     }
 
-    function renderEmptyDetail() {
-      document.getElementById('detailTitle').textContent = '选择一条认证记录';
-      document.getElementById('detail').innerHTML = '';
+    function renderEmptyDetail(titleText, detailText) {
+      document.getElementById('detailTitle').textContent =
+        titleText || '选择一条认证记录';
+      document.getElementById('detail').innerHTML = detailText
+        ? '<div class="card meta">' + escapeHtml(detailText) + '</div>'
+        : '';
     }
 
     function syncSelectedDriversToCurrentQueue() {
@@ -330,15 +337,6 @@ export function renderDriverCertificationAdminConsole() {
           selectedDriverIds.delete(driverId);
         }
       });
-
-      if (selectedDriverId && !currentDriverIds.has(selectedDriverId)) {
-        selectedDriverId = '';
-        state.selected = null;
-        state.attachments = null;
-        state.events = [];
-        renderEmptyDetail();
-        syncDriverCertificationRouteState('');
-      }
     }
 
     function updateBulkSelectionUi() {
@@ -405,7 +403,6 @@ export function renderDriverCertificationAdminConsole() {
     }
 
     async function loadQueue() {
-      latestDriverDetailRequestId += 1;
       const requestId = ++latestQueueRequestId;
       try {
         setNotice('');
@@ -417,15 +414,18 @@ export function renderDriverCertificationAdminConsole() {
         syncSelectedDriversToCurrentQueue();
         renderQueue();
         updateBulkSelectionUi();
-        if (selectedDriverId && state.items.some(item => getDriverId(item) === selectedDriverId)) {
-          await selectDriver(selectedDriverId);
-        } else if (!selectedDriverId) {
-          renderEmptyDetail();
-        }
       } catch (error) {
         if (requestId !== latestQueueRequestId) return;
         setNotice(error.message);
       }
+    }
+
+    async function refreshWorkspace() {
+      const targetDriverId = selectedDriverId;
+      await Promise.all([
+        loadQueue(),
+        ...(targetDriverId ? [selectDriver(targetDriverId)] : []),
+      ]);
     }
 
     function getDriverId(item) {
@@ -435,12 +435,6 @@ export function renderDriverCertificationAdminConsole() {
     function renderQueue() {
       const queue = document.getElementById('queue');
       if (state.items.length === 0) {
-        selectedDriverId = '';
-        state.selected = null;
-        state.attachments = null;
-        state.events = [];
-        syncDriverCertificationRouteState('');
-        renderEmptyDetail();
         queue.innerHTML = '<div class="card meta">暂无认证记录</div>';
         return;
       }
@@ -479,23 +473,47 @@ export function renderDriverCertificationAdminConsole() {
 
     async function selectDriver(driverId) {
       const requestId = ++latestDriverDetailRequestId;
+      const targetDriverId = String(driverId || '').trim();
+      selectedDriverId = targetDriverId;
+      syncDriverCertificationRouteState(selectedDriverId);
+      state.selected = null;
+      state.attachments = null;
+      state.events = [];
+      renderQueue();
+      if (!targetDriverId) {
+        renderEmptyDetail();
+        return;
+      }
+      renderEmptyDetail('认证详情加载中', '正在读取指定司机的认证、附件和审核事件。');
       try {
         setNotice('');
-        selectedDriverId = driverId;
-        syncDriverCertificationRouteState(selectedDriverId);
-        state.selected = state.items.find(item => getDriverId(item) === driverId);
-        const [attachments, events] = await Promise.all([
-          request(apiPaths.list + '/' + encodeURIComponent(driverId) + apiPaths.attachments),
-          request(apiPaths.list + '/' + encodeURIComponent(driverId) + apiPaths.reviewEvents),
+        const [detail, attachments, events] = await Promise.all([
+          request(apiPaths.list + '/' + encodeURIComponent(targetDriverId)),
+          request(apiPaths.list + '/' + encodeURIComponent(targetDriverId) + apiPaths.attachments),
+          request(apiPaths.list + '/' + encodeURIComponent(targetDriverId) + apiPaths.reviewEvents),
         ]);
-        if (requestId !== latestDriverDetailRequestId) return;
+        if (
+          requestId !== latestDriverDetailRequestId ||
+          selectedDriverId !== targetDriverId
+        ) return;
+        state.selected = detail;
         state.attachments = attachments;
         state.events = events;
         renderQueue();
         renderDetail();
       } catch (error) {
-        if (requestId !== latestDriverDetailRequestId) return;
+        if (
+          requestId !== latestDriverDetailRequestId ||
+          selectedDriverId !== targetDriverId
+        ) return;
+        state.selected = null;
+        state.attachments = null;
+        state.events = [];
         setNotice(error.message);
+        renderEmptyDetail(
+          '认证详情加载失败',
+          error.message || '指定司机认证详情暂不可用。',
+        );
       }
     }
 
@@ -522,11 +540,12 @@ export function renderDriverCertificationAdminConsole() {
       const approveId = type === 'identity' ? 'approveIdentity' : 'approveVehicle';
       const rejectId = type === 'identity' ? 'rejectIdentity' : 'rejectVehicle';
       const reasonId = type + 'RejectReason';
+      const disabled = reviewMutationPending ? ' disabled' : '';
       return '<section class="card">' +
         '<h2>' + label + ' ' + badge(record.status) + '</h2>' +
         '<div class="meta">' + Object.entries(record).map(([key, value]) => escapeHtml(key) + '：' + escapeHtml(value || '-')).join('<br>') + '</div>' +
-        '<div class="review-row"><button class="primary" id="' + approveId + '">通过</button>' +
-        '<button class="danger" id="' + rejectId + '">驳回</button></div>' +
+        '<div class="review-row"><button class="primary" id="' + approveId + '"' + disabled + '>通过</button>' +
+        '<button class="danger" id="' + rejectId + '"' + disabled + '>驳回</button></div>' +
         '<textarea id="' + reasonId + '" aria-label="驳回原因" title="驳回原因"></textarea>' +
         '</section>';
     }
@@ -562,18 +581,58 @@ export function renderDriverCertificationAdminConsole() {
     }
 
     async function submitReview(driverId, type, payload) {
+      if (reviewMutationPending) {
+        return;
+      }
+      const requestId = ++latestReviewMutationRequestId;
+      const targetDriverId = driverId;
+      let refreshQueueAfterReview = false;
+      let refreshTargetAfterReview = false;
       try {
         setNotice('');
         if (payload.status === 'rejected' && !payload.rejectionReason.trim()) throw new Error('请填写驳回原因');
+        reviewMutationPending = true;
+        renderDetail();
         const reviewPath = type === 'identity' ? apiPaths.identityReview : apiPaths.vehicleReview;
-        await request(apiPaths.list + '/' + encodeURIComponent(driverId) + reviewPath, {
+        const reviewed = await request(apiPaths.list + '/' + encodeURIComponent(targetDriverId) + reviewPath, {
           method: 'POST',
           body: JSON.stringify(payload)
         });
-        selectedDriverId = driverId;
-        await loadQueue();
+        if (requestId !== latestReviewMutationRequestId) return;
+        refreshQueueAfterReview = true;
+        if (selectedDriverId === targetDriverId) {
+          state.selected = reviewed;
+          renderDetail();
+          refreshTargetAfterReview = true;
+        }
       } catch (error) {
-        setNotice(error.message);
+        if (requestId !== latestReviewMutationRequestId) return;
+        if (
+          error.code === 'DRIVER_CERTIFICATION_CONFLICT' ||
+          error.code === 'DRIVER_CERTIFICATION_NOT_FOUND'
+        ) {
+          refreshQueueAfterReview = true;
+          refreshTargetAfterReview = selectedDriverId === targetDriverId;
+        }
+        if (selectedDriverId === targetDriverId) {
+          setNotice(error.message);
+        }
+      } finally {
+        reviewMutationPending = false;
+        if (
+          state.selected &&
+          selectedDriverId === getDriverId(state.selected)
+        ) {
+          renderDetail();
+        }
+      }
+      if (refreshQueueAfterReview) {
+        await Promise.all([
+          loadQueue(),
+          ...(refreshTargetAfterReview && selectedDriverId === targetDriverId
+            ? [selectDriver(targetDriverId)]
+            : []),
+        ]);
       }
     }
 
@@ -599,7 +658,6 @@ export function renderDriverCertificationAdminConsole() {
         certificationType === 'identity'
           ? (status === 'approved' ? '实名批量通过' : '实名批量驳回')
           : (status === 'approved' ? '车辆批量通过' : '车辆批量驳回');
-      const selectedDriverIdBeforeBatch = selectedDriverId;
       const payload =
         status === 'approved'
           ? {
@@ -629,8 +687,7 @@ export function renderDriverCertificationAdminConsole() {
 
         document.getElementById('batchActionStatus').textContent =
           actionLabel + '完成：一次性更新 ' + result.updatedCount + ' 个司机。';
-        selectedDriverId = selectedDriverIdBeforeBatch;
-        await loadQueue();
+        await refreshWorkspace();
       } catch (error) {
         document.getElementById('batchActionStatus').textContent =
           actionLabel + '失败：整批未写入。';
@@ -638,14 +695,14 @@ export function renderDriverCertificationAdminConsole() {
       }
     }
 
-    document.getElementById('loadQueue').addEventListener('click', loadQueue);
-    document.getElementById('statusFilter').addEventListener('change', loadQueue);
+    document.getElementById('loadQueue').addEventListener('click', refreshWorkspace);
+    document.getElementById('statusFilter').addEventListener('change', refreshWorkspace);
     updateBulkSelectionUi();
     renderEmptyDetail();
     applyDriverCertificationRouteState();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
-      loadQueue();
+      refreshWorkspace();
     }
   </script>
 </body>

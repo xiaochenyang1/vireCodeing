@@ -35,6 +35,7 @@ describe('AdminPermissionMatrixService', () => {
             ]),
             capabilityKeys: expect.arrayContaining([
               'permission_matrix_read',
+              'driver_certification_manage',
               'shipper_verification_manage',
               'shipper_invoice_manage',
               'order_management_manage',
@@ -140,6 +141,20 @@ describe('AdminPermissionMatrixService', () => {
             apiPaths: expect.arrayContaining([
               '/admin/auth/sessions',
               '/admin/auth/sessions/{sessionId}/revoke',
+            ]),
+          }),
+          expect.objectContaining({
+            key: 'driver_certification_manage',
+            moduleKey: 'driver-certification',
+            moduleTitle: '司机认证审核台',
+            consoleRoute: '/api/admin/driver-certification-console',
+            actions: ['read', 'write'],
+            riskLevel: 'high',
+            apiPaths: expect.arrayContaining([
+              '/admin/driver-certifications',
+              '/admin/driver-certifications/{driverId}',
+              '/admin/driver-certifications/{driverId}/attachments',
+              '/admin/driver-certifications/{driverId}/review-events',
             ]),
           }),
           expect.objectContaining({

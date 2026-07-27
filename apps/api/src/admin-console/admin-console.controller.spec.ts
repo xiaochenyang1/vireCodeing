@@ -94,23 +94,252 @@ describe('driver certification admin console page', () => {
     expect(html).toContain('const requestId = ++latestQueueRequestId');
     expect(html).toContain('if (requestId !== latestQueueRequestId) return');
     expect(html).toContain('const requestId = ++latestDriverDetailRequestId');
-    expect(html).toContain('if (requestId !== latestDriverDetailRequestId) return');
+    expect(html).toContain('requestId !== latestDriverDetailRequestId ||');
+    expect(html).toContain('selectedDriverId !== targetDriverId');
   });
 
-  it('invalidates pending driver details when the queue context refreshes', () => {
+  it('loads routed driver details independently from the current queue page', () => {
     const html = renderDriverCertificationAdminConsole();
     const queueStart = html.indexOf('async function loadQueue()');
-    const detailInvalidationIndex = html.indexOf(
-      'latestDriverDetailRequestId += 1',
+    const queueEnd = html.indexOf(
+      'async function refreshWorkspace()',
       queueStart,
     );
-    const queueRequestIndex = html.indexOf(
-      'const requestId = ++latestQueueRequestId',
-      queueStart,
+    const queueBody = html.slice(queueStart, queueEnd);
+    const refreshStart = queueEnd;
+    const refreshEnd = html.indexOf(
+      'function getDriverId(item)',
+      refreshStart,
     );
+    const refreshBody = html.slice(refreshStart, refreshEnd);
+    const syncStart = html.indexOf(
+      'function syncSelectedDriversToCurrentQueue()',
+    );
+    const syncEnd = html.indexOf('function updateBulkSelectionUi()', syncStart);
+    const syncBody = html.slice(syncStart, syncEnd);
+    const detailStart = html.indexOf('async function selectDriver(driverId)');
+    const detailEnd = html.indexOf('function renderDetail()', detailStart);
+    const detailBody = html.slice(detailStart, detailEnd);
+    const detailGuardIndex = detailBody.indexOf(
+      'requestId !== latestDriverDetailRequestId',
+    );
+    const detailCommitIndex = detailBody.indexOf(
+      'state.selected = detail',
+      detailGuardIndex,
+    );
+    const batchStart = html.indexOf('async function runBatchReview()');
+    const batchEnd = html.indexOf(
+      "document.getElementById('loadQueue')",
+      batchStart,
+    );
+    const batchBody = html.slice(batchStart, batchEnd);
 
-    expect(detailInvalidationIndex).toBeGreaterThan(queueStart);
-    expect(detailInvalidationIndex).toBeLessThan(queueRequestIndex);
+    expect(queueBody).not.toContain('latestDriverDetailRequestId');
+    expect(refreshBody).toContain('loadQueue()');
+    expect(refreshBody).toContain('selectDriver(targetDriverId)');
+    expect(syncBody).not.toContain("selectedDriverId = ''");
+    expect(syncBody).not.toContain("syncDriverCertificationRouteState('')");
+    expect(detailBody).toContain('const [detail, attachments, events]');
+    expect(detailBody).toContain(
+      "request(apiPaths.list + '/' + encodeURIComponent(targetDriverId))",
+    );
+    expect(detailBody).toContain(
+      "encodeURIComponent(targetDriverId) + apiPaths.attachments",
+    );
+    expect(detailBody).toContain(
+      "encodeURIComponent(targetDriverId) + apiPaths.reviewEvents",
+    );
+    expect(detailCommitIndex).toBeGreaterThan(detailGuardIndex);
+    expect(batchBody).not.toContain('selectedDriverIdBeforeBatch');
+    expect(batchBody).toContain('await refreshWorkspace()');
+  });
+
+  it('atomically commits only the latest routed driver detail', async () => {
+    const html = renderDriverCertificationAdminConsole();
+    const detailStart = html.indexOf('async function selectDriver(driverId)');
+    const detailEnd = html.indexOf('function renderDetail()', detailStart);
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const pending = new Map<string, ReturnType<typeof createDeferred>>();
+    const createDriverRequests = (driverId: string) => {
+      const detail = createDeferred();
+      const attachments = createDeferred();
+      const events = createDeferred();
+      pending.set('/admin/driver-certifications/' + driverId, detail);
+      pending.set(
+        '/admin/driver-certifications/' + driverId + '/attachments',
+        attachments,
+      );
+      pending.set(
+        '/admin/driver-certifications/' + driverId + '/review-events',
+        events,
+      );
+      return { attachments, detail, events };
+    };
+    const request = jest.fn((path: string) => {
+      const deferred = pending.get(path);
+      if (!deferred) {
+        return Promise.reject(new Error('unexpected request: ' + path));
+      }
+      return deferred.promise;
+    });
+    const context = {
+      latestDriverDetailRequestId: 0,
+      selectedDriverId: '',
+      state: {
+        items: [],
+        selected: null as unknown,
+        attachments: null as unknown,
+        events: [] as unknown[],
+      },
+      syncDriverCertificationRouteState: jest.fn(),
+      renderQueue: jest.fn(),
+      renderEmptyDetail: jest.fn(),
+      setNotice: jest.fn(),
+      request,
+      apiPaths: {
+        list: '/admin/driver-certifications',
+        attachments: '/attachments',
+        reviewEvents: '/review-events',
+      },
+      encodeURIComponent,
+      renderDetail: jest.fn(),
+      invokeSelectDriver: undefined as
+        | undefined
+        | ((driverId: string) => Promise<void>),
+    };
+    runInNewContext(
+      `${detailSource}\ninvokeSelectDriver = selectDriver;`,
+      context,
+    );
+    if (!context.invokeSelectDriver) {
+      throw new Error('selectDriver function was not initialized');
+    }
+
+    const driverA = createDriverRequests('driver-a');
+    const driverB = createDriverRequests('driver-b');
+    const slowDriverA = context.invokeSelectDriver('driver-a');
+    const fastDriverB = context.invokeSelectDriver('driver-b');
+    const driverBDetail = {
+      driver: { id: 'driver-b' },
+      identity: { driverId: 'driver-b', status: 'reviewing' },
+      vehicle: { driverId: 'driver-b', status: 'approved' },
+    };
+    driverB.detail.resolve?.(driverBDetail);
+    driverB.attachments.resolve?.({ driverId: 'driver-b' });
+    driverB.events.resolve?.([{ id: 'event-b' }]);
+    await fastDriverB;
+
+    expect(context.state.selected).toEqual(driverBDetail);
+    expect(context.state.attachments).toEqual({ driverId: 'driver-b' });
+    expect(context.state.events).toEqual([{ id: 'event-b' }]);
+
+    driverA.detail.resolve?.({
+      driver: { id: 'driver-a' },
+      identity: { driverId: 'driver-a', status: 'reviewing' },
+      vehicle: { driverId: 'driver-a', status: 'unsubmitted' },
+    });
+    driverA.attachments.resolve?.({ driverId: 'driver-a' });
+    driverA.events.resolve?.([{ id: 'event-a' }]);
+    await slowDriverA;
+    expect(context.state.selected).toEqual(driverBDetail);
+
+    const driverC = createDriverRequests('driver-c');
+    const failedDriverC = context.invokeSelectDriver('driver-c');
+    driverC.detail.resolve?.({ driver: { id: 'driver-c' } });
+    driverC.events.resolve?.([{ id: 'event-c' }]);
+    driverC.attachments.reject?.(new Error('附件加载失败'));
+    await failedDriverC;
+
+    expect(context.selectedDriverId).toBe('driver-c');
+    expect(context.state.selected).toBeNull();
+    expect(context.state.attachments).toBeNull();
+    expect(context.state.events).toEqual([]);
+  });
+
+  it('prevents duplicate driver reviews from restoring an older selection', async () => {
+    const html = renderDriverCertificationAdminConsole();
+    const reviewStart = html.indexOf(
+      'async function submitReview(driverId, type, payload)',
+    );
+    const reviewEnd = html.indexOf('async function runBatchReview()', reviewStart);
+    const reviewSource = html.slice(reviewStart, reviewEnd);
+    let resolveReview: ((value: unknown) => void) | undefined;
+    const reviewResponse = new Promise<unknown>(resolve => {
+      resolveReview = resolve;
+    });
+    const request = jest.fn(() => reviewResponse);
+    const loadQueue = jest.fn(() => Promise.resolve());
+    const selectDriver = jest.fn(() => Promise.resolve());
+    const context = {
+      reviewMutationPending: false,
+      latestReviewMutationRequestId: 0,
+      selectedDriverId: 'driver-a',
+      state: {
+        selected: {
+          driver: { id: 'driver-a' },
+          identity: { driverId: 'driver-a', status: 'reviewing' },
+          vehicle: { driverId: 'driver-a', status: 'unsubmitted' },
+        },
+      },
+      setNotice: jest.fn(),
+      renderDetail: jest.fn(),
+      request,
+      apiPaths: {
+        list: '/admin/driver-certifications',
+        identityReview: '/identity/review',
+        vehicleReview: '/vehicle/review',
+      },
+      encodeURIComponent,
+      getDriverId: (item: { driver: { id: string } }) => item.driver.id,
+      loadQueue,
+      selectDriver,
+      invokeReview: undefined as
+        | undefined
+        | ((
+            driverId: string,
+            type: 'identity' | 'vehicle',
+            payload: { status: 'approved' | 'rejected'; rejectionReason?: string },
+          ) => Promise<void>),
+    };
+    runInNewContext(`${reviewSource}\ninvokeReview = submitReview;`, context);
+    if (!context.invokeReview) {
+      throw new Error('submitReview function was not initialized');
+    }
+
+    const firstReview = context.invokeReview('driver-a', 'identity', {
+      status: 'approved',
+    });
+    await context.invokeReview('driver-a', 'identity', { status: 'approved' });
+    expect(request).toHaveBeenCalledTimes(1);
+
+    context.selectedDriverId = 'driver-b';
+    context.state.selected = {
+      driver: { id: 'driver-b' },
+      identity: { driverId: 'driver-b', status: 'reviewing' },
+      vehicle: { driverId: 'driver-b', status: 'unsubmitted' },
+    };
+    resolveReview?.({
+      driver: { id: 'driver-a' },
+      identity: { driverId: 'driver-a', status: 'approved' },
+      vehicle: { driverId: 'driver-a', status: 'unsubmitted' },
+    });
+    await firstReview;
+
+    expect(context.selectedDriverId).toBe('driver-b');
+    expect(context.state.selected).toMatchObject({
+      driver: { id: 'driver-b' },
+    });
+    expect(loadQueue).toHaveBeenCalledTimes(1);
+    expect(selectDriver).not.toHaveBeenCalled();
   });
 });
 
