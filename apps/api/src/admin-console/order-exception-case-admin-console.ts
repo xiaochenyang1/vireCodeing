@@ -91,10 +91,14 @@ export function renderOrderExceptionCaseAdminConsole() {
     let currentPage = 1;
     let total = 0;
     let selectedCaseId = '';
+    let loadedCaseId = '';
+    let caseSelectionEpoch = 0;
     let selectedCaseClaimedByAdminUserId = '';
     let selectedCaseAppealStatus = 'none';
     let currentAdminUserId = '';
     let mutationPending = false;
+    let mutationTargetCaseId = '';
+    let mutationTargetSelectionEpoch = 0;
     let caseSweepPending = false;
     let latestCaseListRequestId = 0;
     let latestCaseDetailRequestId = 0;
@@ -305,22 +309,47 @@ export function renderOrderExceptionCaseAdminConsole() {
     }
 
     function clearCaseSelection(options = {}) {
+      caseSelectionEpoch += 1;
+      latestCaseDetailRequestId += 1;
       selectedCaseId = '';
+      loadedCaseId = '';
       selectedCaseClaimedByAdminUserId = '';
       selectedCaseAppealStatus = 'none';
       if (options.clearPendingRoute !== false) {
         pendingRouteCaseId = '';
       }
       document.getElementById('baseUpdatedAtIso').value = '';
+      document.getElementById('caseActionContent').value = '';
       document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
       document.getElementById('caseActions').innerHTML = '';
       document.getElementById('caseDetail').textContent = options.detailText || '请选择工单';
       document.getElementById('caseMutationNotice').textContent = options.notice || '';
       resetCompensationInputs();
+      syncCompensationInputsFromStatus();
       if (options.syncRoute !== false) {
         syncOrderExceptionCaseRouteState(currentPage, '');
       }
       renderCaseListSelection();
+    }
+
+    function isSelectedCaseMutationPending() {
+      return (
+        mutationPending &&
+        mutationTargetCaseId === selectedCaseId &&
+        mutationTargetSelectionEpoch === caseSelectionEpoch
+      );
+    }
+
+    function isMutationTargetSelected(targetCaseId, targetSelectionEpoch) {
+      return (
+        selectedCaseId === targetCaseId &&
+        loadedCaseId === targetCaseId &&
+        caseSelectionEpoch === targetSelectionEpoch
+      );
+    }
+
+    function isSelectedCaseReadyForMutation() {
+      return Boolean(selectedCaseId && loadedCaseId === selectedCaseId);
     }
 
     function renderCaseListSelection() {
@@ -350,16 +379,20 @@ export function renderOrderExceptionCaseAdminConsole() {
       const statusInput = document.getElementById('caseCompensationStatusInput');
       const targetInput = document.getElementById('caseCompensationTargetRoleInput');
       const amountInput = document.getElementById('caseCompensationAmountInput');
-      statusInput.disabled = !enabled || mutationPending;
-      targetInput.disabled = !enabled || mutationPending || statusInput.value === 'not_required';
-      amountInput.disabled = !enabled || mutationPending || statusInput.value === 'not_required';
+      const disabled =
+        !isSelectedCaseReadyForMutation() || isSelectedCaseMutationPending();
+      statusInput.disabled = !enabled || disabled;
+      targetInput.disabled = !enabled || disabled || statusInput.value === 'not_required';
+      amountInput.disabled = !enabled || disabled || statusInput.value === 'not_required';
     }
 
     function toggleAppealDecisionInput(enabled) {
       const field = document.getElementById('caseAppealDecisionField');
       const input = document.getElementById('caseAppealDecisionInput');
+      const disabled =
+        !isSelectedCaseReadyForMutation() || isSelectedCaseMutationPending();
       field.style.display = enabled ? 'block' : 'none';
-      input.disabled = !enabled || mutationPending;
+      input.disabled = !enabled || disabled;
       input.dataset.required = enabled ? 'true' : 'false';
       if (!enabled) {
         input.value = '';
@@ -404,6 +437,11 @@ export function renderOrderExceptionCaseAdminConsole() {
     function syncCompensationInputsFromStatus() {
       const button = getCaseMutationButton();
       const isResolveAction = Boolean(button && button.dataset.action === 'resolve');
+      const draftInputsDisabled =
+        !isSelectedCaseReadyForMutation() || isSelectedCaseMutationPending();
+      document.getElementById('caseActionContent').disabled = draftInputsDisabled;
+      document.getElementById('caseAssignTargetAdminUserIdInput').disabled =
+        draftInputsDisabled;
       toggleCompensationInputs(isResolveAction);
       toggleAppealDecisionInput(isResolveAction && selectedCaseAppealStatus === 'requested');
     }
@@ -548,18 +586,38 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     async function loadCase(caseId, options = {}) {
       const requestId = ++latestCaseDetailRequestId;
+      let selectionEpoch = caseSelectionEpoch;
 
       try {
         if (!options.fromRouteRestore) {
           pendingRouteCaseId = '';
         }
+        if (!options.preserveSelectionEpoch) {
+          caseSelectionEpoch += 1;
+          document.getElementById('caseActionContent').value = '';
+          document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
+        }
+        selectionEpoch = caseSelectionEpoch;
         selectedCaseId = caseId;
+        loadedCaseId = '';
+        selectedCaseClaimedByAdminUserId = '';
+        selectedCaseAppealStatus = 'none';
+        document.getElementById('baseUpdatedAtIso').value = '';
+        document.getElementById('caseActions').innerHTML = '';
+        resetCompensationInputs();
+        setCaseActionButtonsDisabled(true);
+        syncCompensationInputsFromStatus();
         syncOrderExceptionCaseRouteState(currentPage, selectedCaseId);
         renderCaseListSelection();
         document.getElementById('caseDetail').textContent = '工单详情加载中...';
         document.getElementById('caseMutationNotice').textContent = '';
         const item = await api('/admin/order-exception-cases/' + encodeURIComponent(caseId));
-        if (requestId !== latestCaseDetailRequestId) return;
+        if (
+          requestId !== latestCaseDetailRequestId ||
+          selectedCaseId !== caseId ||
+          caseSelectionEpoch !== selectionEpoch
+        ) return;
+        loadedCaseId = caseId;
         selectedCaseClaimedByAdminUserId = item.claimedByAdminUserId || '';
         selectedCaseAppealStatus = item.appealStatus || 'none';
         document.getElementById('baseUpdatedAtIso').value = item.updatedAtIso;
@@ -576,7 +634,11 @@ export function renderOrderExceptionCaseAdminConsole() {
         syncOrderExceptionCaseRouteState(currentPage, selectedCaseId);
         renderCaseListSelection();
       } catch (error) {
-        if (requestId !== latestCaseDetailRequestId) return;
+        if (
+          requestId !== latestCaseDetailRequestId ||
+          selectedCaseId !== caseId ||
+          caseSelectionEpoch !== selectionEpoch
+        ) return;
         clearCaseSelection({
           detailText: '请选择工单',
           notice: error.message,
@@ -594,14 +656,23 @@ export function renderOrderExceptionCaseAdminConsole() {
       loadCases(1);
     }
 
-    async function recoverCaseFromConflict() {
-      const refreshTasks = [loadCases(currentPage)];
+    async function refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch) {
+      if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return false;
 
-      if (selectedCaseId) {
-        refreshTasks.push(loadCase(selectedCaseId));
-      }
+      await loadCase(targetCaseId, { preserveSelectionEpoch: true });
+      if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return false;
 
-      await Promise.all(refreshTasks);
+      await loadCases(currentPage);
+      return isMutationTargetSelected(targetCaseId, targetSelectionEpoch);
+    }
+
+    async function recoverCaseFromConflict(targetCaseId, targetSelectionEpoch) {
+      const refreshed = await refreshCaseAfterMutation(
+        targetCaseId,
+        targetSelectionEpoch,
+      );
+      if (!refreshed) return;
+
       document.getElementById('caseMutationNotice').textContent =
         '工单已被其他管理员更新，正在刷新最新状态。';
     }
@@ -675,155 +746,211 @@ export function renderOrderExceptionCaseAdminConsole() {
         buttons += '<button id="caseExecuteCompensationButton" class="secondary-button" onclick="executeCompensation()">执行平台赔付</button>';
       }
       target.innerHTML += buttons;
+      setCaseActionButtonsDisabled(mutationPending);
       syncCompensationInputsFromStatus();
     }
 
     async function mutateCase(action) {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
       if (!mutationPaths.includes('/' + action)) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const content = document.getElementById('caseActionContent').value.trim();
       if (content.length < 6 || content.length > 500) {
         document.getElementById('caseMutationNotice').textContent = '请输入 6-500 字处理说明';
         return;
       }
-      mutationPending = true;
-      document.getElementById('caseMutationNotice').textContent = '';
-      setCaseActionButtonsDisabled(true);
+      const payload = { baseUpdatedAtIso, content };
       try {
-        const payload = { baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value, content };
         if (action === 'resolve') {
           Object.assign(payload, readResolveCompensationInput());
         }
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/' + action, {
+      } catch (error) {
+        document.getElementById('caseMutationNotice').textContent = error.message;
+        return;
+      }
+      mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
+      document.getElementById('caseMutationNotice').textContent = '';
+      setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
+      try {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/' + action, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
+        await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
 
     async function claimCase() {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const content = document.getElementById('caseActionContent').value.trim();
       if (content.length > 200) {
         document.getElementById('caseMutationNotice').textContent = '认领备注最多 200 字';
         return;
       }
+      const payload = {
+        baseUpdatedAtIso,
+        ...(content ? { content } : {}),
+      };
       mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
       document.getElementById('caseMutationNotice').textContent = '';
       setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
       try {
-        const payload = {
-          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
-          ...(content ? { content } : {}),
-        };
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/claim', {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/claim', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
+        const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+        if (!refreshed) return;
         document.getElementById('caseMutationNotice').textContent = '工单已认领，当前客服可继续跟进。';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
 
     async function takeoverCase() {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const content = document.getElementById('caseActionContent').value.trim();
       if (content.length > 200) {
         document.getElementById('caseMutationNotice').textContent = '强制接管备注最多 200 字';
         return;
       }
+      const payload = {
+        baseUpdatedAtIso,
+        ...(content ? { content } : {}),
+      };
       mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
       document.getElementById('caseMutationNotice').textContent = '';
       setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
       try {
-        const payload = {
-          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
-          ...(content ? { content } : {}),
-        };
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/takeover', {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/takeover', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
+        const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+        if (!refreshed) return;
         document.getElementById('caseMutationNotice').textContent = '工单已强制接管，当前客服可继续跟进。';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
 
     async function releaseCaseClaim() {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const content = document.getElementById('caseActionContent').value.trim();
       if (content.length > 200) {
         document.getElementById('caseMutationNotice').textContent = '释放认领备注最多 200 字';
         return;
       }
+      const payload = {
+        baseUpdatedAtIso,
+        ...(content ? { content } : {}),
+      };
       mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
       document.getElementById('caseMutationNotice').textContent = '';
       setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
       try {
-        const payload = {
-          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
-          ...(content ? { content } : {}),
-        };
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/unclaim', {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/unclaim', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
+        const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+        if (!refreshed) return;
         document.getElementById('caseMutationNotice').textContent = '工单认领已释放，已回到未认领队列。';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
 
     async function assignCase() {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const targetAdminUserId = document.getElementById('caseAssignTargetAdminUserIdInput').value.trim();
       if (!targetAdminUserId) {
         document.getElementById('caseMutationNotice').textContent = '请输入目标客服 ID';
@@ -839,74 +966,97 @@ export function renderOrderExceptionCaseAdminConsole() {
         return;
       }
       const isTransfer = Boolean(selectedCaseClaimedByAdminUserId);
+      const payload = {
+        baseUpdatedAtIso,
+        targetAdminUserId,
+        ...(content ? { content } : {}),
+      };
       mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
       document.getElementById('caseMutationNotice').textContent = '';
       setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
       try {
-        const payload = {
-          baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
-          targetAdminUserId,
-          ...(content ? { content } : {}),
-        };
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/assign', {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/assign', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
         document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
+        const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+        if (!refreshed) return;
         document.getElementById('caseMutationNotice').textContent = isTransfer
           ? '工单已转派给指定客服。'
           : '工单已指派给指定客服。';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
 
     async function executeCompensation() {
-      if (!selectedCaseId || mutationPending) return;
+      if (!isSelectedCaseReadyForMutation() || mutationPending) return;
+      const targetCaseId = selectedCaseId;
+      const targetSelectionEpoch = caseSelectionEpoch;
+      const baseUpdatedAtIso = document.getElementById('baseUpdatedAtIso').value;
       const content = document.getElementById('caseActionContent').value.trim() || '平台确认执行异常工单赔付入账。';
       if (content.length < 6 || content.length > 500) {
         document.getElementById('caseMutationNotice').textContent = '请输入 6-500 字赔付执行说明';
         return;
       }
+      const idempotencyKey = createIdempotencyKey();
       mutationPending = true;
+      mutationTargetCaseId = targetCaseId;
+      mutationTargetSelectionEpoch = targetSelectionEpoch;
       document.getElementById('caseMutationNotice').textContent = '';
       setCaseActionButtonsDisabled(true);
+      syncCompensationInputsFromStatus();
       try {
-        await api('/admin/order-exception-cases/' + encodeURIComponent(selectedCaseId) + '/compensation/execute', {
+        await api('/admin/order-exception-cases/' + encodeURIComponent(targetCaseId) + '/compensation/execute', {
           method: 'POST',
           body: JSON.stringify({
-            baseUpdatedAtIso: document.getElementById('baseUpdatedAtIso').value,
-            idempotencyKey: createIdempotencyKey(),
+            baseUpdatedAtIso,
+            idempotencyKey,
             content,
           }),
         });
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         document.getElementById('caseActionContent').value = '';
+        const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+        if (!refreshed) return;
         document.getElementById('caseMutationNotice').textContent = '平台赔付已执行并写入账本。';
-        await loadCase(selectedCaseId);
-        await loadCases(currentPage);
       } catch (error) {
+        if (!isMutationTargetSelected(targetCaseId, targetSelectionEpoch)) return;
+
         if (error.code === 'EXCEPTION_CASE_CONFLICT') {
-          await recoverCaseFromConflict();
+          await recoverCaseFromConflict(targetCaseId, targetSelectionEpoch);
         } else if (error.code === 'EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED') {
+          const refreshed = await refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch);
+          if (!refreshed) return;
           document.getElementById('caseMutationNotice').textContent = '该工单赔付已执行，不能重复赔付。';
-          await loadCase(selectedCaseId);
         } else {
           document.getElementById('caseMutationNotice').textContent = error.message;
         }
       } finally {
         mutationPending = false;
-        setCaseActionButtonsDisabled(false);
+        mutationTargetCaseId = '';
+        mutationTargetSelectionEpoch = 0;
+        setCaseActionButtonsDisabled(!isSelectedCaseReadyForMutation());
         syncCompensationInputsFromStatus();
       }
     }
@@ -916,6 +1066,7 @@ export function renderOrderExceptionCaseAdminConsole() {
     });
 
     resetCompensationInputs();
+    syncCompensationInputsFromStatus();
     const caseRouteState = applyOrderExceptionCaseRouteState();
     pendingRouteCaseId = caseRouteState.caseId;
     const currentAdminSession = initializeAdminSession();

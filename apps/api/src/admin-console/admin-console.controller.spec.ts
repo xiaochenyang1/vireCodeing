@@ -3752,6 +3752,151 @@ describe('order management admin console page', () => {
 });
 
 describe('order exception case admin console page', () => {
+  type CaseConsoleNode = {
+    dataset: Record<string, string>;
+    disabled: boolean;
+    innerHTML: string;
+    style: Record<string, string>;
+    textContent: string;
+    value: string;
+  };
+
+  const createCaseDeferred = () => {
+    let resolve: ((value?: unknown) => void) | undefined;
+    let reject: ((reason?: unknown) => void) | undefined;
+    const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, reject, resolve };
+  };
+
+  const flushCasePromises = () =>
+    new Promise<void>(resolve => setImmediate(resolve));
+
+  const createCaseConsoleNodes = () => {
+    const nodes = new Map<string, CaseConsoleNode>();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created: CaseConsoleNode = {
+        dataset: id === 'caseMutationButton' ? { action: 'process' } : {},
+        disabled: false,
+        innerHTML: id === 'caseDetail' ? '<strong>case A</strong>' : '',
+        style: {},
+        textContent: '',
+        value:
+          id === 'baseUpdatedAtIso'
+            ? '2026-07-27T08:00:00.000Z'
+            : id === 'caseActionContent'
+              ? 'case A operation draft'
+              : id === 'caseAssignTargetAdminUserIdInput'
+                ? 'admin-a'
+                : id === 'caseCompensationStatusInput'
+                  ? 'not_required'
+                  : '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    return { getNode, nodes };
+  };
+
+  const caseMutationVmSources = () => {
+    const html = renderOrderExceptionCaseAdminConsole();
+    const uiStart = html.indexOf('function isSelectedCaseMutationPending()');
+    const uiEnd = html.indexOf(
+      'function renderCompensationSnapshot(item)',
+      uiStart,
+    );
+    const mutationStart = html.indexOf(
+      'async function refreshCaseAfterMutation(',
+    );
+    const mutationEnd = html.indexOf(
+      "document.getElementById('caseCompensationStatusInput').addEventListener",
+      mutationStart,
+    );
+    if ([uiStart, uiEnd, mutationStart, mutationEnd].some(index => index < 0)) {
+      throw new Error('order exception case mutation source was not found');
+    }
+    return {
+      mutationSource: html.slice(mutationStart, mutationEnd),
+      uiSource: html.slice(uiStart, uiEnd),
+    };
+  };
+
+  const createCaseMutationHarness = (
+    overrides: {
+      api?: jest.Mock;
+      loadCase?: jest.Mock;
+      loadCases?: jest.Mock;
+    } = {},
+  ) => {
+    const { mutationSource, uiSource } = caseMutationVmSources();
+    const { getNode, nodes } = createCaseConsoleNodes();
+    const api = overrides.api ?? jest.fn().mockResolvedValue(undefined);
+    const loadCase =
+      overrides.loadCase ?? jest.fn().mockResolvedValue(undefined);
+    const loadCases =
+      overrides.loadCases ?? jest.fn().mockResolvedValue(undefined);
+    const context = {
+      selectedCaseId: 'case-a',
+      loadedCaseId: 'case-a',
+      caseSelectionEpoch: 1,
+      selectedCaseClaimedByAdminUserId: '',
+      selectedCaseAppealStatus: 'none',
+      mutationPending: false,
+      mutationTargetCaseId: '',
+      mutationTargetSelectionEpoch: 0,
+      mutationPaths: ['/process', '/resolve', '/close'],
+      currentPage: 2,
+      document: {
+        getElementById: getNode,
+        querySelectorAll: jest.fn(() => []),
+      },
+      api,
+      loadCase,
+      loadCases,
+      readResolveCompensationInput: jest.fn(() => ({
+        compensationStatus: 'not_required',
+      })),
+      createIdempotencyKey: jest.fn(() => 'case-a-idempotency-key'),
+      encodeURIComponent,
+      invokeClaim: undefined as undefined | (() => Promise<void>),
+      invokeCompensation: undefined as undefined | (() => Promise<void>),
+      invokeProcess: undefined as undefined | (() => Promise<void>),
+    };
+    runInNewContext(
+      `${uiSource}\n${mutationSource}\n` +
+        `invokeClaim = claimCase;\n` +
+        `invokeCompensation = executeCompensation;\n` +
+        `invokeProcess = () => mutateCase('process');`,
+      context,
+    );
+    return { api, context, getNode, loadCase, loadCases, nodes };
+  };
+
+  const selectCaseBInHarness = (
+    context: {
+      caseSelectionEpoch: number;
+      loadedCaseId: string;
+      selectedCaseId: string;
+    },
+    getNode: (id: string) => CaseConsoleNode,
+  ) => {
+    context.caseSelectionEpoch += 1;
+    context.selectedCaseId = 'case-b';
+    context.loadedCaseId = 'case-b';
+    getNode('baseUpdatedAtIso').value = '2026-07-27T09:00:00.000Z';
+    getNode('caseActionContent').value = 'case B operation draft';
+    getNode('caseAssignTargetAdminUserIdInput').value = 'admin-b';
+    getNode('caseMutationNotice').textContent = 'case B notice';
+    getNode('caseDetail').innerHTML = '<strong>case B</strong>';
+    getNode('caseCompensationStatusInput').value = 'pending';
+    getNode('caseCompensationTargetRoleInput').value = 'driver';
+    getNode('caseCompensationAmountInput').value = '8800';
+  };
+
   it('surfaces recent activity timestamps plus SLA and compensation filters in the list and detail view', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
@@ -3831,6 +3976,454 @@ describe('order exception case admin console page', () => {
     expect(html).toContain("await loadCase(routeRestoreCaseId, { fromRouteRestore: true })");
     expect(html).toContain('syncOrderExceptionCaseRouteState(currentPage, selectedCaseId)');
   });
+
+  it('clears stale mutation state until the newly selected case detail is loaded', async () => {
+    const html = renderOrderExceptionCaseAdminConsole();
+    const { uiSource } = caseMutationVmSources();
+    const loadStart = html.indexOf('async function loadCase(caseId, options = {})');
+    const loadEnd = html.indexOf('function loadMyCases()', loadStart);
+    const processStart = html.indexOf('async function mutateCase(action)');
+    const processEnd = html.indexOf('async function claimCase()', processStart);
+    const detailRequest = createCaseDeferred();
+    const mutationRequest = createCaseDeferred();
+    const { getNode } = createCaseConsoleNodes();
+    getNode('caseActions').innerHTML = '<button>case A old action</button>';
+    const api = jest.fn(
+      (_path: string, options?: { method?: string }) =>
+        options?.method === 'POST'
+          ? mutationRequest.promise
+          : detailRequest.promise,
+    );
+    const renderMutationButtons = jest.fn();
+    const context = {
+      latestCaseDetailRequestId: 0,
+      caseSelectionEpoch: 4,
+      pendingRouteCaseId: '',
+      selectedCaseId: 'case-a',
+      loadedCaseId: 'case-a',
+      selectedCaseClaimedByAdminUserId: '',
+      selectedCaseAppealStatus: 'none',
+      mutationPending: false,
+      mutationTargetCaseId: '',
+      mutationTargetSelectionEpoch: 0,
+      mutationPaths: ['/process', '/resolve', '/close'],
+      currentPage: 1,
+      document: {
+        getElementById: getNode,
+        querySelectorAll: jest.fn(() => []),
+      },
+      api,
+      syncOrderExceptionCaseRouteState: jest.fn(),
+      renderCaseDetail: jest.fn(() => '<strong>case B detail</strong>'),
+      renderMutationButtons,
+      clearCaseSelection: jest.fn(),
+      escapeHtml: (value: unknown) => String(value),
+      readResolveCompensationInput: jest.fn(() => ({
+        compensationStatus: 'not_required',
+      })),
+      encodeURIComponent,
+      invokeLoad: undefined as
+        | undefined
+        | ((caseId: string) => Promise<void>),
+      invokeProcess: undefined as undefined | (() => Promise<void>),
+      invokeReady: undefined as undefined | (() => boolean),
+    };
+    runInNewContext(
+      `${uiSource}\n${html.slice(loadStart, loadEnd)}\n` +
+        `${html.slice(processStart, processEnd)}\n` +
+        `invokeLoad = loadCase;\n` +
+        `invokeProcess = () => mutateCase('process');\n` +
+        `invokeReady = isSelectedCaseReadyForMutation;`,
+      context,
+    );
+
+    const loadingCaseB = context.invokeLoad!('case-b');
+
+    expect(context.selectedCaseId).toBe('case-b');
+    expect(context.loadedCaseId).toBe('');
+    expect(context.caseSelectionEpoch).toBe(5);
+    expect(context.invokeReady!()).toBe(false);
+    expect(getNode('baseUpdatedAtIso').value).toBe('');
+    expect(getNode('caseActionContent').value).toBe('');
+    expect(getNode('caseAssignTargetAdminUserIdInput').value).toBe('');
+    expect(getNode('caseActions').innerHTML).toBe('');
+    expect(getNode('caseActionContent').disabled).toBe(true);
+
+    await context.invokeProcess!();
+    expect(api).toHaveBeenCalledTimes(1);
+
+    detailRequest.resolve?.({
+      updatedAtIso: '2026-07-27T09:00:00.000Z',
+      claimedByAdminUserId: null,
+      appealStatus: 'none',
+      actions: [],
+      compensationStatus: 'not_required',
+      compensationTargetRole: null,
+      compensationAmountCents: null,
+    });
+    await loadingCaseB;
+
+    expect(context.loadedCaseId).toBe('case-b');
+    expect(context.invokeReady!()).toBe(true);
+    expect(getNode('baseUpdatedAtIso').value).toBe(
+      '2026-07-27T09:00:00.000Z',
+    );
+    expect(renderMutationButtons).toHaveBeenCalledTimes(1);
+
+    getNode('caseActionContent').value = 'case B process draft';
+    const mutation = context.invokeProcess!();
+    expect(api).toHaveBeenLastCalledWith(
+      '/admin/order-exception-cases/case-b/process',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    mutationRequest.reject?.(new Error('case B failed'));
+    await mutation;
+    expect(context.mutationPending).toBe(false);
+  });
+
+  it('binds every case mutation result to its starting selection', async () => {
+    const html = renderOrderExceptionCaseAdminConsole();
+    const selectionStart = html.indexOf(
+      'function isMutationTargetSelected(targetCaseId, targetSelectionEpoch)',
+    );
+    const selectionEnd = html.indexOf(
+      'function renderCaseListSelection()',
+      selectionStart,
+    );
+    const mutationStart = html.indexOf(
+      'async function refreshCaseAfterMutation(',
+    );
+    const mutationEnd = html.indexOf(
+      "document.getElementById('caseCompensationStatusInput').addEventListener",
+      mutationStart,
+    );
+    const selectionSource = html.slice(selectionStart, selectionEnd);
+    const mutationSource = html.slice(mutationStart, mutationEnd);
+    const actionContent = 'case A operation draft';
+    const baseUpdatedAtIso = '2026-07-27T08:00:00.000Z';
+    const mutations = [
+      {
+        name: 'process',
+        invocation: "() => mutateCase('process')",
+        path: '/admin/order-exception-cases/case-a/process',
+        body: { baseUpdatedAtIso, content: actionContent },
+      },
+      {
+        name: 'claim',
+        invocation: 'claimCase',
+        path: '/admin/order-exception-cases/case-a/claim',
+        body: { baseUpdatedAtIso, content: actionContent },
+      },
+      {
+        name: 'takeover',
+        invocation: 'takeoverCase',
+        path: '/admin/order-exception-cases/case-a/takeover',
+        body: { baseUpdatedAtIso, content: actionContent },
+      },
+      {
+        name: 'unclaim',
+        invocation: 'releaseCaseClaim',
+        path: '/admin/order-exception-cases/case-a/unclaim',
+        body: { baseUpdatedAtIso, content: actionContent },
+      },
+      {
+        name: 'assign',
+        invocation: 'assignCase',
+        path: '/admin/order-exception-cases/case-a/assign',
+        body: {
+          baseUpdatedAtIso,
+          targetAdminUserId: 'admin-a',
+          content: actionContent,
+        },
+      },
+      {
+        name: 'compensation',
+        invocation: 'executeCompensation',
+        path: '/admin/order-exception-cases/case-a/compensation/execute',
+        body: {
+          baseUpdatedAtIso,
+          idempotencyKey: 'case-a-idempotency-key',
+          content: actionContent,
+        },
+      },
+    ];
+    const outcomes = ['success', 'error', 'conflict'] as const;
+    for (const mutation of mutations) {
+      for (const outcome of outcomes) {
+        const request = createCaseDeferred();
+        const conflictRefresh = createCaseDeferred();
+        const { getNode } = createCaseConsoleNodes();
+        const api = jest.fn((_path: string, _options: unknown) => request.promise);
+        const loadCase = jest.fn((_caseId: string, _options?: unknown) =>
+          outcome === 'conflict'
+            ? conflictRefresh.promise
+            : Promise.resolve(),
+        );
+        const loadCases = jest.fn((_page: number) => Promise.resolve());
+        const setCaseActionButtonsDisabled = jest.fn((_disabled: boolean) => {});
+        const syncCompensationInputsFromStatus = jest.fn(() => {});
+        const context = {
+          selectedCaseId: 'case-a',
+          loadedCaseId: 'case-a',
+          caseSelectionEpoch: 1,
+          selectedCaseClaimedByAdminUserId: '',
+          mutationPending: false,
+          mutationTargetCaseId: '',
+          mutationTargetSelectionEpoch: 0,
+          mutationPaths: ['/process', '/resolve', '/close'],
+          currentPage: 2,
+          document: { getElementById: getNode },
+          api,
+          loadCase,
+          loadCases,
+          setCaseActionButtonsDisabled,
+          syncCompensationInputsFromStatus,
+          readResolveCompensationInput: jest.fn(() => ({
+            compensationStatus: 'not_required',
+          })),
+          createIdempotencyKey: jest.fn(() => 'case-a-idempotency-key'),
+          encodeURIComponent,
+          invokeMutation: undefined as undefined | (() => Promise<void>),
+        };
+        runInNewContext(
+          `${selectionSource}\n${mutationSource}\ninvokeMutation = ${mutation.invocation};`,
+          context,
+        );
+        if (!context.invokeMutation) {
+          throw new Error(`${mutation.name} mutation was not initialized`);
+        }
+
+        const firstMutation = context.invokeMutation();
+        const duplicateMutation = context.invokeMutation();
+
+        expect(api).toHaveBeenCalledTimes(1);
+        expect(api).toHaveBeenCalledWith(
+          mutation.path,
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify(mutation.body),
+          }),
+        );
+
+        if (outcome === 'conflict') {
+          request.reject?.(
+            Object.assign(new Error('case A conflict'), {
+              code: 'EXCEPTION_CASE_CONFLICT',
+            }),
+          );
+          await flushCasePromises();
+          expect(loadCase).toHaveBeenCalledWith('case-a', {
+            preserveSelectionEpoch: true,
+          });
+        }
+
+        selectCaseBInHarness(context, getNode);
+
+        if (outcome === 'success') {
+          request.resolve?.({ id: 'case-a' });
+        } else if (outcome === 'error') {
+          request.reject?.(new Error('case A failed'));
+        } else {
+          conflictRefresh.resolve?.({ id: 'case-a' });
+        }
+        await Promise.all([firstMutation, duplicateMutation]);
+
+        expect(context.selectedCaseId).toBe('case-b');
+        expect(getNode('baseUpdatedAtIso').value).toBe(
+          '2026-07-27T09:00:00.000Z',
+        );
+        expect(getNode('caseActionContent').value).toBe(
+          'case B operation draft',
+        );
+        expect(getNode('caseAssignTargetAdminUserIdInput').value).toBe(
+          'admin-b',
+        );
+        expect(getNode('caseMutationNotice').textContent).toBe('case B notice');
+        expect(getNode('caseDetail').innerHTML).toBe('<strong>case B</strong>');
+        expect(getNode('caseCompensationStatusInput').value).toBe('pending');
+        expect(getNode('caseCompensationTargetRoleInput').value).toBe('driver');
+        expect(getNode('caseCompensationAmountInput').value).toBe('8800');
+        expect(loadCase).toHaveBeenCalledTimes(outcome === 'conflict' ? 1 : 0);
+        expect(loadCases).not.toHaveBeenCalled();
+        expect(context.mutationPending).toBe(false);
+        expect(context.mutationTargetCaseId).toBe('');
+        expect(context.mutationTargetSelectionEpoch).toBe(0);
+        expect(setCaseActionButtonsDisabled.mock.calls).toEqual([
+          [true],
+          [false],
+        ]);
+        expect(syncCompensationInputsFromStatus).toHaveBeenCalledTimes(2);
+      }
+    }
+  });
+
+  it('rejects an A mutation completion after an A to B to A selection cycle', async () => {
+    const request = createCaseDeferred();
+    const api = jest.fn(() => request.promise);
+    const { context, getNode, loadCase, loadCases } =
+      createCaseMutationHarness({ api });
+
+    const mutation = context.invokeClaim!();
+    selectCaseBInHarness(context, getNode);
+    context.caseSelectionEpoch += 1;
+    context.selectedCaseId = 'case-a';
+    context.loadedCaseId = 'case-a';
+    getNode('baseUpdatedAtIso').value = '2026-07-27T10:00:00.000Z';
+    getNode('caseActionContent').value = 'new case A draft';
+    getNode('caseMutationNotice').textContent = 'new case A notice';
+    getNode('caseDetail').innerHTML = '<strong>new case A detail</strong>';
+
+    request.resolve?.({ id: 'case-a' });
+    await mutation;
+
+    expect(context.caseSelectionEpoch).toBe(3);
+    expect(getNode('caseActionContent').value).toBe('new case A draft');
+    expect(getNode('caseMutationNotice').textContent).toBe(
+      'new case A notice',
+    );
+    expect(getNode('caseDetail').innerHTML).toBe(
+      '<strong>new case A detail</strong>',
+    );
+    expect(loadCase).not.toHaveBeenCalled();
+    expect(loadCases).not.toHaveBeenCalled();
+    expect(context.mutationPending).toBe(false);
+    expect(getNode('caseActionContent').disabled).toBe(false);
+  });
+
+  it.each(['detail', 'list'] as const)(
+    'keeps B intact when a successful A mutation changes selection during the %s refresh',
+    async refreshStage => {
+      const request = createCaseDeferred();
+      const detailRefresh = createCaseDeferred();
+      const listRefresh = createCaseDeferred();
+      const api = jest.fn(() => request.promise);
+      const loadCase = jest.fn(() => detailRefresh.promise);
+      const loadCases = jest.fn(() => listRefresh.promise);
+      const { context, getNode } = createCaseMutationHarness({
+        api,
+        loadCase,
+        loadCases,
+      });
+
+      const mutation = context.invokeClaim!();
+      request.resolve?.({ id: 'case-a' });
+      await flushCasePromises();
+      expect(loadCase).toHaveBeenCalledWith('case-a', {
+        preserveSelectionEpoch: true,
+      });
+
+      if (refreshStage === 'detail') {
+        selectCaseBInHarness(context, getNode);
+        detailRefresh.resolve?.({ id: 'case-a' });
+      } else {
+        detailRefresh.resolve?.({ id: 'case-a' });
+        await flushCasePromises();
+        expect(loadCases).toHaveBeenCalledWith(2);
+        selectCaseBInHarness(context, getNode);
+        listRefresh.resolve?.({ items: [] });
+      }
+      await mutation;
+
+      expect(getNode('caseActionContent').value).toBe(
+        'case B operation draft',
+      );
+      expect(getNode('caseMutationNotice').textContent).toBe('case B notice');
+      expect(getNode('caseDetail').innerHTML).toBe('<strong>case B</strong>');
+      expect(loadCases).toHaveBeenCalledTimes(refreshStage === 'list' ? 1 : 0);
+      expect(context.mutationPending).toBe(false);
+      expect(getNode('caseActionContent').disabled).toBe(false);
+      expect(getNode('caseClaimButton').disabled).toBe(false);
+    },
+  );
+
+  it('keeps B intact when compensation is already executed during the A detail refresh', async () => {
+    const request = createCaseDeferred();
+    const detailRefresh = createCaseDeferred();
+    const api = jest.fn(() => request.promise);
+    const loadCase = jest.fn(() => detailRefresh.promise);
+    const loadCases = jest.fn().mockResolvedValue(undefined);
+    const { context, getNode } = createCaseMutationHarness({
+      api,
+      loadCase,
+      loadCases,
+    });
+
+    const mutation = context.invokeCompensation!();
+    request.reject?.(
+      Object.assign(new Error('already executed'), {
+        code: 'EXCEPTION_CASE_COMPENSATION_ALREADY_EXECUTED',
+      }),
+    );
+    await flushCasePromises();
+    expect(loadCase).toHaveBeenCalledWith('case-a', {
+      preserveSelectionEpoch: true,
+    });
+
+    selectCaseBInHarness(context, getNode);
+    detailRefresh.resolve?.({ id: 'case-a' });
+    await mutation;
+
+    expect(loadCases).not.toHaveBeenCalled();
+    expect(getNode('caseActionContent').value).toBe(
+      'case B operation draft',
+    );
+    expect(getNode('caseMutationNotice').textContent).toBe('case B notice');
+    expect(context.mutationPending).toBe(false);
+    expect(getNode('caseExecuteCompensationButton').disabled).toBe(false);
+  });
+
+  it.each(['success', 'error', 'conflict'] as const)(
+    'restores A controls after a %s mutation outcome',
+    async outcome => {
+      const request = createCaseDeferred();
+      const api = jest.fn(() => request.promise);
+      const loadCase = jest.fn().mockResolvedValue(undefined);
+      const loadCases = jest.fn().mockResolvedValue(undefined);
+      const { context, getNode } = createCaseMutationHarness({
+        api,
+        loadCase,
+        loadCases,
+      });
+
+      const mutation = context.invokeClaim!();
+      expect(context.mutationPending).toBe(true);
+      expect(context.mutationTargetCaseId).toBe('case-a');
+      expect(context.mutationTargetSelectionEpoch).toBe(1);
+      expect(getNode('caseActionContent').disabled).toBe(true);
+      expect(getNode('caseAssignTargetAdminUserIdInput').disabled).toBe(true);
+      expect(getNode('caseClaimButton').disabled).toBe(true);
+
+      if (outcome === 'success') {
+        request.resolve?.({ id: 'case-a' });
+      } else if (outcome === 'conflict') {
+        request.reject?.(
+          Object.assign(new Error('case A conflict'), {
+            code: 'EXCEPTION_CASE_CONFLICT',
+          }),
+        );
+      } else {
+        request.reject?.(new Error('case A failed'));
+      }
+      await mutation;
+
+      expect(context.mutationPending).toBe(false);
+      expect(context.mutationTargetCaseId).toBe('');
+      expect(context.mutationTargetSelectionEpoch).toBe(0);
+      expect(getNode('caseActionContent').disabled).toBe(false);
+      expect(getNode('caseAssignTargetAdminUserIdInput').disabled).toBe(false);
+      expect(getNode('caseClaimButton').disabled).toBe(false);
+      expect(getNode('caseMutationButton').disabled).toBe(false);
+      expect(loadCase).toHaveBeenCalledTimes(outcome === 'error' ? 0 : 1);
+      expect(loadCases).toHaveBeenCalledTimes(outcome === 'error' ? 0 : 1);
+      expect(getNode('caseMutationNotice').textContent).toBe(
+        outcome === 'success'
+          ? '工单已认领，当前客服可继续跟进。'
+          : outcome === 'conflict'
+            ? '工单已被其他管理员更新，正在刷新最新状态。'
+            : 'case A failed',
+      );
+    },
+  );
 });
 
 describe('admin console home page', () => {

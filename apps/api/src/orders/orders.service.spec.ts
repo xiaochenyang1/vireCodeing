@@ -2655,7 +2655,8 @@ describe('PrismaOrdersRepository', () => {
     });
     const transaction = {
       orderExceptionCase: {
-        update: jest.fn().mockResolvedValue(updatedCase),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(updatedCase),
       },
       orderExceptionCaseAction: {
         create: jest.fn().mockResolvedValue({ id: 'action-1' }),
@@ -2690,7 +2691,24 @@ describe('PrismaOrdersRepository', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(transaction.orderExceptionCaseAction.create).toHaveBeenCalled();
-    expect(transaction.orderExceptionCase.update).toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'pending',
+        updatedAt: new Date('2026-07-12T08:00:00.000Z'),
+      },
+      data: {
+        status: 'processing',
+        updatedAt: new Date('2026-07-12T08:00:01.000Z'),
+      },
+    });
+    expect(transaction.orderExceptionCase.findUnique).toHaveBeenCalledWith({
+      where: { id: 'case-1' },
+      include: {
+        order: { select: { orderNo: true } },
+        actions: { orderBy: { createdAt: 'asc' } },
+      },
+    });
   });
 
   it('creates a shipper exception event and case in one transaction', async () => {

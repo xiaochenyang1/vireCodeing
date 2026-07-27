@@ -3806,6 +3806,7 @@ type PrismaOrdersTransactionClient = {
   orderExceptionCase: {
     count(args: unknown): Promise<number>;
     create(args: unknown): Promise<{ id: string; caseNo: string }>;
+    updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<PrismaOrderExceptionCaseRecord>;
     findUnique(args: unknown): Promise<PrismaOrderExceptionCaseRecord | null>;
   };
@@ -4372,22 +4373,19 @@ export class PrismaOrdersRepository implements OrdersRepository {
     }
 
     const now = this.now();
+    const updatedAt = new Date(
+      createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+    );
     const updated = await this.prisma.$transaction(async transaction => {
-      await transaction.orderExceptionCaseAction.create({
-        data: {
-          caseId,
-          adminUserId,
-          fromStatus: expectedStatus,
-          toStatus: nextStatus,
-          content: input.content,
-          createdAt: now,
+      const updateResult = await transaction.orderExceptionCase.updateMany({
+        where: {
+          id: caseId,
+          status: expectedStatus,
+          updatedAt: current.updatedAt,
         },
-      });
-
-      const result = await transaction.orderExceptionCase.update({
-        where: { id: caseId },
         data: {
           status: nextStatus,
+          updatedAt,
           ...(nextStatus === 'resolved'
             ? {
                 resolutionText: input.content,
@@ -4409,9 +4407,20 @@ export class PrismaOrdersRepository implements OrdersRepository {
             : {}),
           ...(nextStatus === 'closed' ? { closedAt: now } : {}),
         },
-        include: {
-          order: { select: { orderNo: true } },
-          actions: { orderBy: { createdAt: 'asc' } },
+      });
+
+      if (updateResult.count !== 1) {
+        return 'conflict' as const;
+      }
+
+      await transaction.orderExceptionCaseAction.create({
+        data: {
+          caseId,
+          adminUserId,
+          fromStatus: expectedStatus,
+          toStatus: nextStatus,
+          content: input.content,
+          createdAt: now,
         },
       });
 
@@ -4431,8 +4440,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
         });
       }
 
+      const result = await transaction.orderExceptionCase.findUnique({
+        where: { id: caseId },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      if (!result) {
+        throw new Error(`Order exception case not found after transition: ${caseId}`);
+      }
+
       return result;
     });
+
+    if (updated === 'conflict') {
+      return updated;
+    }
 
     return mapPrismaExceptionCase(updated);
   }
@@ -4468,7 +4493,23 @@ export class PrismaOrdersRepository implements OrdersRepository {
     }
 
     const now = this.now();
+    const updatedAt = new Date(
+      createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+    );
     const updated = await this.prisma.$transaction(async transaction => {
+      const updateResult = await transaction.orderExceptionCase.updateMany({
+        where: {
+          id: caseId,
+          status: expectedStatus,
+          updatedAt: current.updatedAt,
+        },
+        data: { updatedAt },
+      });
+
+      if (updateResult.count !== 1) {
+        return 'conflict' as const;
+      }
+
       await transaction.orderExceptionCaseAction.create({
         data: {
           caseId,
@@ -4480,17 +4521,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
         },
       });
 
-      return transaction.orderExceptionCase.update({
+      const result = await transaction.orderExceptionCase.findUnique({
         where: { id: caseId },
-        data: {
-          updatedAt: createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
-        },
         include: {
           order: { select: { orderNo: true } },
           actions: { orderBy: { createdAt: 'asc' } },
         },
       });
+
+      if (!result) {
+        throw new Error(`Order exception case not found after action append: ${caseId}`);
+      }
+
+      return result;
     });
+
+    if (updated === 'conflict') {
+      return updated;
+    }
 
     return mapPrismaExceptionCase(updated);
   }
@@ -4509,7 +4557,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
     const action = 'exception_compensation.execute';
 
     try {
-      return await this.prisma.$transaction(async transaction => {
+      const result = await this.prisma.$transaction(async transaction => {
         const existingAuditLog = await transaction.financialAuditLog.findUnique(
           {
             where: {
@@ -4606,6 +4654,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
         assertLedgerBalanced(entryDrafts);
 
         const transactionId = this.createId();
+        const updatedAt = new Date(
+          createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
+        );
+        const updateResult = await transaction.orderExceptionCase.updateMany({
+          where: {
+            id: current.id,
+            status: 'resolved',
+            compensationStatus: 'pending',
+            compensationTransactionId: null,
+            updatedAt: current.updatedAt,
+          },
+          data: { updatedAt },
+        });
+
+        if (updateResult.count !== 1) {
+          return { kind: 'conflict' as const };
+        }
+
         const financialTransaction =
           await transaction.financialTransaction.create({
             data: {
@@ -4652,10 +4718,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
           });
         }
 
-        const updatedAt = new Date(
-          createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
-        );
-        const updated = await transaction.orderExceptionCase.update({
+        await transaction.orderExceptionCase.update({
           where: { id: current.id },
           data: {
             compensationStatus: 'executed',
@@ -4664,11 +4727,21 @@ export class PrismaOrdersRepository implements OrdersRepository {
             compensationUpdatedAt: updatedAt,
             updatedAt,
           },
+        });
+
+        const updated = await transaction.orderExceptionCase.findUnique({
+          where: { id: current.id },
           include: {
             order: { select: { orderNo: true } },
             actions: { orderBy: { createdAt: 'asc' } },
           },
         });
+
+        if (!updated) {
+          throw new Error(
+            `Order exception case not found after compensation: ${current.id}`,
+          );
+        }
 
         await transaction.orderEvent.create({
           data: {
@@ -4712,6 +4785,47 @@ export class PrismaOrdersRepository implements OrdersRepository {
           exceptionCase: mapPrismaExceptionCase(updated),
         };
       });
+
+      if (result.kind !== 'conflict') {
+        return result;
+      }
+
+      const concurrentAuditLog = await this.prisma.financialAuditLog.findUnique({
+        where: {
+          FinancialAuditLog_actor_action_key_unique: {
+            actorAdminId: input.adminUserId,
+            action,
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+
+      if (!concurrentAuditLog) {
+        return result;
+      }
+
+      if (
+        concurrentAuditLog.requestFingerprint !== input.requestFingerprint ||
+        concurrentAuditLog.entityId !== input.caseId
+      ) {
+        return { kind: 'key-reused' };
+      }
+
+      const replayed = await this.prisma.orderExceptionCase.findUnique({
+        where: { id: input.caseId },
+        include: {
+          order: { select: { orderNo: true } },
+          actions: { orderBy: { createdAt: 'asc' } },
+        },
+      });
+
+      return replayed
+        ? {
+            kind: 'success',
+            replayed: true,
+            exceptionCase: mapPrismaExceptionCase(replayed),
+          }
+        : { kind: 'not-found' };
     } catch (error) {
       if (!isPrismaErrorCode(error, 'P2002')) {
         throw error;
@@ -4807,6 +4921,25 @@ export class PrismaOrdersRepository implements OrdersRepository {
       createNextUpdatedAtIso(current.updatedAt.toISOString(), now),
     );
     const updated = await this.prisma.$transaction(async transaction => {
+      const updateResult = await transaction.orderExceptionCase.updateMany({
+        where: {
+          id: current.id,
+          status: 'resolved',
+          updatedAt: current.updatedAt,
+        },
+        data: {
+          status: 'processing',
+          appealStatus: 'requested',
+          appealReason: input.reason,
+          appealRequestedAt: now,
+          updatedAt,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        return 'conflict' as const;
+      }
+
       await transaction.orderExceptionCaseAction.create({
         data: {
           caseId: current.id,
@@ -4831,21 +4964,26 @@ export class PrismaOrdersRepository implements OrdersRepository {
         },
       });
 
-      return transaction.orderExceptionCase.update({
+      const result = await transaction.orderExceptionCase.findUnique({
         where: { id: current.id },
-        data: {
-          status: 'processing',
-          appealStatus: 'requested',
-          appealReason: input.reason,
-          appealRequestedAt: now,
-          updatedAt,
-        },
         include: {
           order: { select: { orderNo: true } },
           actions: { orderBy: { createdAt: 'asc' } },
         },
       });
+
+      if (!result) {
+        throw new Error(
+          `Order exception case not found after appeal: ${current.id}`,
+        );
+      }
+
+      return result;
     });
+
+    if (updated === 'conflict') {
+      return { kind: 'conflict' };
+    }
 
     return {
       kind: 'success',

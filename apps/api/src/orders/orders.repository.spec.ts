@@ -1747,7 +1747,8 @@ describe('PrismaOrdersRepository exception case lists', () => {
         create: jest.fn().mockResolvedValue({ id: 'action-1' }),
       },
       orderExceptionCase: {
-        update: jest.fn().mockResolvedValue(updated),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(updated),
       },
       orderEvent: {
         create: jest.fn().mockResolvedValue({ id: 'event-1' }),
@@ -1788,6 +1789,17 @@ describe('PrismaOrdersRepository exception case lists', () => {
       appealStatus: 'accepted',
       compensationStatus: 'pending',
     });
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'processing',
+        updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+      },
+      data: expect.objectContaining({
+        status: 'resolved',
+        updatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      }),
+    });
     expect(transaction.orderEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         orderId: current.orderId,
@@ -1825,7 +1837,8 @@ describe('PrismaOrdersRepository exception case lists', () => {
         create: jest.fn().mockResolvedValue({ id: 'action-1' }),
       },
       orderExceptionCase: {
-        update: jest.fn().mockResolvedValue(updated),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(updated),
       },
     };
     const prisma = {
@@ -1865,6 +1878,16 @@ describe('PrismaOrdersRepository exception case lists', () => {
       ],
       updatedAtIso: '2026-07-12T08:20:00.000Z',
     });
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'processing',
+        updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+      },
+      data: {
+        updatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      },
+    });
     expect(transaction.orderExceptionCaseAction.create).toHaveBeenCalledWith({
       data: {
         caseId: 'case-1',
@@ -1876,6 +1899,117 @@ describe('PrismaOrdersRepository exception case lists', () => {
         createdAt: new Date('2026-07-12T08:20:00.000Z'),
       },
     });
+  });
+
+  it('returns conflict before transition side effects when the case CAS loses', async () => {
+    const current = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'processing',
+      appealStatus: 'requested',
+      updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    const transaction = {
+      orderExceptionCase: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findUnique: jest.fn(),
+      },
+      orderExceptionCaseAction: { create: jest.fn() },
+      orderEvent: { create: jest.fn() },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(current),
+      },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const repository = new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:20:00.000Z'),
+    );
+
+    await expect(
+      repository.transitionOrderExceptionCase(
+        'case-1',
+        'admin-1',
+        'processing',
+        'resolved',
+        {
+          baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+          content: '客服复核后确认需要赔付。',
+          compensationStatus: 'pending',
+          appealDecision: 'accepted',
+          compensationTargetRole: 'shipper',
+          compensationAmountCents: 4200,
+        },
+      ),
+    ).resolves.toBe('conflict');
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'case-1',
+          status: 'processing',
+          updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+        },
+      }),
+    );
+    expect(transaction.orderExceptionCaseAction.create).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('returns conflict before appending an action when the case CAS loses', async () => {
+    const current = createPrismaExceptionCaseListRecord({
+      id: 'case-1',
+      status: 'processing',
+      updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    const transaction = {
+      orderExceptionCase: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findUnique: jest.fn(),
+      },
+      orderExceptionCaseAction: { create: jest.fn() },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(current),
+      },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+    const repository = new PrismaOrdersRepository(
+      prisma as unknown as PrismaOrdersClient,
+      () => new Date('2026-07-12T08:20:00.000Z'),
+    );
+
+    await expect(
+      repository.appendOrderExceptionCaseAction(
+        'case-1',
+        'system:auto-escalation:resolution',
+        'processing',
+        {
+          baseUpdatedAtIso: '2026-07-12T08:10:00.000Z',
+          content: '系统检测到异常工单解决 SLA 已超时。',
+        },
+      ),
+    ).resolves.toBe('conflict');
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'processing',
+        updatedAt: new Date('2026-07-12T08:10:00.000Z'),
+      },
+      data: {
+        updatedAt: new Date('2026-07-12T08:20:00.000Z'),
+      },
+    });
+    expect(transaction.orderExceptionCaseAction.create).not.toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.findUnique).not.toHaveBeenCalled();
   });
 });
 
@@ -2156,6 +2290,273 @@ describe('InMemoryOrdersRepository exception compensation execution', () => {
   });
 });
 
+describe('PrismaOrdersRepository exception compensation execution', () => {
+  function createHarness(casCount: number) {
+    const current = {
+      ...createPrismaExceptionCaseListRecord({
+        id: 'case-1',
+        status: 'resolved',
+        compensationStatus: 'pending',
+        compensationTargetRole: 'shipper',
+        compensationAmountCents: 3600,
+        compensationUpdatedAt: new Date('2026-07-20T08:00:00.000Z'),
+        resolvedAt: new Date('2026-07-20T08:00:00.000Z'),
+        updatedAt: new Date('2026-07-20T08:00:00.000Z'),
+      }),
+      order: {
+        orderNo: 'HY202607200001',
+        shipperId: 'shipper-1',
+        assignedDriverId: null,
+      },
+    };
+    const updated = {
+      ...current,
+      compensationStatus: 'executed' as const,
+      compensationTransactionId: 'financial-transaction-1',
+      compensationExecutedAt: new Date('2026-07-20T08:10:00.000Z'),
+      compensationUpdatedAt: new Date('2026-07-20T08:10:00.000Z'),
+      updatedAt: new Date('2026-07-20T08:10:00.000Z'),
+    };
+    const transaction = {
+      financialAuditLog: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+      },
+      orderExceptionCase: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(current)
+          .mockResolvedValueOnce(updated),
+        updateMany: jest.fn().mockResolvedValue({ count: casCount }),
+        update: jest.fn().mockResolvedValue(updated),
+      },
+      financialTransaction: {
+        create: jest
+          .fn()
+          .mockResolvedValue({ id: 'financial-transaction-1' }),
+      },
+      driverWallet: { upsert: jest.fn() },
+      orderEvent: { create: jest.fn().mockResolvedValue({ id: 'event-1' }) },
+    };
+    const prisma = {
+      orderExceptionCase: { findUnique: jest.fn() },
+      financialAuditLog: { findUnique: jest.fn() },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+
+    return {
+      current,
+      updated,
+      prisma,
+      repository: new PrismaOrdersRepository(
+        prisma as unknown as PrismaOrdersClient,
+        () => new Date('2026-07-20T08:10:00.000Z'),
+        undefined,
+        { createId: () => 'financial-transaction-1' },
+      ),
+      transaction,
+    };
+  }
+
+  it('claims the case version before writing compensation side effects', async () => {
+    const { current, repository, transaction } = createHarness(1);
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-1',
+        requestFingerprint: 'fp-comp-1',
+        requestId: 'req-comp-1',
+        content: '平台确认向货主赔付到账。',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: false,
+      exceptionCase: {
+        id: 'case-1',
+        compensationStatus: 'executed',
+        compensationTransactionId: 'financial-transaction-1',
+      },
+    });
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'resolved',
+        compensationStatus: 'pending',
+        compensationTransactionId: null,
+        updatedAt: current.updatedAt,
+      },
+      data: {
+        updatedAt: new Date('2026-07-20T08:10:00.000Z'),
+      },
+    });
+    expect(
+      transaction.orderExceptionCase.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      transaction.financialTransaction.create.mock.invocationCallOrder[0],
+    );
+    expect(transaction.orderExceptionCase.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns conflict before ledger, wallet, event, and audit writes when compensation CAS loses', async () => {
+    const { repository, transaction } = createHarness(0);
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(transaction.financialTransaction.create).not.toHaveBeenCalled();
+    expect(transaction.driverWallet.upsert).not.toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.update).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.financialAuditLog.create).not.toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays a matching idempotency winner after the compensation CAS loses', async () => {
+    const { prisma, repository, transaction, updated } = createHarness(0);
+    prisma.financialAuditLog.findUnique.mockResolvedValue({
+      entityId: 'case-1',
+      requestFingerprint: 'fp-comp-race',
+    });
+    prisma.orderExceptionCase.findUnique.mockResolvedValue(updated);
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: true,
+      exceptionCase: {
+        id: 'case-1',
+        compensationStatus: 'executed',
+      },
+    });
+    expect(transaction.financialTransaction.create).not.toHaveBeenCalled();
+    expect(transaction.driverWallet.upsert).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.financialAuditLog.create).not.toHaveBeenCalled();
+    expect(prisma.orderExceptionCase.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns key-reused when the compensation CAS winner used the key for another request', async () => {
+    const { prisma, repository, transaction } = createHarness(0);
+    prisma.financialAuditLog.findUnique.mockResolvedValue({
+      entityId: 'case-1',
+      requestFingerprint: 'fp-comp-other',
+    });
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).resolves.toEqual({ kind: 'key-reused' });
+    expect(transaction.financialTransaction.create).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.financialAuditLog.create).not.toHaveBeenCalled();
+    expect(prisma.orderExceptionCase.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('replays the committed winner after an audit idempotency unique-key race', async () => {
+    const { prisma, repository, updated } = createHarness(1);
+    const uniqueKeyError = Object.assign(new Error('unique key race'), {
+      code: 'P2002',
+    });
+    prisma.$transaction.mockRejectedValue(uniqueKeyError);
+    prisma.financialAuditLog.findUnique.mockResolvedValue({
+      entityId: 'case-1',
+      requestFingerprint: 'fp-comp-race',
+    });
+    prisma.orderExceptionCase.findUnique.mockResolvedValue(updated);
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: true,
+      exceptionCase: { id: 'case-1', compensationStatus: 'executed' },
+    });
+  });
+
+  it('returns key-reused after an audit unique-key race with another request', async () => {
+    const { prisma, repository } = createHarness(1);
+    prisma.$transaction.mockRejectedValue(
+      Object.assign(new Error('unique key race'), { code: 'P2002' }),
+    );
+    prisma.financialAuditLog.findUnique.mockResolvedValue({
+      entityId: 'case-other',
+      requestFingerprint: 'fp-comp-other',
+    });
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).resolves.toEqual({ kind: 'key-reused' });
+    expect(prisma.orderExceptionCase.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rethrows an audit unique-key error when no committed winner is visible', async () => {
+    const { prisma, repository } = createHarness(1);
+    const uniqueKeyError = Object.assign(new Error('unique key race'), {
+      code: 'P2002',
+    });
+    prisma.$transaction.mockRejectedValue(uniqueKeyError);
+    prisma.financialAuditLog.findUnique.mockResolvedValue(null);
+
+    await expect(
+      repository.executeExceptionCaseCompensation({
+        caseId: 'case-1',
+        adminUserId: 'admin-1',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        idempotencyKey: 'idem-comp-race',
+        requestFingerprint: 'fp-comp-race',
+        requestId: 'req-comp-race',
+        content: '并发执行赔付请求。',
+      }),
+    ).rejects.toBe(uniqueKeyError);
+  });
+});
+
 describe('InMemoryOrdersRepository exception appeal', () => {
   async function seedResolvedCase() {
     const repository = new InMemoryOrdersRepository(
@@ -2409,6 +2810,129 @@ describe('InMemoryOrdersRepository exception appeal', () => {
 
     return { repository, order, caseId: created.id, resolved: executed.exceptionCase };
   }
+});
+
+describe('PrismaOrdersRepository exception appeal', () => {
+  function createHarness(casCount: number) {
+    const current = {
+      ...createPrismaExceptionCaseListRecord({
+        id: 'case-1',
+        orderId: 'order-1',
+        status: 'resolved',
+        appealStatus: 'none',
+        resolvedAt: new Date('2026-07-20T08:00:00.000Z'),
+        updatedAt: new Date('2026-07-20T08:00:00.000Z'),
+      }),
+      order: {
+        orderNo: 'HY202607200001',
+        shipperId: 'shipper-1',
+        assignedDriverId: null,
+      },
+    };
+    const updated = {
+      ...current,
+      status: 'processing' as const,
+      appealStatus: 'requested' as const,
+      appealReason: '货主要求重新核定处理结果。',
+      appealRequestedAt: new Date('2026-07-20T08:10:00.000Z'),
+      updatedAt: new Date('2026-07-20T08:10:00.000Z'),
+      actions: [
+        {
+          id: 'action-appeal-1',
+          adminUserId: 'shipper-1',
+          fromStatus: 'resolved' as const,
+          toStatus: 'processing' as const,
+          content: '货主要求重新核定处理结果。',
+          createdAt: new Date('2026-07-20T08:10:00.000Z'),
+        },
+      ],
+    };
+    const transaction = {
+      orderExceptionCase: {
+        updateMany: jest.fn().mockResolvedValue({ count: casCount }),
+        findUnique: jest.fn().mockResolvedValue(updated),
+      },
+      orderExceptionCaseAction: {
+        create: jest.fn().mockResolvedValue({ id: 'action-appeal-1' }),
+      },
+      orderEvent: {
+        create: jest.fn().mockResolvedValue({ id: 'event-appeal-1' }),
+      },
+    };
+    const prisma = {
+      orderExceptionCase: {
+        findUnique: jest.fn().mockResolvedValue(current),
+      },
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+
+    return {
+      current,
+      repository: new PrismaOrdersRepository(
+        prisma as unknown as PrismaOrdersClient,
+        () => new Date('2026-07-20T08:10:00.000Z'),
+      ),
+      transaction,
+    };
+  }
+
+  it('claims the resolved case version before writing appeal history', async () => {
+    const { current, repository, transaction } = createHarness(1);
+
+    await expect(
+      repository.appealExceptionCase({
+        caseId: 'case-1',
+        orderId: 'order-1',
+        actorUserId: 'shipper-1',
+        actorRole: 'shipper',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        reason: '货主要求重新核定处理结果。',
+      }),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      exceptionCase: {
+        id: 'case-1',
+        status: 'processing',
+        appealStatus: 'requested',
+      },
+    });
+    expect(transaction.orderExceptionCase.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'case-1',
+        status: 'resolved',
+        updatedAt: current.updatedAt,
+      },
+      data: {
+        status: 'processing',
+        appealStatus: 'requested',
+        appealReason: '货主要求重新核定处理结果。',
+        appealRequestedAt: new Date('2026-07-20T08:10:00.000Z'),
+        updatedAt: new Date('2026-07-20T08:10:00.000Z'),
+      },
+    });
+    expect(transaction.orderExceptionCase.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns conflict before appeal action and event writes when the CAS loses', async () => {
+    const { repository, transaction } = createHarness(0);
+
+    await expect(
+      repository.appealExceptionCase({
+        caseId: 'case-1',
+        orderId: 'order-1',
+        actorUserId: 'shipper-1',
+        actorRole: 'shipper',
+        baseUpdatedAtIso: '2026-07-20T08:00:00.000Z',
+        reason: '货主要求重新核定处理结果。',
+      }),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(transaction.orderExceptionCaseAction.create).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.orderExceptionCase.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 function createOrderInput(overrides: Partial<CreateShipperOrderRequest> = {}) {

@@ -13846,7 +13846,7 @@ components:
         baseUpdatedAtIso:
           type: string
           format: date-time
-          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+          description: Database compare-and-set baseline. The state and action writes commit in one transaction; a failed compare-and-set returns EXCEPTION_CASE_CONFLICT without appending an action.
         content: { type: string, minLength: 6, maxLength: 500 }
     ClaimOrderExceptionCaseRequest:
       type: object
@@ -13855,7 +13855,7 @@ components:
         baseUpdatedAtIso:
           type: string
           format: date-time
-          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+          description: Database compare-and-set baseline. The case version and claim audit commit in one transaction; a failed compare-and-set returns EXCEPTION_CASE_CONFLICT without appending an action.
         content:
           type: string
           maxLength: 200
@@ -13867,7 +13867,7 @@ components:
         baseUpdatedAtIso:
           type: string
           format: date-time
-          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+          description: Database compare-and-set baseline. The case version and assignment audit commit in one transaction; a failed compare-and-set returns EXCEPTION_CASE_CONFLICT without appending an action.
         targetAdminUserId:
           type: string
           maxLength: 120
@@ -13904,7 +13904,7 @@ components:
         baseUpdatedAtIso:
           type: string
           format: date-time
-          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+          description: Database compare-and-set baseline. The reservation, ledger, wallet, case, event and audit writes commit in one transaction; a failed compare-and-set returns EXCEPTION_CASE_CONFLICT without financial side effects.
         idempotencyKey:
           type: string
           minLength: 8
@@ -13919,7 +13919,7 @@ components:
         baseUpdatedAtIso:
           type: string
           format: date-time
-          description: Optimistic concurrency baseline. A stale value returns EXCEPTION_CASE_CONFLICT.
+          description: Database compare-and-set baseline. The case, action and order event writes commit in one transaction; a failed compare-and-set returns EXCEPTION_CASE_CONFLICT without side effects.
         reason: { type: string, minLength: 6, maxLength: 500 }
       description: The related shipper or accepted driver reopens a resolved case that has not been executed, moving it back to processing.
     OrderExceptionCaseListData:

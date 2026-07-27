@@ -500,6 +500,50 @@ describe('OrderExceptionCasesService', () => {
     );
   });
 
+  it('rejects stale claim mutations before evaluating the latest ownership snapshot', async () => {
+    const { exceptionCase, service } = await createCase();
+    const staleUpdatedAtIso = exceptionCase.updatedAtIso;
+
+    await service.claimCase('admin-2', exceptionCase.id, {
+      baseUpdatedAtIso: staleUpdatedAtIso,
+      content: '当前客服先认领跟进。',
+    });
+
+    const staleMutations = [
+      () =>
+        service.claimCase('admin-2', exceptionCase.id, {
+          baseUpdatedAtIso: staleUpdatedAtIso,
+        }),
+      () =>
+        service.takeoverCase('admin-2', exceptionCase.id, {
+          baseUpdatedAtIso: staleUpdatedAtIso,
+        }),
+      () =>
+        service.assignCase('admin-1', exceptionCase.id, {
+          baseUpdatedAtIso: staleUpdatedAtIso,
+          targetAdminUserId: 'admin-3',
+        }),
+      () =>
+        service.unclaimCase('admin-3', exceptionCase.id, {
+          baseUpdatedAtIso: staleUpdatedAtIso,
+        }),
+    ];
+
+    for (const mutate of staleMutations) {
+      await expect(mutate()).rejects.toEqual(
+        new BusinessError(
+          ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+          '异常工单已被其他管理员更新，请刷新后重试',
+        ),
+      );
+    }
+
+    await expect(service.getForAdmin(exceptionCase.id)).resolves.toMatchObject({
+      claimedByAdminUserId: 'admin-2',
+      actions: [expect.objectContaining({ adminUserId: 'admin-2' })],
+    });
+  });
+
   it('lets another admin force-take over an already claimed open case', async () => {
     const { exceptionCase, service } = await createCase();
 

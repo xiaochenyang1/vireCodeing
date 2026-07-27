@@ -1203,6 +1203,21 @@ describe('stage 1 OpenAPI contract', () => {
       'AssignOrderExceptionCaseRequest',
       'Optional assignment or transfer note shown in admin audit history and the derived claim snapshot.',
     );
+    expectSchemaBlockToContain(
+      source,
+      'UpdateOrderExceptionCaseRequest',
+      'without appending an action',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ClaimOrderExceptionCaseRequest',
+      'case version and claim audit commit in one transaction',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AssignOrderExceptionCaseRequest',
+      'case version and assignment audit commit in one transaction',
+    );
   });
 
   it('documents exception case compensation execution and appeal workflows', () => {
@@ -1223,6 +1238,16 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('appealDecision');
     expect(source).toContain('compensationTransactionId');
     expect(source).toContain('compensationExecutedAtIso');
+    expectSchemaBlockToContain(
+      source,
+      'ExecuteOrderExceptionCaseCompensationRequest',
+      'without financial side effects',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AppealOrderExceptionCaseRequest',
+      'without side effects',
+    );
     expect(source).toContain('appealStatus');
     expect(source).toContain('appealReason');
     expect(source).toContain('exception_compensation_executed');

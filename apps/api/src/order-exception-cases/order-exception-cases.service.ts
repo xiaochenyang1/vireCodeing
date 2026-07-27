@@ -134,6 +134,8 @@ export class OrderExceptionCasesService {
       throw notFoundError();
     }
 
+    assertOrderExceptionCaseBaseline(exceptionCase, input.baseUpdatedAtIso);
+
     if (
       exceptionCase.status !== 'pending' &&
       exceptionCase.status !== 'processing'
@@ -204,6 +206,8 @@ export class OrderExceptionCasesService {
     if (!exceptionCase) {
       throw notFoundError();
     }
+
+    assertOrderExceptionCaseBaseline(exceptionCase, input.baseUpdatedAtIso);
 
     if (
       exceptionCase.status !== 'pending' &&
@@ -278,6 +282,8 @@ export class OrderExceptionCasesService {
     if (!exceptionCase) {
       throw notFoundError();
     }
+
+    assertOrderExceptionCaseBaseline(exceptionCase, input.baseUpdatedAtIso);
 
     if (
       exceptionCase.status !== 'pending' &&
@@ -360,6 +366,8 @@ export class OrderExceptionCasesService {
     if (!exceptionCase) {
       throw notFoundError();
     }
+
+    assertOrderExceptionCaseBaseline(exceptionCase, input.baseUpdatedAtIso);
 
     if (
       exceptionCase.status !== 'pending' &&
@@ -699,6 +707,18 @@ function notFoundError() {
     ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
     '异常工单不存在',
   );
+}
+
+function assertOrderExceptionCaseBaseline(
+  exceptionCase: OrderExceptionCaseRecord,
+  baseUpdatedAtIso: string,
+) {
+  if (exceptionCase.updatedAtIso !== baseUpdatedAtIso) {
+    throw new BusinessError(
+      ApiErrorCode.EXCEPTION_CASE_CONFLICT,
+      '异常工单已被其他管理员更新，请刷新后重试',
+    );
+  }
 }
 
 function toAdminOrderExceptionCaseMatchQuery(
