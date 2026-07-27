@@ -474,6 +474,7 @@ describe('BusinessErrorFilter', () => {
   });
 
   it.each([
+    ApiErrorCode.FINANCE_RECORD_NOT_FOUND,
     ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
     ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
   ])('maps %s to not found', code => {

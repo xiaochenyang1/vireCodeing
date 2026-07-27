@@ -69,6 +69,17 @@ export class AdminFinanceController {
     );
   }
 
+  @Get('payments/:paymentId')
+  async getPayment(
+    @Req() request: AuthenticatedRequest,
+    @Param('paymentId') paymentId: string,
+  ) {
+    return ok(
+      await this.adminFinanceService.getPayment(paymentId),
+      getRequestId(request),
+    );
+  }
+
   @Get('refunds')
   async listRefunds(
     @Req() request: AuthenticatedRequest,
@@ -76,6 +87,17 @@ export class AdminFinanceController {
   ) {
     return ok(
       await this.adminFinanceService.listRefunds(parseListQuery(query)),
+      getRequestId(request),
+    );
+  }
+
+  @Get('refunds/:refundId')
+  async getRefund(
+    @Req() request: AuthenticatedRequest,
+    @Param('refundId') refundId: string,
+  ) {
+    return ok(
+      await this.adminFinanceService.getRefund(refundId),
       getRequestId(request),
     );
   }
@@ -111,6 +133,17 @@ export class AdminFinanceController {
     );
   }
 
+  @Get('settlements/:settlementId')
+  async getSettlement(
+    @Req() request: AuthenticatedRequest,
+    @Param('settlementId') settlementId: string,
+  ) {
+    return ok(
+      await this.adminFinanceService.getSettlement(settlementId),
+      getRequestId(request),
+    );
+  }
+
   @Get('ledger-transactions/:transactionId')
   async getLedgerTransaction(
     @Req() request: AuthenticatedRequest,
@@ -129,6 +162,17 @@ export class AdminFinanceController {
   ) {
     return ok(
       await this.adminFinanceService.listWithdrawals(parseListQuery(query)),
+      getRequestId(request),
+    );
+  }
+
+  @Get('withdrawals/:withdrawalId')
+  async getWithdrawal(
+    @Req() request: AuthenticatedRequest,
+    @Param('withdrawalId') withdrawalId: string,
+  ) {
+    return ok(
+      await this.adminFinanceService.getWithdrawal(withdrawalId),
       getRequestId(request),
     );
   }

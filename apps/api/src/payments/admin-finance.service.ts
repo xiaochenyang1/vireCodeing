@@ -44,16 +44,48 @@ export class AdminFinanceService {
     return this.repository.listPayments(query);
   }
 
+  async getPayment(paymentId: string) {
+    return this.requireFinanceRecord(
+      await this.repository.getPayment(paymentId),
+    );
+  }
+
   listRefunds(query: AdminFinanceListQuery) {
     return this.repository.listRefunds(query);
+  }
+
+  async getRefund(refundId: string) {
+    return this.requireFinanceRecord(await this.repository.getRefund(refundId));
   }
 
   listSettlements(query: AdminFinanceListQuery) {
     return this.repository.listSettlements(query);
   }
 
+  async getSettlement(settlementId: string) {
+    return this.requireFinanceRecord(
+      await this.repository.getSettlement(settlementId),
+    );
+  }
+
   listWithdrawals(query: AdminFinanceListQuery) {
     return this.repository.listWithdrawals(query);
+  }
+
+  async getWithdrawal(withdrawalId: string) {
+    return this.requireFinanceRecord(
+      await this.repository.getWithdrawal(withdrawalId),
+    );
+  }
+
+  private requireFinanceRecord<T>(record: T | undefined): T {
+    if (!record) {
+      throw new BusinessError(
+        ApiErrorCode.FINANCE_RECORD_NOT_FOUND,
+        '财务记录不存在',
+      );
+    }
+    return record;
   }
 
   async getLedgerTransaction(transactionId: string) {

@@ -297,7 +297,11 @@ describe('AdminPermissionMatrixService', () => {
             apiPaths: expect.arrayContaining([
               '/admin/finance/report',
               '/admin/finance/payments',
+              '/admin/finance/payments/{paymentId}',
+              '/admin/finance/refunds/{refundId}',
               '/admin/finance/refunds/{refundId}/retry',
+              '/admin/finance/settlements/{settlementId}',
+              '/admin/finance/withdrawals/{withdrawalId}',
               '/admin/finance/withdrawals/batch-review',
             ]),
           }),

@@ -7,6 +7,33 @@ import {
 import type { DriverFinanceRepository } from './driver-finance.repository';
 
 describe('AdminFinanceService', () => {
+  it.each([
+    ['getPayment', 'payment-1'],
+    ['getRefund', 'refund-1'],
+    ['getSettlement', 'settlement-1'],
+    ['getWithdrawal', 'withdrawal-1'],
+  ] as const)('returns direct finance records through %s', async (method, id) => {
+    const { service, repository } = createService();
+    repository[method].mockResolvedValue({ id });
+
+    await expect(service[method](id)).resolves.toEqual({ id });
+    expect(repository[method]).toHaveBeenCalledWith(id);
+  });
+
+  it.each([
+    'getPayment',
+    'getRefund',
+    'getSettlement',
+    'getWithdrawal',
+  ] as const)('maps missing records from %s to the shared not-found error', async method => {
+    const { service, repository } = createService();
+    repository[method].mockResolvedValue(undefined);
+
+    await expect(service[method]('missing')).rejects.toMatchObject({
+      code: ApiErrorCode.FINANCE_RECORD_NOT_FOUND,
+    });
+  });
+
   it('forwards batch withdrawal review with a stable admin fingerprint', async () => {
     const { service, driverFinanceRepository } = createService();
     const input = {
@@ -77,11 +104,15 @@ function createService() {
     getReport: jest.fn(),
     getReconciliation: jest.fn(),
     listPayments: jest.fn(),
+    getPayment: jest.fn(),
     listRefunds: jest.fn(),
+    getRefund: jest.fn(),
     retryRefund: jest.fn(),
     listSettlements: jest.fn(),
+    getSettlement: jest.fn(),
     getLedgerTransaction: jest.fn(),
     listWithdrawals: jest.fn(),
+    getWithdrawal: jest.fn(),
   } as unknown as jest.Mocked<AdminFinanceRepository>;
   const driverFinanceRepository = {
     getIncomeOverview: jest.fn(),

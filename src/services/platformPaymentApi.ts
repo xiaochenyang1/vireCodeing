@@ -418,12 +418,28 @@ export function createPlatformPaymentApi(config: PlatformApiConfig) {
         ).toString()}`,
       );
     },
+    getAdminPayment(paymentId: string) {
+      return platformGet<PlatformAdminFinancePaymentRecord>(
+        config,
+        `/admin/finance/payments/${encodeURIComponent(
+          normalizeAdminFinanceRecordId(paymentId, 'payment id'),
+        )}`,
+      );
+    },
     listAdminRefunds(query: PlatformAdminFinanceListQuery = {}) {
       return platformGet<PlatformAdminFinancePage<PlatformAdminFinanceRefundRecord>>(
         config,
         `/admin/finance/refunds?${new URLSearchParams(
           normalizeAdminFinanceListQuery(query),
         ).toString()}`,
+      );
+    },
+    getAdminRefund(refundId: string) {
+      return platformGet<PlatformAdminFinanceRefundRecord>(
+        config,
+        `/admin/finance/refunds/${encodeURIComponent(
+          normalizeAdminFinanceRecordId(refundId, 'refund id'),
+        )}`,
       );
     },
     retryAdminRefund(
@@ -455,6 +471,14 @@ export function createPlatformPaymentApi(config: PlatformApiConfig) {
         ).toString()}`,
       );
     },
+    getAdminSettlement(settlementId: string) {
+      return platformGet<PlatformAdminFinanceSettlementRecord>(
+        config,
+        `/admin/finance/settlements/${encodeURIComponent(
+          normalizeAdminFinanceRecordId(settlementId, 'settlement id'),
+        )}`,
+      );
+    },
     getAdminLedgerTransaction(transactionId: string) {
       return platformGet<PlatformAdminFinanceLedgerTransaction>(
         config,
@@ -471,6 +495,14 @@ export function createPlatformPaymentApi(config: PlatformApiConfig) {
         `/admin/finance/withdrawals?${new URLSearchParams(
           normalizeAdminFinanceListQuery(query),
         ).toString()}`,
+      );
+    },
+    getAdminWithdrawal(withdrawalId: string) {
+      return platformGet<PlatformAdminFinanceWithdrawalRecord>(
+        config,
+        `/admin/finance/withdrawals/${encodeURIComponent(
+          normalizeAdminFinanceRecordId(withdrawalId, 'withdrawal id'),
+        )}`,
       );
     },
     approveAdminWithdrawal(

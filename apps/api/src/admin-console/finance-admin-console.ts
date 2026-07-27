@@ -172,6 +172,12 @@ export function renderFinanceAdminConsole() {
       settlements: '/admin/finance/settlements?',
       withdrawals: '/admin/finance/withdrawals?',
     };
+    const financeDetailRoutes = {
+      payments: '/admin/finance/payments/',
+      refunds: '/admin/finance/refunds/',
+      settlements: '/admin/finance/settlements/',
+      withdrawals: '/admin/finance/withdrawals/',
+    };
     const withdrawalReviewPaths = {
       approve: '/admin/finance/withdrawals/{withdrawalId}/approve',
       reject: '/admin/finance/withdrawals/{withdrawalId}/reject',
@@ -188,8 +194,11 @@ export function renderFinanceAdminConsole() {
     let currentFinancePage = 1;
     let currentFinanceTotal = 0;
     let selectedFinanceRecordId = '';
+    let currentFinanceDetail = null;
+    let currentFinanceDetailTab = '';
     let selectedWithdrawalIds = new Set();
     let latestFinanceRequestId = 0;
+    let latestFinanceDetailRequestId = 0;
     let latestFinanceReportRequestId = 0;
     let latestFinanceReconciliationRequestId = 0;
     let latestLedgerRequestId = 0;
@@ -532,8 +541,11 @@ export function renderFinanceAdminConsole() {
     }
 
     function getSelectedFinanceRecord() {
-      return selectedFinanceRecordId
-        ? currentFinanceItems.find(candidate => candidate.id === selectedFinanceRecordId)
+      return selectedFinanceRecordId &&
+        currentFinanceDetail &&
+        currentFinanceDetail.id === selectedFinanceRecordId &&
+        currentFinanceDetailTab === currentFinanceTab
+        ? currentFinanceDetail
         : undefined;
     }
 
@@ -544,6 +556,17 @@ export function renderFinanceAdminConsole() {
       }
       const item = getSelectedFinanceRecord();
       button.disabled = !(item && item.orderId);
+    }
+
+    function updateFinanceActionControls() {
+      const item = getSelectedFinanceRecord();
+      document.getElementById('retryRefundAction').disabled =
+        financeMutationPending || currentFinanceTab !== 'refunds' || !item;
+      document.getElementById('approveWithdrawalAction').disabled =
+        financeMutationPending || currentFinanceTab !== 'withdrawals' || !item;
+      document.getElementById('rejectWithdrawalAction').disabled =
+        financeMutationPending || currentFinanceTab !== 'withdrawals' || !item;
+      updateViewOrderButton();
     }
 
     function openSelectedFinanceOrderConsole() {
@@ -715,8 +738,13 @@ export function renderFinanceAdminConsole() {
     }
 
     function clearFinanceSelection(options = {}) {
+      latestFinanceDetailRequestId += 1;
       selectedFinanceRecordId = '';
+      currentFinanceDetail = null;
+      currentFinanceDetailTab = '';
       document.getElementById('financeDetail').innerHTML = '<p class="muted">请选择一条财务记录</p>';
+      document.getElementById('selectedRecordHints').textContent =
+        '退款重试需要 dead outbox 的 attemptCount，提现审核需要当前 withdrawal.version。';
       document.getElementById('expectedVersionInput').value = '0';
       document.getElementById('ledgerTransactionIdInput').value = '';
       if (options.syncRoute !== false) {
@@ -726,7 +754,7 @@ export function renderFinanceAdminConsole() {
           '',
         );
       }
-      updateViewOrderButton();
+      updateFinanceActionControls();
       renderFinanceList();
       updateWithdrawalBatchSelectionUi();
     }
@@ -738,11 +766,12 @@ export function renderFinanceAdminConsole() {
 
     function loadFinanceListFromInputs() {
       const requestedPage = Number(document.getElementById('financePageInput').value || '1');
-      loadFinanceList(requestedPage);
+      refreshFinanceWorkspace(requestedPage);
     }
 
     async function loadFinanceList(page) {
       const requestId = ++latestFinanceRequestId;
+      const targetTab = currentFinanceTab;
       const pageSize = Math.max(1, Number(document.getElementById('financePageSizeInput').value || '20'));
       const requestedPage = Math.max(1, Number(page || 1));
       currentFinancePage = requestedPage;
@@ -757,15 +786,18 @@ export function renderFinanceAdminConsole() {
         if (status) {
           query.set('status', status);
         }
-        if (orderId && currentFinanceTab !== 'withdrawals') {
+        if (orderId && targetTab !== 'withdrawals') {
           query.set('orderId', orderId);
         }
         syncFinanceRouteState(requestedPage, pageSize);
-        const result = await api(tabRoutes[currentFinanceTab] + query.toString());
-        if (requestId !== latestFinanceRequestId) return;
+        const result = await api(tabRoutes[targetTab] + query.toString());
+        if (
+          requestId !== latestFinanceRequestId ||
+          currentFinanceTab !== targetTab
+        ) return;
         currentFinanceItems = Array.isArray(result.items) ? result.items : [];
         currentFinanceTotal = Number(result.total || 0);
-        if (currentFinanceTab === 'withdrawals') {
+        if (targetTab === 'withdrawals') {
           syncSelectedWithdrawalsToCurrentList();
         } else {
           selectedWithdrawalIds.clear();
@@ -773,25 +805,29 @@ export function renderFinanceAdminConsole() {
         document.getElementById('financeListNotice').textContent = '';
         renderFinancePagination(pageSize);
         renderFinanceList();
-        if (
-          selectedFinanceRecordId &&
-          currentFinanceItems.some(item => item.id === selectedFinanceRecordId)
-        ) {
-          selectFinanceRecord(selectedFinanceRecordId, false);
-        } else {
-          clearFinanceSelection();
-          clearLedgerDetail();
-        }
       } catch (error) {
-        if (requestId !== latestFinanceRequestId) return;
+        if (
+          requestId !== latestFinanceRequestId ||
+          currentFinanceTab !== targetTab
+        ) return;
         currentFinanceItems = [];
         currentFinanceTotal = 0;
         selectedWithdrawalIds.clear();
         renderFinancePagination(pageSize);
+        renderFinanceList();
         document.getElementById('financeListNotice').textContent = error.message;
-        clearFinanceSelection();
-        clearLedgerDetail();
       }
+    }
+
+    async function refreshFinanceWorkspace(page) {
+      const targetTab = currentFinanceTab;
+      const targetRecordId = selectedFinanceRecordId;
+      await Promise.all([
+        loadFinanceList(page || currentFinancePage),
+        ...(targetRecordId
+          ? [loadFinanceDetail(targetTab, targetRecordId, false)]
+          : []),
+      ]);
     }
 
     function renderFinancePagination(pageSize) {
@@ -870,34 +906,100 @@ export function renderFinanceAdminConsole() {
     }
 
     function selectFinanceRecord(recordId, shouldClearLedger = true) {
-      selectedFinanceRecordId = recordId;
+      return loadFinanceDetail(
+        currentFinanceTab,
+        recordId,
+        shouldClearLedger,
+      );
+    }
+
+    async function loadFinanceDetail(
+      targetTab,
+      recordId,
+      shouldClearLedger = true,
+    ) {
+      if (
+        !Object.prototype.hasOwnProperty.call(financeDetailRoutes, targetTab) ||
+        currentFinanceTab !== targetTab
+      ) {
+        return;
+      }
+      const targetRecordId = String(recordId || '').trim();
+      const requestId = ++latestFinanceDetailRequestId;
+      selectedFinanceRecordId = targetRecordId;
+      currentFinanceDetail = null;
+      currentFinanceDetailTab = targetTab;
       syncFinanceRouteState(
         currentFinancePage,
         Math.max(1, Number(document.getElementById('financePageSizeInput').value || '20')),
         selectedFinanceRecordId,
       );
       renderFinanceList();
-      const item = currentFinanceItems.find(candidate => candidate.id === recordId);
-      if (!item) {
-        clearFinanceSelection();
-        if (shouldClearLedger) clearLedgerDetail();
+      document.getElementById('expectedVersionInput').value = '0';
+      document.getElementById('ledgerTransactionIdInput').value = '';
+      document.getElementById('financeMutationNotice').textContent = '';
+      document.getElementById('selectedRecordHints').textContent = targetRecordId
+        ? '财务详情加载中...'
+        : '请选择一条财务记录。';
+      document.getElementById('financeDetail').innerHTML = targetRecordId
+        ? '<p class="muted">财务详情加载中...</p>'
+        : '<p class="muted">请选择一条财务记录</p>';
+      updateFinanceActionControls();
+      if (shouldClearLedger) {
+        clearLedgerDetail();
+      }
+      if (!targetRecordId) {
         return;
       }
+
+      try {
+        const item = await api(
+          financeDetailRoutes[targetTab] + encodeURIComponent(targetRecordId),
+        );
+        if (
+          requestId !== latestFinanceDetailRequestId ||
+          currentFinanceTab !== targetTab ||
+          selectedFinanceRecordId !== targetRecordId
+        ) {
+          return;
+        }
+        currentFinanceDetail = item;
+        currentFinanceDetailTab = targetTab;
+        renderSelectedFinanceDetail(item, targetTab);
+      } catch (error) {
+        if (
+          requestId !== latestFinanceDetailRequestId ||
+          currentFinanceTab !== targetTab ||
+          selectedFinanceRecordId !== targetRecordId
+        ) {
+          return;
+        }
+        currentFinanceDetail = null;
+        currentFinanceDetailTab = targetTab;
+        document.getElementById('financeDetail').innerHTML =
+          '<p class="error">' + escapeHtml(error.message) + '</p>';
+        document.getElementById('selectedRecordHints').textContent =
+          '详情加载失败，保留当前目标；再次查询当前标签即可重试。';
+        updateFinanceActionControls();
+      }
+    }
+
+    function renderSelectedFinanceDetail(item, targetTab) {
       const suggestedVersion =
-        currentFinanceTab === 'withdrawals'
+        targetTab === 'withdrawals'
           ? Number(item.version || 0)
-          : currentFinanceTab === 'refunds'
+          : targetTab === 'refunds'
             ? Number(item.outboxEvent && item.outboxEvent.attemptCount ? item.outboxEvent.attemptCount : 0)
             : 0;
       document.getElementById('expectedVersionInput').value = String(suggestedVersion);
       document.getElementById('ledgerTransactionIdInput').value = String(item.financialTransactionId || '');
-      document.getElementById('financeMutationNotice').textContent = '';
       document.getElementById('financeDetail').innerHTML = buildFinanceDetail(item);
-      document.getElementById('selectedRecordHints').textContent = buildSelectionHint(item, suggestedVersion);
-      updateViewOrderButton();
-      if (shouldClearLedger) {
-        clearLedgerDetail();
-      }
+      document.getElementById('selectedRecordHints').textContent = buildSelectionHint(
+        item,
+        suggestedVersion,
+        targetTab,
+      );
+      updateFinanceActionControls();
     }
 
     function buildFinanceDetail(item) {
@@ -915,11 +1017,11 @@ export function renderFinanceAdminConsole() {
       return '<div class="detail-grid"><div class="detail-card">' + rows.join('') + '</div></div>';
     }
 
-    function buildSelectionHint(item, suggestedVersion) {
-      if (currentFinanceTab === 'refunds') {
+    function buildSelectionHint(item, suggestedVersion, targetTab = currentFinanceTab) {
+      if (targetTab === 'refunds') {
         return '已选退款 ' + (item.refundNo || item.id) + '。如果要重试，expectedVersion 应该用当前 outbox attemptCount=' + suggestedVersion + '。';
       }
-      if (currentFinanceTab === 'withdrawals') {
+      if (targetTab === 'withdrawals') {
         return (
           '已选提现 ' +
           item.id +
@@ -945,11 +1047,29 @@ export function renderFinanceAdminConsole() {
       if (currentFinanceTab !== expectedTab) {
         throw new Error('请先切到' + tabLabels[expectedTab] + '标签再操作');
       }
-      const item = currentFinanceItems.find(candidate => candidate.id === selectedFinanceRecordId);
+      const item = getSelectedFinanceRecord();
       if (!item) {
-        throw new Error('当前选中记录已失效，请重新查询');
+        throw new Error('当前选中记录详情尚未加载，请重试查询');
       }
       return item;
+    }
+
+    function isCurrentFinanceTarget(targetTab, targetRecordId) {
+      return currentFinanceTab === targetTab &&
+        selectedFinanceRecordId === targetRecordId;
+    }
+
+    async function refreshFinanceAfterMutation(targetTab, targetRecordId) {
+      const refreshTasks = [loadFinanceReport()];
+      if (currentFinanceTab === targetTab) {
+        refreshTasks.push(loadFinanceList(currentFinancePage));
+        if (selectedFinanceRecordId === targetRecordId) {
+          refreshTasks.push(
+            loadFinanceDetail(targetTab, targetRecordId, false),
+          );
+        }
+      }
+      await Promise.all(refreshTasks);
     }
 
     function parseExpectedVersion() {
@@ -970,45 +1090,72 @@ export function renderFinanceAdminConsole() {
 
     async function retryRefund() {
       if (financeMutationPending) return;
-      financeMutationPending = true;
+      let item;
+      let expectedVersion;
+      let reason;
       try {
-        const item = ensureSelectedRecord('refunds');
+        item = ensureSelectedRecord('refunds');
+        expectedVersion = parseExpectedVersion();
+        reason = parseReason();
+      } catch (error) {
+        document.getElementById('financeMutationNotice').textContent = error.message;
+        return;
+      }
+      const targetTab = currentFinanceTab;
+      const targetRecordId = item.id;
+      financeMutationPending = true;
+      updateFinanceActionControls();
+      updateWithdrawalBatchSelectionUi();
+      try {
         const result = await api('/admin/finance/refunds/' + encodeURIComponent(item.id) + '/retry', {
           method: 'POST',
           headers: { 'Idempotency-Key': createIdempotencyKey() },
           body: JSON.stringify({
-            expectedVersion: parseExpectedVersion(),
-            reason: parseReason(),
+            expectedVersion,
+            reason,
           }),
         });
-        document.getElementById('financeMutationNotice').textContent =
-          '退款重试已提交：' + (result.refund && result.refund.id ? result.refund.id : item.id);
-        document.getElementById('reasonInput').value = '';
-        await loadFinanceList(currentFinancePage);
-        await loadFinanceReport();
+        await refreshFinanceAfterMutation(targetTab, targetRecordId);
+        if (isCurrentFinanceTarget(targetTab, targetRecordId)) {
+          document.getElementById('financeMutationNotice').textContent =
+            '退款重试已提交：' + (result.refund && result.refund.id ? result.refund.id : targetRecordId);
+          document.getElementById('reasonInput').value = '';
+        }
       } catch (error) {
-        document.getElementById('financeMutationNotice').textContent = error.message;
+        if (isCurrentFinanceTarget(targetTab, targetRecordId)) {
+          document.getElementById('financeMutationNotice').textContent = error.message;
+        }
       } finally {
         financeMutationPending = false;
+        updateFinanceActionControls();
         updateWithdrawalBatchSelectionUi();
       }
     }
 
     async function runBatchWithdrawalReview(action) {
       if (financeMutationPending) return;
-      financeMutationPending = true;
-      updateWithdrawalBatchSelectionUi();
+      const targetTab = currentFinanceTab;
+      let selectedItems;
+      let reason;
       try {
-        if (currentFinanceTab !== 'withdrawals') {
+        if (targetTab !== 'withdrawals') {
           throw new Error('请先切到提现标签再批量审核');
         }
-        const selectedItems = getCurrentReviewingWithdrawals().filter(item =>
+        selectedItems = getCurrentReviewingWithdrawals().filter(item =>
           selectedWithdrawalIds.has(String(item.id || '')),
         );
         if (!selectedItems.length) {
           throw new Error('先勾选提现再批量审核');
         }
-
+        reason = parseReason();
+      } catch (error) {
+        document.getElementById('financeMutationNotice').textContent = error.message;
+        return;
+      }
+      financeMutationPending = true;
+      updateFinanceActionControls();
+      updateWithdrawalBatchSelectionUi();
+      try {
         const result = await api(withdrawalBatchReviewPath, {
           method: 'POST',
           headers: { 'Idempotency-Key': createIdempotencyKey() },
@@ -1018,49 +1165,76 @@ export function renderFinanceAdminConsole() {
               expectedVersion: Number(item.version || 0),
             })),
             action,
-            reason: parseReason(),
+            reason,
           }),
         });
-        document.getElementById('financeMutationNotice').textContent =
-          (action === 'approve' ? '批量通过完成：' : '批量驳回完成：') +
-          Number(result && result.updatedCount ? result.updatedCount : 0) +
-          ' 条提现';
-        document.getElementById('reasonInput').value = '';
-        selectedWithdrawalIds.clear();
-        await loadFinanceList(currentFinancePage);
-        await loadFinanceReport();
+        await Promise.all([
+          loadFinanceReport(),
+          ...(currentFinanceTab === targetTab
+            ? [refreshFinanceWorkspace(currentFinancePage)]
+            : []),
+        ]);
+        if (currentFinanceTab === targetTab) {
+          document.getElementById('financeMutationNotice').textContent =
+            (action === 'approve' ? '批量通过完成：' : '批量驳回完成：') +
+            Number(result && result.updatedCount ? result.updatedCount : 0) +
+            ' 条提现';
+          document.getElementById('reasonInput').value = '';
+          selectedWithdrawalIds.clear();
+        }
       } catch (error) {
-        document.getElementById('financeMutationNotice').textContent = error.message;
+        if (currentFinanceTab === targetTab) {
+          document.getElementById('financeMutationNotice').textContent = error.message;
+        }
       } finally {
         financeMutationPending = false;
+        updateFinanceActionControls();
         updateWithdrawalBatchSelectionUi();
       }
     }
 
     async function reviewWithdrawal(action) {
       if (financeMutationPending) return;
-      financeMutationPending = true;
+      let item;
+      let expectedVersion;
+      let reason;
       try {
-        const item = ensureSelectedRecord('withdrawals');
+        item = ensureSelectedRecord('withdrawals');
+        expectedVersion = parseExpectedVersion();
+        reason = parseReason();
+      } catch (error) {
+        document.getElementById('financeMutationNotice').textContent = error.message;
+        return;
+      }
+      const targetTab = currentFinanceTab;
+      const targetRecordId = item.id;
+      financeMutationPending = true;
+      updateFinanceActionControls();
+      updateWithdrawalBatchSelectionUi();
+      try {
         const pathTemplate = withdrawalReviewPaths[action];
         const result = await api(pathTemplate.replace('{withdrawalId}', encodeURIComponent(item.id)), {
           method: 'POST',
           headers: { 'Idempotency-Key': createIdempotencyKey() },
           body: JSON.stringify({
-            expectedVersion: parseExpectedVersion(),
-            reason: parseReason(),
+            expectedVersion,
+            reason,
           }),
         });
-        document.getElementById('financeMutationNotice').textContent =
-          (action === 'approve' ? '提现通过完成：' : '提现驳回完成：') +
-          (result.withdrawal && result.withdrawal.id ? result.withdrawal.id : item.id);
-        document.getElementById('reasonInput').value = '';
-        await loadFinanceList(currentFinancePage);
-        await loadFinanceReport();
+        await refreshFinanceAfterMutation(targetTab, targetRecordId);
+        if (isCurrentFinanceTarget(targetTab, targetRecordId)) {
+          document.getElementById('financeMutationNotice').textContent =
+            (action === 'approve' ? '提现通过完成：' : '提现驳回完成：') +
+            (result.withdrawal && result.withdrawal.id ? result.withdrawal.id : targetRecordId);
+          document.getElementById('reasonInput').value = '';
+        }
       } catch (error) {
-        document.getElementById('financeMutationNotice').textContent = error.message;
+        if (isCurrentFinanceTarget(targetTab, targetRecordId)) {
+          document.getElementById('financeMutationNotice').textContent = error.message;
+        }
       } finally {
         financeMutationPending = false;
+        updateFinanceActionControls();
         updateWithdrawalBatchSelectionUi();
       }
     }
@@ -1075,9 +1249,7 @@ export function renderFinanceAdminConsole() {
 
     async function loadLedgerFromSelection() {
       const raw = document.getElementById('ledgerTransactionIdInput').value.trim();
-      const item = selectedFinanceRecordId
-        ? currentFinanceItems.find(candidate => candidate.id === selectedFinanceRecordId)
-        : undefined;
+      const item = getSelectedFinanceRecord();
       const transactionId = raw || String(item && item.financialTransactionId ? item.financialTransactionId : '');
       if (!transactionId) {
         document.getElementById('financeMutationNotice').textContent = '当前记录没有 financialTransactionId，请手动填写资金流水 ID';
@@ -1110,12 +1282,12 @@ export function renderFinanceAdminConsole() {
     renderFinanceTabs();
     updateWithdrawalBatchSelectionUi();
     resetFinanceReport();
-    updateViewOrderButton();
+    updateFinanceActionControls();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
       loadFinanceReport();
       loadFinanceReconciliation();
-      loadFinanceList(currentFinancePage);
+      refreshFinanceWorkspace(currentFinancePage);
     }
   </script>
 </body>

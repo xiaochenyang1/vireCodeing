@@ -6942,6 +6942,31 @@ paths:
               schema: { $ref: '#/components/schemas/AdminPaymentPageResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/payments/{paymentId}:
+    get:
+      summary: Get admin finance payment detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: paymentId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin payment detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminPaymentResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Finance record not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: FINANCE_RECORD_NOT_FOUND
+                message: 财务记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
   /admin/finance/refunds:
     get:
       summary: List admin finance refunds
@@ -6960,6 +6985,31 @@ paths:
               schema: { $ref: '#/components/schemas/AdminRefundPageResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/refunds/{refundId}:
+    get:
+      summary: Get admin finance refund detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: refundId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin refund detail with the latest refund outbox event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminRefundResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Finance record not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: FINANCE_RECORD_NOT_FOUND
+                message: 财务记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
   /admin/finance/refunds/{refundId}/retry:
     post:
       summary: Retry a failed refund from admin finance
@@ -7010,6 +7060,31 @@ paths:
               schema: { $ref: '#/components/schemas/AdminSettlementPageResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/settlements/{settlementId}:
+    get:
+      summary: Get admin finance settlement detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: settlementId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin settlement detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSettlementResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Finance record not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: FINANCE_RECORD_NOT_FOUND
+                message: 财务记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
   /admin/finance/ledger-transactions/{transactionId}:
     get:
       summary: Get admin finance ledger transaction detail
@@ -7042,6 +7117,31 @@ paths:
               schema: { $ref: '#/components/schemas/AdminWithdrawalPageResponse' }
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/finance/withdrawals/{withdrawalId}:
+    get:
+      summary: Get admin finance withdrawal detail
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - { name: withdrawalId, in: path, required: true, schema: { type: string } }
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Admin withdrawal detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminWithdrawalResponse' }
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Finance record not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                code: FINANCE_RECORD_NOT_FOUND
+                message: 财务记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
   /admin/finance/withdrawals/batch-review:
     post:
       summary: Batch review driver withdrawals from admin finance
@@ -11917,8 +12017,62 @@ components:
           maxLength: 500
           example: 财务复核后统一放款
     AdminPaymentRecord:
-      allOf:
-        - $ref: '#/components/schemas/PaymentOrderRecord'
+      type: object
+      required: [id, paymentNo, orderId, shipperId, channel, amountCents, status, expiresAtIso, createdAtIso, updatedAtIso]
+      properties:
+        id:
+          type: string
+          example: payment-1
+        paymentNo:
+          type: string
+          example: PAY-payment-1
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        shipperId:
+          type: string
+          example: shipper-pending-payment
+        channel:
+          $ref: '#/components/schemas/PaymentProviderChannel'
+        amountCents:
+          type: integer
+          minimum: 1
+          example: 31000
+        status:
+          $ref: '#/components/schemas/PaymentOrderStatus'
+        providerTradeNo:
+          type: string
+          example: wx_trade_123
+        failureCode:
+          type: string
+          example: provider_prepare_failed
+        failureMessage:
+          type: string
+          example: 支付渠道下单失败
+        expiresAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:15:00.000Z'
+        paidAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
+        settledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:00:30.000Z'
+        cancelledAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T09:30:30.000Z'
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T07:59:00.000Z'
+        updatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-15T08:00:30.000Z'
     AdminRefundRecord:
       type: object
       required: [id, refundNo, paymentOrderId, orderId, shipperId, channel, amountCents, reason, status, createdAtIso, updatedAtIso]
@@ -12347,6 +12501,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminPaymentPageData'
+    AdminPaymentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminPaymentRecord'
     AdminFinanceReportResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -12363,6 +12525,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminRefundPageData'
+    AdminRefundResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminRefundRecord'
     AdminSettlementPageResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -12371,6 +12541,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminSettlementPageData'
+    AdminSettlementResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminSettlementRecord'
     AdminWithdrawalPageResponse:
       allOf:
         - $ref: '#/components/schemas/ApiSuccessEnvelope'
@@ -12379,6 +12557,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminWithdrawalPageData'
+    AdminWithdrawalResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminWithdrawalRecord'
     AdminRefundRetryResult:
       type: object
       required: [kind, replayed, refund, outboxEvent, auditLog]

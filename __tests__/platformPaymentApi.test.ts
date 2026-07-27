@@ -142,6 +142,28 @@ describe('platform payment api', () => {
     );
   });
 
+  it('gets all admin finance detail resources with normalized encoded ids', async () => {
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce(createJsonResponse(createPayment()))
+      .mockResolvedValueOnce(createJsonResponse(createRefund()))
+      .mockResolvedValueOnce(createJsonResponse(createSettlement()))
+      .mockResolvedValueOnce(createJsonResponse(createWithdrawal()));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createApi();
+
+    await api.getAdminPayment(' payment/1 ');
+    await api.getAdminRefund(' refund/1 ');
+    await api.getAdminSettlement(' settlement/1 ');
+    await api.getAdminWithdrawal(' withdrawal/1 ');
+
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+      'http://localhost:3000/api/admin/finance/payments/payment%2F1',
+      'http://localhost:3000/api/admin/finance/refunds/refund%2F1',
+      'http://localhost:3000/api/admin/finance/settlements/settlement%2F1',
+      'http://localhost:3000/api/admin/finance/withdrawals/withdrawal%2F1',
+    ]);
+  });
+
   it('gets admin finance ledger transaction detail by transaction id', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
       createJsonResponse(createLedgerTransaction()),
@@ -311,6 +333,9 @@ describe('platform payment api', () => {
 
     expect(() => api.listAdminPayments({ page: 0 })).toThrow(
       'Platform admin finance page is invalid',
+    );
+    expect(() => api.getAdminPayment('   ')).toThrow(
+      'Platform admin finance payment id is invalid',
     );
     expect(() =>
       api.retryAdminRefund(

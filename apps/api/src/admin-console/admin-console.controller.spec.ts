@@ -639,7 +639,7 @@ describe('finance admin console page', () => {
     expect(html).toContain(
       'const requestId = ++latestFinanceReconciliationRequestId',
     );
-    expect(html).toContain('if (requestId !== latestFinanceRequestId) return');
+    expect(html).toContain('requestId !== latestFinanceRequestId ||');
     expect(html).toContain('if (requestId !== latestFinanceReportRequestId) return');
     expect(html).toContain(
       'if (requestId !== latestFinanceReconciliationRequestId) return',
@@ -647,6 +647,535 @@ describe('finance admin console page', () => {
     expect(html).toContain('resetFinanceReport');
     expect(html).toContain('clearFinanceSelection()');
     expect(html).toContain('clearLedgerDetail()');
+  });
+
+  it('keeps finance pagination and routed details as independent request generations', () => {
+    const html = renderFinanceAdminConsole();
+    const listStart = html.indexOf('async function loadFinanceList(page)');
+    const refreshStart = html.indexOf(
+      'async function refreshFinanceWorkspace(page)',
+      listStart,
+    );
+    const listSource = html.slice(listStart, refreshStart);
+    const refreshEnd = html.indexOf(
+      'function renderFinancePagination(pageSize)',
+      refreshStart,
+    );
+    const refreshSource = html.slice(refreshStart, refreshEnd);
+    const detailStart = html.indexOf('async function loadFinanceDetail(');
+    const detailEnd = html.indexOf(
+      'function renderSelectedFinanceDetail(',
+      detailStart,
+    );
+    const detailSource = html.slice(detailStart, detailEnd);
+
+    expect(html).toContain('let latestFinanceDetailRequestId = 0');
+    expect(html).toContain("payments: '/admin/finance/payments/'");
+    expect(html).toContain("refunds: '/admin/finance/refunds/'");
+    expect(html).toContain("settlements: '/admin/finance/settlements/'");
+    expect(html).toContain("withdrawals: '/admin/finance/withdrawals/'");
+    expect(listSource).not.toContain('latestFinanceDetailRequestId');
+    expect(listSource).not.toContain('loadFinanceDetail');
+    expect(listSource).not.toContain('clearFinanceSelection');
+    expect(listSource).not.toContain('selectedFinanceRecordId =');
+    expect(refreshSource).toContain('const targetTab = currentFinanceTab');
+    expect(refreshSource).toContain(
+      'const targetRecordId = selectedFinanceRecordId',
+    );
+    expect(refreshSource).toContain(
+      'loadFinanceDetail(targetTab, targetRecordId, false)',
+    );
+    expect(detailSource).toContain(
+      'const requestId = ++latestFinanceDetailRequestId',
+    );
+    expect(detailSource).toContain('currentFinanceTab !== targetTab');
+    expect(detailSource).toContain(
+      'selectedFinanceRecordId !== targetRecordId',
+    );
+  });
+
+  it('loads routed finance details outside the current page even when the list fails', async () => {
+    const html = renderFinanceAdminConsole();
+    const listStart = html.indexOf('async function loadFinanceList(page)');
+    const listEnd = html.indexOf(
+      'async function refreshFinanceWorkspace(page)',
+      listStart,
+    );
+    const listSource = html.slice(listStart, listEnd);
+    const detailStart = html.indexOf('async function loadFinanceDetail(');
+    const detailEnd = html.indexOf(
+      'function renderSelectedFinanceDetail(',
+      detailStart,
+    );
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const listPage = createDeferred();
+    const routedDetail = createDeferred();
+    const failedListPage = createDeferred();
+    const retriedDetail = createDeferred();
+    const listRequests = [listPage, failedListPage];
+    const detailRequests = [routedDetail, retriedDetail];
+    const nodes = new Map<
+      string,
+      {
+        disabled: boolean;
+        innerHTML: string;
+        textContent: string;
+        value: string;
+      }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = {
+        disabled: false,
+        innerHTML: '',
+        textContent: '',
+        value:
+          id === 'financePageSizeInput'
+            ? '20'
+            : id === 'financePageInput'
+            ? '3'
+            : '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn((path: string) => {
+      const request = path.includes('?')
+        ? listRequests.shift()
+        : detailRequests.shift();
+      return request
+        ? request.promise
+        : Promise.reject(new Error('unexpected request: ' + path));
+    });
+    const renderSelectedFinanceDetail = jest.fn();
+    const context = {
+      latestFinanceRequestId: 0,
+      latestFinanceDetailRequestId: 0,
+      currentFinanceTab: 'refunds',
+      currentFinanceItems: [] as unknown[],
+      currentFinancePage: 3,
+      currentFinanceTotal: 0,
+      selectedFinanceRecordId: 'refund-routed',
+      currentFinanceDetail: null as unknown,
+      currentFinanceDetailTab: '',
+      selectedWithdrawalIds: new Set<string>(),
+      tabRoutes: {
+        payments: '/admin/finance/payments?',
+        refunds: '/admin/finance/refunds?',
+        settlements: '/admin/finance/settlements?',
+        withdrawals: '/admin/finance/withdrawals?',
+      },
+      financeDetailRoutes: {
+        payments: '/admin/finance/payments/',
+        refunds: '/admin/finance/refunds/',
+        settlements: '/admin/finance/settlements/',
+        withdrawals: '/admin/finance/withdrawals/',
+      },
+      document: { getElementById: getNode },
+      syncFinanceRouteState: jest.fn(),
+      syncSelectedWithdrawalsToCurrentList: jest.fn(),
+      renderFinancePagination: jest.fn(),
+      renderFinanceList: jest.fn(),
+      updateFinanceActionControls: jest.fn(),
+      clearLedgerDetail: jest.fn(),
+      renderSelectedFinanceDetail,
+      escapeHtml: (value: unknown) => String(value),
+      api,
+      encodeURIComponent,
+      URLSearchParams,
+      invokeList: undefined as undefined | ((page: number) => Promise<void>),
+      invokeDetail: undefined as
+        | undefined
+        | ((
+            tab: string,
+            recordId: string,
+            clearLedger?: boolean,
+          ) => Promise<void>),
+    };
+    runInNewContext(
+      `${listSource}\n${detailSource}\ninvokeList = loadFinanceList; invokeDetail = loadFinanceDetail;`,
+      context,
+    );
+
+    const pageRequest = context.invokeList!(3);
+    const detailRequest = context.invokeDetail!(
+      'refunds',
+      'refund-routed',
+      false,
+    );
+    const firstDetail = {
+      id: 'refund-routed',
+      refundNo: 'RF-ROUTED',
+    };
+    listPage.resolve!({
+      items: [{ id: 'refund-on-page', refundNo: 'RF-PAGE' }],
+      total: 1,
+    });
+    routedDetail.resolve!(firstDetail);
+    await Promise.all([pageRequest, detailRequest]);
+
+    expect(context.selectedFinanceRecordId).toBe('refund-routed');
+    expect(context.currentFinanceItems).toEqual([
+      expect.objectContaining({ id: 'refund-on-page' }),
+    ]);
+    expect(context.currentFinanceDetail).toBe(firstDetail);
+    expect(context.currentFinanceDetailTab).toBe('refunds');
+    expect(renderSelectedFinanceDetail).toHaveBeenLastCalledWith(
+      firstDetail,
+      'refunds',
+    );
+
+    const failedListRequest = context.invokeList!(3);
+    const retriedDetailRequest = context.invokeDetail!(
+      'refunds',
+      'refund-routed',
+      false,
+    );
+    const refreshedDetail = {
+      id: 'refund-routed',
+      refundNo: 'RF-ROUTED-REFRESHED',
+    };
+    failedListPage.reject!(new Error('财务列表暂不可用'));
+    retriedDetail.resolve!(refreshedDetail);
+    await Promise.all([failedListRequest, retriedDetailRequest]);
+
+    expect(context.selectedFinanceRecordId).toBe('refund-routed');
+    expect(context.currentFinanceDetail).toBe(refreshedDetail);
+    expect(context.currentFinanceDetailTab).toBe('refunds');
+    expect(getNode('financeListNotice').textContent).toBe('财务列表暂不可用');
+    expect(context.syncFinanceRouteState.mock.calls).not.toContainEqual([
+      3,
+      20,
+      '',
+    ]);
+  });
+
+  it('commits only the latest finance detail and retains failed targets for retry', async () => {
+    const html = renderFinanceAdminConsole();
+    const detailStart = html.indexOf('async function loadFinanceDetail(');
+    const detailEnd = html.indexOf(
+      'function renderSelectedFinanceDetail(',
+      detailStart,
+    );
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const pending = new Map<string, Array<ReturnType<typeof createDeferred>>>();
+    const enqueue = (path: string) => {
+      const request = createDeferred();
+      pending.set(path, [...(pending.get(path) || []), request]);
+      return request;
+    };
+    const nodes = new Map<
+      string,
+      {
+        disabled: boolean;
+        innerHTML: string;
+        textContent: string;
+        value: string;
+      }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = {
+        disabled: false,
+        innerHTML: '',
+        textContent: '',
+        value: id === 'financePageSizeInput' ? '20' : '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn((path: string) => {
+      const queued = pending.get(path) || [];
+      const request = queued.shift();
+      pending.set(path, queued);
+      return request
+        ? request.promise
+        : Promise.reject(new Error('unexpected request: ' + path));
+    });
+    const renderSelectedFinanceDetail = jest.fn();
+    const context = {
+      latestFinanceDetailRequestId: 0,
+      currentFinanceTab: 'refunds',
+      currentFinancePage: 1,
+      selectedFinanceRecordId: '',
+      currentFinanceDetail: null as unknown,
+      currentFinanceDetailTab: '',
+      financeDetailRoutes: {
+        payments: '/admin/finance/payments/',
+        refunds: '/admin/finance/refunds/',
+        settlements: '/admin/finance/settlements/',
+        withdrawals: '/admin/finance/withdrawals/',
+      },
+      document: { getElementById: getNode },
+      syncFinanceRouteState: jest.fn(),
+      renderFinanceList: jest.fn(),
+      updateFinanceActionControls: jest.fn(),
+      clearLedgerDetail: jest.fn(),
+      renderSelectedFinanceDetail,
+      escapeHtml: (value: unknown) => String(value),
+      api,
+      encodeURIComponent,
+      invokeDetail: undefined as
+        | undefined
+        | ((
+            tab: string,
+            recordId: string,
+            clearLedger?: boolean,
+          ) => Promise<void>),
+    };
+    runInNewContext(
+      `${detailSource}\ninvokeDetail = loadFinanceDetail;`,
+      context,
+    );
+
+    const refundA = enqueue('/admin/finance/refunds/refund-a');
+    const withdrawalB = enqueue('/admin/finance/withdrawals/withdrawal-b');
+    const slowRefundA = context.invokeDetail!('refunds', 'refund-a');
+    context.currentFinanceTab = 'withdrawals';
+    const fastWithdrawalB = context.invokeDetail!(
+      'withdrawals',
+      'withdrawal-b',
+    );
+    const withdrawalBDetail = {
+      id: 'withdrawal-b',
+      version: 4,
+    };
+    withdrawalB.resolve!(withdrawalBDetail);
+    await fastWithdrawalB;
+    refundA.resolve!({ id: 'refund-a' });
+    await slowRefundA;
+
+    expect(renderSelectedFinanceDetail).toHaveBeenCalledTimes(1);
+    expect(renderSelectedFinanceDetail).toHaveBeenLastCalledWith(
+      withdrawalBDetail,
+      'withdrawals',
+    );
+    expect(context.currentFinanceDetail).toBe(withdrawalBDetail);
+    expect(context.currentFinanceDetailTab).toBe('withdrawals');
+    expect(context.selectedFinanceRecordId).toBe('withdrawal-b');
+
+    context.currentFinanceTab = 'payments';
+    const missingPayment = enqueue('/admin/finance/payments/payment-missing');
+    const failedPayment = context.invokeDetail!('payments', 'payment-missing');
+    missingPayment.reject!(new Error('财务记录不存在'));
+    await failedPayment;
+
+    expect(context.selectedFinanceRecordId).toBe('payment-missing');
+    expect(context.currentFinanceDetail).toBeNull();
+    expect(context.currentFinanceDetailTab).toBe('payments');
+    expect(getNode('financeDetail').innerHTML).toContain('财务记录不存在');
+    expect(context.syncFinanceRouteState.mock.calls.at(-1)).toEqual([
+      1,
+      20,
+      'payment-missing',
+    ]);
+
+    const paymentRetry = enqueue('/admin/finance/payments/payment-missing');
+    const retriedPayment = context.invokeDetail!('payments', 'payment-missing');
+    const paymentDetail = { id: 'payment-missing', paymentNo: 'PAY-1' };
+    paymentRetry.resolve!(paymentDetail);
+    await retriedPayment;
+
+    context.currentFinanceTab = 'settlements';
+    const settlementRequest = enqueue(
+      '/admin/finance/settlements/settlement-c',
+    );
+    const settlementDetailRequest = context.invokeDetail!(
+      'settlements',
+      'settlement-c',
+    );
+    const settlementDetail = { id: 'settlement-c' };
+    settlementRequest.resolve!(settlementDetail);
+    await settlementDetailRequest;
+
+    expect(renderSelectedFinanceDetail).toHaveBeenCalledWith(
+      paymentDetail,
+      'payments',
+    );
+    expect(renderSelectedFinanceDetail).toHaveBeenLastCalledWith(
+      settlementDetail,
+      'settlements',
+    );
+    expect(api.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining([
+        '/admin/finance/payments/payment-missing',
+        '/admin/finance/refunds/refund-a',
+        '/admin/finance/settlements/settlement-c',
+        '/admin/finance/withdrawals/withdrawal-b',
+      ]),
+    );
+  });
+
+  it('locks single-record finance mutations to their starting targets', async () => {
+    const html = renderFinanceAdminConsole();
+    const helperStart = html.indexOf('function isCurrentFinanceTarget(');
+    const retryStart = html.indexOf(
+      'async function retryRefund()',
+      helperStart,
+    );
+    const helperSource = html.slice(helperStart, retryStart);
+    const retryEnd = html.indexOf(
+      'async function runBatchWithdrawalReview(',
+      retryStart,
+    );
+    const retrySource = html.slice(retryStart, retryEnd);
+    const withdrawalStart = html.indexOf(
+      'async function reviewWithdrawal(action)',
+      retryEnd,
+    );
+    const withdrawalEnd = html.indexOf(
+      'function approveWithdrawal()',
+      withdrawalStart,
+    );
+    const withdrawalSource = html.slice(withdrawalStart, withdrawalEnd);
+
+    const runMutationScenario = async (options: {
+      expectedPath: string;
+      invokeExpression: string;
+      item: { id: string };
+      response: unknown;
+      source: string;
+      startingTab: 'refunds' | 'withdrawals';
+    }) => {
+      let resolveMutation: ((value: unknown) => void) | undefined;
+      const mutation = new Promise<unknown>(resolve => {
+        resolveMutation = resolve;
+      });
+      const nodes = new Map<
+        string,
+        {
+          disabled: boolean;
+          innerHTML: string;
+          textContent: string;
+          value: string;
+        }
+      >();
+      const getNode = (id: string) => {
+        const existing = nodes.get(id);
+        if (existing) return existing;
+        const created = {
+          disabled: false,
+          innerHTML: '',
+          textContent: '',
+          value:
+            id === 'expectedVersionInput'
+              ? '7'
+              : id === 'reasonInput'
+              ? '起始记录操作原因'
+              : '',
+        };
+        nodes.set(id, created);
+        return created;
+      };
+      const api = jest.fn(() => mutation);
+      const ensureSelectedRecord = jest.fn(() => options.item);
+      const loadFinanceReport = jest.fn().mockResolvedValue(undefined);
+      const loadFinanceList = jest.fn().mockResolvedValue(undefined);
+      const loadFinanceDetail = jest.fn().mockResolvedValue(undefined);
+      const context = {
+        financeMutationPending: false,
+        currentFinanceTab: options.startingTab as string,
+        currentFinancePage: 2,
+        selectedFinanceRecordId: options.item.id,
+        document: { getElementById: getNode },
+        ensureSelectedRecord,
+        createIdempotencyKey: jest.fn(() => 'finance-idempotency-key'),
+        api,
+        encodeURIComponent,
+        updateFinanceActionControls: jest.fn(),
+        updateWithdrawalBatchSelectionUi: jest.fn(),
+        loadFinanceReport,
+        loadFinanceList,
+        loadFinanceDetail,
+        withdrawalReviewPaths: {
+          approve: '/admin/finance/withdrawals/{withdrawalId}/approve',
+          reject: '/admin/finance/withdrawals/{withdrawalId}/reject',
+        },
+        invokeMutation: undefined as undefined | (() => Promise<void>),
+      };
+      runInNewContext(
+        `${helperSource}\n${options.source}\ninvokeMutation = ${options.invokeExpression};`,
+        context,
+      );
+      if (!context.invokeMutation) {
+        throw new Error('finance mutation function was not initialized');
+      }
+
+      const firstMutation = context.invokeMutation();
+      await context.invokeMutation();
+
+      expect(api).toHaveBeenCalledTimes(1);
+      expect(ensureSelectedRecord).toHaveBeenCalledWith(options.startingTab);
+      expect(api).toHaveBeenCalledWith(
+        options.expectedPath,
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Idempotency-Key': 'finance-idempotency-key' },
+          body: JSON.stringify({
+            expectedVersion: 7,
+            reason: '起始记录操作原因',
+          }),
+        }),
+      );
+
+      context.currentFinanceTab = 'payments';
+      context.selectedFinanceRecordId = 'payment-b';
+      getNode('financeMutationNotice').textContent = '正在查看支付 B';
+      getNode('reasonInput').value = '支付 B 的输入';
+      resolveMutation!(options.response);
+      await firstMutation;
+
+      expect(api).toHaveBeenCalledTimes(1);
+      expect(loadFinanceReport).toHaveBeenCalledTimes(1);
+      expect(loadFinanceList).not.toHaveBeenCalled();
+      expect(loadFinanceDetail).not.toHaveBeenCalled();
+      expect(getNode('financeMutationNotice').textContent).toBe(
+        '正在查看支付 B',
+      );
+      expect(getNode('reasonInput').value).toBe('支付 B 的输入');
+      expect(context.currentFinanceTab).toBe('payments');
+      expect(context.selectedFinanceRecordId).toBe('payment-b');
+      expect(context.financeMutationPending).toBe(false);
+      expect(context.updateFinanceActionControls).toHaveBeenCalledTimes(2);
+      expect(context.updateWithdrawalBatchSelectionUi).toHaveBeenCalledTimes(2);
+    };
+
+    await runMutationScenario({
+      startingTab: 'refunds',
+      item: { id: 'refund-a' },
+      expectedPath: '/admin/finance/refunds/refund-a/retry',
+      response: { refund: { id: 'refund-a' } },
+      source: retrySource,
+      invokeExpression: 'retryRefund',
+    });
+    await runMutationScenario({
+      startingTab: 'withdrawals',
+      item: { id: 'withdrawal-a' },
+      expectedPath: '/admin/finance/withdrawals/withdrawal-a/approve',
+      response: { withdrawal: { id: 'withdrawal-a' } },
+      source: withdrawalSource,
+      invokeExpression: "() => reviewWithdrawal('approve')",
+    });
   });
 
   it('invalidates pending ledger requests whenever the ledger detail clears', () => {

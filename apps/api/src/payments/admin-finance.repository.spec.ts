@@ -64,6 +64,54 @@ describe('PrismaAdminFinanceRepository', () => {
     });
   });
 
+  it('loads direct finance records and includes the latest refund outbox', async () => {
+    const prisma = createPrismaClient();
+    prisma.paymentOrder.findUnique.mockResolvedValue(createPayment());
+    prisma.refund.findUnique.mockResolvedValue(createRefund());
+    prisma.financialOutboxEvent.findFirst.mockResolvedValue(createOutboxEvent());
+    prisma.settlement.findUnique.mockResolvedValue(createSettlement());
+    prisma.driverWithdrawal.findUnique.mockResolvedValue(createWithdrawal());
+    const repository = new PrismaAdminFinanceRepository(
+      prisma as unknown as PrismaAdminFinanceClient,
+    );
+
+    await expect(repository.getPayment('payment-1')).resolves.toMatchObject({
+      id: 'payment-1',
+    });
+    await expect(repository.getRefund('refund-1')).resolves.toMatchObject({
+      id: 'refund-1',
+      outboxEvent: expect.objectContaining({ id: 'outbox-1', status: 'dead' }),
+    });
+    await expect(repository.getSettlement('settlement-1')).resolves.toMatchObject({
+      id: 'settlement-1',
+    });
+    await expect(repository.getWithdrawal('withdrawal-1')).resolves.toMatchObject({
+      id: 'withdrawal-1',
+      version: 3,
+    });
+    expect(prisma.financialOutboxEvent.findFirst).toHaveBeenCalledWith({
+      where: { refundId: 'refund-1', eventType: 'refund.requested' },
+      orderBy: { createdAt: 'desc' },
+    });
+  });
+
+  it('returns undefined for missing direct finance records', async () => {
+    const prisma = createPrismaClient();
+    prisma.paymentOrder.findUnique.mockResolvedValue(null);
+    prisma.refund.findUnique.mockResolvedValue(null);
+    prisma.settlement.findUnique.mockResolvedValue(null);
+    prisma.driverWithdrawal.findUnique.mockResolvedValue(null);
+    const repository = new PrismaAdminFinanceRepository(
+      prisma as unknown as PrismaAdminFinanceClient,
+    );
+
+    await expect(repository.getPayment('missing')).resolves.toBeUndefined();
+    await expect(repository.getRefund('missing')).resolves.toBeUndefined();
+    await expect(repository.getSettlement('missing')).resolves.toBeUndefined();
+    await expect(repository.getWithdrawal('missing')).resolves.toBeUndefined();
+    expect(prisma.financialOutboxEvent.findFirst).not.toHaveBeenCalled();
+  });
+
   it('builds a finance report snapshot from current payments, refunds, settlements and withdrawals', async () => {
     const prisma = createPrismaClient();
     prisma.paymentOrder.findMany.mockResolvedValue([
@@ -471,13 +519,72 @@ describe('PrismaAdminFinanceRepository', () => {
 function createPrismaClient() {
   return {
     $transaction: jest.fn(),
-    paymentOrder: { findMany: jest.fn(), count: jest.fn() },
+    paymentOrder: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     refund: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
-    settlement: { findMany: jest.fn(), count: jest.fn() },
+    settlement: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     financialTransaction: { findUnique: jest.fn() },
-    driverWithdrawal: { findMany: jest.fn(), count: jest.fn() },
+    driverWithdrawal: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     financialAuditLog: { findUnique: jest.fn() },
     financialOutboxEvent: { findFirst: jest.fn(), findMany: jest.fn() },
+  };
+}
+
+function createPayment() {
+  return {
+    id: 'payment-1',
+    paymentNo: 'PAY-1',
+    orderId: 'order-1',
+    shipperId: 'shipper-1',
+    channel: 'wechat',
+    amountCents: 31000,
+    status: 'escrowed',
+    providerTradeNo: 'WX-1',
+    failureCode: null,
+    failureMessage: null,
+    expiresAt: NOW,
+    paidAt: NOW,
+    settledAt: null,
+    cancelledAt: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+}
+
+function createSettlement() {
+  return {
+    id: 'settlement-1',
+    orderId: 'order-1',
+    paymentOrderId: 'payment-1',
+    driverId: 'driver-1',
+    grossAmountCents: 31000,
+    platformFeeRateBps: 1200,
+    platformFeeCents: 3720,
+    driverNetAmountCents: 27280,
+    financialTransactionId: 'txn-1',
+    settledAt: NOW,
+    createdAt: NOW,
+  };
+}
+
+function createWithdrawal() {
+  return {
+    id: 'withdrawal-1',
+    driverId: 'driver-1',
+    amountCents: 12000,
+    bankAccountName: '张三',
+    bankName: '招商银行',
+    bankAccountMasked: '****1234',
+    status: 'reviewing',
+    version: 3,
+    rejectionReason: null,
+    processedByAdminId: null,
+    processedAt: null,
+    payoutChannel: null,
+    providerPayoutNo: null,
+    payoutExecutedAt: null,
+    financialTransactionId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
   };
 }
 

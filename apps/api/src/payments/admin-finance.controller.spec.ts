@@ -35,6 +35,24 @@ describe('AdminFinanceController', () => {
   });
 
   it.each([
+    ['getPayment', 'payment-1'],
+    ['getRefund', 'refund-1'],
+    ['getSettlement', 'settlement-1'],
+    ['getWithdrawal', 'withdrawal-1'],
+  ] as const)('wraps %s in the standard request envelope', async (method, id) => {
+    const service = createAdminFinanceServiceMock();
+    service[method].mockResolvedValue({ id } as never);
+    const controller = new AdminFinanceController(service);
+
+    await expect(controller[method](createRequest(), id)).resolves.toMatchObject({
+      code: 'OK',
+      requestId: 'request-admin-1',
+      data: { id },
+    });
+    expect(service[method]).toHaveBeenCalledWith(id);
+  });
+
+  it.each([
     {
       name: 'refund',
       call: (controller: AdminFinanceController) =>
@@ -230,12 +248,17 @@ describe('AdminFinanceController', () => {
 function createAdminFinanceServiceMock() {
   return {
     getReport: jest.fn(),
+    getReconciliation: jest.fn(),
     listPayments: jest.fn(),
+    getPayment: jest.fn(),
     listRefunds: jest.fn(),
+    getRefund: jest.fn(),
     retryRefund: jest.fn(),
     listSettlements: jest.fn(),
+    getSettlement: jest.fn(),
     getLedgerTransaction: jest.fn(),
     listWithdrawals: jest.fn(),
+    getWithdrawal: jest.fn(),
     reviewWithdrawal: jest.fn(),
     batchReviewWithdrawals: jest.fn(),
   } as unknown as jest.Mocked<AdminFinanceService>;

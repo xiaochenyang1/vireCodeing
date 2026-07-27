@@ -2342,10 +2342,14 @@ describe('stage 1 OpenAPI contract', () => {
     const readPaths = [
       '/admin/finance/report',
       '/admin/finance/payments',
+      '/admin/finance/payments/{paymentId}',
       '/admin/finance/refunds',
+      '/admin/finance/refunds/{refundId}',
       '/admin/finance/settlements',
+      '/admin/finance/settlements/{settlementId}',
       '/admin/finance/ledger-transactions/{transactionId}',
       '/admin/finance/withdrawals',
+      '/admin/finance/withdrawals/{withdrawalId}',
     ];
     const batchWritePath = '/admin/finance/withdrawals/batch-review';
     const writePaths = [
@@ -2363,6 +2367,41 @@ describe('stage 1 OpenAPI contract', () => {
         "$ref: '#/components/responses/AdminOnlyError'",
       );
     }
+    for (const [path, responseSchema] of [
+      ['/admin/finance/payments/{paymentId}', 'AdminPaymentResponse'],
+      ['/admin/finance/refunds/{refundId}', 'AdminRefundResponse'],
+      ['/admin/finance/settlements/{settlementId}', 'AdminSettlementResponse'],
+      ['/admin/finance/withdrawals/{withdrawalId}', 'AdminWithdrawalResponse'],
+    ]) {
+      expectPathBlockToContain(
+        source,
+        path,
+        `$ref: '#/components/schemas/${responseSchema}'`,
+      );
+      expectPathBlockToContain(source, path, 'FINANCE_RECORD_NOT_FOUND');
+    }
+    expectSchemaBlockToContain(source, 'AdminPaymentRecord', 'paymentNo:');
+    expectSchemaBlockToContain(source, 'AdminPaymentRecord', 'expiresAtIso:');
+    expectSchemaBlockNotToContain(
+      source,
+      'AdminPaymentRecord',
+      'PaymentOrderRecord',
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'AdminPaymentRecord',
+      'idempotencyKey:',
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'AdminPaymentRecord',
+      'requestFingerprint:',
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'AdminPaymentRecord',
+      'orderNo:',
+    );
     for (const path of writePaths) {
       expectPathBlockToContain(
         source,

@@ -95,19 +95,27 @@ export interface AdminFinanceRepository {
   listPayments(
     query: AdminFinanceListQuery,
   ): Promise<AdminFinancePage<AdminPaymentRecord>>;
+  getPayment(paymentId: string): Promise<AdminPaymentRecord | undefined>;
   listRefunds(
     query: AdminFinanceListQuery,
   ): Promise<AdminFinancePage<AdminRefundRecord>>;
+  getRefund(refundId: string): Promise<AdminRefundRecord | undefined>;
   retryRefund(input: RetryRefundInput): Promise<RetryRefundResult>;
   listSettlements(
     query: AdminFinanceListQuery,
   ): Promise<AdminFinancePage<AdminSettlementRecord>>;
+  getSettlement(
+    settlementId: string,
+  ): Promise<AdminSettlementRecord | undefined>;
   getLedgerTransaction(
     transactionId: string,
   ): Promise<FinancialTransactionRecord | undefined>;
   listWithdrawals(
     query: AdminFinanceListQuery,
   ): Promise<AdminFinancePage<AdminWithdrawalRecord>>;
+  getWithdrawal(
+    withdrawalId: string,
+  ): Promise<AdminWithdrawalRecord | undefined>;
 }
 
 type PrismaAdminPaymentRecord = {
@@ -261,6 +269,7 @@ export type PrismaAdminFinanceClient = {
   paymentOrder: {
     findMany(args: unknown): Promise<PrismaAdminPaymentRecord[]>;
     count(args: unknown): Promise<number>;
+    findUnique(args: unknown): Promise<PrismaAdminPaymentRecord | null>;
   };
   refund: {
     findMany(args: unknown): Promise<PrismaAdminRefundRecord[]>;
@@ -270,6 +279,7 @@ export type PrismaAdminFinanceClient = {
   settlement: {
     findMany(args: unknown): Promise<PrismaAdminSettlementRecord[]>;
     count(args: unknown): Promise<number>;
+    findUnique(args: unknown): Promise<PrismaAdminSettlementRecord | null>;
   };
   financialTransaction: {
     findUnique(args: unknown): Promise<PrismaAdminLedgerTransactionRecord | null>;
@@ -295,6 +305,7 @@ export type PrismaAdminFinanceClient = {
   driverWithdrawal: {
     findMany(args: unknown): Promise<PrismaAdminWithdrawalRecord[]>;
     count(args: unknown): Promise<number>;
+    findUnique(args: unknown): Promise<PrismaAdminWithdrawalRecord | null>;
   };
   order?: {
     findMany(args: unknown): Promise<Array<{ id: string; orderNo: string }>>;
@@ -450,6 +461,13 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
     return createPage(items.map(mapAdminPayment), total, query);
   }
 
+  async getPayment(paymentId: string) {
+    const payment = await this.prisma.paymentOrder.findUnique({
+      where: { id: paymentId },
+    });
+    return payment ? mapAdminPayment(payment) : undefined;
+  }
+
   async listRefunds(query: AdminFinanceListQuery) {
     const where = createListWhere(query);
     const [items, total] = await Promise.all([
@@ -481,6 +499,21 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
     );
   }
 
+  async getRefund(refundId: string) {
+    const refund = await this.prisma.refund.findUnique({
+      where: { id: refundId },
+    });
+    if (!refund) {
+      return undefined;
+    }
+
+    const outboxEvent = await this.prisma.financialOutboxEvent.findFirst({
+      where: { refundId, eventType: 'refund.requested' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return mapAdminRefund(refund, outboxEvent ?? undefined);
+  }
+
   async listSettlements(query: AdminFinanceListQuery) {
     const where = createListWhere(query, {
       includeStatus: false,
@@ -495,6 +528,13 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
       this.prisma.settlement.count({ where }),
     ]);
     return createPage(items.map(mapAdminSettlement), total, query);
+  }
+
+  async getSettlement(settlementId: string) {
+    const settlement = await this.prisma.settlement.findUnique({
+      where: { id: settlementId },
+    });
+    return settlement ? mapAdminSettlement(settlement) : undefined;
   }
 
   async getLedgerTransaction(transactionId: string) {
@@ -519,6 +559,13 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
       this.prisma.driverWithdrawal.count({ where }),
     ]);
     return createPage(items.map(mapAdminWithdrawal), total, query);
+  }
+
+  async getWithdrawal(withdrawalId: string) {
+    const withdrawal = await this.prisma.driverWithdrawal.findUnique({
+      where: { id: withdrawalId },
+    });
+    return withdrawal ? mapAdminWithdrawal(withdrawal) : undefined;
   }
 
   async retryRefund(input: RetryRefundInput): Promise<RetryRefundResult> {
