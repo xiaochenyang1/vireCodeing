@@ -3,6 +3,8 @@ import { createPlatformProfileApi } from '../src/services/platformProfileApi';
 
 describe('platform profile api', () => {
   const originalFetch = globalThis.fetch;
+  const adminCouponIssueKey = '550e8400-e29b-41d4-a716-446655440000';
+  const adminCouponBatchIssueKey = '550e8400-e29b-41d4-a716-446655440001';
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -1415,7 +1417,7 @@ describe('platform profile api', () => {
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
         sourceText: ' 运营补偿 ',
-      }),
+      }, ` ${adminCouponIssueKey} `),
     ).resolves.toMatchObject({
       id: 'coupon-platform-issue-1',
       shipperId: 'shipper-1',
@@ -1432,7 +1434,7 @@ describe('platform profile api', () => {
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
         sourceText: ' 运营补偿 ',
-      }),
+      }, ` ${adminCouponBatchIssueKey} `),
     ).resolves.toMatchObject({
       requestedCount: 2,
       issuedCount: 2,
@@ -1463,6 +1465,7 @@ describe('platform profile api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': adminCouponIssueKey,
         }),
         body: JSON.stringify({
           shipperId: 'shipper-1',
@@ -1483,6 +1486,7 @@ describe('platform profile api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': adminCouponBatchIssueKey,
         }),
         body: JSON.stringify({
           shipperIds: ['shipper-1', 'shipper-2'],
@@ -2468,7 +2472,7 @@ describe('platform profile api', () => {
 
   it.each([
     ['null admin shipper coupon issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon(null as never)],
+      api.issueAdminCoupon(null as never, adminCouponIssueKey)],
     ['blank admin shipper coupon shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.issueAdminCoupon({
         shipperId: '   ',
@@ -2478,7 +2482,7 @@ describe('platform profile api', () => {
         minOrderAmountCents: 50000,
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
-      })],
+      }, adminCouponIssueKey)],
     ['invalid admin shipper coupon discount', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.issueAdminCoupon({
         shipperId: 'shipper-1',
@@ -2488,7 +2492,7 @@ describe('platform profile api', () => {
         minOrderAmountCents: 50000,
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
-      })],
+      }, adminCouponIssueKey)],
     ['invalid admin shipper coupon time window', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.issueAdminCoupon({
         shipperId: 'shipper-1',
@@ -2498,9 +2502,9 @@ describe('platform profile api', () => {
         minOrderAmountCents: 50000,
         validFromIso: '2026-08-09T00:00:00.000Z',
         validUntilIso: '2026-07-09T00:00:00.000Z',
-      })],
+      }, adminCouponIssueKey)],
     ['null admin shipper coupon batch issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.batchIssueAdminCoupons(null as never)],
+      api.batchIssueAdminCoupons(null as never, adminCouponBatchIssueKey)],
     ['empty admin shipper coupon shipperIds', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.batchIssueAdminCoupons({
         shipperIds: [],
@@ -2510,7 +2514,7 @@ describe('platform profile api', () => {
         minOrderAmountCents: 50000,
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
-      })],
+      }, adminCouponBatchIssueKey)],
     ['invalid admin shipper coupon batch issue count', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.batchIssueAdminCoupons({
         shipperIds: Array.from({ length: 51 }, (_, index) => `shipper-${index}`),
@@ -2520,7 +2524,17 @@ describe('platform profile api', () => {
         minOrderAmountCents: 50000,
         validFromIso: '2026-07-09T00:00:00.000Z',
         validUntilIso: '2026-08-09T00:00:00.000Z',
-      })],
+      }, adminCouponBatchIssueKey)],
+    ['invalid admin shipper coupon idempotency key', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.issueAdminCoupon({
+        shipperId: 'shipper-1',
+        title: '后台满 500 减 50',
+        conditionText: '平台订单满 500 元可用',
+        discountCents: 5000,
+        minOrderAmountCents: 50000,
+        validFromIso: '2026-07-09T00:00:00.000Z',
+        validUntilIso: '2026-08-09T00:00:00.000Z',
+      }, 'repeat-click')],
     ['invalid admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.getAdminCouponReport({ topShippersLimit: 21 })],
     ['null admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>

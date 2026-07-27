@@ -657,26 +657,43 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
     },
     async issueAdminCoupon(
       request: PlatformAdminIssueShipperCouponRequest,
+      idempotencyKey: string,
     ) {
+      const normalizedRequest = normalizeAdminIssueShipperCouponRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeAdminShipperCouponIdempotencyKey(idempotencyKey);
+
       return platformPost<
         PlatformAdminIssueShipperCouponRequest,
         PlatformProfileCouponRecord
       >(
         config,
         '/admin/shipper-coupons',
-        normalizeAdminIssueShipperCouponRequest(request),
+        normalizedRequest,
+        createAdminShipperCouponMutationRequestOptions(
+          normalizedIdempotencyKey,
+        ),
       );
     },
     async batchIssueAdminCoupons(
       request: PlatformAdminBatchIssueShipperCouponsRequest,
+      idempotencyKey: string,
     ) {
+      const normalizedRequest =
+        normalizeAdminBatchIssueShipperCouponsRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeAdminShipperCouponIdempotencyKey(idempotencyKey);
+
       return platformPost<
         PlatformAdminBatchIssueShipperCouponsRequest,
         PlatformAdminBatchIssueShipperCouponsResult
       >(
         config,
         '/admin/shipper-coupons/batch-issue',
-        normalizeAdminBatchIssueShipperCouponsRequest(request),
+        normalizedRequest,
+        createAdminShipperCouponMutationRequestOptions(
+          normalizedIdempotencyKey,
+        ),
       );
     },
     async getAdminCouponReport(
@@ -1146,6 +1163,34 @@ function normalizeAdminBatchIssueShipperCouponsRequest(
   return {
     shipperIds: [...new Set(normalizedShipperIds)],
     ...normalizeAdminCouponIssueTemplate(request),
+  };
+}
+
+function normalizeAdminShipperCouponIdempotencyKey(value: unknown) {
+  const normalizedValue = typeof value === 'string' ? value.trim() : '';
+
+  if (
+    !normalizedValue ||
+    normalizedValue.length > 64 ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalizedValue,
+    )
+  ) {
+    throwInvalidAdminShipperCouponRequest(
+      'Admin shipper coupon Idempotency-Key is invalid',
+    );
+  }
+
+  return normalizedValue;
+}
+
+function createAdminShipperCouponMutationRequestOptions(
+  idempotencyKey: string,
+) {
+  return {
+    headers: {
+      'Idempotency-Key': idempotencyKey,
+    },
   };
 }
 
