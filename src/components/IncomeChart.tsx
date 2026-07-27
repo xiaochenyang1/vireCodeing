@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import { colors, styles } from '../styles';
+import { colors } from '../styles';
 
 export type DailyIncomePoint = {
   dateText: string;

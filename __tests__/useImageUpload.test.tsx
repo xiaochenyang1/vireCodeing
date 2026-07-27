@@ -101,12 +101,8 @@ describe('useImageUpload', () => {
   });
 
   it('starts in idle state with no file', async () => {
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     expect(capturedHookState?.state.isUploading).toBe(false);
@@ -120,12 +116,8 @@ describe('useImageUpload', () => {
       assets: [{ uri: 'file:///tmp/test.jpg', fileName: 'test.jpg', fileSize: 1024 }],
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={undefined} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={undefined} />);
     });
 
     await act(async () => {
@@ -147,12 +139,8 @@ describe('useImageUpload', () => {
       assets: [],
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     await act(async () => {
@@ -178,12 +166,8 @@ describe('useImageUpload', () => {
       ],
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     await act(async () => {
@@ -214,12 +198,8 @@ describe('useImageUpload', () => {
       ],
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     capturedHookState?.clear();
@@ -234,12 +214,8 @@ describe('useImageUpload', () => {
       new Error('Permission denied'),
     );
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     await act(async () => {
@@ -264,12 +240,8 @@ describe('useImageUpload', () => {
       assets: [],
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     await act(async () => {
@@ -288,12 +260,8 @@ describe('useImageUpload', () => {
       status: 'denied',
     });
 
-    let renderer: ReactTestRenderer.ReactTestRenderer | undefined;
-
     await act(async () => {
-      renderer = ReactTestRenderer.create(
-        <CaptureHook api={mockFileApi} />,
-      );
+      ReactTestRenderer.create(<CaptureHook api={mockFileApi} />);
     });
 
     await act(async () => {

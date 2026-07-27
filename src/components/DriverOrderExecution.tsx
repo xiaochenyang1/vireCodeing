@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import {
-  Linking,
   Pressable,
   Text,
   View,
@@ -61,25 +60,6 @@ const STATUS_STEPS = [
   { status: 'completed', label: '已完成', description: '订单完成，等待结算' },
 ] as const;
 
-function getDriverStatusText(status: string): string {
-  switch (status) {
-    case 'loading':
-      return '待装货';
-    case 'transporting':
-      return '运输中';
-    case 'confirming':
-      return '待确认';
-    case 'completed':
-      return '已完成';
-    case 'waiting':
-      return '待接单';
-    case 'cancelled':
-      return '已取消';
-    default:
-      return status;
-  }
-}
-
 function getNextDriverStatus(status: string): string | undefined {
   const flow: Record<string, string> = {
     loading: 'transporting',
@@ -121,7 +101,7 @@ export function DriverOrderExecution({
     if (isTransportingStage) return '确认卸货完成';
     if (isConfirmingStage) return '确认送达';
     return '订单已完成';
-  }, [order.status]);
+  }, [isConfirmingStage, isLoadingStage, isTransportingStage]);
 
   const canAdvance = Boolean(nextStatus && !isCompleted);
   const loadingReceiptUpload = useImageUpload(platformFileApi, {

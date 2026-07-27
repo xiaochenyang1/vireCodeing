@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import {
   Image,
-  Modal,
   Pressable,
   Text,
   View,
