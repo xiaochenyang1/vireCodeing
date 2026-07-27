@@ -1633,10 +1633,33 @@ describe('stage 1 OpenAPI contract', () => {
 
   it('documents immutable admin shipper verification review events', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const detailPath = '/admin/shipper-verifications/{shipperId}';
     const reviewEventsPath =
       '/admin/shipper-verifications/{shipperId}/review-events';
 
     expect(source).toContain('/admin/shipper-verifications:');
+    expect(source).toContain(`${detailPath}:`);
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'Get shipper verification detail for admin review',
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      "$ref: '#/components/schemas/ShipperVerificationResponse'",
+    );
+    expectPathBlockToContain(source, detailPath, "'401':");
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'SHIPPER_VERIFICATION_NOT_FOUND',
+    );
     expect(source).toContain(
       '/admin/shipper-verifications/{shipperId}/identity/review:',
     );
@@ -1656,6 +1679,7 @@ describe('stage 1 OpenAPI contract', () => {
     );
     expect(source).toContain('ShipperVerificationReviewEvent:');
     expect(source).toContain('ShipperVerificationReviewEventResponse:');
+    expect(source).toContain('ShipperVerificationResponse:');
     expectSchemaBlockToContain(
       source,
       'ShipperVerificationReviewEvent',

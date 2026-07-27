@@ -257,6 +257,149 @@ describe('ProfileVerificationService', () => {
     });
   });
 
+  it('gets one complete shipper verification snapshot for admin', async () => {
+    const identityFrontFile = createUploadedIdentityFile('file-front');
+    const identityBackFile = createUploadedIdentityFile('file-back');
+    const licenseFile = createUploadedIdentityFile('file-license');
+    const { service } = createService([
+      identityFrontFile,
+      identityBackFile,
+      licenseFile,
+    ]);
+    const admin = {
+      id: 'admin-1',
+      phone: '13900000000',
+      userType: 'admin' as const,
+    };
+
+    await service.saveIdentity('shipper-1', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: identityFrontFile.id,
+      identityBackFileId: identityBackFile.id,
+      faceVerified: true,
+    });
+    await service.saveEnterprise('shipper-1', {
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '44030019900101123X',
+      enterprisePhone: '13900139088',
+      licenseFileId: licenseFile.id,
+    });
+
+    await expect(
+      service.getAdminVerification(admin, 'shipper-1'),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-1',
+      identity: {
+        shipperId: 'shipper-1',
+        realName: '张先生',
+        status: 'reviewing',
+      },
+      enterprise: {
+        shipperId: 'shipper-1',
+        enterpriseName: '深圳晨星贸易有限公司',
+        status: 'reviewing',
+      },
+    });
+  });
+
+  it('gets partial shipper verification snapshots when only one type exists', async () => {
+    const identityFrontFile = createUploadedIdentityFile(
+      'file-front',
+      'identity-only',
+    );
+    const identityBackFile = createUploadedIdentityFile(
+      'file-back',
+      'identity-only',
+    );
+    const licenseFile = createUploadedIdentityFile(
+      'file-license',
+      'enterprise-only',
+    );
+    const { service } = createService([
+      identityFrontFile,
+      identityBackFile,
+      licenseFile,
+    ]);
+    const admin = {
+      id: 'admin-1',
+      phone: '13900000000',
+      userType: 'admin' as const,
+    };
+
+    await service.saveIdentity('identity-only', {
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: identityFrontFile.id,
+      identityBackFileId: identityBackFile.id,
+      faceVerified: true,
+    });
+    await service.saveEnterprise('enterprise-only', {
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '44030019900101123X',
+      enterprisePhone: '13900139088',
+      licenseFileId: licenseFile.id,
+    });
+
+    await expect(
+      service.getAdminVerification(admin, 'identity-only'),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        shipperId: 'identity-only',
+        identity: expect.objectContaining({ status: 'reviewing' }),
+      }),
+    );
+    await expect(
+      service.getAdminVerification(admin, 'enterprise-only'),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        shipperId: 'enterprise-only',
+        enterprise: expect.objectContaining({ status: 'reviewing' }),
+      }),
+    );
+    await expect(
+      service.getAdminVerification(admin, 'identity-only'),
+    ).resolves.not.toHaveProperty('enterprise');
+    await expect(
+      service.getAdminVerification(admin, 'enterprise-only'),
+    ).resolves.not.toHaveProperty('identity');
+  });
+
+  it('rejects missing and non-admin shipper verification detail access', async () => {
+    const { repository, service } = createService();
+    const findIdentity = jest.spyOn(repository, 'findIdentityByShipperId');
+    const findEnterprise = jest.spyOn(repository, 'findEnterpriseByShipperId');
+
+    await expect(
+      service.getAdminVerification(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        'missing-shipper',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主认证记录不存在',
+      ),
+    );
+    findIdentity.mockClear();
+    findEnterprise.mockClear();
+
+    await expect(
+      service.getAdminVerification(
+        { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
+        'shipper-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(findIdentity).not.toHaveBeenCalled();
+    expect(findEnterprise).not.toHaveBeenCalled();
+  });
+
   it('approves and rejects shipper identity verification for admin', async () => {
     const { service } = createService([
       createUploadedIdentityFile('file-front'),

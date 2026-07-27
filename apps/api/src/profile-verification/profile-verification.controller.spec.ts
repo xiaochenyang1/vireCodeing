@@ -151,6 +151,60 @@ describe('ProfileVerificationController', () => {
 });
 
 describe('AdminShipperVerificationController', () => {
+  it('gets one shipper verification snapshot for the current admin', async () => {
+    const service = {
+      getAdminVerification: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        identity: {
+          shipperId: 'shipper-1',
+          realName: '张先生',
+          status: 'reviewing',
+        },
+        enterprise: {
+          shipperId: 'shipper-1',
+          enterpriseName: '深圳晨星贸易有限公司',
+          status: 'approved',
+        },
+      }),
+    } as unknown as ProfileVerificationService;
+    const controller = new AdminShipperVerificationController(service);
+
+    await expect(
+      controller.getVerification(
+        createRequest('admin-1', 'admin'),
+        'shipper-1',
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        shipperId: 'shipper-1',
+        identity: { status: 'reviewing' },
+        enterprise: { status: 'approved' },
+      },
+    });
+    expect(service.getAdminVerification).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'shipper-1',
+    );
+  });
+
+  it('rejects non-admin shipper verification detail access before service calls', async () => {
+    const service = {
+      getAdminVerification: jest.fn(),
+    } as unknown as ProfileVerificationService;
+    const controller = new AdminShipperVerificationController(service);
+
+    await expect(
+      controller.getVerification(
+        createRequest('shipper-1', 'shipper'),
+        'shipper-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.getAdminVerification).not.toHaveBeenCalled();
+  });
+
   it('gets verification attachment previews for the current admin', async () => {
     const service = {
       getAttachmentPreviews: jest.fn().mockResolvedValue({

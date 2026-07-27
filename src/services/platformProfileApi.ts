@@ -575,6 +575,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         ).toString()}`,
       );
     },
+    async getAdminVerification(shipperId: string) {
+      return platformGet<PlatformAdminShipperVerificationSnapshot>(
+        config,
+        `/admin/shipper-verifications/${encodeURIComponent(
+          normalizeAdminShipperVerificationShipperId(shipperId),
+        )}`,
+      );
+    },
     async listAdminVerificationReviewEvents(shipperId: string) {
       return platformGet<PlatformAdminShipperVerificationReviewEvent[]>(
         config,

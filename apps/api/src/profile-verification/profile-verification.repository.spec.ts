@@ -316,6 +316,95 @@ describe('PrismaProfileVerificationRepository review concurrency', () => {
   });
 });
 
+describe('PrismaProfileVerificationRepository review queue', () => {
+  it('hydrates both verification records after selecting shippers by status', async () => {
+    const createdAt = new Date('2026-07-26T09:00:00.000Z');
+    const identity: PrismaShipperIdentityVerificationRecord = {
+      shipperId: 'shipper-1',
+      realName: '张先生',
+      idNumber: '44030019900101123X',
+      identityFrontFileId: 'file-front',
+      identityBackFileId: 'file-back',
+      faceVerified: true,
+      status: 'reviewing',
+      rejectionReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const enterprise: PrismaShipperEnterpriseVerificationRecord = {
+      shipperId: 'shipper-1',
+      enterpriseName: '深圳晨星贸易有限公司',
+      creditCode: '91440300MA5TEST001',
+      legalName: '张先生',
+      legalId: '44030019900101123X',
+      enterprisePhone: '13900139088',
+      licenseFileId: 'file-license',
+      status: 'approved',
+      rejectionReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const identityFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([identity])
+      .mockResolvedValueOnce([identity]);
+    const enterpriseFindMany = jest
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([enterprise]);
+    const repository = new PrismaProfileVerificationRepository({
+      shipperIdentityVerification: {
+        findUnique: jest.fn(),
+        findMany: identityFindMany,
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperEnterpriseVerification: {
+        findUnique: jest.fn(),
+        findMany: enterpriseFindMany,
+        upsert: jest.fn(),
+        updateManyAndReturn: jest.fn(),
+      },
+      shipperVerificationReviewEvent: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    });
+
+    await expect(
+      repository.listVerifications({
+        status: 'reviewing',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          shipperId: 'shipper-1',
+          identity: { status: 'reviewing' },
+          enterprise: { status: 'approved' },
+        },
+      ],
+    });
+    expect(identityFindMany).toHaveBeenNthCalledWith(1, {
+      where: { status: 'reviewing' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(enterpriseFindMany).toHaveBeenNthCalledWith(1, {
+      where: { status: 'reviewing' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(identityFindMany).toHaveBeenNthCalledWith(2, {
+      where: { shipperId: { in: ['shipper-1'] } },
+    });
+    expect(enterpriseFindMany).toHaveBeenNthCalledWith(2, {
+      where: { shipperId: { in: ['shipper-1'] } },
+    });
+  });
+});
+
 function expectSingleWinner(
   results: PromiseSettledResult<{ status: string }>[],
   winningStatus: string,

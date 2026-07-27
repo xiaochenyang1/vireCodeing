@@ -1237,9 +1237,22 @@ describe('shipper verification admin console page', () => {
     expect(html).toContain('selectShipper');
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
-    expect(html).toContain('Promise.all([');
+    expect(html).toContain('const detailRequest = apiGet(');
+    expect(html).toContain('void attachmentRequest.then(');
+    expect(html).toContain('void reviewEventRequest.then(');
+    expect(html).not.toContain('Promise.allSettled([');
     expect(html).toContain('formatReviewEventStage');
-    expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('let currentDetail = null');
+    expect(html).toContain('let latestDetailRequestId = 0');
+    expect(html).toContain('let latestReviewMutationRequestId = 0');
+    expect(html).toContain('let reviewMutationPending = false');
+    expect(html).toContain("currentDetail.identity.status === 'reviewing'");
+    expect(html).toContain("currentDetail.enterprise.status === 'reviewing'");
+    expect(html).toContain('reviewMutationPending || !identityReviewing');
+    expect(html).toContain('reviewMutationPending || !enterpriseReviewing');
+    expect(html).toContain('previousPageButton');
+    expect(html).toContain('nextPageButton');
+    expect(html).toContain('pageSizeFilter');
     expect(html).toContain(
       "event.reviewerAdminId || event.actorUserId || '系统'",
     );
@@ -1258,46 +1271,410 @@ describe('shipper verification admin console page', () => {
     expect(html).not.toContain("query.get('status') || 'pending'");
     expect(html).toContain("query.get('type')");
     expect(html).toContain("query.get('shipperId')");
+    expect(html).toContain("query.get('page')");
+    expect(html).toContain("query.get('pageSize')");
     expect(html).toContain("query.set('shipperId', shipperId)");
+    expect(html).toContain("query.set('page', String(page))");
+    expect(html).toContain("query.set('pageSize', String(pageSize))");
     expect(html).toContain('history.replaceState');
   });
 
-  it('ignores stale shipper verification queue responses and keeps the latest detail context', () => {
+  it('keeps queue pagination and routed details as independent request generations', () => {
     const html = renderShipperVerificationAdminConsole();
+    const queueStart = html.indexOf('async function loadQueue(page)');
+    const queueEnd = html.indexOf(
+      'async function refreshWorkspace(page)',
+      queueStart,
+    );
+    const queueBody = html.slice(queueStart, queueEnd);
+    const refreshEnd = html.indexOf(
+      'function changeQueuePage(offset)',
+      queueEnd,
+    );
+    const refreshBody = html.slice(queueEnd, refreshEnd);
+    const queueRenderStart = html.indexOf('function renderQueue(items)');
+    const queueRenderEnd = html.indexOf(
+      'function renderDetail()',
+      queueRenderStart,
+    );
+    const queueRenderBody = html.slice(queueRenderStart, queueRenderEnd);
 
     expect(html).toContain('let latestQueueRequestId = 0');
-    expect(html).toContain('let latestReviewEventsRequestId = 0');
+    expect(html).toContain('let latestDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestQueueRequestId');
     expect(html).toContain('if (requestId !== latestQueueRequestId) {');
-    expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
-    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+    expect(html).toContain('const requestId = ++latestDetailRequestId');
+    expect(html).toContain('requestId !== latestDetailRequestId ||');
+    expect(html).toContain('selectedShipperId !== targetShipperId');
+    expect(queueBody).not.toContain('latestDetailRequestId');
+    expect(queueBody).not.toContain('resetDetail(');
+    expect(queueRenderBody).not.toContain("selectedShipperId = ''");
+    expect(queueRenderBody).not.toContain(
+      "syncShipperVerificationRouteState('')",
+    );
+    expect(refreshBody).toContain('loadQueue(page || currentPage)');
+    expect(refreshBody).toContain('selectShipper(targetShipperId)');
   });
 
-  it('invalidates shipper detail requests before queue and selection early returns', () => {
+  it('commits only the latest routed shipper detail and degrades secondary panels independently', async () => {
     const html = renderShipperVerificationAdminConsole();
     const selectStart = html.indexOf('async function selectShipper(shipperId)');
-    const selectRequestIndex = html.indexOf(
-      'const requestId = ++latestReviewEventsRequestId',
+    const selectEnd = html.indexOf(
+      'async function loadQueue(page)',
       selectStart,
     );
-    const emptySelectionIndex = html.indexOf('if (!shipperId)', selectStart);
-    const queueStart = html.indexOf('async function loadQueue()');
-    const queueInvalidationIndex = html.indexOf(
-      'latestReviewEventsRequestId += 1',
-      queueStart,
+    const selectSource = html.slice(selectStart, selectEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const flushPromises = () =>
+      new Promise<void>(resolve => setImmediate(resolve));
+    const pending = new Map<string, ReturnType<typeof createDeferred>>();
+    const createShipperRequests = (shipperId: string) => {
+      const detail = createDeferred();
+      const attachments = createDeferred();
+      const events = createDeferred();
+      pending.set('/' + shipperId, detail);
+      pending.set('/' + shipperId + '/attachments', attachments);
+      pending.set('/' + shipperId + '/review-events', events);
+      return { attachments, detail, events };
+    };
+    const apiGet = jest.fn((path: string) => {
+      const deferred = pending.get(path);
+      if (!deferred) {
+        return Promise.reject(new Error('unexpected request: ' + path));
+      }
+      return deferred.promise;
+    });
+    let activeContext:
+      | {
+          currentAttachments: unknown;
+          currentDetail: unknown;
+          currentReviewEvents: unknown[];
+        }
+      | undefined;
+    const resetDetail = jest.fn(() => {
+      if (activeContext) activeContext.currentDetail = null;
+    });
+    const resetAttachments = jest.fn(() => {
+      if (activeContext) activeContext.currentAttachments = null;
+    });
+    const resetReviewEvents = jest.fn(() => {
+      if (activeContext) activeContext.currentReviewEvents = [];
+    });
+    const context = {
+      latestDetailRequestId: 0,
+      selectedShipperId: '',
+      currentItems: [] as unknown[],
+      currentDetail: null as unknown,
+      currentAttachments: null as unknown,
+      currentReviewEvents: [] as unknown[],
+      syncShipperVerificationRouteState: jest.fn(),
+      renderQueue: jest.fn(),
+      setText: jest.fn(),
+      resetDetail,
+      resetAttachments,
+      resetReviewEvents,
+      getToken: jest.fn(() => 'admin-token'),
+      apiGet,
+      encodeURIComponent,
+      renderDetail: jest.fn(),
+      renderAttachments: jest.fn(),
+      renderReviewEvents: jest.fn(),
+      invokeSelectShipper: undefined as
+        | undefined
+        | ((shipperId: string) => Promise<void>),
+    };
+    activeContext = context;
+    runInNewContext(
+      `${selectSource}\ninvokeSelectShipper = selectShipper;`,
+      context,
     );
-    const queueRequestIndex = html.indexOf(
-      'const requestId = ++latestQueueRequestId',
-      queueStart,
-    );
-    const missingTokenIndex = html.indexOf('if (!getToken())', queueStart);
+    if (!context.invokeSelectShipper) {
+      throw new Error('selectShipper function was not initialized');
+    }
 
-    expect(selectRequestIndex).toBeGreaterThan(selectStart);
-    expect(selectRequestIndex).toBeLessThan(emptySelectionIndex);
-    expect(queueRequestIndex).toBeGreaterThan(queueStart);
-    expect(queueRequestIndex).toBeLessThan(missingTokenIndex);
-    expect(queueInvalidationIndex).toBeGreaterThan(queueStart);
-    expect(queueInvalidationIndex).toBeLessThan(missingTokenIndex);
+    const shipperA = createShipperRequests('shipper-a');
+    const shipperB = createShipperRequests('shipper-b');
+    const slowShipperA = context.invokeSelectShipper('shipper-a');
+    const fastShipperB = context.invokeSelectShipper('shipper-b');
+    const shipperBDetail = {
+      shipperId: 'shipper-b',
+      identity: { status: 'reviewing' },
+      enterprise: { status: 'approved' },
+    };
+    shipperB.detail.resolve?.(shipperBDetail);
+    shipperB.attachments.resolve?.({ shipperId: 'shipper-b' });
+    shipperB.events.resolve?.([{ eventId: 'event-b' }]);
+    await fastShipperB;
+    await flushPromises();
+
+    expect(context.currentDetail).toEqual(shipperBDetail);
+    expect(context.currentAttachments).toEqual({ shipperId: 'shipper-b' });
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-b' }]);
+
+    shipperA.detail.resolve?.({ shipperId: 'shipper-a' });
+    shipperA.attachments.resolve?.({ shipperId: 'shipper-a' });
+    shipperA.events.resolve?.([{ eventId: 'event-a' }]);
+    await slowShipperA;
+    expect(context.currentDetail).toEqual(shipperBDetail);
+
+    const shipperC = createShipperRequests('shipper-c');
+    const degradedShipperC = context.invokeSelectShipper('shipper-c');
+    const shipperCDetail = {
+      shipperId: 'shipper-c',
+      identity: { status: 'reviewing' },
+    };
+    shipperC.detail.resolve?.(shipperCDetail);
+    shipperC.attachments.reject?.(new Error('附件暂不可用'));
+    shipperC.events.resolve?.([{ eventId: 'event-c' }]);
+    await degradedShipperC;
+    await flushPromises();
+
+    expect(context.currentDetail).toEqual(shipperCDetail);
+    expect(context.currentAttachments).toBeNull();
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-c' }]);
+    expect(resetAttachments).toHaveBeenLastCalledWith('附件暂不可用');
+
+    const shipperD = createShipperRequests('shipper-d');
+    const degradedShipperD = context.invokeSelectShipper('shipper-d');
+    const shipperDDetail = {
+      shipperId: 'shipper-d',
+      enterprise: { status: 'reviewing' },
+    };
+    shipperD.detail.resolve?.(shipperDDetail);
+    shipperD.attachments.resolve?.({ shipperId: 'shipper-d' });
+    shipperD.events.reject?.(new Error('审核事件暂不可用'));
+    await degradedShipperD;
+    await flushPromises();
+
+    expect(context.currentDetail).toEqual(shipperDDetail);
+    expect(context.currentAttachments).toEqual({ shipperId: 'shipper-d' });
+    expect(context.currentReviewEvents).toEqual([]);
+    expect(resetReviewEvents).toHaveBeenLastCalledWith('审核事件暂不可用');
+
+    const shipperE = createShipperRequests('shipper-e');
+    const independentlyLoadedShipperE = context.invokeSelectShipper('shipper-e');
+    const shipperEDetail = {
+      shipperId: 'shipper-e',
+      identity: { status: 'reviewing' },
+    };
+    shipperE.detail.resolve?.(shipperEDetail);
+    await independentlyLoadedShipperE;
+
+    expect(context.currentDetail).toEqual(shipperEDetail);
+    expect(context.currentAttachments).toBeNull();
+    expect(context.currentReviewEvents).toEqual([]);
+
+    shipperE.attachments.resolve?.({ shipperId: 'shipper-e' });
+    await flushPromises();
+    expect(context.currentAttachments).toEqual({ shipperId: 'shipper-e' });
+    expect(context.currentReviewEvents).toEqual([]);
+
+    shipperE.events.resolve?.([{ eventId: 'event-e' }]);
+    await flushPromises();
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-e' }]);
+
+    const shipperF = createShipperRequests('shipper-f');
+    const failedShipperF = context.invokeSelectShipper('shipper-f');
+    shipperF.detail.reject?.(new Error('认证记录不存在'));
+    shipperF.attachments.resolve?.({ shipperId: 'shipper-f' });
+    shipperF.events.resolve?.([{ eventId: 'event-f' }]);
+    await failedShipperF;
+
+    expect(context.selectedShipperId).toBe('shipper-f');
+    expect(context.currentDetail).toBeNull();
+    expect(context.currentAttachments).toBeNull();
+    expect(context.currentReviewEvents).toEqual([]);
+    expect(context.syncShipperVerificationRouteState).toHaveBeenLastCalledWith(
+      'shipper-f',
+    );
+  });
+
+  it('retains routed shipper ids across empty, out-of-page and failed queue results', async () => {
+    const html = renderShipperVerificationAdminConsole();
+    const renderQueueStart = html.indexOf('function renderQueue(items)');
+    const renderQueueEnd = html.indexOf(
+      'function renderDetail()',
+      renderQueueStart,
+    );
+    const renderQueueSource = html.slice(renderQueueStart, renderQueueEnd);
+    const queueRoot = {
+      innerHTML: '',
+      querySelectorAll: jest.fn(() => []),
+    };
+    const renderContext = {
+      selectedShipperId: 'routed-shipper',
+      currentItems: [] as Array<{ shipperId: string }>,
+      document: {
+        getElementById: jest.fn(() => queueRoot),
+      },
+      escapeHtml: (value: unknown) => String(value),
+      selectShipper: jest.fn(),
+      invokeRenderQueue: undefined as
+        | undefined
+        | ((items: Array<{ shipperId: string }>) => void),
+    };
+    runInNewContext(
+      `${renderQueueSource}\ninvokeRenderQueue = renderQueue;`,
+      renderContext,
+    );
+    if (!renderContext.invokeRenderQueue) {
+      throw new Error('renderQueue function was not initialized');
+    }
+
+    renderContext.invokeRenderQueue([]);
+    expect(renderContext.selectedShipperId).toBe('routed-shipper');
+    renderContext.invokeRenderQueue([{ shipperId: 'another-shipper' }]);
+    expect(renderContext.selectedShipperId).toBe('routed-shipper');
+
+    const loadQueueStart = html.indexOf('async function loadQueue(page)');
+    const loadQueueEnd = html.indexOf(
+      'async function refreshWorkspace(page)',
+      loadQueueStart,
+    );
+    const loadQueueSource = html.slice(loadQueueStart, loadQueueEnd);
+    const detailBeforeFailure = { shipperId: 'routed-shipper' };
+    const loadContext = {
+      latestQueueRequestId: 0,
+      currentPage: 1,
+      currentTotal: 1,
+      currentItems: [{ shipperId: 'another-shipper' }],
+      currentDetail: detailBeforeFailure,
+      selectedShipperId: 'routed-shipper',
+      syncShipperVerificationRouteState: jest.fn(),
+      getQueuePageSize: jest.fn(() => 20),
+      getToken: jest.fn(() => 'admin-token'),
+      clearQueueResults: jest.fn(),
+      setText: jest.fn(),
+      document: {
+        getElementById: jest.fn((id: string) => ({
+          value: id === 'statusFilter' ? 'reviewing' : '',
+        })),
+      },
+      URLSearchParams,
+      apiGet: jest.fn(() => Promise.reject(new Error('队列加载失败'))),
+      renderQueue: jest.fn(),
+      renderPagination: jest.fn(),
+      selectShipper: jest.fn(),
+      invokeLoadQueue: undefined as
+        | undefined
+        | ((page: number) => Promise<void>),
+    };
+    runInNewContext(
+      `${loadQueueSource}\ninvokeLoadQueue = loadQueue;`,
+      loadContext,
+    );
+    if (!loadContext.invokeLoadQueue) {
+      throw new Error('loadQueue function was not initialized');
+    }
+    await loadContext.invokeLoadQueue(1);
+
+    expect(loadContext.selectedShipperId).toBe('routed-shipper');
+    expect(loadContext.currentDetail).toBe(detailBeforeFailure);
+    expect(loadContext.clearQueueResults).toHaveBeenCalledWith('队列加载失败');
+  });
+
+  it('prevents duplicate reviews and never restores a reviewed shipper after selection changes', async () => {
+    const html = renderShipperVerificationAdminConsole();
+    const reviewStart = html.indexOf('async function review(kind, status)');
+    const reviewEnd = html.indexOf(
+      "document.getElementById('refreshButton')",
+      reviewStart,
+    );
+    const reviewSource = html.slice(reviewStart, reviewEnd);
+    let resolveReview: ((value: unknown) => void) | undefined;
+    const reviewResponse = new Promise<unknown>(resolve => {
+      resolveReview = resolve;
+    });
+    const apiPost = jest.fn().mockReturnValueOnce(reviewResponse);
+    const loadQueue = jest.fn(() => Promise.resolve());
+    const selectShipper = jest.fn(() => Promise.resolve());
+    const context = {
+      reviewMutationPending: false,
+      latestReviewMutationRequestId: 0,
+      selectedShipperId: 'shipper-a',
+      currentDetail: {
+        shipperId: 'shipper-a',
+        identity: { status: 'reviewing' },
+        enterprise: { status: 'approved' },
+      },
+      currentPage: 1,
+      document: {
+        getElementById: jest.fn(() => ({ value: '' })),
+      },
+      setText: jest.fn(),
+      updateReviewControls: jest.fn(),
+      apiPost,
+      encodeURIComponent,
+      loadQueue,
+      selectShipper,
+      invokeReview: undefined as
+        | undefined
+        | ((kind: 'identity' | 'enterprise', status: 'approved' | 'rejected') => Promise<void>),
+    };
+    runInNewContext(`${reviewSource}\ninvokeReview = review;`, context);
+    if (!context.invokeReview) {
+      throw new Error('review function was not initialized');
+    }
+
+    const firstReview = context.invokeReview('identity', 'approved');
+    await context.invokeReview('identity', 'approved');
+    expect(apiPost).toHaveBeenCalledTimes(1);
+
+    const shipperBDetail = {
+      shipperId: 'shipper-b',
+      identity: { status: 'reviewing' },
+      enterprise: { status: 'reviewing' },
+    };
+    context.selectedShipperId = 'shipper-b';
+    context.currentDetail = shipperBDetail;
+    resolveReview?.({ status: 'approved' });
+    await firstReview;
+
+    expect(context.selectedShipperId).toBe('shipper-b');
+    expect(context.currentDetail).toBe(shipperBDetail);
+    expect(loadQueue).toHaveBeenCalledTimes(1);
+    expect(selectShipper).not.toHaveBeenCalled();
+    expect(context.reviewMutationPending).toBe(false);
+
+    context.currentDetail = {
+      shipperId: 'shipper-b',
+      identity: { status: 'approved' },
+      enterprise: { status: 'reviewing' },
+    };
+    await context.invokeReview('identity', 'approved');
+    expect(apiPost).toHaveBeenCalledTimes(1);
+
+    loadQueue.mockClear();
+    selectShipper.mockClear();
+    context.selectedShipperId = 'shipper-c';
+    context.currentDetail = {
+      shipperId: 'shipper-c',
+      identity: { status: 'reviewing' },
+      enterprise: { status: 'approved' },
+    };
+    apiPost.mockRejectedValueOnce(
+      Object.assign(new Error('认证状态已变化'), {
+        code: 'SHIPPER_VERIFICATION_STATE_INVALID',
+      }),
+    );
+    await context.invokeReview('identity', 'approved');
+
+    expect(loadQueue).toHaveBeenCalledTimes(1);
+    expect(selectShipper).toHaveBeenCalledWith('shipper-c');
+    expect(context.setText).toHaveBeenCalledWith(
+      'reviewStatus',
+      '认证状态已变化',
+    );
+    expect(html).toContain('error.code = payload.code');
+    expect(html).toContain("error.code === 'SHIPPER_VERIFICATION_NOT_FOUND'");
   });
 
   it('executes the shared admin session bootstrap before auto-loading the verification queue', () => {
@@ -1316,6 +1693,7 @@ describe('shipper verification admin console page', () => {
     expect(html).toContain(
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
+    expect(html).toContain('refreshWorkspace(currentPage)');
   });
 });
 

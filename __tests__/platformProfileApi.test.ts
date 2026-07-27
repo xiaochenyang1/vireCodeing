@@ -487,6 +487,68 @@ describe('platform profile api', () => {
     );
   });
 
+  it('gets one admin shipper verification independently from the queue page', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          shipperId: 'shipper-75',
+          identity: {
+            shipperId: 'shipper-75',
+            realName: '李女士',
+            idNumber: '44030019900101124X',
+            identityFrontFileId: 'file-front-75',
+            identityBackFileId: 'file-back-75',
+            faceVerified: true,
+            status: 'reviewing',
+            createdAtIso: '2026-07-26T08:00:00.000Z',
+            updatedAtIso: '2026-07-26T08:05:00.000Z',
+          },
+          enterprise: {
+            shipperId: 'shipper-75',
+            enterpriseName: '深圳远航物流有限公司',
+            creditCode: '91440300MA5TEST075',
+            legalName: '李女士',
+            legalId: '44030019900101124X',
+            enterprisePhone: '13900139075',
+            licenseFileId: 'file-license-75',
+            status: 'approved',
+            createdAtIso: '2026-07-25T08:00:00.000Z',
+            updatedAtIso: '2026-07-25T08:05:00.000Z',
+          },
+        },
+        requestId: 'req-admin-profile-detail',
+        timestamp: '2026-07-26T08:10:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminVerification(' shipper-75 '),
+    ).resolves.toMatchObject({
+      shipperId: 'shipper-75',
+      identity: expect.objectContaining({ status: 'reviewing' }),
+      enterprise: expect.objectContaining({ status: 'approved' }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/shipper-verifications/shipper-75',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('saves the shipper profile address book with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -2275,6 +2337,8 @@ describe('platform profile api', () => {
       api.listAdminVerificationReviewEvents('   ')],
     ['empty admin shipper attachments id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.listAdminVerificationAttachments('   ')],
+    ['empty admin shipper detail id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.getAdminVerification('   ')],
     ['empty admin shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminIdentityVerification('   ', { status: 'approved' })],
     ['invalid admin shipper verification review status', (api: ReturnType<typeof createPlatformProfileApi>) =>

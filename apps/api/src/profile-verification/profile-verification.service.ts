@@ -14,6 +14,7 @@ import type {
   ShipperVerificationAttachmentPreview,
   ShipperVerificationAttachmentRecord,
   ShipperVerificationAttachmentType,
+  ShipperVerificationSnapshot,
 } from './dto';
 import type { ProfileVerificationRepository } from './profile-verification.repository';
 
@@ -62,6 +63,15 @@ export class ProfileVerificationService {
     return this.repository.listVerifications(query);
   }
 
+  async getAdminVerification(
+    currentUser: AuthenticatedUser,
+    shipperId: string,
+  ): Promise<ShipperVerificationSnapshot> {
+    this.assertAdmin(currentUser);
+
+    return this.requireVerificationSnapshot(shipperId);
+  }
+
   async listReviewEvents(currentUser: AuthenticatedUser, shipperId: string) {
     this.assertAdmin(currentUser);
     return this.repository.listReviewEvents(shipperId);
@@ -72,18 +82,8 @@ export class ProfileVerificationService {
     shipperId: string,
   ): Promise<ShipperVerificationAttachmentPreview> {
     this.assertAdmin(currentUser);
-
-    const [identity, enterprise] = await Promise.all([
-      this.repository.findIdentityByShipperId(shipperId),
-      this.repository.findEnterpriseByShipperId(shipperId),
-    ]);
-
-    if (!identity && !enterprise) {
-      throw new BusinessError(
-        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
-        '货主认证记录不存在',
-      );
-    }
+    const { identity, enterprise } =
+      await this.requireVerificationSnapshot(shipperId);
 
     const [identityFront, identityBack, license] = await Promise.all([
       this.findAttachment(
@@ -108,6 +108,28 @@ export class ProfileVerificationService {
       enterprise: {
         ...(license ? { license } : {}),
       },
+    };
+  }
+
+  private async requireVerificationSnapshot(
+    shipperId: string,
+  ): Promise<ShipperVerificationSnapshot> {
+    const [identity, enterprise] = await Promise.all([
+      this.repository.findIdentityByShipperId(shipperId),
+      this.repository.findEnterpriseByShipperId(shipperId),
+    ]);
+
+    if (!identity && !enterprise) {
+      throw new BusinessError(
+        ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
+        '货主认证记录不存在',
+      );
+    }
+
+    return {
+      shipperId,
+      ...(identity ? { identity } : {}),
+      ...(enterprise ? { enterprise } : {}),
     };
   }
 

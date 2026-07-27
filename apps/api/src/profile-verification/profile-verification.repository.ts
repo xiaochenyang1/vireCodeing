@@ -320,7 +320,7 @@ export type PrismaProfileVerificationClient = {
       where: { shipperId: string };
     }): Promise<PrismaShipperIdentityVerificationRecord | null>;
     findMany(args: {
-      where?: { status?: string };
+      where?: { status?: string; shipperId?: { in: string[] } };
       orderBy?: { updatedAt: 'asc' | 'desc' };
     }): Promise<PrismaShipperIdentityVerificationRecord[]>;
     upsert(args: {
@@ -358,7 +358,7 @@ export type PrismaProfileVerificationClient = {
       where: { shipperId: string };
     }): Promise<PrismaShipperEnterpriseVerificationRecord | null>;
     findMany(args: {
-      where?: { status?: string };
+      where?: { status?: string; shipperId?: { in: string[] } };
       orderBy?: { updatedAt: 'asc' | 'desc' };
     }): Promise<PrismaShipperEnterpriseVerificationRecord[]>;
     upsert(args: {
@@ -516,13 +516,6 @@ export class PrismaProfileVerificationRepository
     ]);
 
     const shipperIds = new Set<string>();
-    const identityByShipperId = new Map(
-      identities.map(record => [record.shipperId, record] as const),
-    );
-    const enterpriseByShipperId = new Map(
-      enterprises.map(record => [record.shipperId, record] as const),
-    );
-
     for (const identity of identities) {
       shipperIds.add(identity.shipperId);
     }
@@ -535,6 +528,20 @@ export class PrismaProfileVerificationRepository
     const pageShipperIds = orderedShipperIds.slice(
       start,
       start + query.pageSize,
+    );
+    const [pageIdentities, pageEnterprises] = await Promise.all([
+      this.prisma.shipperIdentityVerification.findMany({
+        where: { shipperId: { in: pageShipperIds } },
+      }),
+      this.prisma.shipperEnterpriseVerification.findMany({
+        where: { shipperId: { in: pageShipperIds } },
+      }),
+    ]);
+    const identityByShipperId = new Map(
+      pageIdentities.map(record => [record.shipperId, record] as const),
+    );
+    const enterpriseByShipperId = new Map(
+      pageEnterprises.map(record => [record.shipperId, record] as const),
     );
 
     return {

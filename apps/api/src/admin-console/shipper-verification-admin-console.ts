@@ -89,6 +89,15 @@ export function renderShipperVerificationAdminConsole() {
     }
     button.secondary { background: #44515b; }
     button.danger { background: var(--danger); }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .pagination-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin: 10px 0;
+    }
     .queue-item { cursor: pointer; }
     .queue-item strong { display: block; margin-bottom: 4px; }
     .detail-grid { display: grid; gap: 8px; }
@@ -153,9 +162,21 @@ export function renderShipperVerificationAdminConsole() {
             <option value="enterprise">企业</option>
           </select>
         </label>
+        <label>
+          每页
+          <select id="pageSizeFilter">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
         <button type="button" id="refreshButton" class="secondary">刷新队列</button>
       </div>
       <div id="queueStatus" class="status-line">等待登录 token 后加载队列。</div>
+      <div class="pagination-row">
+        <button type="button" id="previousPageButton" class="secondary" disabled>上一页</button>
+        <span id="paginationStatus" class="muted">第 1 页</span>
+        <button type="button" id="nextPageButton" class="secondary" disabled>下一页</button>
+      </div>
       <div id="queueList"></div>
     </section>
     <section class="detail-panel">
@@ -196,10 +217,15 @@ export function renderShipperVerificationAdminConsole() {
     const apiBase = document.querySelector('meta[name="admin-shipper-verification-api"]').content;
     let selectedShipperId = '';
     let currentItems = [];
+    let currentDetail = null;
     let currentAttachments = null;
     let currentReviewEvents = [];
+    let currentPage = 1;
+    let currentTotal = 0;
     let latestQueueRequestId = 0;
-    let latestReviewEventsRequestId = 0;
+    let latestDetailRequestId = 0;
+    let latestReviewMutationRequestId = 0;
+    let reviewMutationPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/shipper-verification-console',
     })}
@@ -237,6 +263,8 @@ export function renderShipperVerificationAdminConsole() {
         status: query.get('status') || 'reviewing',
         type: query.get('type') || '',
         shipperId: query.get('shipperId') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
       };
     }
 
@@ -244,11 +272,33 @@ export function renderShipperVerificationAdminConsole() {
       const routeState = readShipperVerificationRouteState();
       document.getElementById('statusFilter').value = routeState.status;
       document.getElementById('typeFilter').value = routeState.type;
+      if (routeState.page) {
+        currentPage = Math.max(1, Number.parseInt(routeState.page, 10) || 1);
+      }
+      if (routeState.pageSize) {
+        document.getElementById('pageSizeFilter').value = String(
+          [20, 50].includes(Number(routeState.pageSize))
+            ? Number(routeState.pageSize)
+            : 20,
+        );
+      }
       selectedShipperId = routeState.shipperId;
       return routeState;
     }
 
-    function syncShipperVerificationRouteState(shipperIdOverride) {
+    function getQueuePageSize() {
+      const value = Number.parseInt(
+        document.getElementById('pageSizeFilter').value || '20',
+        10,
+      );
+      return [20, 50].includes(value) ? value : 20;
+    }
+
+    function syncShipperVerificationRouteState(
+      shipperIdOverride,
+      pageOverride,
+      pageSizeOverride,
+    ) {
       if (!globalThis.history || !globalThis.location) {
         return;
       }
@@ -256,6 +306,13 @@ export function renderShipperVerificationAdminConsole() {
       const query = new URLSearchParams();
       const status = document.getElementById('statusFilter').value;
       const type = document.getElementById('typeFilter').value;
+      const page = Math.max(
+        1,
+        Number.parseInt(String(pageOverride || currentPage || 1), 10) || 1,
+      );
+      const pageSize = [20, 50].includes(Number(pageSizeOverride))
+        ? Number(pageSizeOverride)
+        : getQueuePageSize();
       const shipperId = String(
         typeof shipperIdOverride === 'string'
           ? shipperIdOverride
@@ -270,18 +327,22 @@ export function renderShipperVerificationAdminConsole() {
       if (shipperId) {
         query.set('shipperId', shipperId);
       }
+      if (page > 1) {
+        query.set('page', String(page));
+      }
+      if (pageSize !== 20) {
+        query.set('pageSize', String(pageSize));
+      }
       const nextQuery = query.toString();
       const nextPath = location.pathname + (nextQuery ? '?' + nextQuery : '');
       history.replaceState(null, '', nextPath);
     }
 
-    function getSelectedItem() {
-      return currentItems.find(item => item.shipperId === selectedShipperId);
-    }
-
     function resetDetail(statusText) {
+      currentDetail = null;
       setText('detailStatus', statusText);
       document.getElementById('detailBody').innerHTML = '';
+      updateReviewControls();
     }
 
     function resetAttachments(statusText) {
@@ -310,7 +371,9 @@ export function renderShipperVerificationAdminConsole() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || payload.code || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -326,7 +389,9 @@ export function renderShipperVerificationAdminConsole() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || payload.code || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -335,18 +400,9 @@ export function renderShipperVerificationAdminConsole() {
       currentItems = items || [];
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
-        selectedShipperId = '';
-        syncShipperVerificationRouteState('');
         root.innerHTML = '<div class="muted">当前筛选下没有认证记录。</div>';
-        resetDetail('请选择左侧货主。');
-        resetAttachments('请选择左侧货主。');
-        resetReviewEvents('请选择左侧货主。');
         return;
       }
-      if (!currentItems.some(item => item.shipperId === selectedShipperId)) {
-        selectedShipperId = currentItems[0].shipperId;
-      }
-      syncShipperVerificationRouteState(selectedShipperId);
       root.innerHTML = currentItems.map(item => {
         const identity = item.identity ? item.identity.status : '无';
         const enterprise = item.enterprise ? item.enterprise.status : '无';
@@ -364,7 +420,7 @@ export function renderShipperVerificationAdminConsole() {
     }
 
     function renderDetail() {
-      const item = getSelectedItem();
+      const item = currentDetail;
       if (!item) {
         resetDetail('请选择左侧货主。');
         return;
@@ -391,6 +447,26 @@ export function renderShipperVerificationAdminConsole() {
             '</div></div>'
           : '<div><strong>企业认证</strong><div class="muted">未提交</div></div>',
       ].join('');
+      updateReviewControls();
+    }
+
+    function renderPagination() {
+      const pageSize = getQueuePageSize();
+      const maxPage = Math.max(1, Math.ceil(currentTotal / pageSize));
+      setText(
+        'paginationStatus',
+        '第 ' + currentPage + ' 页 / 共 ' + maxPage + ' 页',
+      );
+      document.getElementById('previousPageButton').disabled = currentPage <= 1;
+      document.getElementById('nextPageButton').disabled = currentPage >= maxPage;
+    }
+
+    function clearQueueResults(statusText) {
+      currentItems = [];
+      currentTotal = 0;
+      renderQueue([]);
+      renderPagination();
+      setText('queueStatus', statusText);
     }
 
     function renderAttachments() {
@@ -438,89 +514,232 @@ export function renderShipperVerificationAdminConsole() {
       setText('reviewEventStatus', '共 ' + currentReviewEvents.length + ' 条审核事件');
     }
 
-    async function selectShipper(shipperId) {
-      const requestId = ++latestReviewEventsRequestId;
-      selectedShipperId = shipperId;
-      syncShipperVerificationRouteState(selectedShipperId);
-      renderQueue(currentItems);
-      renderDetail();
-      setText('reviewStatus', '');
-      if (!shipperId) {
-        resetAttachments('请选择左侧货主。');
-        resetReviewEvents('请选择左侧货主。');
-        return;
-      }
-      if (!getToken()) {
-        resetAttachments('请先填写 admin token。');
-        resetReviewEvents('请先填写 admin token。');
-        return;
-      }
-
-      setText('attachmentStatus', '加载附件中...');
-      setText('reviewEventStatus', '加载审核事件中...');
-
-      try {
-        const [attachments, events] = await Promise.all([
-          apiGet('/' + encodeURIComponent(shipperId) + '/attachments'),
-          apiGet('/' + encodeURIComponent(shipperId) + '/review-events'),
-        ]);
-        if (requestId !== latestReviewEventsRequestId) {
-          return;
-        }
-        currentAttachments = attachments;
-        currentReviewEvents = Array.isArray(events) ? events : [];
-        renderAttachments();
-        renderReviewEvents();
-      } catch (error) {
-        if (requestId !== latestReviewEventsRequestId) {
-          return;
-        }
-        resetAttachments(error.message || '附件加载失败');
-        resetReviewEvents(error.message || '审核事件加载失败');
-      }
+    function updateReviewControls() {
+      const identityReviewing = Boolean(
+        currentDetail &&
+        currentDetail.identity &&
+        currentDetail.identity.status === 'reviewing',
+      );
+      const enterpriseReviewing = Boolean(
+        currentDetail &&
+        currentDetail.enterprise &&
+        currentDetail.enterprise.status === 'reviewing',
+      );
+      [
+        'approveIdentityButton',
+        'rejectIdentityButton',
+      ].forEach(id => {
+        document.getElementById(id).disabled =
+          reviewMutationPending || !identityReviewing;
+      });
+      [
+        'approveEnterpriseButton',
+        'rejectEnterpriseButton',
+      ].forEach(id => {
+        document.getElementById(id).disabled =
+          reviewMutationPending || !enterpriseReviewing;
+      });
     }
 
-    async function loadQueue() {
-      const requestId = ++latestQueueRequestId;
-      latestReviewEventsRequestId += 1;
+    async function selectShipper(shipperId) {
+      const requestId = ++latestDetailRequestId;
+      const targetShipperId = String(shipperId || '').trim();
+      selectedShipperId = targetShipperId;
+      syncShipperVerificationRouteState(selectedShipperId);
+      renderQueue(currentItems);
+      setText('reviewStatus', '');
+      resetDetail(
+        targetShipperId ? '认证详情加载中...' : '请选择左侧货主。',
+      );
+      resetAttachments(
+        targetShipperId ? '附件加载中...' : '请选择左侧货主。',
+      );
+      resetReviewEvents(
+        targetShipperId ? '审核事件加载中...' : '请选择左侧货主。',
+      );
+      if (!targetShipperId) {
+        return;
+      }
       if (!getToken()) {
-        setText('queueStatus', '请先填写 admin token。');
         resetDetail('请先填写 admin token。');
         resetAttachments('请先填写 admin token。');
         resetReviewEvents('请先填写 admin token。');
         return;
       }
+
+      const detailRequest = apiGet('/' + encodeURIComponent(targetShipperId));
+      const attachmentRequest = apiGet(
+        '/' + encodeURIComponent(targetShipperId) + '/attachments',
+      ).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason }),
+      );
+      const reviewEventRequest = apiGet(
+        '/' + encodeURIComponent(targetShipperId) + '/review-events',
+      ).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason }),
+      );
+
+      try {
+        const detail = await detailRequest;
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedShipperId !== targetShipperId
+        ) {
+          return;
+        }
+        currentDetail = detail;
+        renderDetail();
+      } catch (error) {
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedShipperId !== targetShipperId
+        ) {
+          return;
+        }
+        resetDetail(error.message || '认证详情加载失败');
+        resetAttachments('认证详情未加载，附件工作区已清空。');
+        resetReviewEvents('认证详情未加载，审核事件工作区已清空。');
+        return;
+      }
+
+      void attachmentRequest.then(attachmentResult => {
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedShipperId !== targetShipperId
+        ) {
+          return;
+        }
+        if (attachmentResult.status === 'fulfilled') {
+          currentAttachments = attachmentResult.value;
+          renderAttachments();
+        } else {
+          const attachmentError = attachmentResult.reason;
+          resetAttachments(
+            attachmentError && attachmentError.message
+              ? attachmentError.message
+              : '附件加载失败',
+          );
+        }
+      });
+      void reviewEventRequest.then(reviewEventResult => {
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedShipperId !== targetShipperId
+        ) {
+          return;
+        }
+        if (reviewEventResult.status === 'fulfilled') {
+          currentReviewEvents = Array.isArray(reviewEventResult.value)
+            ? reviewEventResult.value
+            : [];
+          renderReviewEvents();
+        } else {
+          const reviewEventError = reviewEventResult.reason;
+          resetReviewEvents(
+            reviewEventError && reviewEventError.message
+              ? reviewEventError.message
+              : '审核事件加载失败',
+          );
+        }
+      });
+    }
+
+    async function loadQueue(page) {
+      const requestId = ++latestQueueRequestId;
+      const requestedPage = Math.max(
+        1,
+        Number.parseInt(String(page || currentPage || 1), 10) || 1,
+      );
+      currentPage = requestedPage;
+      syncShipperVerificationRouteState(
+        selectedShipperId,
+        currentPage,
+        getQueuePageSize(),
+      );
+      if (!getToken()) {
+        clearQueueResults('请先填写 admin token。');
+        return;
+      }
       setText('queueStatus', '加载中...');
-      syncShipperVerificationRouteState(selectedShipperId);
       try {
         const status = document.getElementById('statusFilter').value;
         const type = document.getElementById('typeFilter').value;
-        const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
+        const pageSize = getQueuePageSize();
+        const query = new URLSearchParams({
+          status,
+          page: String(requestedPage),
+          pageSize: String(pageSize),
+        });
         if (type) query.set('type', type);
         const data = await apiGet('?' + query.toString());
         if (requestId !== latestQueueRequestId) {
           return;
         }
+        currentTotal = Number(data.total || 0);
+        const maxPage = Math.max(1, Math.ceil(currentTotal / pageSize));
+        if (requestedPage > maxPage) {
+          return loadQueue(maxPage);
+        }
+        currentPage = Math.max(1, Number(data.page || requestedPage));
         renderQueue(data.items || []);
-        setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
-        renderDetail();
-        if (selectedShipperId) {
-          await selectShipper(selectedShipperId);
+        renderPagination();
+        setText('queueStatus', '共 ' + currentTotal + ' 条');
+        syncShipperVerificationRouteState(
+          selectedShipperId,
+          currentPage,
+          pageSize,
+        );
+        if (!selectedShipperId && currentItems.length) {
+          await selectShipper(currentItems[0].shipperId);
         }
       } catch (error) {
         if (requestId !== latestQueueRequestId) {
           return;
         }
-        setText('queueStatus', error.message || '加载失败');
-        resetDetail('认证详情尚未加载');
-        resetAttachments('附件尚未加载');
-        resetReviewEvents('审核事件尚未加载');
+        clearQueueResults(error.message || '加载失败');
       }
     }
 
+    async function refreshWorkspace(page) {
+      const targetShipperId = selectedShipperId;
+      await Promise.all([
+        loadQueue(page || currentPage),
+        ...(targetShipperId ? [selectShipper(targetShipperId)] : []),
+      ]);
+    }
+
+    function changeQueuePage(offset) {
+      const maxPage = Math.max(
+        1,
+        Math.ceil(currentTotal / getQueuePageSize()),
+      );
+      loadQueue(Math.min(maxPage, Math.max(1, currentPage + offset)));
+    }
+
+    function resetQueuePage() {
+      currentPage = 1;
+      loadQueue(currentPage);
+    }
+
     async function review(kind, status) {
-      if (!selectedShipperId) {
+      if (reviewMutationPending) {
+        return;
+      }
+      const targetShipperId = selectedShipperId;
+      const targetDetail = currentDetail;
+      if (
+        !targetShipperId ||
+        !targetDetail ||
+        targetDetail.shipperId !== targetShipperId
+      ) {
         setText('reviewStatus', '请先选择货主。');
+        return;
+      }
+      const targetRecord = targetDetail[kind];
+      if (!targetRecord || targetRecord.status !== 'reviewing') {
+        setText('reviewStatus', '当前认证记录不处于待审核状态。');
         return;
       }
       const rejectionReason = document.getElementById('rejectionReason').value.trim();
@@ -531,27 +750,84 @@ export function renderShipperVerificationAdminConsole() {
         setText('reviewStatus', '驳回时必须填写原因。');
         return;
       }
+      const requestId = ++latestReviewMutationRequestId;
+      let refreshQueueAfterReview = false;
+      let refreshTargetAfterReview = false;
+      let reviewMessage = '';
+      reviewMutationPending = true;
+      updateReviewControls();
       setText('reviewStatus', '提交审核中...');
       try {
-        await apiPost('/' + encodeURIComponent(selectedShipperId) + '/' + kind + '/review', body);
-        setText('reviewStatus', kind + ' 审核成功：' + status);
-        await loadQueue();
+        try {
+          await apiPost(
+            '/' + encodeURIComponent(targetShipperId) + '/' + kind + '/review',
+            body,
+          );
+          if (requestId !== latestReviewMutationRequestId) {
+            return;
+          }
+          refreshQueueAfterReview = true;
+          refreshTargetAfterReview = selectedShipperId === targetShipperId;
+          reviewMessage = kind + ' 审核成功：' + status;
+        } catch (error) {
+          if (requestId !== latestReviewMutationRequestId) {
+            return;
+          }
+          if (
+            error.code === 'SHIPPER_VERIFICATION_STATE_INVALID' ||
+            error.code === 'SHIPPER_VERIFICATION_NOT_FOUND'
+          ) {
+            refreshQueueAfterReview = true;
+            refreshTargetAfterReview = selectedShipperId === targetShipperId;
+          }
+          reviewMessage = error.message || error.code || '审核失败';
+        }
+
+        if (refreshQueueAfterReview) {
+          await Promise.all([
+            loadQueue(currentPage),
+            ...(refreshTargetAfterReview && selectedShipperId === targetShipperId
+              ? [selectShipper(targetShipperId)]
+              : []),
+          ]);
+        }
+        if (
+          requestId === latestReviewMutationRequestId &&
+          selectedShipperId === targetShipperId
+        ) {
+          setText('reviewStatus', reviewMessage);
+        }
       } catch (error) {
-        setText('reviewStatus', error.message || '审核失败');
+        if (
+          requestId === latestReviewMutationRequestId &&
+          selectedShipperId === targetShipperId
+        ) {
+          setText('reviewStatus', error.message || '审核刷新失败');
+        }
+      } finally {
+        if (requestId === latestReviewMutationRequestId) {
+          reviewMutationPending = false;
+          updateReviewControls();
+        }
       }
     }
 
-    document.getElementById('refreshButton').addEventListener('click', loadQueue);
-    document.getElementById('statusFilter').addEventListener('change', loadQueue);
-    document.getElementById('typeFilter').addEventListener('change', loadQueue);
+    document.getElementById('refreshButton').addEventListener('click', () => refreshWorkspace(currentPage));
+    document.getElementById('statusFilter').addEventListener('change', resetQueuePage);
+    document.getElementById('typeFilter').addEventListener('change', resetQueuePage);
+    document.getElementById('pageSizeFilter').addEventListener('change', resetQueuePage);
+    document.getElementById('previousPageButton').addEventListener('click', () => changeQueuePage(-1));
+    document.getElementById('nextPageButton').addEventListener('click', () => changeQueuePage(1));
     document.getElementById('approveIdentityButton').addEventListener('click', () => review('identity', 'approved'));
     document.getElementById('rejectIdentityButton').addEventListener('click', () => review('identity', 'rejected'));
     document.getElementById('approveEnterpriseButton').addEventListener('click', () => review('enterprise', 'approved'));
     document.getElementById('rejectEnterpriseButton').addEventListener('click', () => review('enterprise', 'rejected'));
     applyShipperVerificationRouteState();
+    updateReviewControls();
+    renderPagination();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
-      loadQueue();
+      refreshWorkspace(currentPage);
     }
   </script>
 </body>
