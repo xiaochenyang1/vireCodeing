@@ -66,6 +66,7 @@ export type AdminConsoleOverviewStats = {
     shipperToDriverOrderCount: number;
     driverToShipperOrderCount: number;
     repliedOrderCount: number;
+    hiddenCount: number;
   };
   finance: {
     paymentPendingCount: number;
@@ -198,6 +199,9 @@ export type PrismaAdminConsoleOverviewClient = {
   shipperCoupon: {
     count(args: unknown): Promise<number>;
   };
+  evaluationModeration: {
+    count(args: unknown): Promise<number>;
+  };
   paymentOrder: {
     count(args: unknown): Promise<number>;
   };
@@ -283,6 +287,7 @@ export class PrismaAdminConsoleOverviewRepository
       shipperToDriverOrderCount,
       driverToShipperOrderCount,
       repliedOrderCount,
+      hiddenEvaluationCount,
       paymentPendingCount,
       refundFailedCount,
       deadOutboxCount,
@@ -522,6 +527,9 @@ export class PrismaAdminConsoleOverviewRepository
           },
         },
       }),
+      this.prisma.evaluationModeration.count({
+        where: { status: 'hidden' },
+      }),
       this.prisma.paymentOrder.count({
         where: {
           status: {
@@ -642,6 +650,7 @@ export class PrismaAdminConsoleOverviewRepository
         shipperToDriverOrderCount,
         driverToShipperOrderCount,
         repliedOrderCount,
+        hiddenCount: hiddenEvaluationCount,
       },
       finance: {
         paymentPendingCount,

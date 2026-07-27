@@ -12,6 +12,9 @@ import type {
   AdminEvaluationAuditListQuery,
   AdminEvaluationAuditListResult,
   AdminEvaluationAuditRecord,
+  AdminEvaluationModerationEventRecord,
+  AdminEvaluationModerationSnapshot,
+  ModerateAdminEvaluationRequest,
   ShipperProfileEvaluationOrderEventRecord,
   ShipperProfileEvaluationOrderRecord,
   ShipperProfileEvaluationRecord,
@@ -31,6 +34,7 @@ export class ProfileEvaluationsService {
     private readonly filesRepository?: FilesRepository,
     private readonly previewUrlSigner: FilePreviewUrlSigner =
       new LocalFilePreviewUrlSigner(),
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async listRecords(
@@ -138,6 +142,44 @@ export class ProfileEvaluationsService {
     };
   }
 
+  async listAdminEvaluationModerationEvents(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+  ): Promise<AdminEvaluationModerationEventRecord[]> {
+    this.assertAdmin(currentUser);
+    await this.requireAdminEvaluationAudit(evaluationId);
+
+    return this.repository.listAdminEvaluationModerationEvents(evaluationId);
+  }
+
+  async moderateAdminEvaluation(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+    input: ModerateAdminEvaluationRequest,
+  ): Promise<AdminEvaluationAuditRecord> {
+    this.assertAdmin(currentUser);
+    const evaluation = await this.requireAdminEvaluationAudit(evaluationId);
+    const result = await this.repository.moderateAdminEvaluation({
+      ...input,
+      evaluationId,
+      adminUserId: currentUser.id,
+      moderatedAtIso: this.now().toISOString(),
+    });
+
+    if (result.kind === 'not-found') {
+      throw evaluationAuditNotFoundError();
+    }
+
+    if (result.kind === 'conflict') {
+      throw new BusinessError(
+        ApiErrorCode.EVALUATION_MODERATION_CONFLICT,
+        '评价处置状态已被其他管理员更新',
+      );
+    }
+
+    return applyAdminEvaluationModeration(evaluation, result.moderation);
+  }
+
   private async requireAdminEvaluationAudit(evaluationId: string) {
     const order =
       await this.repository.findAdminEvaluationOrderByEventId(evaluationId);
@@ -175,6 +217,13 @@ function matchesAdminEvaluationAuditQuery(
     return false;
   }
 
+  if (
+    query.moderationStatus &&
+    item.moderationStatus !== query.moderationStatus
+  ) {
+    return false;
+  }
+
   if (query.rating !== undefined && item.rating !== query.rating) {
     return false;
   }
@@ -202,6 +251,8 @@ function buildAdminEvaluationAuditSearchText(item: AdminEvaluationAuditRecord) {
     item.content,
     item.submittedAtIso,
     item.direction,
+    item.moderationStatus,
+    item.moderationReason ?? '',
     item.direction === 'shipper_to_driver'
       ? '货主评价司机 平台货主 平台司机'
       : '司机评价货主 平台司机 平台货主',
@@ -216,7 +267,11 @@ function createEvaluationRecords(
 ): ShipperProfileEvaluationRecord[] {
   return order.events
     .map((event, index) => ({ event, index }))
-    .filter(({ event }) => event.eventType === 'evaluation_submitted')
+    .filter(
+      ({ event }) =>
+        event.eventType === 'evaluation_submitted' &&
+        !isHiddenEvaluation(event),
+    )
     .map(({ event, index }) => createEvaluationRecord(order, event, index))
     .filter(
       (
@@ -279,7 +334,11 @@ function createReceivedEvaluationRecords(
 ): ShipperReceivedEvaluationRecord[] {
   return order.events
     .map((event, index) => ({ event, index }))
-    .filter(({ event }) => event.eventType === 'shipper_evaluation_submitted')
+    .filter(
+      ({ event }) =>
+        event.eventType === 'shipper_evaluation_submitted' &&
+        !isHiddenEvaluation(event),
+    )
     .map(({ event, index }) => createReceivedEvaluationRecord(order, event, index))
     .filter(
       (
@@ -378,6 +437,7 @@ function createAdminEvaluationAuditRecord(
       photoCount,
       ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
       submittedAtIso: event.createdAtIso,
+      ...mapAdminEvaluationModeration(event.evaluationModeration),
     };
   }
 
@@ -410,7 +470,52 @@ function createAdminEvaluationAuditRecord(
     photoCount,
     ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
     submittedAtIso: event.createdAtIso,
+    ...mapAdminEvaluationModeration(event.evaluationModeration),
   };
+}
+
+function mapAdminEvaluationModeration(
+  moderation: AdminEvaluationModerationSnapshot | undefined,
+): Pick<
+  AdminEvaluationAuditRecord,
+  | 'moderationStatus'
+  | 'moderationVersion'
+  | 'moderationReason'
+  | 'moderatedByAdminId'
+  | 'moderatedAtIso'
+> {
+  if (!moderation) {
+    return {
+      moderationStatus: 'visible',
+      moderationVersion: 0,
+    };
+  }
+
+  return {
+    moderationStatus: moderation.status,
+    moderationVersion: moderation.version,
+    ...(moderation.reason ? { moderationReason: moderation.reason } : {}),
+    ...(moderation.moderatedByAdminId
+      ? { moderatedByAdminId: moderation.moderatedByAdminId }
+      : {}),
+    ...(moderation.moderatedAtIso
+      ? { moderatedAtIso: moderation.moderatedAtIso }
+      : {}),
+  };
+}
+
+function applyAdminEvaluationModeration(
+  evaluation: AdminEvaluationAuditRecord,
+  moderation: AdminEvaluationModerationSnapshot,
+): AdminEvaluationAuditRecord {
+  return {
+    ...evaluation,
+    ...mapAdminEvaluationModeration(moderation),
+  };
+}
+
+function isHiddenEvaluation(event: ShipperProfileEvaluationOrderEventRecord) {
+  return event.evaluationModeration?.status === 'hidden';
 }
 
 function findAdminEvaluationAuditRecordById(

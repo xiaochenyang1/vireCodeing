@@ -214,6 +214,7 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
       .mockResolvedValueOnce(12)
       .mockResolvedValueOnce(3)
       .mockResolvedValueOnce(6);
+    prisma.evaluationModeration.count.mockResolvedValue(4);
     prisma.paymentOrder.count.mockResolvedValue(8);
     prisma.refund.count.mockResolvedValue(2);
     prisma.financialOutboxEvent.count.mockResolvedValue(1);
@@ -282,6 +283,7 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
         shipperToDriverOrderCount: 9,
         driverToShipperOrderCount: 6,
         repliedOrderCount: 2,
+        hiddenCount: 4,
       },
       finance: {
         paymentPendingCount: 8,
@@ -366,6 +368,9 @@ describe('PrismaAdminConsoleOverviewRepository', () => {
           },
         },
       },
+    });
+    expect(prisma.evaluationModeration.count).toHaveBeenCalledWith({
+      where: { status: 'hidden' },
     });
     expect(prisma.authSession.findMany).toHaveBeenCalledWith({
       where: {
@@ -510,6 +515,7 @@ function createPrismaClient() {
     shipperSupportTicket: { count: jest.fn(), findMany: jest.fn() },
     orderExceptionCase: { count: jest.fn(), findMany: jest.fn() },
     shipperCoupon: { count: jest.fn() },
+    evaluationModeration: { count: jest.fn() },
     paymentOrder: { count: jest.fn() },
     refund: { count: jest.fn() },
     financialOutboxEvent: { count: jest.fn() },

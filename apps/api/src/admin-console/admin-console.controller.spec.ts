@@ -1,4 +1,4 @@
-import { runInNewContext } from 'node:vm';
+import { runInNewContext, Script } from 'node:vm';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import { AccessTokenGuard } from '../auth/access-token.guard';
@@ -353,6 +353,7 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain('评价审计台');
     expect(html).toContain('auditDirectionInput');
     expect(html).toContain('auditRatingInput');
+    expect(html).toContain('auditModerationStatusInput');
     expect(html).toContain('auditKeywordInput');
     expect(html).toContain('/admin/evaluations?');
     expect(html).toContain(
@@ -361,10 +362,22 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain(
       "encodeURIComponent(targetAuditId) + '/attachments'",
     );
+    expect(html).toContain(
+      "encodeURIComponent(targetAuditId) + '/moderation-events'",
+    );
+    expect(html).toContain(
+      "encodeURIComponent(targetAuditId) + '/moderation'",
+    );
+    expect(html).toContain("method: 'PUT'");
+    expect(html).toContain('baseModerationVersion');
     expect(html).toContain('auditPhotoNotice');
     expect(html).toContain('打开预览');
     expect(html).toContain('/api/admin/file-maintenance-console');
     expect(html).toContain('/api/admin/order-exception-case-console');
+
+    const scriptStart = html.lastIndexOf('<script>') + '<script>'.length;
+    const scriptEnd = html.indexOf('</script>', scriptStart);
+    expect(() => new Script(html.slice(scriptStart, scriptEnd))).not.toThrow();
   });
 
   it('keeps queue and routed detail request generations independent', () => {
@@ -414,7 +427,7 @@ describe('evaluation audit admin console page', () => {
     expect(clearBody).not.toContain('auditDetail');
   });
 
-  it('commits only the latest routed evaluation detail and attachment state', async () => {
+  it('commits only the latest routed evaluation detail, attachment and moderation state', async () => {
     const html = renderEvaluationAuditAdminConsole();
     const detailStart = html.indexOf('async function selectAudit(auditId)');
     const detailEnd = html.indexOf(
@@ -435,12 +448,17 @@ describe('evaluation audit admin console page', () => {
     const createAuditRequests = (auditId: string) => {
       const detail = createDeferred();
       const attachments = createDeferred();
+      const moderationEvents = createDeferred();
       pending.set('/admin/evaluations/' + auditId, detail);
       pending.set(
         '/admin/evaluations/' + auditId + '/attachments',
         attachments,
       );
-      return { attachments, detail };
+      pending.set(
+        '/admin/evaluations/' + auditId + '/moderation-events',
+        moderationEvents,
+      );
+      return { attachments, detail, moderationEvents };
     };
     const api = jest.fn((path: string) => {
       const deferred = pending.get(path);
@@ -451,10 +469,13 @@ describe('evaluation audit admin console page', () => {
     const renderAuditDetail = jest.fn();
     const renderAuditAttachments = jest.fn();
     const renderAuditAttachmentError = jest.fn();
+    const renderAuditModerationEvents = jest.fn();
+    const renderAuditModerationEventsError = jest.fn();
     const renderAuditDetailMessage = jest.fn();
     const context = {
       latestAuditDetailRequestId: 0,
       selectedAuditId: '',
+      auditSelectionEpoch: 0,
       currentPage: 1,
       document: {
         getElementById: jest.fn(() => ({ value: '20' })),
@@ -467,6 +488,11 @@ describe('evaluation audit admin console page', () => {
       renderAuditDetail,
       renderAuditAttachments,
       renderAuditAttachmentError,
+      renderAuditModerationEvents,
+      renderAuditModerationEventsError,
+      isCurrentAuditSelection: (auditId: string, selectionEpoch: number) =>
+        context.selectedAuditId === auditId &&
+        context.auditSelectionEpoch === selectionEpoch,
       invokeSelectAudit: undefined as
         | undefined
         | ((auditId: string) => Promise<void>),
@@ -485,20 +511,28 @@ describe('evaluation audit admin console page', () => {
     const fastAuditB = context.invokeSelectAudit('audit-b');
     const auditBDetail = { id: 'audit-b', orderId: 'order-b' };
     const auditBAttachments = { evaluationId: 'audit-b', items: [] };
+    const auditBModerationEvents = [{ id: 'moderation-b' }];
     auditB.detail.resolve?.(auditBDetail);
     auditB.attachments.resolve?.(auditBAttachments);
+    auditB.moderationEvents.resolve?.(auditBModerationEvents);
     await fastAuditB;
 
     expect(renderAuditDetail).toHaveBeenCalledTimes(1);
     expect(renderAuditDetail).toHaveBeenLastCalledWith(auditBDetail);
     expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
     expect(renderAuditAttachments).toHaveBeenLastCalledWith(auditBAttachments);
+    expect(renderAuditModerationEvents).toHaveBeenCalledTimes(1);
+    expect(renderAuditModerationEvents).toHaveBeenLastCalledWith(
+      auditBModerationEvents,
+    );
 
     auditA.detail.resolve?.({ id: 'audit-a', orderId: 'order-a' });
     auditA.attachments.resolve?.({ evaluationId: 'audit-a', items: [] });
+    auditA.moderationEvents.resolve?.([{ id: 'moderation-a' }]);
     await slowAuditA;
     expect(renderAuditDetail).toHaveBeenCalledTimes(1);
     expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
+    expect(renderAuditModerationEvents).toHaveBeenCalledTimes(1);
 
     const auditC = createAuditRequests('audit-c');
     const failedAuditC = context.invokeSelectAudit('audit-c');
@@ -510,6 +544,7 @@ describe('evaluation audit admin console page', () => {
     };
     auditC.detail.resolve?.(auditCDetail);
     auditC.attachments.reject?.(new Error('附件加载失败'));
+    auditC.moderationEvents.reject?.(new Error('处置历史加载失败'));
     await failedAuditC;
 
     expect(context.selectedAuditId).toBe('audit-c');
@@ -520,18 +555,145 @@ describe('evaluation audit admin console page', () => {
       auditCDetail,
       expect.objectContaining({ message: '附件加载失败' }),
     );
+    expect(renderAuditModerationEventsError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '处置历史加载失败' }),
+    );
 
     const auditD = createAuditRequests('audit-d');
     const failedAuditD = context.invokeSelectAudit('audit-d');
     auditD.detail.reject?.(new Error('评价记录不存在'));
     auditD.attachments.resolve?.({ evaluationId: 'audit-d', items: [] });
+    auditD.moderationEvents.resolve?.([]);
     await failedAuditD;
 
     expect(context.selectedAuditId).toBe('audit-d');
     expect(renderAuditDetail).toHaveBeenCalledTimes(2);
     expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
     expect(renderAuditAttachmentError).toHaveBeenCalledTimes(1);
+    expect(renderAuditModerationEvents).toHaveBeenCalledTimes(1);
     expect(renderAuditDetailMessage).toHaveBeenLastCalledWith('评价记录不存在');
+  });
+
+  it('submits versioned evaluation moderation without restoring stale selections', async () => {
+    const html = renderEvaluationAuditAdminConsole();
+    const mutationStart = html.indexOf(
+      'async function submitEvaluationModeration()',
+    );
+    const mutationEnd = html.indexOf(
+      'function renderAuditAttachmentError(item, error)',
+      mutationStart,
+    );
+    const mutationSource = html.slice(mutationStart, mutationEnd);
+    let resolveMutation: ((value: unknown) => void) | undefined;
+    const mutationResponse = new Promise<unknown>(resolve => {
+      resolveMutation = resolve;
+    });
+    const nodes = new Map<
+      string,
+      { disabled?: boolean; textContent: string; value: string }
+    >();
+    const getNode = (id: string) => {
+      if (!nodes.has(id)) {
+        nodes.set(id, { textContent: '', value: '' });
+      }
+      return nodes.get(id)!;
+    };
+    getNode('auditModerationReason').value = '  包含违规联系方式  ';
+    const api = jest.fn(() => mutationResponse);
+    const loadAudits = jest.fn(() => Promise.resolve());
+    const renderAuditModeration = jest.fn();
+    const context = {
+      auditModerationMutationPending: false,
+      selectedAuditDetail: {
+        id: 'audit-a',
+        moderationStatus: 'visible',
+        moderationVersion: 0,
+      },
+      selectedAuditId: 'audit-a',
+      auditSelectionEpoch: 1,
+      latestAuditModerationMutationRequestId: 0,
+      currentPage: 1,
+      document: { getElementById: jest.fn(getNode) },
+      normalizeModerationStatus: (status: string) =>
+        status === 'hidden' ? 'hidden' : 'visible',
+      isCurrentAuditSelection: (auditId: string, selectionEpoch: number) =>
+        context.selectedAuditId === auditId &&
+        context.auditSelectionEpoch === selectionEpoch,
+      renderAuditModeration,
+      api,
+      encodeURIComponent,
+      loadAudits,
+      selectAudit: jest.fn(() => {
+        context.auditSelectionEpoch += 1;
+        return Promise.resolve();
+      }),
+      invokeModeration: undefined as undefined | (() => Promise<void>),
+    };
+    runInNewContext(
+      `${mutationSource}\ninvokeModeration = submitEvaluationModeration;`,
+      context,
+    );
+    if (!context.invokeModeration) {
+      throw new Error('submitEvaluationModeration function was not initialized');
+    }
+
+    const staleMutation = context.invokeModeration();
+    await context.invokeModeration();
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(
+      '/admin/evaluations/audit-a/moderation',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          status: 'hidden',
+          reason: '包含违规联系方式',
+          baseModerationVersion: 0,
+        }),
+      },
+    );
+
+    context.selectedAuditId = 'audit-b';
+    context.auditSelectionEpoch = 2;
+    context.selectedAuditDetail = {
+      id: 'audit-b',
+      moderationStatus: 'hidden',
+      moderationVersion: 4,
+    };
+    getNode('auditModerationNotice').textContent = '评价 B 的新提示';
+    resolveMutation?.({ id: 'audit-a', moderationStatus: 'hidden' });
+    await staleMutation;
+
+    expect(context.auditModerationMutationPending).toBe(false);
+    expect(loadAudits).toHaveBeenCalledWith(1);
+    expect(context.selectAudit).not.toHaveBeenCalled();
+    expect(getNode('auditModerationNotice').textContent).toBe('评价 B 的新提示');
+    expect(renderAuditModeration).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'audit-b', moderationVersion: 4 }),
+    );
+
+    context.selectedAuditId = 'audit-a';
+    context.auditSelectionEpoch = 3;
+    context.selectedAuditDetail = {
+      id: 'audit-a',
+      moderationStatus: 'hidden',
+      moderationVersion: 1,
+    };
+    loadAudits.mockClear();
+    getNode('auditModerationReason').value = '复核后允许恢复展示';
+    api.mockRejectedValueOnce(
+      Object.assign(new Error('评价处置状态已被其他管理员更新'), {
+        code: 'EVALUATION_MODERATION_CONFLICT',
+      }),
+    );
+
+    await context.invokeModeration();
+
+    expect(loadAudits).toHaveBeenCalledWith(1);
+    expect(context.selectAudit).toHaveBeenCalledWith('audit-a');
+    expect(getNode('auditModerationReason').value).toBe('');
+    expect(getNode('auditModerationNotice').textContent).toBe(
+      '评价处置状态已被其他管理员更新，已刷新最新状态',
+    );
   });
 
   it('syncs evaluation filters and selected audit detail into route state', () => {
@@ -542,6 +704,9 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain("query.get('auditId')");
     expect(html).toContain("query.set('auditId', auditId)");
     expect(html).toContain("query.set('direction', direction)");
+    expect(html).toContain(
+      "query.set('moderationStatus', moderationStatus)",
+    );
     expect(html).toContain("query.set('rating', rating)");
     expect(html).toContain('refreshAuditWorkspace(currentPage)');
   });

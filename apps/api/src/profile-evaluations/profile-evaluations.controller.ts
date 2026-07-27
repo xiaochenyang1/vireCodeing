@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -17,9 +19,12 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ProfileEvaluationsService } from './profile-evaluations.service';
+import type { ModerateAdminEvaluationRequest } from './dto';
 import {
   adminEvaluationAuditListQuerySchema,
+  moderateAdminEvaluationSchema,
   parseAdminEvaluationAuditListQuery,
+  parseModerateAdminEvaluationRequest,
 } from './profile-evaluations.validation';
 
 @Controller('shipper/profile/evaluations')
@@ -54,6 +59,7 @@ export class ProfileEvaluationsController {
 
 @Controller('admin/evaluations')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
+@ApiBearerAuth('access-token')
 @ApiTags('个人资料 (Profile)')
 export class AdminProfileEvaluationsController {
   constructor(
@@ -99,6 +105,37 @@ export class AdminProfileEvaluationsController {
       await this.profileEvaluationsService.getAdminEvaluationAuditAttachments(
         getCurrentAdmin(request),
         evaluationId,
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Get(':evaluationId/moderation-events')
+  async listEvaluationModerationEvents(
+    @Req() request: AuthenticatedRequest,
+    @Param('evaluationId') evaluationId: string,
+  ) {
+    return ok(
+      await this.profileEvaluationsService.listAdminEvaluationModerationEvents(
+        getCurrentAdmin(request),
+        evaluationId,
+      ),
+      getRequestId(request),
+    );
+  }
+
+  @Put(':evaluationId/moderation')
+  async moderateEvaluation(
+    @Req() request: AuthenticatedRequest,
+    @Param('evaluationId') evaluationId: string,
+    @Body(new ZodValidationPipe(moderateAdminEvaluationSchema))
+    body: ModerateAdminEvaluationRequest,
+  ) {
+    return ok(
+      await this.profileEvaluationsService.moderateAdminEvaluation(
+        getCurrentAdmin(request),
+        evaluationId,
+        parseModerateAdminEvaluationRequest(body),
       ),
       getRequestId(request),
     );

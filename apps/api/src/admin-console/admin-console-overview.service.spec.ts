@@ -61,6 +61,7 @@ describe('AdminConsoleOverviewService', () => {
           shipperToDriverOrderCount: 7,
           driverToShipperOrderCount: 3,
           repliedOrderCount: 2,
+          hiddenCount: 4,
         },
         finance: {
           paymentPendingCount: 4,
@@ -256,12 +257,12 @@ describe('AdminConsoleOverviewService', () => {
               }),
               expect.objectContaining({
                 label: '能力项',
-                value: 15,
+                value: 16,
                 tone: 'neutral',
               }),
               expect.objectContaining({
                 label: '高风险能力',
-                value: 12,
+                value: 13,
                 tone: 'warning',
               }),
             ]),
@@ -271,6 +272,22 @@ describe('AdminConsoleOverviewService', () => {
             key: 'shipper-coupon',
             route: '/api/admin/shipper-coupon-console',
             pendingGaps: ['活动策略编排', '营销规则审批流', '退款返券策略后台'],
+          }),
+          expect.objectContaining({
+            key: 'evaluation-audit',
+            route: '/api/admin/evaluation-audit-console',
+            summary:
+              '已经能审计货主/司机评价、查看图片附件，并以版本冲突保护执行单条隐藏 / 恢复和追溯处置历史，但还没申诉、批量处置和信用分联动。',
+            metrics: expect.arrayContaining([
+              expect.objectContaining({
+                label: '已隐藏',
+                value: 4,
+                tone: 'warning',
+                route:
+                  '/api/admin/evaluation-audit-console?moderationStatus=hidden',
+              }),
+            ]),
+            pendingGaps: ['申诉处理', '批量处置', '信用分联动'],
           }),
           expect.objectContaining({
             key: 'finance',

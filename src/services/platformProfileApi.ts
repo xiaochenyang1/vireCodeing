@@ -444,10 +444,13 @@ export type PlatformAdminEvaluationDirection =
   | 'shipper_to_driver'
   | 'driver_to_shipper';
 
+export type PlatformAdminEvaluationModerationStatus = 'visible' | 'hidden';
+
 export type PlatformAdminEvaluationAuditListQuery = {
   page?: number;
   pageSize?: number;
   direction?: PlatformAdminEvaluationDirection;
+  moderationStatus?: PlatformAdminEvaluationModerationStatus;
   rating?: number;
   keyword?: string;
 };
@@ -468,6 +471,11 @@ export type PlatformAdminEvaluationAuditRecord = {
   photoCount: number;
   photoFileIds?: string[];
   submittedAtIso: string;
+  moderationStatus: PlatformAdminEvaluationModerationStatus;
+  moderationVersion: number;
+  moderationReason?: string;
+  moderatedByAdminId?: string;
+  moderatedAtIso?: string;
 };
 
 export type PlatformAdminEvaluationAuditListResult = {
@@ -490,6 +498,24 @@ export type PlatformAdminEvaluationAuditAttachmentPreview = {
   photoCount: number;
   items: PlatformAdminEvaluationAuditAttachmentRecord[];
   missingFileIds: string[];
+};
+
+export type PlatformModerateAdminEvaluationRequest = {
+  status: PlatformAdminEvaluationModerationStatus;
+  reason: string;
+  baseModerationVersion: number;
+};
+
+export type PlatformAdminEvaluationModerationEventRecord = {
+  id: string;
+  evaluationId: string;
+  adminUserId: string;
+  fromStatus: PlatformAdminEvaluationModerationStatus;
+  toStatus: PlatformAdminEvaluationModerationStatus;
+  reason: string;
+  fromVersion: number;
+  toVersion: number;
+  createdAtIso: string;
 };
 
 export type PlatformSaveProfileAddressBookRequest = {
@@ -744,6 +770,31 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         `/admin/evaluations/${encodeURIComponent(
           normalizeAdminEvaluationAuditId(evaluationId),
         )}/attachments`,
+      );
+    },
+    async listAdminEvaluationModerationEvents(evaluationId: string) {
+      return platformGet<PlatformAdminEvaluationModerationEventRecord[]>(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/moderation-events`,
+      );
+    },
+    async moderateAdminEvaluation(
+      evaluationId: string,
+      request: PlatformModerateAdminEvaluationRequest,
+    ) {
+      const normalizedRequest = normalizeModerateAdminEvaluationRequest(request);
+
+      return platformPut<
+        PlatformModerateAdminEvaluationRequest,
+        PlatformAdminEvaluationAuditRecord
+      >(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/moderation`,
+        normalizedRequest,
       );
     },
     async createInvoiceApplication(
@@ -1328,6 +1379,15 @@ function normalizeAdminEvaluationAuditListQuery(
   }
 
   if (
+    query.moderationStatus !== undefined &&
+    !['visible', 'hidden'].includes(query.moderationStatus)
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit moderation status is invalid',
+    );
+  }
+
+  if (
     query.rating !== undefined &&
     (!Number.isInteger(query.rating) || query.rating < 1 || query.rating > 5)
   ) {
@@ -1345,6 +1405,9 @@ function normalizeAdminEvaluationAuditListQuery(
 
   return {
     ...(query.direction ? { direction: query.direction } : {}),
+    ...(query.moderationStatus
+      ? { moderationStatus: query.moderationStatus }
+      : {}),
     ...(query.rating !== undefined ? { rating: String(query.rating) } : {}),
     ...(normalizedKeyword ? { keyword: normalizedKeyword } : {}),
     page: String(page),
@@ -1359,6 +1422,49 @@ function normalizeAdminEvaluationAuditId(evaluationId: string) {
     'Admin evaluation audit id is invalid',
     throwInvalidAdminEvaluationAuditRequest,
   );
+}
+
+function normalizeModerateAdminEvaluationRequest(
+  request: PlatformModerateAdminEvaluationRequest,
+): PlatformModerateAdminEvaluationRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation moderation request must be an object',
+    );
+  }
+
+  if (!['visible', 'hidden'].includes(request.status)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation moderation status is invalid',
+    );
+  }
+
+  const reason = normalizeRequiredString(
+    request.reason,
+    200,
+    'Admin evaluation moderation reason is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
+  if (reason.length < 2) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation moderation reason is invalid',
+    );
+  }
+
+  if (
+    !Number.isInteger(request.baseModerationVersion) ||
+    request.baseModerationVersion < 0
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation moderation version is invalid',
+    );
+  }
+
+  return {
+    status: request.status,
+    reason,
+    baseModerationVersion: request.baseModerationVersion,
+  };
 }
 
 function normalizeListAdminShipperVerificationQuery(

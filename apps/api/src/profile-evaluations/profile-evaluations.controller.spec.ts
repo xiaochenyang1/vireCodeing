@@ -251,6 +251,77 @@ describe('AdminProfileEvaluationsController', () => {
     );
   });
 
+  it('lists moderation events and forwards normalized moderation updates', async () => {
+    const service = {
+      listAdminEvaluationModerationEvents: jest.fn().mockResolvedValue([
+        {
+          id: 'moderation-event-1',
+          evaluationId: 'audit-1',
+          adminUserId: 'admin-1',
+          fromStatus: 'visible',
+          toStatus: 'hidden',
+          reason: '包含违规联系方式',
+          fromVersion: 0,
+          toVersion: 1,
+          createdAtIso: '2026-07-27T10:00:00.000Z',
+        },
+      ]),
+      moderateAdminEvaluation: jest.fn().mockResolvedValue({
+        id: 'audit-1',
+        moderationStatus: 'hidden',
+        moderationVersion: 1,
+      }),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+    const request = createRequest('admin-1', 'admin');
+
+    await expect(
+      controller.listEvaluationModerationEvents(request, 'audit-1'),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: [expect.objectContaining({ id: 'moderation-event-1' })],
+    });
+    await expect(
+      controller.moderateEvaluation(request, 'audit-1', {
+        status: 'hidden',
+        reason: '  包含违规联系方式  ',
+        baseModerationVersion: 0,
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { moderationStatus: 'hidden', moderationVersion: 1 },
+    });
+    expect(service.moderateAdminEvaluation).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'audit-1',
+      {
+        status: 'hidden',
+        reason: '包含违规联系方式',
+        baseModerationVersion: 0,
+      },
+    );
+  });
+
+  it('rejects invalid moderation requests before service calls', async () => {
+    const service = {
+      moderateAdminEvaluation: jest.fn(),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+
+    await expect(
+      controller.moderateEvaluation(
+        createRequest('admin-1', 'admin'),
+        'audit-1',
+        {
+          status: 'hidden',
+          reason: ' ',
+          baseModerationVersion: 0,
+        },
+      ),
+    ).rejects.toThrow();
+    expect(service.moderateAdminEvaluation).not.toHaveBeenCalled();
+  });
+
   it('rejects non-admin evaluation audit detail access before service calls', async () => {
     const service = {
       getAdminEvaluationAudit: jest.fn(),

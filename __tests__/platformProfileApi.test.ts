@@ -1667,6 +1667,11 @@ describe('platform profile api', () => {
               photoCount: 1,
               photoFileIds: ['file-audit-1'],
               submittedAtIso: '2026-07-09T08:00:00.000Z',
+              moderationStatus: 'hidden',
+              moderationVersion: 1,
+              moderationReason: '包含违规联系方式',
+              moderatedByAdminId: 'admin-1',
+              moderatedAtIso: '2026-07-27T10:00:00.000Z',
             },
           ],
           page: 2,
@@ -1686,6 +1691,7 @@ describe('platform profile api', () => {
     await expect(
       api.listAdminEvaluationAudits({
         direction: 'shipper_to_driver',
+        moderationStatus: 'hidden',
         rating: 5,
         keyword: '  评价审计  ',
         page: 2,
@@ -1699,12 +1705,14 @@ describe('platform profile api', () => {
         expect.objectContaining({
           id: 'audit-1',
           direction: 'shipper_to_driver',
+          moderationStatus: 'hidden',
+          moderationVersion: 1,
         }),
       ],
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/admin/evaluations?direction=shipper_to_driver&rating=5&keyword=%E8%AF%84%E4%BB%B7%E5%AE%A1%E8%AE%A1&page=2&pageSize=10',
+      'http://localhost:3000/api/admin/evaluations?direction=shipper_to_driver&moderationStatus=hidden&rating=5&keyword=%E8%AF%84%E4%BB%B7%E5%AE%A1%E8%AE%A1&page=2&pageSize=10',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -1737,6 +1745,8 @@ describe('platform profile api', () => {
           photoCount: 1,
           photoFileIds: ['file-audit-1'],
           submittedAtIso: '2026-07-09T08:00:00.000Z',
+          moderationStatus: 'visible',
+          moderationVersion: 0,
         },
         requestId: 'req-admin-evaluation-detail',
         timestamp: '2026-07-09T08:05:00.000Z',
@@ -1823,6 +1833,109 @@ describe('platform profile api', () => {
     );
   });
 
+  it('lists moderation events and submits normalized evaluation moderation', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: [
+            {
+              id: 'moderation-event-1',
+              evaluationId: 'audit-1',
+              adminUserId: 'admin-1',
+              fromStatus: 'visible',
+              toStatus: 'hidden',
+              reason: '包含违规联系方式',
+              fromVersion: 0,
+              toVersion: 1,
+              createdAtIso: '2026-07-27T10:00:00.000Z',
+            },
+          ],
+          requestId: 'req-admin-evaluation-moderation-events',
+          timestamp: '2026-07-27T10:05:00.000Z',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          message: 'success',
+          data: {
+            id: 'audit-1',
+            orderId: 'order-1',
+            orderNo: 'HY202607090001',
+            direction: 'shipper_to_driver',
+            reviewerUserId: 'shipper-1',
+            reviewerName: '货主一',
+            revieweeUserId: 'driver-1',
+            revieweeName: '司机一',
+            rating: 5,
+            tags: ['准时送达'],
+            content: '评价审计记录',
+            anonymous: false,
+            photoCount: 0,
+            submittedAtIso: '2026-07-09T08:00:00.000Z',
+            moderationStatus: 'visible',
+            moderationVersion: 2,
+            moderationReason: '复核后允许恢复展示',
+            moderatedByAdminId: 'admin-2',
+            moderatedAtIso: '2026-07-27T10:05:00.000Z',
+          },
+          requestId: 'req-admin-evaluation-moderation',
+          timestamp: '2026-07-27T10:05:00.000Z',
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminEvaluationModerationEvents(' audit-1 '),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'moderation-event-1',
+        fromVersion: 0,
+        toVersion: 1,
+      }),
+    ]);
+    await expect(
+      api.moderateAdminEvaluation(' audit-1 ', {
+        status: 'visible',
+        reason: '  复核后允许恢复展示  ',
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toMatchObject({
+      id: 'audit-1',
+      moderationStatus: 'visible',
+      moderationVersion: 2,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/admin/evaluations/audit-1/moderation-events',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/evaluations/audit-1/moderation',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          status: 'visible',
+          reason: '复核后允许恢复展示',
+          baseModerationVersion: 1,
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid admin evaluation audit requests before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -1835,6 +1948,9 @@ describe('platform profile api', () => {
     } as unknown as Parameters<typeof api.listAdminEvaluationAudits>[0];
     const invalidRatingQuery = {
       rating: 0,
+    } as unknown as Parameters<typeof api.listAdminEvaluationAudits>[0];
+    const invalidModerationStatusQuery = {
+      moderationStatus: 'pending',
     } as unknown as Parameters<typeof api.listAdminEvaluationAudits>[0];
 
     await expect(
@@ -1852,6 +1968,13 @@ describe('platform profile api', () => {
     } satisfies Partial<PlatformApiError>);
 
     await expect(
+      api.listAdminEvaluationAudits(invalidModerationStatusQuery),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
       api.getAdminEvaluationAudit('   '),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
@@ -1860,6 +1983,32 @@ describe('platform profile api', () => {
 
     await expect(
       api.getAdminEvaluationAuditAttachments('   '),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.listAdminEvaluationModerationEvents('   '),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.moderateAdminEvaluation('audit-1', {
+        status: 'hidden',
+        reason: '短',
+        baseModerationVersion: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+    await expect(
+      api.moderateAdminEvaluation('audit-1', {
+        status: 'visible',
+        reason: '复核后恢复展示',
+        baseModerationVersion: -1,
+      }),
     ).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
       status: 0,

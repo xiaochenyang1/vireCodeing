@@ -1917,14 +1917,26 @@ describe('stage 1 OpenAPI contract', () => {
   it('documents the admin evaluation audit endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
     const detailPath = '/admin/evaluations/{evaluationId}';
+    const moderationPath = '/admin/evaluations/{evaluationId}/moderation';
+    const moderationEventsPath =
+      '/admin/evaluations/{evaluationId}/moderation-events';
 
     expect(source).toContain('/admin/evaluations:');
     expect(source).toContain(`${detailPath}:`);
     expect(source).toContain('/admin/evaluations/{evaluationId}/attachments:');
+    expect(source).toContain(`${moderationPath}:`);
+    expect(source).toContain(`${moderationEventsPath}:`);
     expect(source).toContain('List admin evaluation audit records');
     expect(source).toContain('Get admin evaluation audit detail');
     expect(source).toContain('Get admin evaluation audit attachment previews');
+    expect(source).toContain('Moderate an admin evaluation audit record');
+    expect(source).toContain('List admin evaluation moderation events');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: direction');
+    expectPathBlockToContain(
+      source,
+      '/admin/evaluations',
+      'name: moderationStatus',
+    );
     expectPathBlockToContain(source, '/admin/evaluations', 'name: rating');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: keyword');
     expectPathBlockToContain(
@@ -1942,6 +1954,21 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/evaluations/{evaluationId}/attachments',
       'name: evaluationId',
     );
+    expectPathBlockToContain(
+      source,
+      moderationPath,
+      "$ref: '#/components/schemas/ModerateAdminEvaluationRequest'",
+    );
+    expectPathBlockToContain(
+      source,
+      moderationPath,
+      'EVALUATION_MODERATION_CONFLICT',
+    );
+    expectPathBlockToContain(
+      source,
+      moderationEventsPath,
+      "$ref: '#/components/schemas/AdminEvaluationModerationEventListResponse'",
+    );
     expect(source).toContain('AdminEvaluationAuditListResponse');
     expect(source).toContain('AdminEvaluationAuditResponse');
     expect(source).toContain('AdminEvaluationAuditRecord');
@@ -1949,10 +1976,12 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('AdminEvaluationAuditAttachmentPreview');
     expect(source).toContain('AdminEvaluationAuditAttachmentRecord');
     expect(source).toContain('AdminEvaluationDirection');
+    expect(source).toContain('AdminEvaluationModerationStatus');
+    expect(source).toContain('AdminEvaluationModerationEventRecord');
     expect(source).toContain('shipper_to_driver');
     expect(source).toContain('driver_to_shipper');
     expect(source).toContain(
-      'It is derived from order evaluation_submitted and shipper_evaluation_submitted events.',
+      'It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes the current moderation snapshot.',
     );
     expect(source).toContain(
       "Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.",
@@ -1960,6 +1989,31 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('missingFileIds');
     expect(source).toContain('previewUrl');
     expect(source).toContain('previewExpiresAtIso');
+    expectSchemaBlockToContain(
+      source,
+      'AdminEvaluationAuditRecord',
+      'moderationStatus:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminEvaluationAuditRecord',
+      'moderationVersion:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'ModerateAdminEvaluationRequest',
+      'baseModerationVersion:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminEvaluationModerationEventRecord',
+      'fromVersion:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminEvaluationModerationEventRecord',
+      'toVersion:',
+    );
     expect(source).toContain('EVALUATION_AUDIT_NOT_FOUND');
     expect(source).toContain('评价审计记录不存在');
     expectPathBlockToContain(
@@ -1975,6 +2029,16 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/evaluations/{evaluationId}/attachments',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      moderationPath,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      moderationEventsPath,
       "$ref: '#/components/responses/AdminOnlyError'",
     );
     expect(source).toContain('Current authenticated user is not an admin');

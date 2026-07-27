@@ -163,6 +163,8 @@ model User {
   driverCertificationReviewerEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewerEvents")
   orderIdempotencyRecords     OrderIdempotencyRecord[]   @relation("OrderIdempotencyActor")
   adminCouponIssueIdempotencyRecords AdminCouponIssueIdempotencyRecord[] @relation("AdminCouponIssueIdempotencyActor")
+  evaluationModerations       EvaluationModeration[]     @relation("EvaluationModerationAdmin")
+  evaluationModerationActions EvaluationModerationAction[] @relation("EvaluationModerationActionAdmin")
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
@@ -460,8 +462,49 @@ model OrderEvent {
   createdAt         DateTime @default(now())
   order             Order    @relation(fields: [orderId], references: [id])
   exceptionCase     OrderExceptionCase? @relation("ExceptionCaseSourceEvent")
+  evaluationModeration EvaluationModeration? @relation("EvaluationModerationSourceEvent")
 
   @@index([orderId, createdAt], name: "OrderEvent_order_created_idx")
+}
+
+enum EvaluationModerationStatus {
+  visible
+  hidden
+}
+
+model EvaluationModeration {
+  evaluationEventId  String                     @id
+  status             EvaluationModerationStatus
+  version            Int                        @default(1)
+  reason             String
+  moderatedByAdminId String
+  moderatedAt        DateTime
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  evaluationEvent    OrderEvent                 @relation("EvaluationModerationSourceEvent", fields: [evaluationEventId], references: [id])
+  moderatedByAdmin   User                       @relation("EvaluationModerationAdmin", fields: [moderatedByAdminId], references: [id])
+  actions            EvaluationModerationAction[]
+
+  @@index([status, moderatedAt], name: "EvaluationModeration_status_moderated_idx")
+  @@index([moderatedByAdminId, moderatedAt], name: "EvaluationModeration_admin_moderated_idx")
+}
+
+model EvaluationModerationAction {
+  id                String                     @id @default(uuid())
+  evaluationEventId String
+  adminUserId       String
+  fromStatus        EvaluationModerationStatus
+  toStatus          EvaluationModerationStatus
+  reason            String
+  fromVersion       Int
+  toVersion         Int
+  createdAt         DateTime                   @default(now())
+  moderation        EvaluationModeration       @relation(fields: [evaluationEventId], references: [evaluationEventId])
+  admin             User                       @relation("EvaluationModerationActionAdmin", fields: [adminUserId], references: [id])
+
+  @@unique([evaluationEventId, toVersion], name: "EvaluationModerationAction_event_version_unique")
+  @@index([evaluationEventId, createdAt], name: "EvaluationModerationAction_event_created_idx")
+  @@index([adminUserId, createdAt], name: "EvaluationModerationAction_admin_created_idx")
 }
 
 model OrderIdempotencyRecord {

@@ -1875,7 +1875,7 @@ paths:
   /admin/evaluations:
     get:
       summary: List admin evaluation audit records
-      description: Lists paginated evaluation audit records for admin review, ordered by latest submittedAt first. It is derived from order evaluation_submitted and shipper_evaluation_submitted events. Evaluation review, appeal handling, credit scoring, blacklist and a dedicated evaluation table are still out of scope.
+      description: Lists paginated evaluation audit records for admin review, ordered by latest submittedAt first. It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes the current moderation snapshot. Hidden evaluations remain available to admins but are excluded from shipper-facing sent and received evaluation snapshots. Appeal handling, credit scoring, blacklist and a dedicated evaluation table are still out of scope.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - name: page
@@ -1909,6 +1909,12 @@ paths:
             minimum: 1
             maximum: 5
           example: 5
+        - name: moderationStatus
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AdminEvaluationModerationStatus'
+          example: hidden
         - name: keyword
           in: query
           required: false
@@ -2013,6 +2019,109 @@ paths:
                 message: 评价审计记录不存在
                 requestId: req_local
                 timestamp: '2026-07-26T08:00:00.000Z'
+  /admin/evaluations/{evaluationId}/moderation:
+    put:
+      summary: Moderate an admin evaluation audit record
+      description: Hides or restores one evaluation without mutating its immutable source order event. baseModerationVersion is compared atomically with the current snapshot; evaluations without a prior moderation snapshot use visible at version 0. Every successful transition appends an admin moderation event.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: admin-evaluation-audit-1
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerateAdminEvaluationRequest'
+      responses:
+        '200':
+          description: Updated evaluation audit record with its new moderation snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationAuditResponse'
+        '400':
+          description: Moderation payload is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Evaluation audit record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: EVALUATION_AUDIT_NOT_FOUND
+                message: 评价审计记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
+        '409':
+          description: The moderation snapshot changed after the admin loaded it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: EVALUATION_MODERATION_CONFLICT
+                message: 评价处置状态已被其他管理员更新
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
+  /admin/evaluations/{evaluationId}/moderation-events:
+    get:
+      summary: List admin evaluation moderation events
+      description: Returns the append-only moderation history for one evaluation, ordered by latest createdAt first. The evaluation remains addressable when its current status is hidden.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: admin-evaluation-audit-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Evaluation moderation event history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationModerationEventListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Evaluation audit record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: EVALUATION_AUDIT_NOT_FOUND
+                message: 评价审计记录不存在
+                requestId: req_local
+                timestamp: '2026-07-27T10:00:00.000Z'
   /shipper/profile/coupons:
     get:
       summary: List current shipper coupon wallet
@@ -11128,6 +11237,7 @@ components:
             - order_exception_case_manage
             - shipper_coupon_manage
             - evaluation_audit_read
+            - evaluation_moderation_manage
             - finance_manage
           example: order_management_manage
         title:
@@ -12928,9 +13038,13 @@ components:
       type: string
       enum: [shipper_to_driver, driver_to_shipper]
       example: shipper_to_driver
+    AdminEvaluationModerationStatus:
+      type: string
+      enum: [visible, hidden]
+      example: visible
     AdminEvaluationAuditRecord:
       type: object
-      required: [id, orderId, orderNo, direction, reviewerUserId, reviewerName, revieweeUserId, revieweeName, rating, tags, content, anonymous, photoCount, submittedAtIso]
+      required: [id, orderId, orderNo, direction, reviewerUserId, reviewerName, revieweeUserId, revieweeName, rating, tags, content, anonymous, photoCount, submittedAtIso, moderationStatus, moderationVersion]
       properties:
         id:
           type: string
@@ -13000,6 +13114,27 @@ components:
           type: string
           format: date-time
           example: '2026-07-09T10:00:00.000Z'
+        moderationStatus:
+          $ref: '#/components/schemas/AdminEvaluationModerationStatus'
+        moderationVersion:
+          type: integer
+          minimum: 0
+          description: Current moderation snapshot version. Evaluations without prior moderation actions use version 0.
+          example: 0
+        moderationReason:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: 包含违规联系方式
+        moderatedByAdminId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: admin-1
+        moderatedAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-27T10:00:00.000Z'
     AdminEvaluationAuditListResult:
       type: object
       required: [items, page, pageSize, total]
@@ -13037,6 +13172,67 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminEvaluationAuditRecord'
+    ModerateAdminEvaluationRequest:
+      type: object
+      required: [status, reason, baseModerationVersion]
+      properties:
+        status:
+          $ref: '#/components/schemas/AdminEvaluationModerationStatus'
+        reason:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: 包含违规联系方式
+        baseModerationVersion:
+          type: integer
+          minimum: 0
+          description: Moderation version last observed by the admin. Use 0 when the evaluation has never been moderated.
+          example: 0
+    AdminEvaluationModerationEventRecord:
+      type: object
+      required: [id, evaluationId, adminUserId, fromStatus, toStatus, reason, fromVersion, toVersion, createdAtIso]
+      properties:
+        id:
+          type: string
+          example: evaluation-moderation-action-1
+        evaluationId:
+          type: string
+          example: admin-evaluation-audit-1
+        adminUserId:
+          type: string
+          example: admin-1
+        fromStatus:
+          $ref: '#/components/schemas/AdminEvaluationModerationStatus'
+        toStatus:
+          $ref: '#/components/schemas/AdminEvaluationModerationStatus'
+        reason:
+          type: string
+          minLength: 2
+          maxLength: 200
+          example: 包含违规联系方式
+        fromVersion:
+          type: integer
+          minimum: 0
+          example: 0
+        toVersion:
+          type: integer
+          minimum: 1
+          description: Always equals fromVersion plus one.
+          example: 1
+        createdAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-27T10:00:00.000Z'
+    AdminEvaluationModerationEventListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/AdminEvaluationModerationEventRecord'
     AdminEvaluationAuditAttachmentRecord:
       allOf:
         - $ref: '#/components/schemas/FileUploadRecord'

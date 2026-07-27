@@ -431,6 +431,8 @@ describe('ProfileEvaluationsService', () => {
             anonymous: false,
             photoCount: 0,
             submittedAtIso: '2026-07-09T10:00:00.000Z',
+            moderationStatus: 'visible',
+            moderationVersion: 0,
           },
           {
             id: 'shipper-to-driver',
@@ -448,6 +450,8 @@ describe('ProfileEvaluationsService', () => {
             photoCount: 1,
             photoFileIds: ['file-eval-1'],
             submittedAtIso: '2026-07-09T09:00:00.000Z',
+            moderationStatus: 'visible',
+            moderationVersion: 0,
           },
         ],
         page: 1,
@@ -509,7 +513,167 @@ describe('ProfileEvaluationsService', () => {
       photoCount: 1,
       photoFileIds: ['file-eval-detail'],
       submittedAtIso: '2026-07-09T09:00:00.000Z',
+      moderationStatus: 'visible',
+      moderationVersion: 0,
     });
+  });
+
+  it('hides moderated evaluations from shipper snapshots while preserving admin audit access', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          events: [
+            createEvent({
+              id: 'evaluation-hidden',
+              noteText: '1 星：态度差；包含违规内容',
+              evaluationModeration: {
+                status: 'hidden',
+                version: 1,
+                reason: '包含辱骂内容',
+                moderatedByAdminId: 'admin-1',
+                moderatedAtIso: '2026-07-27T10:00:00.000Z',
+              },
+            }),
+            createEvent({
+              id: 'evaluation-visible',
+              noteText: '5 星：准时；服务正常',
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(service.listRecords('shipper-1')).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'evaluation-visible' })],
+    });
+    await expect(
+      service.listAdminEvaluationAudits({
+        page: 1,
+        pageSize: 20,
+        moderationStatus: 'hidden',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({
+          id: 'evaluation-hidden',
+          moderationStatus: 'hidden',
+          moderationVersion: 1,
+          moderationReason: '包含辱骂内容',
+        }),
+      ],
+    });
+  });
+
+  it('hides and restores an evaluation with append-only moderation events', async () => {
+    let now = new Date('2026-07-27T10:00:00.000Z');
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          events: [createEvent({ id: 'evaluation-to-moderate' })],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(
+      repository,
+      undefined,
+      undefined,
+      () => now,
+    );
+    const admin = {
+      id: 'admin-1',
+      phone: '13900139000',
+      userType: 'admin' as const,
+    };
+
+    await expect(
+      service.moderateAdminEvaluation(admin, 'evaluation-to-moderate', {
+        status: 'hidden',
+        reason: '包含联系方式导流',
+        baseModerationVersion: 0,
+      }),
+    ).resolves.toMatchObject({
+      moderationStatus: 'hidden',
+      moderationVersion: 1,
+      moderationReason: '包含联系方式导流',
+      moderatedByAdminId: 'admin-1',
+      moderatedAtIso: now.toISOString(),
+    });
+    await expect(service.listRecords('shipper-1')).resolves.toMatchObject({
+      items: [],
+    });
+
+    now = new Date('2026-07-27T10:05:00.000Z');
+    await expect(
+      service.moderateAdminEvaluation(admin, 'evaluation-to-moderate', {
+        status: 'visible',
+        reason: '复核后确认可恢复展示',
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toMatchObject({
+      moderationStatus: 'visible',
+      moderationVersion: 2,
+      moderationReason: '复核后确认可恢复展示',
+      moderatedAtIso: now.toISOString(),
+    });
+    await expect(service.listRecords('shipper-1')).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'evaluation-to-moderate' })],
+    });
+    await expect(
+      service.listAdminEvaluationModerationEvents(
+        admin,
+        'evaluation-to-moderate',
+      ),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        fromStatus: 'hidden',
+        toStatus: 'visible',
+        fromVersion: 1,
+        toVersion: 2,
+      }),
+      expect.objectContaining({
+        fromStatus: 'visible',
+        toStatus: 'hidden',
+        fromVersion: 0,
+        toVersion: 1,
+      }),
+    ]);
+  });
+
+  it('rejects stale moderation versions without appending another action', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          events: [createEvent({ id: 'evaluation-conflict' })],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+    const admin = {
+      id: 'admin-1',
+      phone: '13900139000',
+      userType: 'admin' as const,
+    };
+
+    await service.moderateAdminEvaluation(admin, 'evaluation-conflict', {
+      status: 'hidden',
+      reason: '首次处置',
+      baseModerationVersion: 0,
+    });
+    await expect(
+      service.moderateAdminEvaluation(admin, 'evaluation-conflict', {
+        status: 'visible',
+        reason: '使用过期版本恢复',
+        baseModerationVersion: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.EVALUATION_MODERATION_CONFLICT,
+    });
+    await expect(
+      service.listAdminEvaluationModerationEvents(admin, 'evaluation-conflict'),
+    ).resolves.toHaveLength(1);
   });
 
   it('rejects missing admin evaluation audit details with not found', async () => {
@@ -1105,6 +1269,13 @@ function createEvent(
     noteText: string;
     attachmentFileIds: string[];
     createdAtIso: string;
+    evaluationModeration: {
+      status: 'visible' | 'hidden';
+      version: number;
+      reason?: string;
+      moderatedByAdminId?: string;
+      moderatedAtIso?: string;
+    };
   }>,
 ) {
   return {

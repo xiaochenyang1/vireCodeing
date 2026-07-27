@@ -19,10 +19,14 @@ export function renderEvaluationAuditAdminConsole() {
     .console-shell { display: grid; grid-template-columns: minmax(360px, 42%) 1fr; gap: 16px; padding: 16px; }
     .panel { background: #fff; border: 1px solid #d8dee4; border-radius: 12px; padding: 16px; }
     .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .filters-wide { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; }
-    input, select, button { box-sizing: border-box; width: 100%; padding: 9px; margin: 4px 0; }
+    .filters-wide { display: grid; grid-template-columns: 2fr repeat(3, 1fr); gap: 8px; }
+    input, select, textarea, button { box-sizing: border-box; width: 100%; padding: 9px; margin: 4px 0; }
+    input, select, textarea { border: 1px solid #c9d1d9; border-radius: 6px; background: #fff; color: inherit; font: inherit; }
+    textarea { min-height: 82px; resize: vertical; }
     button { cursor: pointer; background: #1769aa; color: #fff; border: 0; border-radius: 8px; }
     button:disabled { cursor: not-allowed; opacity: .55; }
+    .danger-button { background: #b42318; }
+    .restore-button { background: #087f5b; }
     .session-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .session-link { color: #1769aa; font-size: 13px; font-weight: 600; text-decoration: none; }
     .secondary-button { width: auto; background: #fff; color: #1769aa; border: 1px solid #d8dee4; }
@@ -32,8 +36,14 @@ export function renderEvaluationAuditAdminConsole() {
     .error { color: #b42318; white-space: pre-wrap; }
     .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
     .tag { background: #eef2f6; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .status-badge { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
+    .status-badge.visible { background: #dcfce7; color: #166534; }
+    .status-badge.hidden { background: #fee2e2; color: #991b1b; }
     .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .detail-card { border: 1px solid #edf0f2; border-radius: 10px; padding: 12px; margin-top: 12px; }
+    .moderation-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .moderation-event { border-top: 1px solid #edf0f2; padding: 10px 0; }
+    .moderation-event:first-child { border-top: 0; }
     ul { padding-left: 18px; }
     ${renderAdminConsoleNavStyles()}
     @media (max-width: 820px) {
@@ -46,7 +56,6 @@ export function renderEvaluationAuditAdminConsole() {
   <main class="console-shell">
     <section class="panel">
       <h1>评价审计台</h1>
-      <p class="muted">只读查看评价审计记录第一片。现在能筛评价方向、评分和关键字，还不支持评价审核、申诉处理或信用分处置。</p>
       <label>Admin access token<input id="adminToken" type="password" /></label>
       ${renderAdminSessionControls({
         currentRoute: '/api/admin/evaluation-audit-console',
@@ -58,6 +67,7 @@ export function renderEvaluationAuditAdminConsole() {
         <label>关键字<input id="auditKeywordInput" placeholder="订单号、评价人、被评价人、内容、标签" /></label>
         <label>方向<select id="auditDirectionInput"><option value="">全部方向</option><option value="shipper_to_driver">货主评价司机</option><option value="driver_to_shipper">司机评价货主</option></select></label>
         <label>评分<select id="auditRatingInput"><option value="">全部评分</option><option value="5">5 星</option><option value="4">4 星</option><option value="3">3 星</option><option value="2">2 星</option><option value="1">1 星</option></select></label>
+        <label>展示状态<select id="auditModerationStatusInput"><option value="">全部状态</option><option value="visible">展示中</option><option value="hidden">已隐藏</option></select></label>
       </div>
       <div class="filters">
         <label>每页<input id="auditPageSizeInput" type="number" min="1" max="50" value="20" /></label>
@@ -75,6 +85,21 @@ export function renderEvaluationAuditAdminConsole() {
       <h2>评价详情</h2>
       <div id="auditDetail" class="muted">请选择左侧评价记录</div>
       <div id="auditTags" class="tag-list"></div>
+      <div id="auditModerationPanel" class="detail-card" hidden>
+        <div class="moderation-heading">
+          <strong>展示处置</strong>
+          <span id="auditModerationStatus" class="status-badge visible">展示中</span>
+        </div>
+        <p id="auditModerationSummary" class="muted"></p>
+        <label>处置原因<textarea id="auditModerationReason" maxlength="200" placeholder="填写本次隐藏或恢复的依据"></textarea></label>
+        <button id="auditModerationButton" type="button" onclick="submitEvaluationModeration()">隐藏评价</button>
+        <div id="auditModerationNotice" class="error" aria-live="polite"></div>
+      </div>
+      <div id="auditModerationHistoryPanel" class="detail-card" hidden>
+        <strong>处置历史</strong>
+        <div id="auditModerationHistoryNotice" class="muted"></div>
+        <div id="auditModerationHistory"></div>
+      </div>
       <div id="auditPhotoPanel" class="detail-card" hidden>
         <strong>图片文件</strong>
         <p id="auditPhotoNotice" class="muted"></p>
@@ -88,8 +113,12 @@ export function renderEvaluationAuditAdminConsole() {
     let total = 0;
     let currentItems = [];
     let selectedAuditId = '';
+    let selectedAuditDetail = null;
+    let auditSelectionEpoch = 0;
     let latestAuditRequestId = 0;
     let latestAuditDetailRequestId = 0;
+    let latestAuditModerationMutationRequestId = 0;
+    let auditModerationMutationPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/evaluation-audit-console',
     })}
@@ -101,10 +130,13 @@ export function renderEvaluationAuditAdminConsole() {
       return value;
     }
 
-    async function api(path) {
+    async function api(path, options = {}) {
       const response = await fetch(apiBase + path, {
+        ...options,
         headers: {
           Authorization: 'Bearer ' + token(),
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(options.headers || {}),
         },
       });
       const body = await response.json();
@@ -128,10 +160,35 @@ export function renderEvaluationAuditAdminConsole() {
       return rating + ' 星';
     }
 
+    function normalizeModerationStatus(status) {
+      return status === 'hidden' ? 'hidden' : 'visible';
+    }
+
+    function formatModerationStatus(status) {
+      return normalizeModerationStatus(status) === 'hidden' ? '已隐藏' : '展示中';
+    }
+
+    function isCurrentAuditSelection(targetAuditId, selectionEpoch) {
+      return (
+        selectedAuditId === targetAuditId &&
+        auditSelectionEpoch === selectionEpoch
+      );
+    }
+
     function clearAuditAttachmentPanel() {
       document.getElementById('auditPhotoNotice').textContent = '';
       document.getElementById('auditPhotoList').innerHTML = '';
       document.getElementById('auditPhotoPanel').hidden = true;
+    }
+
+    function clearAuditModerationPanels() {
+      selectedAuditDetail = null;
+      document.getElementById('auditModerationPanel').hidden = true;
+      document.getElementById('auditModerationReason').value = '';
+      document.getElementById('auditModerationNotice').textContent = '';
+      document.getElementById('auditModerationHistoryPanel').hidden = true;
+      document.getElementById('auditModerationHistoryNotice').textContent = '';
+      document.getElementById('auditModerationHistory').innerHTML = '';
     }
 
     function renderAuditDetailMessage(message) {
@@ -139,6 +196,7 @@ export function renderEvaluationAuditAdminConsole() {
         '<p class="muted">' + escapeHtml(message || '请选择左侧评价记录') + '</p>';
       document.getElementById('auditTags').innerHTML = '';
       clearAuditAttachmentPanel();
+      clearAuditModerationPanels();
     }
 
     function readEvaluationAuditRouteState() {
@@ -149,6 +207,7 @@ export function renderEvaluationAuditAdminConsole() {
       );
       return {
         direction: query.get('direction') || '',
+        moderationStatus: query.get('moderationStatus') || '',
         rating: query.get('rating') || '',
         keyword: query.get('keyword') || '',
         auditId: query.get('auditId') || '',
@@ -160,6 +219,8 @@ export function renderEvaluationAuditAdminConsole() {
     function applyEvaluationAuditRouteState() {
       const routeState = readEvaluationAuditRouteState();
       document.getElementById('auditDirectionInput').value = routeState.direction;
+      document.getElementById('auditModerationStatusInput').value =
+        routeState.moderationStatus;
       document.getElementById('auditRatingInput').value = routeState.rating;
       document.getElementById('auditKeywordInput').value = routeState.keyword;
       if (routeState.page) {
@@ -181,6 +242,7 @@ export function renderEvaluationAuditAdminConsole() {
 
       const query = new URLSearchParams();
       const direction = document.getElementById('auditDirectionInput').value;
+      const moderationStatus = document.getElementById('auditModerationStatusInput').value;
       const rating = document.getElementById('auditRatingInput').value;
       const keyword = document.getElementById('auditKeywordInput').value.trim();
       const pageSize = Math.min(
@@ -200,6 +262,7 @@ export function renderEvaluationAuditAdminConsole() {
           : selectedAuditId || '',
       ).trim();
       if (direction) query.set('direction', direction);
+      if (moderationStatus) query.set('moderationStatus', moderationStatus);
       if (rating) query.set('rating', rating);
       if (keyword) query.set('keyword', keyword);
       if (auditId) query.set('auditId', auditId);
@@ -221,9 +284,11 @@ export function renderEvaluationAuditAdminConsole() {
           pageSize: String(pageSize),
         });
         const direction = document.getElementById('auditDirectionInput').value;
+        const moderationStatus = document.getElementById('auditModerationStatusInput').value;
         const rating = document.getElementById('auditRatingInput').value;
         const keyword = document.getElementById('auditKeywordInput').value.trim();
         if (direction) query.set('direction', direction);
+        if (moderationStatus) query.set('moderationStatus', moderationStatus);
         if (rating) query.set('rating', rating);
         if (keyword) query.set('keyword', keyword);
         syncEvaluationAuditRouteState(requestedPage, pageSize);
@@ -280,7 +345,10 @@ export function renderEvaluationAuditAdminConsole() {
 
     function renderAuditList() {
       document.getElementById('auditList').innerHTML = currentItems.length
-        ? currentItems.map(item => '<div class="audit-row' + (item.id === selectedAuditId ? ' selected' : '') + '" data-audit-id="' + escapeHtml(item.id) + '" onclick="selectAudit(this.dataset.auditId)"><strong>' + escapeHtml(item.orderNo) + '</strong> · ' + escapeHtml(formatDirection(item.direction)) + '<div>' + escapeHtml(item.reviewerName) + ' → ' + escapeHtml(item.revieweeName) + '</div><div class="muted">' + escapeHtml(formatRating(item.rating)) + ' · ' + escapeHtml(item.submittedAtIso) + '</div></div>').join('')
+        ? currentItems.map(item => {
+            const moderationStatus = normalizeModerationStatus(item.moderationStatus);
+            return '<div class="audit-row' + (item.id === selectedAuditId ? ' selected' : '') + '" data-audit-id="' + escapeHtml(item.id) + '" onclick="selectAudit(this.dataset.auditId)"><strong>' + escapeHtml(item.orderNo) + '</strong> · ' + escapeHtml(formatDirection(item.direction)) + ' <span class="status-badge ' + moderationStatus + '">' + escapeHtml(formatModerationStatus(moderationStatus)) + '</span><div>' + escapeHtml(item.reviewerName) + ' → ' + escapeHtml(item.revieweeName) + '</div><div class="muted">' + escapeHtml(formatRating(item.rating)) + ' · ' + escapeHtml(item.submittedAtIso) + '</div></div>';
+          }).join('')
         : '<p class="muted">暂无评价记录</p>';
     }
 
@@ -292,6 +360,7 @@ export function renderEvaluationAuditAdminConsole() {
 
     async function selectAudit(auditId) {
       const requestId = ++latestAuditDetailRequestId;
+      const selectionEpoch = ++auditSelectionEpoch;
       const targetAuditId = String(auditId || '').trim();
       selectedAuditId = targetAuditId;
       syncEvaluationAuditRouteState(
@@ -301,20 +370,22 @@ export function renderEvaluationAuditAdminConsole() {
       );
       renderAuditList();
       renderAuditDetailMessage(
-        targetAuditId ? '评价详情与图片加载中...' : '请选择左侧评价记录',
+        targetAuditId ? '评价详情加载中...' : '请选择左侧评价记录',
       );
       if (!targetAuditId) {
         return;
       }
 
       try {
-        const [detailResult, attachmentResult] = await Promise.allSettled([
+        const [detailResult, attachmentResult, moderationEventsResult] =
+          await Promise.allSettled([
           api('/admin/evaluations/' + encodeURIComponent(targetAuditId)),
           api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/attachments'),
+          api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/moderation-events'),
         ]);
         if (
           requestId !== latestAuditDetailRequestId ||
-          selectedAuditId !== targetAuditId
+          !isCurrentAuditSelection(targetAuditId, selectionEpoch)
         ) return;
         if (detailResult.status !== 'fulfilled') {
           const detailError = detailResult.reason;
@@ -332,16 +403,22 @@ export function renderEvaluationAuditAdminConsole() {
         } else {
           renderAuditAttachmentError(item, attachmentResult.reason);
         }
+        if (moderationEventsResult.status === 'fulfilled') {
+          renderAuditModerationEvents(moderationEventsResult.value);
+        } else {
+          renderAuditModerationEventsError(moderationEventsResult.reason);
+        }
       } catch (error) {
         if (
           requestId !== latestAuditDetailRequestId ||
-          selectedAuditId !== targetAuditId
+          !isCurrentAuditSelection(targetAuditId, selectionEpoch)
         ) return;
         renderAuditDetailMessage(error.message || '评价详情加载失败');
       }
     }
 
     function renderAuditDetail(item) {
+      selectedAuditDetail = item;
       document.getElementById('auditDetail').innerHTML =
         '<div class="detail-grid">' +
           '<div class="detail-card"><strong>订单</strong><div>' + escapeHtml(item.orderNo) + '</div><div class="muted">' + escapeHtml(item.orderId) + '</div></div>' +
@@ -351,6 +428,136 @@ export function renderEvaluationAuditAdminConsole() {
         '</div>' +
         '<div class="detail-card"><strong>评价内容</strong><p>' + escapeHtml(item.content) + '</p><div class="muted">提交时间：' + escapeHtml(item.submittedAtIso) + '</div></div>';
       document.getElementById('auditTags').innerHTML = (item.tags || []).map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('');
+      renderAuditModeration(item);
+    }
+
+    function renderAuditModeration(item) {
+      const status = normalizeModerationStatus(item.moderationStatus);
+      const version = Math.max(0, Number(item.moderationVersion || 0));
+      const targetStatus = status === 'hidden' ? 'visible' : 'hidden';
+      const statusNode = document.getElementById('auditModerationStatus');
+      statusNode.className = 'status-badge ' + status;
+      statusNode.textContent = formatModerationStatus(status);
+      document.getElementById('auditModerationSummary').textContent =
+        version > 0
+          ? '版本 ' + version + ' · 原因：' + (item.moderationReason || '-') +
+            ' · 管理员：' + (item.moderatedByAdminId || '-') +
+            ' · 时间：' + (item.moderatedAtIso || '-')
+          : '尚无处置记录 · 版本 0';
+      const button = document.getElementById('auditModerationButton');
+      button.textContent = targetStatus === 'hidden' ? '隐藏评价' : '恢复展示';
+      button.className = targetStatus === 'hidden' ? 'danger-button' : 'restore-button';
+      button.disabled = auditModerationMutationPending;
+      document.getElementById('auditModerationPanel').hidden = false;
+    }
+
+    function renderAuditModerationEvents(events) {
+      const items = Array.isArray(events) ? events : [];
+      document.getElementById('auditModerationHistoryPanel').hidden = false;
+      document.getElementById('auditModerationHistoryNotice').textContent =
+        items.length ? '共 ' + items.length + ' 条处置记录' : '暂无处置记录';
+      document.getElementById('auditModerationHistory').innerHTML = items
+        .map(event =>
+          '<div class="moderation-event"><strong>' +
+            escapeHtml(formatModerationStatus(event.fromStatus)) + ' → ' +
+            escapeHtml(formatModerationStatus(event.toStatus)) +
+            '</strong><div>' + escapeHtml(event.reason) + '</div>' +
+            '<div class="muted">版本 ' + escapeHtml(event.fromVersion) + ' → ' +
+            escapeHtml(event.toVersion) + ' · 管理员：' +
+            escapeHtml(event.adminUserId) + ' · ' +
+            escapeHtml(event.createdAtIso) + '</div></div>',
+        )
+        .join('');
+    }
+
+    function renderAuditModerationEventsError(error) {
+      document.getElementById('auditModerationHistoryPanel').hidden = false;
+      document.getElementById('auditModerationHistoryNotice').textContent =
+        error && error.message ? error.message : '处置历史加载失败';
+      document.getElementById('auditModerationHistory').innerHTML = '';
+    }
+
+    async function submitEvaluationModeration() {
+      if (auditModerationMutationPending) return;
+      if (!selectedAuditDetail || selectedAuditDetail.id !== selectedAuditId) {
+        document.getElementById('auditModerationNotice').textContent = '请先选择评价记录';
+        return;
+      }
+
+      const targetAuditId = selectedAuditId;
+      const selectionEpoch = auditSelectionEpoch;
+      const requestId = ++latestAuditModerationMutationRequestId;
+      const currentStatus = normalizeModerationStatus(
+        selectedAuditDetail.moderationStatus,
+      );
+      const targetStatus = currentStatus === 'hidden' ? 'visible' : 'hidden';
+      const reason = document.getElementById('auditModerationReason').value.trim();
+      if (reason.length < 2 || reason.length > 200) {
+        document.getElementById('auditModerationNotice').textContent =
+          '处置原因需为 2-200 个字符';
+        return;
+      }
+
+      auditModerationMutationPending = true;
+      renderAuditModeration(selectedAuditDetail);
+      document.getElementById('auditModerationNotice').textContent = '提交处置中...';
+      let refreshMessage = '';
+      let shouldRefreshList = false;
+      try {
+        await api(
+          '/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/moderation',
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              status: targetStatus,
+              reason,
+              baseModerationVersion: Math.max(
+                0,
+                Number(selectedAuditDetail.moderationVersion || 0),
+              ),
+            }),
+          },
+        );
+        if (requestId !== latestAuditModerationMutationRequestId) return;
+        shouldRefreshList = true;
+        if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+          refreshMessage = targetStatus === 'hidden' ? '评价已隐藏' : '评价已恢复展示';
+        }
+      } catch (error) {
+        if (requestId !== latestAuditModerationMutationRequestId) return;
+        if (error.code === 'EVALUATION_MODERATION_CONFLICT') {
+          shouldRefreshList = true;
+          if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+            refreshMessage = (error.message || '评价处置状态已更新') + '，已刷新最新状态';
+          }
+        } else if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+          document.getElementById('auditModerationNotice').textContent =
+            error.message || '评价处置失败';
+        }
+      } finally {
+        auditModerationMutationPending = false;
+        if (
+          selectedAuditDetail &&
+          selectedAuditDetail.id === selectedAuditId
+        ) {
+          renderAuditModeration(selectedAuditDetail);
+        }
+      }
+
+      if (!shouldRefreshList) {
+        return;
+      }
+      if (!refreshMessage || !isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+        await loadAudits(currentPage);
+        return;
+      }
+      const detailRefresh = selectAudit(targetAuditId);
+      const refreshSelectionEpoch = auditSelectionEpoch;
+      await Promise.all([loadAudits(currentPage), detailRefresh]);
+      if (isCurrentAuditSelection(targetAuditId, refreshSelectionEpoch)) {
+        document.getElementById('auditModerationReason').value = '';
+        document.getElementById('auditModerationNotice').textContent = refreshMessage;
+      }
     }
 
     function renderAuditAttachmentError(item, error) {
