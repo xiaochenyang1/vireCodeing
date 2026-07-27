@@ -328,7 +328,7 @@ export function renderSessionGovernanceAdminConsole() {
         <label>当前设备标识<input id="currentDeviceId" placeholder="admin-console-device" /></label>
         <div style="display:flex; gap:12px; align-items:flex-end;">
           <button type="button" onclick="loadAdminSessions()">刷新会话列表</button>
-          <button type="button" class="danger-button" onclick="revokeOtherAdminSessions()">撤销当前账号其它设备</button>
+          <button id="revokeOtherAdminSessionsButton" type="button" class="danger-button" onclick="revokeOtherAdminSessions()">撤销当前账号其它设备</button>
         </div>
       </div>
       <div class="filters-grid">
@@ -389,6 +389,7 @@ export function renderSessionGovernanceAdminConsole() {
     let latestSessionAuditRequestId = 0;
     let currentSessionAuditPage = 1;
     let currentSessionAuditTotal = 0;
+    let sessionMutationPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/session-governance-console',
     })}
@@ -786,7 +787,7 @@ export function renderSessionGovernanceAdminConsole() {
             '</div>' +
           '</div>' +
           '<div class="session-actions">' +
-            '<button type="button" class="danger-button" onclick="revokeAdminSession(\\'' + escapeHtml(session.id) + '\\')">撤销该会话</button>' +
+            '<button type="button" class="danger-button" data-session-mutation-button onclick="revokeAdminSession(\\'' + escapeHtml(session.id) + '\\')"' + (sessionMutationPending ? ' disabled' : '') + '>撤销该会话</button>' +
           '</div>' +
         '</article>';
       }).join('');
@@ -935,7 +936,24 @@ export function renderSessionGovernanceAdminConsole() {
       loadSessionAuditEvents(Math.min(maxPage, Math.max(1, currentSessionAuditPage + offset)));
     }
 
+    function setSessionMutationPending(pending) {
+      sessionMutationPending = pending;
+      document.getElementById('revokeOtherAdminSessionsButton').disabled = pending;
+      document.querySelectorAll('[data-session-mutation-button]').forEach(function(button) {
+        button.disabled = pending;
+      });
+    }
+
+    async function refreshSessionGovernanceWorkspace() {
+      await Promise.all([
+        loadAdminSessions(currentSessionPage),
+        loadSessionAuditEvents(currentSessionAuditPage),
+      ]);
+    }
+
     async function revokeAdminSession(sessionId) {
+      if (sessionMutationPending) return;
+      setSessionMutationPending(true);
       document.getElementById('sessionNotice').textContent = '';
       try {
         const data = await api('/admin/auth/sessions/' + encodeURIComponent(sessionId) + '/revoke', {
@@ -943,14 +961,17 @@ export function renderSessionGovernanceAdminConsole() {
         });
         document.getElementById('sessionStatus').textContent =
           data.revoked ? '会话已撤销：' + sessionId : '会话不存在或已经失效。';
-        await loadAdminSessions(currentSessionPage);
-        await loadSessionAuditEvents(currentSessionAuditPage);
+        await refreshSessionGovernanceWorkspace();
       } catch (error) {
         document.getElementById('sessionNotice').textContent = error.message;
+      } finally {
+        setSessionMutationPending(false);
       }
     }
 
     async function revokeOtherAdminSessions() {
+      if (sessionMutationPending) return;
+      setSessionMutationPending(true);
       document.getElementById('sessionNotice').textContent = '';
       try {
         const currentDeviceId = currentDeviceValue();
@@ -963,10 +984,11 @@ export function renderSessionGovernanceAdminConsole() {
         const currentDeviceLabel = data.currentDeviceId || maskDeviceId(currentDeviceId);
         document.getElementById('sessionStatus').textContent =
           '已按当前设备 ' + currentDeviceLabel + ' 保留本机，撤销其它会话 ' + String(data.revokedCount) + ' 条。';
-        await loadAdminSessions(currentSessionPage);
-        await loadSessionAuditEvents(currentSessionAuditPage);
+        await refreshSessionGovernanceWorkspace();
       } catch (error) {
         document.getElementById('sessionNotice').textContent = error.message;
+      } finally {
+        setSessionMutationPending(false);
       }
     }
 

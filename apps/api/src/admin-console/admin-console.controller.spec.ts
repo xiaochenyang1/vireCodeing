@@ -3629,6 +3629,93 @@ describe('session governance admin console page', () => {
     expect(html).toContain('loadSessionAuditEvents(currentSessionAuditPage)');
     expect(html).toContain('history.replaceState');
   });
+
+  it('serializes session revocations and refreshes both governance feeds', async () => {
+    const html = renderSessionGovernanceAdminConsole();
+    const mutationStart = html.indexOf(
+      'function setSessionMutationPending(pending)',
+    );
+    const mutationEnd = html.indexOf(
+      'applySessionGovernanceRouteState();',
+      mutationStart,
+    );
+    const mutationSource = html.slice(mutationStart, mutationEnd);
+    let resolveRevoke: ((value: unknown) => void) | undefined;
+    const revokeResponse = new Promise<unknown>(resolve => {
+      resolveRevoke = resolve;
+    });
+    const api = jest.fn(() => revokeResponse);
+    const loadAdminSessions = jest.fn().mockResolvedValue(undefined);
+    const loadSessionAuditEvents = jest.fn().mockResolvedValue(undefined);
+    const mutationButtons = [{ disabled: false }, { disabled: false }];
+    const nodes = new Map<
+      string,
+      { disabled: boolean; textContent: string }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = { disabled: false, textContent: '' };
+      nodes.set(id, created);
+      return created;
+    };
+    const context = {
+      sessionMutationPending: false,
+      currentSessionPage: 2,
+      currentSessionAuditPage: 3,
+      document: {
+        getElementById: getNode,
+        querySelectorAll: jest.fn(() => mutationButtons),
+      },
+      api,
+      loadAdminSessions,
+      loadSessionAuditEvents,
+      currentDeviceValue: jest.fn(() => 'admin-device-a'),
+      maskDeviceId: jest.fn((value: string) => value),
+      encodeURIComponent,
+      invokeRevokeSession: undefined as
+        | undefined
+        | ((sessionId: string) => Promise<void>),
+      invokeRevokeOtherSessions: undefined as
+        | undefined
+        | (() => Promise<void>),
+    };
+
+    runInNewContext(
+      `${mutationSource}\n` +
+        'invokeRevokeSession = revokeAdminSession;\n' +
+        'invokeRevokeOtherSessions = revokeOtherAdminSessions;',
+      context,
+    );
+
+    const firstMutation = context.invokeRevokeSession!('session-a');
+    await context.invokeRevokeOtherSessions!();
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(
+      '/admin/auth/sessions/session-a/revoke',
+      { method: 'POST' },
+    );
+    expect(getNode('revokeOtherAdminSessionsButton').disabled).toBe(true);
+    expect(mutationButtons.every(button => button.disabled)).toBe(true);
+
+    resolveRevoke?.({ revoked: true });
+    await firstMutation;
+
+    expect(loadAdminSessions).toHaveBeenCalledWith(2);
+    expect(loadSessionAuditEvents).toHaveBeenCalledWith(3);
+    expect(getNode('revokeOtherAdminSessionsButton').disabled).toBe(false);
+    expect(mutationButtons.some(button => button.disabled)).toBe(false);
+
+    api.mockRejectedValueOnce(new Error('session revoke failed'));
+    await context.invokeRevokeOtherSessions!();
+
+    expect(getNode('sessionNotice').textContent).toBe(
+      'session revoke failed',
+    );
+    expect(getNode('revokeOtherAdminSessionsButton').disabled).toBe(false);
+    expect(mutationButtons.some(button => button.disabled)).toBe(false);
+  });
 });
 
 describe('account management admin console page', () => {
