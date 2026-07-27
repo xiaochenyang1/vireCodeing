@@ -61,7 +61,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         <label class="full-span">订单号/工单号<input id="caseKeywordInput" /></label>
       </div>
       <div class="session-row">
-        <button id="loadCasesButton" class="inline-button" onclick="loadCases(1)">查询工单</button>
+        <button id="loadCasesButton" class="inline-button" onclick="refreshCaseWorkspace(1)">查询工单</button>
         <button id="loadMyCasesButton" class="secondary-button" onclick="loadMyCases()">我的认领单</button>
         <button id="sweepExceptionCaseOverdueButton" class="secondary-button" onclick="sweepOverdueExceptionCases()">执行超时升级扫描</button>
       </div>
@@ -308,30 +308,6 @@ export function renderOrderExceptionCaseAdminConsole() {
       globalThis.history.replaceState(null, '', nextPath);
     }
 
-    function clearCaseSelection(options = {}) {
-      caseSelectionEpoch += 1;
-      latestCaseDetailRequestId += 1;
-      selectedCaseId = '';
-      loadedCaseId = '';
-      selectedCaseClaimedByAdminUserId = '';
-      selectedCaseAppealStatus = 'none';
-      if (options.clearPendingRoute !== false) {
-        pendingRouteCaseId = '';
-      }
-      document.getElementById('baseUpdatedAtIso').value = '';
-      document.getElementById('caseActionContent').value = '';
-      document.getElementById('caseAssignTargetAdminUserIdInput').value = '';
-      document.getElementById('caseActions').innerHTML = '';
-      document.getElementById('caseDetail').textContent = options.detailText || '请选择工单';
-      document.getElementById('caseMutationNotice').textContent = options.notice || '';
-      resetCompensationInputs();
-      syncCompensationInputsFromStatus();
-      if (options.syncRoute !== false) {
-        syncOrderExceptionCaseRouteState(currentPage, '');
-      }
-      renderCaseListSelection();
-    }
-
     function isSelectedCaseMutationPending() {
       return (
         mutationPending &&
@@ -532,7 +508,6 @@ export function renderOrderExceptionCaseAdminConsole() {
 
     async function loadCases(page) {
       const requestId = ++latestCaseListRequestId;
-      const routeRestoreCaseId = pendingRouteCaseId;
 
       try {
         currentPage = Math.max(1, page);
@@ -563,19 +538,18 @@ export function renderOrderExceptionCaseAdminConsole() {
           ? result.items.map(renderCaseListItem).join('')
           : '<p class="muted">暂无异常工单</p>';
         renderCaseListSelection();
-
-        if (
-          routeRestoreCaseId &&
-          pendingRouteCaseId === routeRestoreCaseId &&
-          routeRestoreCaseId !== selectedCaseId
-        ) {
-          pendingRouteCaseId = '';
-          await loadCase(routeRestoreCaseId, { fromRouteRestore: true });
-        }
       } catch (error) {
         if (requestId !== latestCaseListRequestId) return;
         document.getElementById('caseListNotice').textContent = error.message;
       }
+    }
+
+    async function refreshCaseWorkspace(page) {
+      const targetCaseId = selectedCaseId || pendingRouteCaseId;
+      await Promise.all([
+        loadCases(page),
+        ...(targetCaseId && !mutationPending ? [loadCase(targetCaseId)] : []),
+      ]);
     }
 
     function changePage(offset) {
@@ -589,9 +563,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       let selectionEpoch = caseSelectionEpoch;
 
       try {
-        if (!options.fromRouteRestore) {
-          pendingRouteCaseId = '';
-        }
+        pendingRouteCaseId = '';
         if (!options.preserveSelectionEpoch) {
           caseSelectionEpoch += 1;
           document.getElementById('caseActionContent').value = '';
@@ -639,10 +611,14 @@ export function renderOrderExceptionCaseAdminConsole() {
           selectedCaseId !== caseId ||
           caseSelectionEpoch !== selectionEpoch
         ) return;
-        clearCaseSelection({
-          detailText: '请选择工单',
-          notice: error.message,
-        });
+        document.getElementById('baseUpdatedAtIso').value = '';
+        document.getElementById('caseActions').innerHTML = '';
+        document.getElementById('caseDetail').innerHTML =
+          '<p class="error">' + escapeHtml(error.message || '读取工单详情失败') + '</p>';
+        setCaseActionButtonsDisabled(true);
+        syncCompensationInputsFromStatus();
+        syncOrderExceptionCaseRouteState(currentPage, caseId);
+        renderCaseListSelection();
       }
     }
 
@@ -653,7 +629,7 @@ export function renderOrderExceptionCaseAdminConsole() {
       }
       document.getElementById('caseClaimStatusInput').value = 'claimed';
       document.getElementById('caseClaimedByAdminUserIdInput').value = currentAdminUserId;
-      loadCases(1);
+      refreshCaseWorkspace(1);
     }
 
     async function refreshCaseAfterMutation(targetCaseId, targetSelectionEpoch) {
@@ -1077,7 +1053,7 @@ export function renderOrderExceptionCaseAdminConsole() {
         ? currentAdminSession.user.id.trim()
         : '';
     if (currentAdminSession && currentAdminSession.accessToken) {
-      loadCases(currentPage || (caseRouteState.page ? Number.parseInt(caseRouteState.page, 10) || 1 : 1));
+      refreshCaseWorkspace(currentPage || (caseRouteState.page ? Number.parseInt(caseRouteState.page, 10) || 1 : 1));
     }
   </script>
 </body>

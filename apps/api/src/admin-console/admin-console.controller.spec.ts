@@ -107,10 +107,7 @@ describe('driver certification admin console page', () => {
     );
     const queueBody = html.slice(queueStart, queueEnd);
     const refreshStart = queueEnd;
-    const refreshEnd = html.indexOf(
-      'function getDriverId(item)',
-      refreshStart,
-    );
+    const refreshEnd = html.indexOf('function getDriverId(item)', refreshStart);
     const refreshBody = html.slice(refreshStart, refreshEnd);
     const syncStart = html.indexOf(
       'function syncSelectedDriversToCurrentQueue()',
@@ -144,10 +141,10 @@ describe('driver certification admin console page', () => {
       "request(apiPaths.list + '/' + encodeURIComponent(targetDriverId))",
     );
     expect(detailBody).toContain(
-      "encodeURIComponent(targetDriverId) + apiPaths.attachments",
+      'encodeURIComponent(targetDriverId) + apiPaths.attachments',
     );
     expect(detailBody).toContain(
-      "encodeURIComponent(targetDriverId) + apiPaths.reviewEvents",
+      'encodeURIComponent(targetDriverId) + apiPaths.reviewEvents',
     );
     expect(detailCommitIndex).toBeGreaterThan(detailGuardIndex);
     expect(batchBody).not.toContain('selectedDriverIdBeforeBatch');
@@ -270,7 +267,10 @@ describe('driver certification admin console page', () => {
     const reviewStart = html.indexOf(
       'async function submitReview(driverId, type, payload)',
     );
-    const reviewEnd = html.indexOf('async function runBatchReview()', reviewStart);
+    const reviewEnd = html.indexOf(
+      'async function runBatchReview()',
+      reviewStart,
+    );
     const reviewSource = html.slice(reviewStart, reviewEnd);
     let resolveReview: ((value: unknown) => void) | undefined;
     const reviewResponse = new Promise<unknown>(resolve => {
@@ -307,7 +307,10 @@ describe('driver certification admin console page', () => {
         | ((
             driverId: string,
             type: 'identity' | 'vehicle',
-            payload: { status: 'approved' | 'rejected'; rejectionReason?: string },
+            payload: {
+              status: 'approved' | 'rejected';
+              rejectionReason?: string;
+            },
           ) => Promise<void>),
     };
     runInNewContext(`${reviewSource}\ninvokeReview = submitReview;`, context);
@@ -433,7 +436,10 @@ describe('evaluation audit admin console page', () => {
       const detail = createDeferred();
       const attachments = createDeferred();
       pending.set('/admin/evaluations/' + auditId, detail);
-      pending.set('/admin/evaluations/' + auditId + '/attachments', attachments);
+      pending.set(
+        '/admin/evaluations/' + auditId + '/attachments',
+        attachments,
+      );
       return { attachments, detail };
     };
     const api = jest.fn((path: string) => {
@@ -525,9 +531,7 @@ describe('evaluation audit admin console page', () => {
     expect(renderAuditDetail).toHaveBeenCalledTimes(2);
     expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
     expect(renderAuditAttachmentError).toHaveBeenCalledTimes(1);
-    expect(renderAuditDetailMessage).toHaveBeenLastCalledWith(
-      '评价记录不存在',
-    );
+    expect(renderAuditDetailMessage).toHaveBeenLastCalledWith('评价记录不存在');
   });
 
   it('syncs evaluation filters and selected audit detail into route state', () => {
@@ -619,8 +623,8 @@ describe('finance admin console page', () => {
 
     expect(html).toContain('formatFinanceTimestamp');
     expect(html).toContain('formatWithdrawalListDetail');
-    expect(html).toContain('item.bankName || \'-\'');
-    expect(html).toContain('item.bankAccountMasked || \'-\'');
+    expect(html).toContain("item.bankName || '-'");
+    expect(html).toContain("item.bankAccountMasked || '-'");
     expect(html).toContain('item.rejectionReason');
     expect(html).toContain('item.payoutChannel');
     expect(html).toContain('item.providerPayoutNo');
@@ -640,7 +644,9 @@ describe('finance admin console page', () => {
       'const requestId = ++latestFinanceReconciliationRequestId',
     );
     expect(html).toContain('requestId !== latestFinanceRequestId ||');
-    expect(html).toContain('if (requestId !== latestFinanceReportRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestFinanceReportRequestId) return',
+    );
     expect(html).toContain(
       'if (requestId !== latestFinanceReconciliationRequestId) return',
     );
@@ -1287,10 +1293,10 @@ describe('order change request admin console page', () => {
     expect(routedDetailBody).toContain(
       "encodeURIComponent(orderId) + '/change-request/review-events'",
     );
-    expect(routedDetailBody).toContain('const [order, events] = await Promise.all([');
     expect(routedDetailBody).toContain(
-      'requestId !== latestDetailRequestId',
+      'const [order, events] = await Promise.all([',
     );
+    expect(routedDetailBody).toContain('requestId !== latestDetailRequestId');
     expect(routedDetailBody).toContain('selectedOrderId !== orderId');
     expect(detailCommitIndex).toBeGreaterThan(detailGuardIndex);
     expect(queuedSelectionStart).toBeGreaterThanOrEqual(0);
@@ -1418,7 +1424,10 @@ describe('order change request admin console page', () => {
     );
     const reviewBody = html.slice(reviewStart, reviewEnd);
     const apiPostStart = html.indexOf('async function apiPost(url, body)');
-    const apiPostEnd = html.indexOf('function renderQueue(items)', apiPostStart);
+    const apiPostEnd = html.indexOf(
+      'function renderQueue(items)',
+      apiPostStart,
+    );
     const apiPostBody = html.slice(apiPostStart, apiPostEnd);
     const postIndex = reviewBody.indexOf('await apiPost(');
     const successGuardIndex = reviewBody.indexOf(
@@ -1441,9 +1450,7 @@ describe('order change request admin console page', () => {
       'await loadQueue()',
       pendingClearIndex,
     );
-    const pendingGuardIndex = reviewBody.indexOf(
-      'if (reviewMutationPending)',
-    );
+    const pendingGuardIndex = reviewBody.indexOf('if (reviewMutationPending)');
     const reviewRequestIndex = reviewBody.indexOf(
       'const requestId = ++latestReviewRequestId',
     );
@@ -1550,7 +1557,10 @@ describe('order change request admin console page', () => {
     const refresh = new Promise<void>(resolve => {
       resolveRefresh = resolve;
     });
-    const successful = createRuntime(() => post, () => refresh);
+    const successful = createRuntime(
+      () => post,
+      () => refresh,
+    );
     const firstReview = successful.invokeReview('approved');
 
     await successful.invokeReview('rejected');
@@ -1615,7 +1625,10 @@ describe('order change request admin console page', () => {
   it('executes the shared admin session bootstrap before auto-loading the order change queue', () => {
     const html = renderOrderChangeRequestAdminConsole();
     const applicationScriptStart = html.lastIndexOf('<script>');
-    const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
+    const applicationScriptEnd = html.indexOf(
+      '</script>',
+      applicationScriptStart,
+    );
     const sessionBootstrapIndex = html.indexOf(
       "const adminSessionStorageKey = 'stage1AdminSession'",
     );
@@ -1624,7 +1637,9 @@ describe('order change request admin console page', () => {
     expect(sessionBootstrapIndex).toBeLessThan(applicationScriptEnd);
     expect(html).toContain('const stored = readStoredAdminSession()');
     expect(html).toContain('stored.session?.accessToken');
-    expect(html).toContain('const currentAdminSession = initializeAdminSession()');
+    expect(html).toContain(
+      'const currentAdminSession = initializeAdminSession()',
+    );
     expect(html).toContain(
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
@@ -1721,16 +1736,12 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain('if (requestId !== latestQueueRequestId) {');
     expect(html).toContain('const requestId = ++latestDetailRequestId');
     expect(html).toContain('requestId !== latestDetailRequestId ||');
-    expect(html).toContain(
-      'selectedApplicationId !== targetApplicationId',
-    );
+    expect(html).toContain('selectedApplicationId !== targetApplicationId');
     expect(queueBody).not.toContain('latestDetailRequestId');
     expect(queueBody).not.toContain('resetDetail(');
     expect(queueBody).not.toContain('resetReviewEvents(');
     expect(queueRenderBody).not.toContain("selectedApplicationId = ''");
-    expect(queueRenderBody).not.toContain(
-      "syncShipperInvoiceRouteState('')",
-    );
+    expect(queueRenderBody).not.toContain("syncShipperInvoiceRouteState('')");
   });
 
   it('commits only the latest invoice workspace and degrades audit events independently', async () => {
@@ -2091,7 +2102,10 @@ describe('shipper invoice admin console page', () => {
   it('executes the shared admin session bootstrap before refreshing the invoice workspace', () => {
     const html = renderShipperInvoiceAdminConsole();
     const applicationScriptStart = html.lastIndexOf('<script>');
-    const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
+    const applicationScriptEnd = html.indexOf(
+      '</script>',
+      applicationScriptStart,
+    );
     const sessionBootstrapIndex = html.indexOf(
       "const adminSessionStorageKey = 'stage1AdminSession'",
     );
@@ -2100,7 +2114,9 @@ describe('shipper invoice admin console page', () => {
     expect(sessionBootstrapIndex).toBeLessThan(applicationScriptEnd);
     expect(html).toContain('const stored = readStoredAdminSession()');
     expect(html).toContain('stored.session?.accessToken');
-    expect(html).toContain('const currentAdminSession = initializeAdminSession()');
+    expect(html).toContain(
+      'const currentAdminSession = initializeAdminSession()',
+    );
     expect(html).toContain(
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
@@ -2506,7 +2522,8 @@ describe('shipper verification admin console page', () => {
     expect(resetReviewEvents).toHaveBeenLastCalledWith('审核事件暂不可用');
 
     const shipperE = createShipperRequests('shipper-e');
-    const independentlyLoadedShipperE = context.invokeSelectShipper('shipper-e');
+    const independentlyLoadedShipperE =
+      context.invokeSelectShipper('shipper-e');
     const shipperEDetail = {
       shipperId: 'shipper-e',
       identity: { status: 'reviewing' },
@@ -2663,7 +2680,10 @@ describe('shipper verification admin console page', () => {
       selectShipper,
       invokeReview: undefined as
         | undefined
-        | ((kind: 'identity' | 'enterprise', status: 'approved' | 'rejected') => Promise<void>),
+        | ((
+            kind: 'identity' | 'enterprise',
+            status: 'approved' | 'rejected',
+          ) => Promise<void>),
     };
     runInNewContext(`${reviewSource}\ninvokeReview = review;`, context);
     if (!context.invokeReview) {
@@ -2726,7 +2746,10 @@ describe('shipper verification admin console page', () => {
   it('executes the shared admin session bootstrap before auto-loading the verification queue', () => {
     const html = renderShipperVerificationAdminConsole();
     const applicationScriptStart = html.lastIndexOf('<script>');
-    const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
+    const applicationScriptEnd = html.indexOf(
+      '</script>',
+      applicationScriptStart,
+    );
     const sessionBootstrapIndex = html.indexOf(
       "const adminSessionStorageKey = 'stage1AdminSession'",
     );
@@ -2735,7 +2758,9 @@ describe('shipper verification admin console page', () => {
     expect(sessionBootstrapIndex).toBeLessThan(applicationScriptEnd);
     expect(html).toContain('const stored = readStoredAdminSession()');
     expect(html).toContain('stored.session?.accessToken');
-    expect(html).toContain('const currentAdminSession = initializeAdminSession()');
+    expect(html).toContain(
+      'const currentAdminSession = initializeAdminSession()',
+    );
     expect(html).toContain(
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
@@ -2885,8 +2910,7 @@ describe('support ticket admin console page', () => {
     }
     const request = createSupportTicketDeferred();
     const { getNode } = createSupportTicketConsoleNodes();
-    getNode('supportTicketBaseUpdatedAtIso').value =
-      '2026-07-27T10:00:00.000Z';
+    getNode('supportTicketBaseUpdatedAtIso').value = '2026-07-27T10:00:00.000Z';
     getNode('supportTicketActionContent').value = 'ticket A mutation draft';
     getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-target';
     const api = jest.fn(() => request.promise);
@@ -2993,9 +3017,15 @@ describe('support ticket admin console page', () => {
     expect(html).toContain('let latestSupportTicketDetailRequestId = 0');
     expect(html).toContain('let supportTicketSelectionEpoch = 0');
     expect(html).toContain('const requestId = ++latestSupportTicketRequestId');
-    expect(html).toContain('const requestId = ++latestSupportTicketDetailRequestId');
-    expect(html).toContain('if (requestId !== latestSupportTicketRequestId) return');
-    expect(html).toContain('if (requestId !== latestSupportTicketDetailRequestId) return');
+    expect(html).toContain(
+      'const requestId = ++latestSupportTicketDetailRequestId',
+    );
+    expect(html).toContain(
+      'if (requestId !== latestSupportTicketRequestId) return',
+    );
+    expect(html).toContain(
+      'if (requestId !== latestSupportTicketDetailRequestId) return',
+    );
     expect(html).toContain('applySupportTicketRouteState');
     expect(html).toContain('syncSupportTicketRouteState');
     expect(html).toContain("query.get('slaStatus')");
@@ -3003,11 +3033,15 @@ describe('support ticket admin console page', () => {
     expect(html).toContain("query.get('ticketId')");
     expect(html).toContain("query.set('ticketId', ticketId)");
     expect(html).toContain('pendingRouteTicketId');
-    expect(html).toContain('pendingRouteTicketId = supportTicketRouteState.ticketId');
+    expect(html).toContain(
+      'pendingRouteTicketId = supportTicketRouteState.ticketId',
+    );
     expect(html).toContain('selectedTicketId = pendingRouteTicketId');
     expect(html).toContain('refreshSupportTicketWorkspace(currentPage)');
     expect(listBody).not.toContain('loadSupportTicketDetail(');
-    expect(workspaceBody).toContain('const targetTicketId = selectedTicketId || pendingRouteTicketId');
+    expect(workspaceBody).toContain(
+      'const targetTicketId = selectedTicketId || pendingRouteTicketId',
+    );
     expect(workspaceBody).toContain('await Promise.all([');
     expect(workspaceBody).toContain('loadSupportTickets(page)');
     expect(workspaceBody).toContain(
@@ -3137,7 +3171,9 @@ describe('support ticket admin console page', () => {
       const fastTicketB = context.invokeDetail!(encodeURIComponent('ticket-b'));
 
       expect(getNode('supportTicketActionContent').value).toBe('');
-      expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe('');
+      expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
+        '',
+      );
       getNode('supportTicketActionContent').value = 'ticket B draft';
       getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-b';
       ticketBRequest.resolve?.({
@@ -3167,7 +3203,9 @@ describe('support ticket admin console page', () => {
       expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe(
         '2026-07-27T12:00:00.000Z',
       );
-      expect(getNode('supportTicketActionContent').value).toBe('ticket B draft');
+      expect(getNode('supportTicketActionContent').value).toBe(
+        'ticket B draft',
+      );
       expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
         'admin-b',
       );
@@ -3301,14 +3339,10 @@ describe('support ticket admin console page', () => {
     const detailRequest = createSupportTicketDeferred();
     const claimRequest = createSupportTicketDeferred();
     const { getNode } = createSupportTicketConsoleNodes();
-    getNode('supportTicketBaseUpdatedAtIso').value =
-      '2026-07-27T09:00:00.000Z';
+    getNode('supportTicketBaseUpdatedAtIso').value = '2026-07-27T09:00:00.000Z';
     getNode('supportTicketActionContent').value = 'claim ticket A';
-    const api = jest.fn(
-      (_path: string, options?: { method?: string }) =>
-        options?.method === 'POST'
-          ? claimRequest.promise
-          : detailRequest.promise,
+    const api = jest.fn((_path: string, options?: { method?: string }) =>
+      options?.method === 'POST' ? claimRequest.promise : detailRequest.promise,
     );
     const renderSupportTicketDetail = jest.fn(
       (ticket: { id: string; updatedAtIso: string }) => {
@@ -3351,8 +3385,7 @@ describe('support ticket admin console page', () => {
 
     const oldDetail = context.invokeDetail!();
     expect(context.latestSupportTicketDetailRequestId).toBe(1);
-    getNode('supportTicketBaseUpdatedAtIso').value =
-      '2026-07-27T09:00:00.000Z';
+    getNode('supportTicketBaseUpdatedAtIso').value = '2026-07-27T09:00:00.000Z';
     const claim = context.invokeClaim!();
     expect(api.mock.calls.map(call => call[1]?.method || 'GET')).toEqual([
       'GET',
@@ -3444,7 +3477,8 @@ describe('support ticket admin console page', () => {
         getNode('supportTicketBaseUpdatedAtIso').value =
           '2026-07-27T12:00:00.000Z';
         getNode('supportTicketActionContent').value = 'new ticket A draft';
-        getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-new';
+        getNode('supportTicketAssignTargetAdminUserIdInput').value =
+          'admin-new';
         getNode('supportTicketMutationNotice').textContent =
           'new ticket A notice';
         getNode('supportTicketDetail').innerHTML =
@@ -3495,32 +3529,24 @@ describe('support ticket admin console page', () => {
   it('keeps support ticket mutation responses bound to their starting selection', () => {
     const html = renderSupportTicketAdminConsole();
 
-    expect(html.match(/const targetTicketId = selectedTicketId;/g)).toHaveLength(
-      5,
-    );
+    expect(
+      html.match(/const targetTicketId = selectedTicketId;/g),
+    ).toHaveLength(5);
     expect(
       html.match(
         /const mutationTargetSelectionEpoch = supportTicketSelectionEpoch;/g,
       ),
     ).toHaveLength(5);
+    expect(html.match(/!isCurrentSupportTicketMutationTarget\(/g)).toHaveLength(
+      11,
+    );
     expect(
-      html.match(/!isCurrentSupportTicketMutationTarget\(/g),
-    ).toHaveLength(11);
-    expect(html.match(/latestSupportTicketDetailRequestId \+= 1;/g)).toHaveLength(
-      5,
-    );
-    expect(html).toContain(
-      "encodeURIComponent(targetTicketId) + '/claim'",
-    );
-    expect(html).toContain(
-      "encodeURIComponent(targetTicketId) + '/takeover'",
-    );
-    expect(html).toContain(
-      "encodeURIComponent(targetTicketId) + '/assign'",
-    );
-    expect(html).toContain(
-      "encodeURIComponent(targetTicketId) + '/unclaim'",
-    );
+      html.match(/latestSupportTicketDetailRequestId \+= 1;/g),
+    ).toHaveLength(5);
+    expect(html).toContain("encodeURIComponent(targetTicketId) + '/claim'");
+    expect(html).toContain("encodeURIComponent(targetTicketId) + '/takeover'");
+    expect(html).toContain("encodeURIComponent(targetTicketId) + '/assign'");
+    expect(html).toContain("encodeURIComponent(targetTicketId) + '/unclaim'");
     expect(html).toContain('isCurrentSupportTicketMutationTarget(');
     expect(html).toContain('mutationTargetSelectionEpoch,');
     expect(html).toContain('renderSelectedSupportTicketActions()');
@@ -3571,11 +3597,17 @@ describe('session governance admin console page', () => {
     expect(html).toContain('if (requestId !== latestSessionRequestId) return');
     expect(html).toContain('let latestSessionAuditRequestId = 0');
     expect(html).toContain('const requestId = ++latestSessionAuditRequestId');
-    expect(html).toContain('if (requestId !== latestSessionAuditRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestSessionAuditRequestId) return',
+    );
     expect(html).toContain('当前设备');
     expect(html).toContain('function maskDeviceId(value)');
-    expect(html).toContain('session.deviceId === maskDeviceId(currentDeviceId)');
-    expect(html).toContain('data.currentDeviceId || maskDeviceId(currentDeviceId)');
+    expect(html).toContain(
+      'session.deviceId === maskDeviceId(currentDeviceId)',
+    );
+    expect(html).toContain(
+      'data.currentDeviceId || maskDeviceId(currentDeviceId)',
+    );
     expect(html).toContain('renderSessionRiskSummary');
     expect(html).toContain('formatSessionRiskTag');
     expect(html).toContain('renderSessionAuditPagination');
@@ -3655,9 +3687,7 @@ describe('account management admin console page', () => {
     expect(html).toContain('if (requestId !== latestAccountRequestId) return');
     expect(html).toContain('let latestAccountDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestAccountDetailRequestId');
-    expect(html).toContain(
-      'requestId !== latestAccountDetailRequestId ||',
-    );
+    expect(html).toContain('requestId !== latestAccountDetailRequestId ||');
     expect(html).toContain('accountDetailTargetUserId !== targetUserId');
     expect(html).toContain('let latestAccountReportRequestId = 0');
     expect(html).toContain('const requestId = ++latestAccountReportRequestId');
@@ -3690,7 +3720,7 @@ describe('account management admin console page', () => {
     const exportScript = html.slice(exportStart, exportEnd);
 
     expect(exportScript).toContain(
-      "setAccountReportControlsDisabled(true);\n      try {\n        const accessToken = token();\n        const query = buildAccountExportQuery();",
+      'setAccountReportControlsDisabled(true);\n      try {\n        const accessToken = token();\n        const query = buildAccountExportQuery();',
     );
     expect(exportScript).toContain('finally {');
     expect(exportScript).toContain('setAccountReportControlsDisabled(false)');
@@ -3726,7 +3756,9 @@ describe('account management admin console page', () => {
       refreshStart,
     );
     const refreshScript = html.slice(refreshStart, refreshEnd);
-    const bootstrapStart = html.indexOf('const storedSession = initializeAdminSession()');
+    const bootstrapStart = html.indexOf(
+      'const storedSession = initializeAdminSession()',
+    );
     const bootstrapScript = html.slice(bootstrapStart);
 
     expect(resetScript).toContain(
@@ -3752,7 +3784,9 @@ describe('account management admin console page', () => {
     expect(refreshScript).toContain(
       'refreshTasks.push(loadAdminAuthAccountDetail(targetDetailUserId))',
     );
-    expect(bootstrapScript).toContain('refreshAccountWorkspace(currentAccountPage)');
+    expect(bootstrapScript).toContain(
+      'refreshAccountWorkspace(currentAccountPage)',
+    );
     expect(bootstrapScript).not.toContain(
       'loadAdminAuthAccountDetail(accountDetailTargetUserId)',
     );
@@ -3794,9 +3828,7 @@ describe('account management admin console page', () => {
       return created;
     };
     const api = jest.fn((path: string) =>
-      path.startsWith('/admin/auth/accounts?')
-        ? list.promise
-        : detail.promise,
+      path.startsWith('/admin/auth/accounts?') ? list.promise : detail.promise,
     );
     const syncAccountManagementRouteState = jest.fn();
     const renderAccountDetail = jest.fn();
@@ -3989,7 +4021,9 @@ describe('account management admin console page', () => {
     const getNode = (id: string) => {
       const existing = nodes.get(id);
       if (existing) return existing;
-      const created = { textContent: id === 'accountDetailStatus' ? '账号 B' : '' };
+      const created = {
+        textContent: id === 'accountDetailStatus' ? '账号 B' : '',
+      };
       nodes.set(id, created);
       return created;
     };
@@ -4046,18 +4080,12 @@ describe('account management admin console page', () => {
       'function changeAccountPage(',
       selectionStart,
     );
-    const selectionAndMutationSource = html.slice(
-      selectionStart,
-      selectionEnd,
-    );
+    const selectionAndMutationSource = html.slice(selectionStart, selectionEnd);
     let rejectMutation: ((reason?: unknown) => void) | undefined;
     const mutation = new Promise<unknown>((_resolve, reject) => {
       rejectMutation = reject;
     });
-    const nodes = new Map<
-      string,
-      { textContent: string; value: string }
-    >();
+    const nodes = new Map<string, { textContent: string; value: string }>();
     const getNode = (id: string) => {
       const existing = nodes.get(id);
       if (existing) return existing;
@@ -4280,7 +4308,9 @@ describe('file maintenance admin console page', () => {
     expect(html).toContain("query.get('topOwnersLimit')");
     expect(html).toContain("query.set('page', String(paging.page))");
     expect(html).toContain("query.set('pageSize', String(paging.pageSize))");
-    expect(html).toContain("query.set('topOwnersLimit', String(topOwnersLimit))");
+    expect(html).toContain(
+      "query.set('topOwnersLimit', String(topOwnersLimit))",
+    );
     expect(html).toContain('loadMaintenanceFiles(');
     expect(html).toContain('history.replaceState');
   });
@@ -4361,10 +4391,14 @@ describe('order management admin console page', () => {
 
     expect(html).toContain('let latestOrderListRequestId = 0');
     expect(html).toContain('const requestId = ++latestOrderListRequestId');
-    expect(html).toContain('if (requestId !== latestOrderListRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestOrderListRequestId) return',
+    );
     expect(html).toContain('let latestOrderDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestOrderDetailRequestId');
-    expect(html).toContain('if (requestId !== latestOrderDetailRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestOrderDetailRequestId) return',
+    );
   });
 
   it('renders a selected-order finance drill-down action', () => {
@@ -4470,17 +4504,121 @@ describe('order exception case admin console page', () => {
           id === 'baseUpdatedAtIso'
             ? '2026-07-27T08:00:00.000Z'
             : id === 'caseActionContent'
-              ? 'case A operation draft'
-              : id === 'caseAssignTargetAdminUserIdInput'
-                ? 'admin-a'
-                : id === 'caseCompensationStatusInput'
-                  ? 'not_required'
-                  : '',
+            ? 'case A operation draft'
+            : id === 'caseAssignTargetAdminUserIdInput'
+            ? 'admin-a'
+            : id === 'caseCompensationStatusInput'
+            ? 'not_required'
+            : '',
       };
       nodes.set(id, created);
       return created;
     };
     return { getNode, nodes };
+  };
+
+  const caseListPath = (page: number) =>
+    `/admin/order-exception-cases?page=${page}&pageSize=20`;
+
+  const createCaseDetailResult = (id: string, updatedAtIso: string) => ({
+    id,
+    updatedAtIso,
+    claimedByAdminUserId: null,
+    appealStatus: 'none',
+    actions: [],
+    compensationStatus: 'not_required',
+    compensationTargetRole: null,
+    compensationAmountCents: null,
+  });
+
+  const createCaseWorkspaceHarness = (routeCaseId = 'case-a') => {
+    const html = renderOrderExceptionCaseAdminConsole();
+    const { uiSource } = caseMutationVmSources();
+    const listStart = html.indexOf('async function loadCases(page)');
+    const workspaceEnd = html.indexOf('function loadMyCases()', listStart);
+    if ([listStart, workspaceEnd].some(index => index < 0)) {
+      throw new Error('order exception case workspace source was not found');
+    }
+
+    const { getNode } = createCaseConsoleNodes();
+    const pending = new Map<
+      string,
+      Array<ReturnType<typeof createCaseDeferred>>
+    >();
+    const enqueue = (path: string) => {
+      const request = createCaseDeferred();
+      pending.set(path, [...(pending.get(path) || []), request]);
+      return request;
+    };
+    const api = jest.fn((path: string) => {
+      const queued = pending.get(path) || [];
+      const request = queued.shift();
+      pending.set(path, queued);
+      return request
+        ? request.promise
+        : Promise.reject(new Error('unexpected request: ' + path));
+    });
+    const syncOrderExceptionCaseRouteState = jest.fn();
+    const renderCaseListItem = jest.fn(
+      (item: { id: string }) =>
+        '<div data-case-id="' + item.id + '">' + item.id + '</div>',
+    );
+    const renderCaseDetail = jest.fn(
+      (item: { id: string }) => '<strong>' + item.id + '</strong>',
+    );
+    const renderMutationButtons = jest.fn();
+    const context = {
+      latestCaseListRequestId: 0,
+      latestCaseDetailRequestId: 0,
+      caseSelectionEpoch: 0,
+      pendingRouteCaseId: routeCaseId,
+      selectedCaseId: '',
+      loadedCaseId: '',
+      selectedCaseClaimedByAdminUserId: '',
+      selectedCaseAppealStatus: 'none',
+      mutationPending: false,
+      mutationTargetCaseId: '',
+      mutationTargetSelectionEpoch: 0,
+      currentPage: 3,
+      total: 0,
+      document: {
+        getElementById: getNode,
+        querySelectorAll: jest.fn(() => []),
+      },
+      api,
+      syncOrderExceptionCaseRouteState,
+      renderCaseListItem,
+      renderCaseDetail,
+      renderMutationButtons,
+      escapeHtml: (value: unknown) => String(value),
+      URLSearchParams,
+      encodeURIComponent,
+      HTMLElement: class HTMLElement {},
+      invokeDetail: undefined as
+        | undefined
+        | ((caseId: string) => Promise<void>),
+      invokeList: undefined as undefined | ((page: number) => Promise<void>),
+      invokeWorkspace: undefined as
+        | undefined
+        | ((page: number) => Promise<void>),
+    };
+    runInNewContext(
+      `${uiSource}\n${html.slice(listStart, workspaceEnd)}\n` +
+        `invokeDetail = loadCase;\n` +
+        `invokeList = loadCases;\n` +
+        `invokeWorkspace = refreshCaseWorkspace;`,
+      context,
+    );
+    return {
+      api,
+      context,
+      enqueue,
+      getNode,
+      renderCaseDetail,
+      renderCaseListItem,
+      renderMutationButtons,
+      syncOrderExceptionCaseRouteState,
+    };
   };
 
   const caseMutationVmSources = () => {
@@ -4581,7 +4719,9 @@ describe('order exception case admin console page', () => {
   it('surfaces recent activity timestamps plus SLA and compensation filters in the list and detail view', () => {
     const html = renderOrderExceptionCaseAdminConsole();
 
-    expect(html).toContain('/admin/order-exception-cases/overdue-escalations/sweep');
+    expect(html).toContain(
+      '/admin/order-exception-cases/overdue-escalations/sweep',
+    );
     expect(html).toContain('/claim');
     expect(html).toContain('/takeover');
     expect(html).toContain('/assign');
@@ -4629,11 +4769,15 @@ describe('order exception case admin console page', () => {
     expect(html).toContain("query.get('slaStatus')");
     expect(html).toContain("query.get('claimStatus')");
     expect(html).toContain("query.get('claimedByAdminUserId')");
-    expect(html).toContain("query.set('compensationStatus', compensationStatus)");
+    expect(html).toContain(
+      "query.set('compensationStatus', compensationStatus)",
+    );
     expect(html).toContain("query.set('appealStatus', appealStatus)");
     expect(html).toContain("query.set('slaStatus', slaStatus)");
     expect(html).toContain("query.set('claimStatus', claimStatus)");
-    expect(html).toContain("query.set('claimedByAdminUserId', claimedByAdminUserId)");
+    expect(html).toContain(
+      "query.set('claimedByAdminUserId', claimedByAdminUserId)",
+    );
     expect(html).toContain('平台已赔付到账');
     expect(html).toContain('申诉：');
     expect(html).toContain('申诉裁定');
@@ -4644,24 +4788,328 @@ describe('order exception case admin console page', () => {
     expect(html).toContain('可手动扫描 + 可选定时扫');
   });
 
-  it('persists selected case deep-links in route state and restores them after reload', () => {
+  it('keeps case list and routed detail refreshes independent', () => {
     const html = renderOrderExceptionCaseAdminConsole();
+    const listStart = html.indexOf('async function loadCases(page)');
+    const workspaceStart = html.indexOf(
+      'async function refreshCaseWorkspace(page)',
+      listStart,
+    );
+    const changePageStart = html.indexOf(
+      'function changePage(offset)',
+      workspaceStart,
+    );
+    const detailStart = html.indexOf(
+      'async function loadCase(caseId, options = {})',
+      changePageStart,
+    );
+    const loadMyStart = html.indexOf('function loadMyCases()', detailStart);
+    const mutationStart = html.indexOf(
+      'async function refreshCaseAfterMutation(',
+      loadMyStart,
+    );
+    const listBody = html.slice(listStart, workspaceStart);
+    const workspaceBody = html.slice(workspaceStart, changePageStart);
+    const changePageBody = html.slice(changePageStart, detailStart);
+    const loadMyBody = html.slice(loadMyStart, mutationStart);
 
     expect(html).toContain("query.get('caseId')");
     expect(html).toContain("query.set('caseId', caseId)");
     expect(html).toContain('pendingRouteCaseId');
     expect(html).toContain('pendingRouteCaseId = caseRouteState.caseId');
     expect(html).toContain('renderCaseListSelection');
-    expect(html).toContain('clearCaseSelection(options = {})');
-    expect(html).toContain('routeRestoreCaseId !== selectedCaseId');
-    expect(html).toContain("await loadCase(routeRestoreCaseId, { fromRouteRestore: true })");
-    expect(html).toContain('syncOrderExceptionCaseRouteState(currentPage, selectedCaseId)');
+    expect(listBody).not.toContain('loadCase(');
+    expect(workspaceBody).toContain(
+      'const targetCaseId = selectedCaseId || pendingRouteCaseId',
+    );
+    expect(workspaceBody).toContain('await Promise.all([');
+    expect(workspaceBody).toContain('loadCases(page)');
+    expect(workspaceBody).toContain('targetCaseId && !mutationPending');
+    expect(workspaceBody).toContain('[loadCase(targetCaseId)]');
+    expect(changePageBody).toContain('loadCases(');
+    expect(changePageBody).not.toContain('refreshCaseWorkspace(');
+    expect(loadMyBody).toContain('refreshCaseWorkspace(1)');
+    expect(loadMyBody).not.toContain('loadCases(');
+    expect(html).toContain('onclick="refreshCaseWorkspace(1)">查询工单');
+    expect(html).toContain('refreshCaseWorkspace(currentPage ||');
+    expect(html).toContain(
+      'syncOrderExceptionCaseRouteState(currentPage, selectedCaseId)',
+    );
+  });
+
+  it('loads a routed case outside the current list page without waiting for the list', async () => {
+    const {
+      api,
+      context,
+      enqueue,
+      getNode,
+      renderCaseDetail,
+      renderCaseListItem,
+      syncOrderExceptionCaseRouteState,
+    } = createCaseWorkspaceHarness();
+    const listRequest = enqueue(caseListPath(3));
+    const detailRequest = enqueue('/admin/order-exception-cases/case-a');
+
+    const workspace = context.invokeWorkspace!(3);
+
+    expect(api.mock.calls.map(call => call[0])).toEqual([
+      caseListPath(3),
+      '/admin/order-exception-cases/case-a',
+    ]);
+    expect(context.selectedCaseId).toBe('case-a');
+    listRequest.resolve?.({
+      items: [{ id: 'case-on-page' }],
+      total: 1,
+    });
+    await flushCasePromises();
+
+    expect(renderCaseListItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'case-on-page' }),
+      0,
+      expect.any(Array),
+    );
+    expect(getNode('caseList').innerHTML).toContain('case-on-page');
+    expect(context.selectedCaseId).toBe('case-a');
+    expect(renderCaseDetail).not.toHaveBeenCalled();
+
+    detailRequest.resolve?.(
+      createCaseDetailResult('case-a', '2026-07-27T11:00:00.000Z'),
+    );
+    await workspace;
+
+    expect(context.selectedCaseId).toBe('case-a');
+    expect(context.loadedCaseId).toBe('case-a');
+    expect(context.pendingRouteCaseId).toBe('');
+    expect(getNode('caseDetail').innerHTML).toBe('<strong>case-a</strong>');
+    expect(getNode('baseUpdatedAtIso').value).toBe('2026-07-27T11:00:00.000Z');
+    expect(syncOrderExceptionCaseRouteState.mock.calls.at(-1)).toEqual([
+      3,
+      'case-a',
+    ]);
+  });
+
+  it.each(['list-first', 'detail-first'] as const)(
+    'keeps routed case A when the list fails %s',
+    async completionOrder => {
+      const {
+        context,
+        enqueue,
+        getNode,
+        renderCaseDetail,
+        syncOrderExceptionCaseRouteState,
+      } = createCaseWorkspaceHarness();
+      const listRequest = enqueue(caseListPath(3));
+      const detailRequest = enqueue('/admin/order-exception-cases/case-a');
+
+      const workspace = context.invokeWorkspace!(3);
+      const settleList = () =>
+        listRequest.reject?.(new Error('case list unavailable'));
+      const settleDetail = () =>
+        detailRequest.resolve?.(
+          createCaseDetailResult('case-a', '2026-07-27T11:30:00.000Z'),
+        );
+      if (completionOrder === 'list-first') {
+        settleList();
+        await flushCasePromises();
+        settleDetail();
+      } else {
+        settleDetail();
+        await flushCasePromises();
+        settleList();
+      }
+      await workspace;
+
+      expect(context.selectedCaseId).toBe('case-a');
+      expect(context.loadedCaseId).toBe('case-a');
+      expect(renderCaseDetail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'case-a' }),
+      );
+      expect(getNode('caseDetail').innerHTML).toBe('<strong>case-a</strong>');
+      expect(getNode('caseListNotice').textContent).toBe(
+        'case list unavailable',
+      );
+      expect(syncOrderExceptionCaseRouteState.mock.calls.at(-1)).toEqual([
+        3,
+        'case-a',
+      ]);
+    },
+  );
+
+  it('retains a failed case target with mutations disabled and recovers on retry', async () => {
+    const {
+      context,
+      enqueue,
+      getNode,
+      renderCaseDetail,
+      renderMutationButtons,
+      syncOrderExceptionCaseRouteState,
+    } = createCaseWorkspaceHarness('');
+    const failedRequest = enqueue('/admin/order-exception-cases/case-a');
+    const retryRequest = enqueue('/admin/order-exception-cases/case-a');
+
+    const failedDetail = context.invokeDetail!('case-a');
+    failedRequest.reject?.(new Error('case A unavailable'));
+    await failedDetail;
+
+    expect(context.selectedCaseId).toBe('case-a');
+    expect(context.loadedCaseId).toBe('');
+    expect(context.pendingRouteCaseId).toBe('');
+    expect(getNode('baseUpdatedAtIso').value).toBe('');
+    expect(getNode('caseActions').innerHTML).toBe('');
+    expect(getNode('caseDetail').innerHTML).toContain('case A unavailable');
+    expect(getNode('caseActionContent').disabled).toBe(true);
+    expect(getNode('caseMutationButton').disabled).toBe(true);
+    expect(syncOrderExceptionCaseRouteState.mock.calls.at(-1)).toEqual([
+      3,
+      'case-a',
+    ]);
+
+    const retriedDetail = context.invokeDetail!('case-a');
+    retryRequest.resolve?.(
+      createCaseDetailResult('case-a', '2026-07-27T13:00:00.000Z'),
+    );
+    await retriedDetail;
+
+    expect(context.selectedCaseId).toBe('case-a');
+    expect(context.loadedCaseId).toBe('case-a');
+    expect(renderCaseDetail).toHaveBeenCalledTimes(1);
+    expect(renderMutationButtons).toHaveBeenCalledTimes(1);
+    expect(getNode('caseDetail').innerHTML).toBe('<strong>case-a</strong>');
+    expect(getNode('baseUpdatedAtIso').value).toBe('2026-07-27T13:00:00.000Z');
+  });
+
+  it.each(['success', 'error'] as const)(
+    'ignores a slow case A %s after case B commits',
+    async slowOutcome => {
+      const {
+        context,
+        enqueue,
+        getNode,
+        renderCaseDetail,
+        syncOrderExceptionCaseRouteState,
+      } = createCaseWorkspaceHarness('');
+      const caseARequest = enqueue('/admin/order-exception-cases/case-a');
+      const caseBRequest = enqueue('/admin/order-exception-cases/case-b');
+
+      const slowCaseA = context.invokeDetail!('case-a');
+      const fastCaseB = context.invokeDetail!('case-b');
+      caseBRequest.resolve?.({
+        ...createCaseDetailResult('case-b', '2026-07-27T12:00:00.000Z'),
+        actions: [
+          {
+            fromStatus: 'pending',
+            toStatus: 'processing',
+            content: 'case B action',
+            createdAtIso: '2026-07-27T12:00:00.000Z',
+          },
+        ],
+      });
+      await fastCaseB;
+
+      if (slowOutcome === 'success') {
+        caseARequest.resolve?.(
+          createCaseDetailResult('case-a', '2026-07-27T11:00:00.000Z'),
+        );
+      } else {
+        caseARequest.reject?.(new Error('case A failed'));
+      }
+      await slowCaseA;
+
+      expect(context.selectedCaseId).toBe('case-b');
+      expect(context.loadedCaseId).toBe('case-b');
+      expect(renderCaseDetail).toHaveBeenCalledTimes(1);
+      expect(renderCaseDetail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'case-b' }),
+      );
+      expect(getNode('caseDetail').innerHTML).toBe('<strong>case-b</strong>');
+      expect(getNode('baseUpdatedAtIso').value).toBe(
+        '2026-07-27T12:00:00.000Z',
+      );
+      expect(getNode('caseActions').innerHTML).toContain('case B action');
+      expect(syncOrderExceptionCaseRouteState.mock.calls.at(-1)).toEqual([
+        3,
+        'case-b',
+      ]);
+    },
+  );
+
+  it('keeps the latest case B error after a slow case A succeeds', async () => {
+    const {
+      context,
+      enqueue,
+      getNode,
+      renderCaseDetail,
+      syncOrderExceptionCaseRouteState,
+    } = createCaseWorkspaceHarness('');
+    const caseARequest = enqueue('/admin/order-exception-cases/case-a');
+    const caseBRequest = enqueue('/admin/order-exception-cases/case-b');
+
+    const slowCaseA = context.invokeDetail!('case-a');
+    const fastCaseB = context.invokeDetail!('case-b');
+    caseBRequest.reject?.(new Error('case B unavailable'));
+    await fastCaseB;
+
+    caseARequest.resolve?.(
+      createCaseDetailResult('case-a', '2026-07-27T11:00:00.000Z'),
+    );
+    await slowCaseA;
+
+    expect(context.selectedCaseId).toBe('case-b');
+    expect(context.loadedCaseId).toBe('');
+    expect(renderCaseDetail).not.toHaveBeenCalled();
+    expect(getNode('baseUpdatedAtIso').value).toBe('');
+    expect(getNode('caseActions').innerHTML).toBe('');
+    expect(getNode('caseDetail').innerHTML).toContain('case B unavailable');
+    expect(syncOrderExceptionCaseRouteState.mock.calls.at(-1)).toEqual([
+      3,
+      'case-b',
+    ]);
+  });
+
+  it('loads only the case list when route state has no case id', async () => {
+    const { api, context, enqueue, renderCaseDetail } =
+      createCaseWorkspaceHarness('');
+    const listRequest = enqueue(caseListPath(1));
+
+    const workspace = context.invokeWorkspace!(1);
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(caseListPath(1));
+    listRequest.resolve?.({ items: [], total: 0 });
+    await workspace;
+
+    expect(context.selectedCaseId).toBe('');
+    expect(context.pendingRouteCaseId).toBe('');
+    expect(renderCaseDetail).not.toHaveBeenCalled();
+  });
+
+  it('does not reload routed detail while a case mutation is pending', async () => {
+    const { api, context, enqueue, renderCaseDetail } =
+      createCaseWorkspaceHarness();
+    const listRequest = enqueue(caseListPath(3));
+    context.pendingRouteCaseId = '';
+    context.selectedCaseId = 'case-a';
+    context.loadedCaseId = 'case-a';
+    context.caseSelectionEpoch = 1;
+    context.mutationPending = true;
+
+    const workspace = context.invokeWorkspace!(3);
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(caseListPath(3));
+    listRequest.resolve?.({ items: [], total: 0 });
+    await workspace;
+
+    expect(context.selectedCaseId).toBe('case-a');
+    expect(context.loadedCaseId).toBe('case-a');
+    expect(context.pendingRouteCaseId).toBe('');
+    expect(renderCaseDetail).not.toHaveBeenCalled();
   });
 
   it('clears stale mutation state until the newly selected case detail is loaded', async () => {
     const html = renderOrderExceptionCaseAdminConsole();
     const { uiSource } = caseMutationVmSources();
-    const loadStart = html.indexOf('async function loadCase(caseId, options = {})');
+    const loadStart = html.indexOf(
+      'async function loadCase(caseId, options = {})',
+    );
     const loadEnd = html.indexOf('function loadMyCases()', loadStart);
     const processStart = html.indexOf('async function mutateCase(action)');
     const processEnd = html.indexOf('async function claimCase()', processStart);
@@ -4669,11 +5117,10 @@ describe('order exception case admin console page', () => {
     const mutationRequest = createCaseDeferred();
     const { getNode } = createCaseConsoleNodes();
     getNode('caseActions').innerHTML = '<button>case A old action</button>';
-    const api = jest.fn(
-      (_path: string, options?: { method?: string }) =>
-        options?.method === 'POST'
-          ? mutationRequest.promise
-          : detailRequest.promise,
+    const api = jest.fn((_path: string, options?: { method?: string }) =>
+      options?.method === 'POST'
+        ? mutationRequest.promise
+        : detailRequest.promise,
     );
     const renderMutationButtons = jest.fn();
     const context = {
@@ -4697,15 +5144,12 @@ describe('order exception case admin console page', () => {
       syncOrderExceptionCaseRouteState: jest.fn(),
       renderCaseDetail: jest.fn(() => '<strong>case B detail</strong>'),
       renderMutationButtons,
-      clearCaseSelection: jest.fn(),
       escapeHtml: (value: unknown) => String(value),
       readResolveCompensationInput: jest.fn(() => ({
         compensationStatus: 'not_required',
       })),
       encodeURIComponent,
-      invokeLoad: undefined as
-        | undefined
-        | ((caseId: string) => Promise<void>),
+      invokeLoad: undefined as undefined | ((caseId: string) => Promise<void>),
       invokeProcess: undefined as undefined | (() => Promise<void>),
       invokeReady: undefined as undefined | (() => boolean),
     };
@@ -4746,9 +5190,7 @@ describe('order exception case admin console page', () => {
 
     expect(context.loadedCaseId).toBe('case-b');
     expect(context.invokeReady!()).toBe(true);
-    expect(getNode('baseUpdatedAtIso').value).toBe(
-      '2026-07-27T09:00:00.000Z',
-    );
+    expect(getNode('baseUpdatedAtIso').value).toBe('2026-07-27T09:00:00.000Z');
     expect(renderMutationButtons).toHaveBeenCalledTimes(1);
 
     getNode('caseActionContent').value = 'case B process draft';
@@ -4834,14 +5276,16 @@ describe('order exception case admin console page', () => {
         const request = createCaseDeferred();
         const conflictRefresh = createCaseDeferred();
         const { getNode } = createCaseConsoleNodes();
-        const api = jest.fn((_path: string, _options: unknown) => request.promise);
+        const api = jest.fn(
+          (_path: string, _options: unknown) => request.promise,
+        );
         const loadCase = jest.fn((_caseId: string, _options?: unknown) =>
-          outcome === 'conflict'
-            ? conflictRefresh.promise
-            : Promise.resolve(),
+          outcome === 'conflict' ? conflictRefresh.promise : Promise.resolve(),
         );
         const loadCases = jest.fn((_page: number) => Promise.resolve());
-        const setCaseActionButtonsDisabled = jest.fn((_disabled: boolean) => {});
+        const setCaseActionButtonsDisabled = jest.fn(
+          (_disabled: boolean) => {},
+        );
         const syncCompensationInputsFromStatus = jest.fn(() => {});
         const context = {
           selectedCaseId: 'case-a',
@@ -4941,8 +5385,9 @@ describe('order exception case admin console page', () => {
   it('rejects an A mutation completion after an A to B to A selection cycle', async () => {
     const request = createCaseDeferred();
     const api = jest.fn(() => request.promise);
-    const { context, getNode, loadCase, loadCases } =
-      createCaseMutationHarness({ api });
+    const { context, getNode, loadCase, loadCases } = createCaseMutationHarness(
+      { api },
+    );
 
     const mutation = context.invokeClaim!();
     selectCaseBInHarness(context, getNode);
@@ -4959,9 +5404,7 @@ describe('order exception case admin console page', () => {
 
     expect(context.caseSelectionEpoch).toBe(3);
     expect(getNode('caseActionContent').value).toBe('new case A draft');
-    expect(getNode('caseMutationNotice').textContent).toBe(
-      'new case A notice',
-    );
+    expect(getNode('caseMutationNotice').textContent).toBe('new case A notice');
     expect(getNode('caseDetail').innerHTML).toBe(
       '<strong>new case A detail</strong>',
     );
@@ -5005,9 +5448,7 @@ describe('order exception case admin console page', () => {
       }
       await mutation;
 
-      expect(getNode('caseActionContent').value).toBe(
-        'case B operation draft',
-      );
+      expect(getNode('caseActionContent').value).toBe('case B operation draft');
       expect(getNode('caseMutationNotice').textContent).toBe('case B notice');
       expect(getNode('caseDetail').innerHTML).toBe('<strong>case B</strong>');
       expect(loadCases).toHaveBeenCalledTimes(refreshStage === 'list' ? 1 : 0);
@@ -5045,9 +5486,7 @@ describe('order exception case admin console page', () => {
     await mutation;
 
     expect(loadCases).not.toHaveBeenCalled();
-    expect(getNode('caseActionContent').value).toBe(
-      'case B operation draft',
-    );
+    expect(getNode('caseActionContent').value).toBe('case B operation draft');
     expect(getNode('caseMutationNotice').textContent).toBe('case B notice');
     expect(context.mutationPending).toBe(false);
     expect(getNode('caseExecuteCompensationButton').disabled).toBe(false);
@@ -5100,8 +5539,8 @@ describe('order exception case admin console page', () => {
         outcome === 'success'
           ? '工单已认领，当前客服可继续跟进。'
           : outcome === 'conflict'
-            ? '工单已被其他管理员更新，正在刷新最新状态。'
-            : 'case A failed',
+          ? '工单已被其他管理员更新，正在刷新最新状态。'
+          : 'case A failed',
       );
     },
   );
@@ -5129,8 +5568,12 @@ describe('admin console home page', () => {
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/evaluation-audit-console');
     expect(html).toContain('/api/admin/finance-console');
-    expect(html).toContain('对未认领 open 工单认领、对自己名下工单指派 / 转派或释放认领、对他人已认领工单强制接管');
-    expect(html).toContain('认领未认领工单、转派或释放自己名下工单、强制接管他人已认领工单');
+    expect(html).toContain(
+      '对未认领 open 工单认领、对自己名下工单指派 / 转派或释放认领、对他人已认领工单强制接管',
+    );
+    expect(html).toContain(
+      '认领未认领工单、转派或释放自己名下工单、强制接管他人已认领工单',
+    );
     expect(html).toContain('进入工具台');
     expect(html).toContain('我的认领单');
     expect(html).toContain('module-card-links');
@@ -5162,7 +5605,7 @@ describe('admin login console page', () => {
     const html = renderAdminLoginConsole();
 
     expect(html).toContain('后台登录');
-    expect(html).toContain("/auth/admin/password-login");
+    expect(html).toContain('/auth/admin/password-login');
     expect(html).toContain('rememberSessionInput');
     expect(html).toContain('stage1AdminSession');
     expect(html).toContain('13900139000');
@@ -5228,7 +5671,7 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('auditNextPage');
     expect(html).toContain('loadAuditList');
     expect(html).toContain("const apiBase = '/api'");
-    expect(html).toContain("/admin/orders/attachments");
+    expect(html).toContain('/admin/orders/attachments');
     expect(html).toContain('/admin/orders/');
     expect(html).toContain('/attachments');
     expect(html).toContain('auditSummaryList');
@@ -5285,10 +5728,14 @@ describe('AdminConsoleController', () => {
 
     expect(html).toContain('let latestAuditDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestAuditDetailRequestId');
-    expect(html).toContain('if (requestId !== latestAuditDetailRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestAuditDetailRequestId) return',
+    );
     expect(html).toContain('let latestAuditListRequestId = 0');
     expect(html).toContain('const requestId = ++latestAuditListRequestId');
-    expect(html).toContain('if (requestId !== latestAuditListRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestAuditListRequestId) return',
+    );
   });
 
   it('serves the order management console html', () => {
@@ -5426,7 +5873,9 @@ describe('AdminConsoleController', () => {
 
     expect(html).toContain('let latestCouponReportRequestId = 0');
     expect(html).toContain('const requestId = ++latestCouponReportRequestId');
-    expect(html).toContain('if (requestId !== latestCouponReportRequestId) return');
+    expect(html).toContain(
+      'if (requestId !== latestCouponReportRequestId) return',
+    );
     expect(html).toContain('renderCouponReport');
     expect(html).toContain('loadCouponReport(),');
     expect(html).not.toContain('hero');
@@ -5444,7 +5893,10 @@ describe('AdminConsoleController', () => {
       'const requestId = ++latestCouponReportRequestId',
       loadStart,
     );
-    const tokenRead = html.indexOf("const token = readTrimmed('adminToken')", loadStart);
+    const tokenRead = html.indexOf(
+      "const token = readTrimmed('adminToken')",
+      loadStart,
+    );
     const limitRead = html.indexOf(
       'topShippersLimit = readCouponReportTopShippersLimit()',
       loadStart,
@@ -5453,7 +5905,9 @@ describe('AdminConsoleController', () => {
     expect(requestStart).toBeGreaterThan(loadStart);
     expect(requestStart).toBeLessThan(tokenRead);
     expect(requestStart).toBeLessThan(limitRead);
-    expect(html.match(/setCouponReportControlsDisabled\(false\)/g)).toHaveLength(3);
+    expect(
+      html.match(/setCouponReportControlsDisabled\(false\)/g),
+    ).toHaveLength(3);
   });
 
   it('syncs coupon form inputs and report filters into route state', () => {
@@ -5529,7 +5983,9 @@ describe('AdminConsoleController', () => {
     expect(html).toContain("query.get('claimStatus')");
     expect(html).toContain("query.get('claimedByAdminUserId')");
     expect(html).toContain("query.set('claimStatus', claimStatus)");
-    expect(html).toContain("query.set('claimedByAdminUserId', claimedByAdminUserId)");
+    expect(html).toContain(
+      "query.set('claimedByAdminUserId', claimedByAdminUserId)",
+    );
     expect(html).toContain('最近更新：');
     expect(html).toContain('创建时间：');
     expect(html).toContain('更新时间：');
@@ -5590,7 +6046,9 @@ describe('AdminConsoleController', () => {
     expect(html).toContain("query.get('claimStatus')");
     expect(html).toContain("query.get('claimedByAdminUserId')");
     expect(html).toContain("query.set('claimStatus', claimStatus)");
-    expect(html).toContain("query.set('claimedByAdminUserId', claimedByAdminUserId)");
+    expect(html).toContain(
+      "query.set('claimedByAdminUserId', claimedByAdminUserId)",
+    );
     expect(html).toContain('sweepSupportTicketOverdueEscalations');
     expect(html).toContain('applySupportTicketRouteState');
     expect(html).toContain('/api/admin/order-exception-case-console');
@@ -5654,7 +6112,7 @@ describe('AdminConsoleController', () => {
     ).getAdminLoginConsole();
 
     expect(html).toContain('后台登录');
-    expect(html).toContain("/auth/admin/password-login");
+    expect(html).toContain('/auth/admin/password-login');
     expect(html).toContain('stage1AdminSession');
     expect(html).not.toContain('hero');
   });
