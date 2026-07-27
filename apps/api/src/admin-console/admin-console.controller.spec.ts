@@ -1122,7 +1122,7 @@ describe('order change request admin console page', () => {
 });
 
 describe('shipper invoice admin console page', () => {
-  it('renders the invoice queue, review actions and audit-event panel', () => {
+  it('renders independent invoice details, pagination, review actions and audit events', () => {
     const html = renderShipperInvoiceAdminConsole();
 
     expect(html).toContain('发票申请审核台');
@@ -1136,9 +1136,17 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain('extractDownloadFilename');
     expect(html).toContain('reviewEventStatus');
     expect(html).toContain('reviewEventList');
-    expect(html).toContain('loadReviewEvents');
+    expect(html).toContain('selectApplication');
     expect(html).toContain('formatReviewEventStage');
-    expect(html).toContain('latestReviewEventsRequestId');
+    expect(html).toContain('let currentDetail = null');
+    expect(html).toContain('let latestDetailRequestId = 0');
+    expect(html).toContain('let latestReviewMutationRequestId = 0');
+    expect(html).toContain('let reviewMutationPending = false');
+    expect(html).toContain('let latestDownloadRequestId = 0');
+    expect(html).toContain('let downloadPending = false');
+    expect(html).toContain('previousPageButton');
+    expect(html).toContain('nextPageButton');
+    expect(html).toContain('pageSizeFilter');
     expect(html).toContain(
       "event.reviewerAdminId || event.actorUserId || '系统'",
     );
@@ -1155,22 +1163,403 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain("status !== 'reviewing'");
     expect(html).not.toContain("query.get('status') || 'pending'");
     expect(html).toContain("query.get('applicationId')");
+    expect(html).toContain("query.get('page')");
+    expect(html).toContain("query.get('pageSize')");
     expect(html).toContain("query.set('applicationId', applicationId)");
+    expect(html).toContain("query.set('page', String(page))");
+    expect(html).toContain("query.set('pageSize', String(pageSize))");
     expect(html).toContain('history.replaceState');
   });
 
-  it('ignores stale shipper invoice queue responses and keeps the latest audit context', () => {
+  it('keeps invoice queue pagination and routed details as independent request generations', () => {
     const html = renderShipperInvoiceAdminConsole();
+    const queueStart = html.indexOf('async function loadQueue(page)');
+    const queueEnd = html.indexOf(
+      'async function refreshWorkspace(page)',
+      queueStart,
+    );
+    const queueBody = html.slice(queueStart, queueEnd);
+    const queueRenderStart = html.indexOf('function renderQueue(items)');
+    const queueRenderEnd = html.indexOf(
+      'function renderDetail()',
+      queueRenderStart,
+    );
+    const queueRenderBody = html.slice(queueRenderStart, queueRenderEnd);
 
     expect(html).toContain('let latestQueueRequestId = 0');
-    expect(html).toContain('let latestReviewEventsRequestId = 0');
+    expect(html).toContain('let latestDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestQueueRequestId');
     expect(html).toContain('if (requestId !== latestQueueRequestId) {');
-    expect(html).toContain('const requestId = ++latestReviewEventsRequestId');
-    expect(html).toContain('if (requestId !== latestReviewEventsRequestId) {');
+    expect(html).toContain('const requestId = ++latestDetailRequestId');
+    expect(html).toContain('requestId !== latestDetailRequestId ||');
+    expect(html).toContain(
+      'selectedApplicationId !== targetApplicationId',
+    );
+    expect(queueBody).not.toContain('latestDetailRequestId');
+    expect(queueBody).not.toContain('resetDetail(');
+    expect(queueBody).not.toContain('resetReviewEvents(');
+    expect(queueRenderBody).not.toContain("selectedApplicationId = ''");
+    expect(queueRenderBody).not.toContain(
+      "syncShipperInvoiceRouteState('')",
+    );
   });
 
-  it('executes the shared admin session bootstrap before auto-loading the invoice queue', () => {
+  it('commits only the latest invoice workspace and degrades audit events independently', async () => {
+    const html = renderShipperInvoiceAdminConsole();
+    const selectStart = html.indexOf(
+      'async function selectApplication(applicationId)',
+    );
+    const selectEnd = html.indexOf(
+      'async function loadQueue(page)',
+      selectStart,
+    );
+    const selectSource = html.slice(selectStart, selectEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const flushPromises = () =>
+      new Promise<void>(resolve => setImmediate(resolve));
+    const pending = new Map<string, ReturnType<typeof createDeferred>>();
+    const createApplicationRequests = (applicationId: string) => {
+      const detail = createDeferred();
+      const events = createDeferred();
+      pending.set('/' + applicationId, detail);
+      pending.set('/' + applicationId + '/review-events', events);
+      return { detail, events };
+    };
+    const apiGet = jest.fn((path: string) => {
+      const deferred = pending.get(path);
+      if (!deferred) {
+        return Promise.reject(new Error('unexpected request: ' + path));
+      }
+      return deferred.promise;
+    });
+    let activeContext:
+      | {
+          currentDetail: unknown;
+          currentReviewEvents: unknown[];
+        }
+      | undefined;
+    const resetDetail = jest.fn(() => {
+      if (activeContext) activeContext.currentDetail = null;
+    });
+    const resetReviewEvents = jest.fn(() => {
+      if (activeContext) activeContext.currentReviewEvents = [];
+    });
+    const context = {
+      latestDetailRequestId: 0,
+      latestDownloadRequestId: 0,
+      downloadPending: false,
+      selectedApplicationId: '',
+      currentItems: [] as unknown[],
+      currentDetail: null as unknown,
+      currentReviewEvents: [] as unknown[],
+      syncShipperInvoiceRouteState: jest.fn(),
+      renderQueue: jest.fn(),
+      setText: jest.fn(),
+      resetDetail,
+      resetReviewEvents,
+      getToken: jest.fn(() => 'admin-token'),
+      apiGet,
+      encodeURIComponent,
+      renderDetail: jest.fn(),
+      renderReviewEvents: jest.fn(),
+      invokeSelectApplication: undefined as
+        | undefined
+        | ((applicationId: string) => Promise<void>),
+    };
+    activeContext = context;
+    runInNewContext(
+      `${selectSource}\ninvokeSelectApplication = selectApplication;`,
+      context,
+    );
+    if (!context.invokeSelectApplication) {
+      throw new Error('selectApplication function was not initialized');
+    }
+
+    const applicationA = createApplicationRequests('invoice-a');
+    const applicationB = createApplicationRequests('invoice-b');
+    const slowApplicationA = context.invokeSelectApplication('invoice-a');
+    const fastApplicationB = context.invokeSelectApplication('invoice-b');
+    applicationB.events.resolve?.([{ eventId: 'event-b' }]);
+    await flushPromises();
+
+    expect(context.currentDetail).toBeNull();
+    expect(context.currentReviewEvents).toEqual([]);
+
+    const applicationBDetail = {
+      id: 'invoice-b',
+      status: 'approved',
+    };
+    applicationB.detail.resolve?.(applicationBDetail);
+    await fastApplicationB;
+    await flushPromises();
+    expect(context.currentDetail).toEqual(applicationBDetail);
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-b' }]);
+
+    applicationA.detail.resolve?.({ id: 'invoice-a', status: 'reviewing' });
+    applicationA.events.resolve?.([{ eventId: 'event-a' }]);
+    await slowApplicationA;
+    await flushPromises();
+    expect(context.currentDetail).toEqual(applicationBDetail);
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-b' }]);
+
+    const applicationC = createApplicationRequests('invoice-c');
+    const degradedApplicationC = context.invokeSelectApplication('invoice-c');
+    const applicationCDetail = {
+      id: 'invoice-c',
+      status: 'approved',
+    };
+    applicationC.detail.resolve?.(applicationCDetail);
+    applicationC.events.reject?.(new Error('审核事件暂不可用'));
+    await degradedApplicationC;
+    await flushPromises();
+
+    expect(context.currentDetail).toEqual(applicationCDetail);
+    expect(context.currentReviewEvents).toEqual([]);
+    expect(resetReviewEvents).toHaveBeenLastCalledWith('审核事件暂不可用');
+
+    const applicationD = createApplicationRequests('invoice-d');
+    const failedApplicationD = context.invokeSelectApplication('invoice-d');
+    applicationD.events.resolve?.([{ eventId: 'event-d' }]);
+    await flushPromises();
+    expect(context.currentReviewEvents).toEqual([]);
+    applicationD.detail.reject?.(new Error('发票申请不存在'));
+    await failedApplicationD;
+
+    expect(context.selectedApplicationId).toBe('invoice-d');
+    expect(context.currentDetail).toBeNull();
+    expect(context.currentReviewEvents).toEqual([]);
+    expect(context.syncShipperInvoiceRouteState).toHaveBeenLastCalledWith(
+      'invoice-d',
+    );
+
+    const applicationE = createApplicationRequests('invoice-e');
+    let applicationESelectionSettled = false;
+    const independentlyLoadedApplicationE = context
+      .invokeSelectApplication('invoice-e')
+      .then(() => {
+        applicationESelectionSettled = true;
+      });
+    const applicationEDetail = { id: 'invoice-e', status: 'reviewing' };
+    applicationE.detail.resolve?.(applicationEDetail);
+    await flushPromises();
+
+    expect(applicationESelectionSettled).toBe(true);
+    expect(context.currentDetail).toEqual(applicationEDetail);
+    expect(context.currentReviewEvents).toEqual([]);
+    await independentlyLoadedApplicationE;
+
+    applicationE.events.resolve?.([{ eventId: 'event-e' }]);
+    await flushPromises();
+    expect(context.currentReviewEvents).toEqual([{ eventId: 'event-e' }]);
+  });
+
+  it('retains routed invoice ids across empty, out-of-page and failed queue results', async () => {
+    const html = renderShipperInvoiceAdminConsole();
+    const renderQueueStart = html.indexOf('function renderQueue(items)');
+    const renderQueueEnd = html.indexOf(
+      'function renderDetail()',
+      renderQueueStart,
+    );
+    const renderQueueSource = html.slice(renderQueueStart, renderQueueEnd);
+    const queueRoot = {
+      innerHTML: '',
+      querySelectorAll: jest.fn(() => []),
+    };
+    type InvoiceQueueItem = {
+      amountCents: number;
+      id: string;
+      invoiceTitle: string;
+      shipperId: string;
+      status: string;
+    };
+    const renderContext: {
+      currentItems: InvoiceQueueItem[];
+      document: { getElementById: jest.Mock };
+      escapeHtml: (value: unknown) => string;
+      formatAmount: (value: unknown) => string;
+      invokeRenderQueue?: (items: InvoiceQueueItem[]) => void;
+      selectApplication: jest.Mock;
+      selectedApplicationId: string;
+    } = {
+      selectedApplicationId: 'routed-invoice',
+      currentItems: [],
+      document: {
+        getElementById: jest.fn(() => queueRoot),
+      },
+      escapeHtml: (value: unknown) => String(value),
+      formatAmount: (value: unknown) => String(value),
+      selectApplication: jest.fn(),
+      invokeRenderQueue: undefined,
+    };
+    runInNewContext(
+      `${renderQueueSource}\ninvokeRenderQueue = renderQueue;`,
+      renderContext,
+    );
+    if (!renderContext.invokeRenderQueue) {
+      throw new Error('renderQueue function was not initialized');
+    }
+
+    renderContext.invokeRenderQueue([]);
+    expect(renderContext.selectedApplicationId).toBe('routed-invoice');
+    renderContext.invokeRenderQueue([
+      {
+        amountCents: 100,
+        id: 'another-invoice',
+        invoiceTitle: '其他申请',
+        shipperId: 'shipper-2',
+        status: 'reviewing',
+      },
+    ]);
+    expect(renderContext.selectedApplicationId).toBe('routed-invoice');
+
+    const loadQueueStart = html.indexOf('async function loadQueue(page)');
+    const loadQueueEnd = html.indexOf(
+      'async function refreshWorkspace(page)',
+      loadQueueStart,
+    );
+    const loadQueueSource = html.slice(loadQueueStart, loadQueueEnd);
+    const detailBeforeFailure = {
+      id: 'routed-invoice',
+      status: 'reviewing',
+    };
+    const loadContext = {
+      latestQueueRequestId: 0,
+      currentPage: 1,
+      currentTotal: 1,
+      currentItems: [{ id: 'another-invoice' }],
+      currentDetail: detailBeforeFailure,
+      selectedApplicationId: 'routed-invoice',
+      syncShipperInvoiceRouteState: jest.fn(),
+      getQueuePageSize: jest.fn(() => 20),
+      getToken: jest.fn(() => 'admin-token'),
+      clearQueueResults: jest.fn(),
+      setText: jest.fn(),
+      document: {
+        getElementById: jest.fn(() => ({ value: 'reviewing' })),
+      },
+      URLSearchParams,
+      apiGet: jest.fn(() => Promise.reject(new Error('队列加载失败'))),
+      renderQueue: jest.fn(),
+      renderPagination: jest.fn(),
+      selectApplication: jest.fn(),
+      invokeLoadQueue: undefined as
+        | undefined
+        | ((page: number) => Promise<void>),
+    };
+    runInNewContext(
+      `${loadQueueSource}\ninvokeLoadQueue = loadQueue;`,
+      loadContext,
+    );
+    if (!loadContext.invokeLoadQueue) {
+      throw new Error('loadQueue function was not initialized');
+    }
+    await loadContext.invokeLoadQueue(1);
+
+    expect(loadContext.selectedApplicationId).toBe('routed-invoice');
+    expect(loadContext.currentDetail).toBe(detailBeforeFailure);
+    expect(loadContext.clearQueueResults).toHaveBeenCalledWith('队列加载失败');
+  });
+
+  it('prevents duplicate and terminal reviews without restoring a previous selection', async () => {
+    const html = renderShipperInvoiceAdminConsole();
+    const reviewStart = html.indexOf('async function review(status)');
+    const reviewEnd = html.indexOf(
+      "document.getElementById('refreshButton')",
+      reviewStart,
+    );
+    const reviewSource = html.slice(reviewStart, reviewEnd);
+    let resolveReview: ((value: unknown) => void) | undefined;
+    const reviewResponse = new Promise<unknown>(resolve => {
+      resolveReview = resolve;
+    });
+    const apiPost = jest.fn().mockReturnValueOnce(reviewResponse);
+    const loadQueue = jest.fn(() => Promise.resolve());
+    const selectApplication = jest.fn(() => Promise.resolve());
+    const context = {
+      reviewMutationPending: false,
+      latestReviewMutationRequestId: 0,
+      selectedApplicationId: 'invoice-a',
+      currentDetail: {
+        id: 'invoice-a',
+        status: 'reviewing',
+      },
+      currentPage: 1,
+      document: {
+        getElementById: jest.fn(() => ({ value: '' })),
+      },
+      setText: jest.fn(),
+      updateReviewControls: jest.fn(),
+      apiPost,
+      encodeURIComponent,
+      loadQueue,
+      selectApplication,
+      invokeReview: undefined as
+        | undefined
+        | ((status: 'approved' | 'rejected') => Promise<void>),
+    };
+    runInNewContext(`${reviewSource}\ninvokeReview = review;`, context);
+    if (!context.invokeReview) {
+      throw new Error('review function was not initialized');
+    }
+
+    const firstReview = context.invokeReview('approved');
+    await context.invokeReview('approved');
+    expect(apiPost).toHaveBeenCalledTimes(1);
+
+    const invoiceBDetail = { id: 'invoice-b', status: 'reviewing' };
+    context.selectedApplicationId = 'invoice-b';
+    context.currentDetail = invoiceBDetail;
+    resolveReview?.({ status: 'approved' });
+    await firstReview;
+
+    expect(context.selectedApplicationId).toBe('invoice-b');
+    expect(context.currentDetail).toBe(invoiceBDetail);
+    expect(loadQueue).toHaveBeenCalledTimes(1);
+    expect(selectApplication).not.toHaveBeenCalled();
+    expect(context.setText).not.toHaveBeenCalledWith(
+      'reviewStatus',
+      '审核成功：approved',
+    );
+    expect(context.reviewMutationPending).toBe(false);
+
+    context.currentDetail = { id: 'invoice-b', status: 'approved' };
+    await context.invokeReview('approved');
+    expect(apiPost).toHaveBeenCalledTimes(1);
+    expect(context.setText).toHaveBeenLastCalledWith(
+      'reviewStatus',
+      '当前发票申请不处于待审核状态。',
+    );
+
+    loadQueue.mockClear();
+    selectApplication.mockClear();
+    context.selectedApplicationId = 'invoice-c';
+    context.currentDetail = { id: 'invoice-c', status: 'reviewing' };
+    apiPost.mockRejectedValueOnce(
+      Object.assign(new Error('发票状态已变化'), {
+        code: 'INVOICE_APPLICATION_STATE_INVALID',
+      }),
+    );
+    await context.invokeReview('approved');
+
+    expect(loadQueue).toHaveBeenCalledTimes(1);
+    expect(selectApplication).toHaveBeenCalledWith('invoice-c');
+    expect(context.setText).toHaveBeenCalledWith(
+      'reviewStatus',
+      '发票状态已变化',
+    );
+    expect(html).toContain('error.code = payload.code');
+    expect(html).toContain("error.code === 'INVOICE_APPLICATION_NOT_FOUND'");
+  });
+
+  it('executes the shared admin session bootstrap before refreshing the invoice workspace', () => {
     const html = renderShipperInvoiceAdminConsole();
     const applicationScriptStart = html.lastIndexOf('<script>');
     const applicationScriptEnd = html.indexOf('</script>', applicationScriptStart);
@@ -1186,37 +1575,165 @@ describe('shipper invoice admin console page', () => {
     expect(html).toContain(
       'if (currentAdminSession && currentAdminSession.accessToken)',
     );
-  });
-
-  it('invalidates invoice queue and audit requests before the missing-token return', () => {
-    const html = renderShipperInvoiceAdminConsole();
-    const queueStart = html.indexOf('async function loadQueue()');
-    const queueRequestIndex = html.indexOf(
-      'const requestId = ++latestQueueRequestId',
-      queueStart,
-    );
-    const auditInvalidationIndex = html.indexOf(
-      'latestReviewEventsRequestId += 1',
-      queueStart,
-    );
-    const missingTokenIndex = html.indexOf('if (!getToken())', queueStart);
-
-    expect(queueRequestIndex).toBeGreaterThan(queueStart);
-    expect(queueRequestIndex).toBeLessThan(missingTokenIndex);
-    expect(auditInvalidationIndex).toBeGreaterThan(queueStart);
-    expect(auditInvalidationIndex).toBeLessThan(missingTokenIndex);
+    expect(html).toContain('refreshWorkspace(currentPage)');
   });
 
   it('keeps invoice downloads bound to the application selected at request time', () => {
     const html = renderShipperInvoiceAdminConsole();
-
-    expect(html).toContain('const applicationId = selectedItem.id');
-    expect(html).toContain("encodeURIComponent(applicationId) + '/download'");
-    expect(html).toContain("'invoice-' + applicationId + '.txt'");
-    expect(html).toContain('if (selectedApplicationId === applicationId)');
-    expect(html).not.toContain(
-      "encodeURIComponent(selectedApplicationId) + '/download'",
+    const downloadStart = html.indexOf(
+      'async function downloadSelectedInvoice()',
     );
+    const downloadEnd = html.indexOf(
+      'async function review(status)',
+      downloadStart,
+    );
+    const downloadSource = html.slice(downloadStart, downloadEnd);
+
+    expect(downloadSource).toContain('const targetDetail = currentDetail');
+    expect(downloadSource).toContain(
+      "encodeURIComponent(targetApplicationId) + '/download'",
+    );
+    expect(downloadSource).toContain(
+      "'invoice-' + targetApplicationId + '.txt'",
+    );
+    expect(downloadSource).toContain(
+      'const requestId = ++latestDownloadRequestId',
+    );
+    expect(downloadSource).toContain('if (downloadPending) {');
+    expect(downloadSource).toContain(
+      'requestId === latestDownloadRequestId &&',
+    );
+    expect(downloadSource).toContain(
+      'selectedApplicationId === targetApplicationId &&',
+    );
+    expect(downloadSource).toContain(
+      "error.code === 'INVOICE_APPLICATION_STATE_INVALID'",
+    );
+    expect(downloadSource).toContain(
+      '[selectApplication(targetApplicationId)]',
+    );
+    expect(downloadSource).not.toContain('currentItems.find(entry =>');
+  });
+
+  it('blocks duplicate invoice downloads and suppresses stale browser side effects', async () => {
+    const html = renderShipperInvoiceAdminConsole();
+    const selectStart = html.indexOf(
+      'async function selectApplication(applicationId)',
+    );
+    const selectEnd = html.indexOf(
+      'async function loadQueue(page)',
+      selectStart,
+    );
+    const selectSource = html.slice(selectStart, selectEnd);
+    const downloadStart = html.indexOf(
+      'async function downloadSelectedInvoice()',
+    );
+    const downloadEnd = html.indexOf(
+      'async function review(status)',
+      downloadStart,
+    );
+    const downloadSource = html.slice(downloadStart, downloadEnd);
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    const fetchResponse = new Promise<unknown>(resolve => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = jest.fn(() => fetchResponse);
+    const createObjectURL = jest.fn(() => 'blob:invoice-a');
+    const link = {
+      click: jest.fn(),
+      download: '',
+      href: '',
+    };
+    let activeContext:
+      | {
+          currentDetail: unknown;
+          currentReviewEvents: unknown[];
+        }
+      | undefined;
+    const resetDetail = jest.fn(() => {
+      if (activeContext) activeContext.currentDetail = null;
+    });
+    const resetReviewEvents = jest.fn(() => {
+      if (activeContext) activeContext.currentReviewEvents = [];
+    });
+    const neverSettles = new Promise<unknown>(() => undefined);
+    const context = {
+      selectedApplicationId: 'invoice-a',
+      currentItems: [] as unknown[],
+      currentDetail: { id: 'invoice-a', status: 'approved' } as unknown,
+      currentReviewEvents: [] as unknown[],
+      currentPage: 1,
+      latestDetailRequestId: 0,
+      latestDownloadRequestId: 0,
+      downloadPending: false,
+      syncShipperInvoiceRouteState: jest.fn(),
+      renderQueue: jest.fn(),
+      setText: jest.fn(),
+      resetDetail,
+      resetReviewEvents,
+      getToken: jest.fn(() => 'admin-token'),
+      apiGet: jest.fn(() => neverSettles),
+      encodeURIComponent,
+      renderDetail: jest.fn(),
+      renderReviewEvents: jest.fn(),
+      setDownloadState: jest.fn(),
+      updateDownloadControls: jest.fn(),
+      fetch: fetchMock,
+      apiBase: '/api/admin/shipper-invoices',
+      extractDownloadFilename: jest.fn(() => 'invoice-invoice-a.txt'),
+      URL: {
+        createObjectURL,
+        revokeObjectURL: jest.fn(),
+      },
+      Blob: jest.fn(),
+      document: {
+        createElement: jest.fn(() => link),
+        body: {
+          appendChild: jest.fn(),
+          removeChild: jest.fn(),
+        },
+      },
+      setTimeout: jest.fn(),
+      loadQueue: jest.fn(() => Promise.resolve()),
+      invokeSelectApplication: undefined as
+        | undefined
+        | ((applicationId: string) => Promise<void>),
+      invokeDownload: undefined as undefined | (() => Promise<void>),
+    };
+    activeContext = context;
+    runInNewContext(
+      `${selectSource}\n${downloadSource}\n` +
+        'invokeSelectApplication = selectApplication;\n' +
+        'invokeDownload = downloadSelectedInvoice;',
+      context,
+    );
+    if (!context.invokeSelectApplication || !context.invokeDownload) {
+      throw new Error('invoice download functions were not initialized');
+    }
+
+    const firstDownload = context.invokeDownload();
+    await context.invokeDownload();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(context.downloadPending).toBe(true);
+
+    context.invokeSelectApplication('invoice-b').catch(() => undefined);
+    expect(context.selectedApplicationId).toBe('invoice-b');
+    expect(context.downloadPending).toBe(true);
+
+    resolveFetch?.({
+      ok: true,
+      text: () => Promise.resolve('invoice-a-content'),
+      headers: {
+        get: jest.fn(() => null),
+      },
+    });
+    await firstDownload;
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(link.click).not.toHaveBeenCalled();
+    expect(context.downloadPending).toBe(false);
+    expect(context.updateDownloadControls).toHaveBeenCalled();
   });
 });
 

@@ -105,6 +105,20 @@ export class AdminShipperInvoicesController {
     );
   }
 
+  @Get(':applicationId')
+  async getAdminApplication(
+    @Req() request: AuthenticatedRequest,
+    @Param('applicationId') applicationId: string,
+  ) {
+    return ok(
+      await this.profileInvoicesService.getAdminApplication(
+        getCurrentAdmin(request),
+        applicationId,
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Get(':applicationId/review-events')
   async listAdminApplicationReviewEvents(
     @Req() request: AuthenticatedRequest,

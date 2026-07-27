@@ -2028,6 +2028,56 @@ describe('platform profile api', () => {
     );
   });
 
+  it('gets one admin shipper invoice independently from the queue page', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          id: 'invoice-platform-75',
+          shipperId: 'shipper-75',
+          invoiceType: 'normal',
+          invoiceTitleType: 'personal',
+          invoiceTitle: '远航货主',
+          receiverEmail: 'finance@example.com',
+          orderIds: ['order-platform-75'],
+          orderNos: ['HY202607270075'],
+          amountCents: 75000,
+          status: 'reviewing',
+          createdAtIso: '2026-07-27T08:00:00.000Z',
+          updatedAtIso: '2026-07-27T08:05:00.000Z',
+        },
+        requestId: 'req-admin-invoice-detail',
+        timestamp: '2026-07-27T08:05:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.getAdminInvoiceApplication(' invoice-platform-75 '),
+    ).resolves.toMatchObject({
+      id: 'invoice-platform-75',
+      shipperId: 'shipper-75',
+      status: 'reviewing',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/admin/shipper-invoices/invoice-platform-75',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
   it('creates the shipper invoice application with bearer token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -2381,6 +2431,8 @@ describe('platform profile api', () => {
       api.listAdminInvoiceApplications({ pageSize: 51 })],
     ['empty admin shipper invoice review-events id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.listAdminInvoiceApplicationReviewEvents('   ')],
+    ['empty admin shipper invoice detail id', (api: ReturnType<typeof createPlatformProfileApi>) =>
+      api.getAdminInvoiceApplication('   ')],
     ['empty admin shipper invoice id', (api: ReturnType<typeof createPlatformProfileApi>) =>
       api.reviewAdminInvoiceApplication('   ', { status: 'approved' })],
     ['empty admin shipper invoice download id', (api: ReturnType<typeof createPlatformProfileApi>) =>

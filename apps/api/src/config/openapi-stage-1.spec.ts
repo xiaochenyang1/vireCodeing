@@ -1742,12 +1742,37 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Current authenticated user is not a shipper');
   });
 
-  it('documents immutable admin shipper invoice review events', () => {
+  it('documents admin shipper invoice detail, download, and immutable review events', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const detailPath = '/admin/shipper-invoices/{applicationId}';
+    const downloadPath =
+      '/admin/shipper-invoices/{applicationId}/download';
     const reviewEventsPath =
       '/admin/shipper-invoices/{applicationId}/review-events';
 
     expect(source).toContain('/admin/shipper-invoices:');
+    expect(source).toContain(`${detailPath}:`);
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'Get shipper invoice application detail for admin review',
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      "$ref: '#/components/schemas/ShipperInvoiceApplicationResponse'",
+    );
+    expectPathBlockToContain(source, detailPath, "'401':");
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'INVOICE_APPLICATION_NOT_FOUND',
+    );
     expect(source).toContain(
       '/admin/shipper-invoices/{applicationId}/review:',
     );
@@ -1783,6 +1808,23 @@ describe('stage 1 OpenAPI contract', () => {
       source,
       '/admin/shipper-invoices/{applicationId}/review',
       'appends an immutable review event with the authenticated admin actor',
+    );
+    expect(source).toContain(`${downloadPath}:`);
+    expectPathBlockToContain(
+      source,
+      downloadPath,
+      'Download approved shipper invoice file for admin',
+    );
+    expectPathBlockToContain(source, downloadPath, 'text/plain:');
+    expectPathBlockToContain(
+      source,
+      downloadPath,
+      'INVOICE_APPLICATION_NOT_FOUND',
+    );
+    expectPathBlockToContain(
+      source,
+      downloadPath,
+      'INVOICE_APPLICATION_STATE_INVALID',
     );
   });
 

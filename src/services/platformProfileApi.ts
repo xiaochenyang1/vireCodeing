@@ -752,6 +752,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         ).toString()}`,
       );
     },
+    async getAdminInvoiceApplication(applicationId: string) {
+      return platformGet<PlatformProfileInvoiceApplication>(
+        config,
+        `/admin/shipper-invoices/${encodeURIComponent(
+          normalizeAdminShipperInvoiceApplicationId(applicationId),
+        )}`,
+      );
+    },
     async listAdminInvoiceApplicationReviewEvents(applicationId: string) {
       return platformGet<PlatformAdminShipperInvoiceReviewEvent[]>(
         config,

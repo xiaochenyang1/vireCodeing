@@ -131,6 +131,62 @@ describe('ProfileInvoicesController', () => {
 });
 
 describe('AdminShipperInvoicesController', () => {
+  it('gets one invoice application for the current admin', async () => {
+    const service = {
+      getAdminApplication: jest.fn().mockResolvedValue({
+        id: 'invoice-application-75',
+        shipperId: 'shipper-75',
+        invoiceType: 'normal',
+        invoiceTitleType: 'personal',
+        invoiceTitle: '远航货主',
+        receiverEmail: 'finance@example.com',
+        orderIds: ['order-75'],
+        orderNos: ['HY202607270075'],
+        amountCents: 75000,
+        status: 'reviewing',
+        createdAtIso: '2026-07-27T08:00:00.000Z',
+        updatedAtIso: '2026-07-27T08:05:00.000Z',
+      }),
+    } as unknown as ProfileInvoicesService;
+    const controller = new AdminShipperInvoicesController(service);
+
+    await expect(
+      controller.getAdminApplication(
+        createRequest('admin-1', 'admin'),
+        'invoice-application-75',
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'invoice-application-75',
+        shipperId: 'shipper-75',
+        status: 'reviewing',
+      },
+      requestId: 'req_profile_invoices_test',
+    });
+    expect(service.getAdminApplication).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'invoice-application-75',
+    );
+  });
+
+  it('rejects non-admin invoice detail access before service calls', async () => {
+    const service = {
+      getAdminApplication: jest.fn(),
+    } as unknown as ProfileInvoicesService;
+    const controller = new AdminShipperInvoicesController(service);
+
+    await expect(
+      controller.getAdminApplication(
+        createRequest('shipper-1', 'shipper'),
+        'invoice-application-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.getAdminApplication).not.toHaveBeenCalled();
+  });
+
   it('lists invoice review events for the current admin', async () => {
     const service = {
       listAdminApplicationReviewEvents: jest.fn().mockResolvedValue([

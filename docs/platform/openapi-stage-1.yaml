@@ -1500,6 +1500,46 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/shipper-invoices/{applicationId}:
+    get:
+      summary: Get shipper invoice application detail for admin review
+      description: Returns one complete shipper invoice application independently of the current review queue page or status filter.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: invoice-application-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Shipper invoice application detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipperInvoiceApplicationResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Invoice application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: INVOICE_APPLICATION_NOT_FOUND
+                message: 发票申请不存在
+                requestId: req_local
+                timestamp: '2026-07-27T08:00:00.000Z'
   /admin/shipper-invoices/{applicationId}/review-events:
     get:
       summary: List shipper invoice review audit events
@@ -1597,6 +1637,66 @@ paths:
                 message: 当前发票申请状态不可审核
                 requestId: req_local
                 timestamp: '2026-07-24T08:00:00.000Z'
+  /admin/shipper-invoices/{applicationId}/download:
+    get:
+      summary: Download approved shipper invoice file for admin
+      description: Generates and downloads the text invoice artifact for an approved shipper invoice application.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: invoice-application-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Generated shipper invoice text file
+          headers:
+            Content-Disposition:
+              description: Suggested invoice download filename.
+              schema:
+                type: string
+              example: attachment; filename="invoice-invoice-application-1.txt"
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  发票申请号: invoice-application-1
+                  发票抬头: 深圳晨星贸易有限公司
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Invoice application does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: INVOICE_APPLICATION_NOT_FOUND
+                message: 发票申请不存在
+                requestId: req_local
+                timestamp: '2026-07-27T08:00:00.000Z'
+        '409':
+          description: Invoice application is not approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: INVOICE_APPLICATION_STATE_INVALID
+                message: 仅已通过的发票申请支持下载
+                requestId: req_local
+                timestamp: '2026-07-27T08:00:00.000Z'
   /shipper/profile/invoices:
     get:
       summary: List current shipper invoice applications

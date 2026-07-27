@@ -318,6 +318,14 @@ describe('ProfileInvoicesService', () => {
     });
 
     await expect(
+      service.getAdminApplication(admin, created.id),
+    ).resolves.toMatchObject({
+      id: created.id,
+      shipperId: 'shipper-1',
+      status: 'reviewing',
+    });
+
+    await expect(
       service.listAdminApplicationReviewEvents(admin, created.id),
     ).resolves.toEqual([
       expect.objectContaining({
@@ -355,6 +363,35 @@ describe('ProfileInvoicesService', () => {
         }),
       ]),
     );
+  });
+
+  it('rejects missing and non-admin invoice detail access', async () => {
+    const repository = new InMemoryProfileInvoicesRepository();
+    const service = new ProfileInvoicesService(repository);
+    const findApplication = jest.spyOn(repository, 'findApplicationById');
+
+    await expect(
+      service.getAdminApplication(
+        { id: 'admin-1', phone: '13900000000', userType: 'admin' },
+        'missing-invoice',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+        '发票申请不存在',
+      ),
+    );
+    findApplication.mockClear();
+
+    await expect(
+      service.getAdminApplication(
+        { id: 'shipper-1', phone: '13800138000', userType: 'shipper' },
+        'invoice-application-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(findApplication).not.toHaveBeenCalled();
   });
 
   it('keeps a reviewer-less fallback for legacy terminal applications', async () => {

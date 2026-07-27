@@ -32,6 +32,15 @@ export class ProfileInvoicesService {
     return this.repository.listAdminApplications(query);
   }
 
+  async getAdminApplication(
+    currentUser: AuthenticatedUser,
+    applicationId: string,
+  ): Promise<ShipperInvoiceApplicationRecord> {
+    this.assertAdmin(currentUser);
+
+    return this.requireApplication(applicationId);
+  }
+
   async reviewApplication(
     currentUser: AuthenticatedUser,
     applicationId: string,
@@ -125,20 +134,25 @@ export class ProfileInvoicesService {
   }
 
   private async getDownloadableApplication(applicationId: string) {
-    const application =
-      await this.repository.findApplicationById(applicationId);
-
-    if (!application) {
-      throw new BusinessError(
-        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
-        '发票申请不存在',
-      );
-    }
+    const application = await this.requireApplication(applicationId);
 
     if (application.status !== 'approved') {
       throw new BusinessError(
         ApiErrorCode.INVOICE_APPLICATION_STATE_INVALID,
         INVOICE_DOWNLOAD_STATE_INVALID_MESSAGE,
+      );
+    }
+
+    return application;
+  }
+
+  private async requireApplication(applicationId: string) {
+    const application = await this.repository.findApplicationById(applicationId);
+
+    if (!application) {
+      throw new BusinessError(
+        ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
+        '发票申请不存在',
       );
     }
 

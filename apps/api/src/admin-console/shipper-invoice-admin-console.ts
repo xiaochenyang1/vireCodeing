@@ -44,13 +44,14 @@ export function renderShipperInvoiceAdminConsole() {
       border-right: 1px solid var(--line);
       background: #eef2f4;
     }
-    .topbar, .toolbar, .review-row {
+    .topbar, .toolbar, .review-row, .pagination-row {
       display: flex;
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
     }
     .topbar { justify-content: space-between; margin-bottom: 16px; }
+    .pagination-row { margin: 12px 0; }
     h1 { margin: 0; font-size: 22px; }
     h2 { margin: 0 0 12px; font-size: 18px; }
     .card {
@@ -123,9 +124,21 @@ export function renderShipperInvoiceAdminConsole() {
             <option value="rejected">已驳回</option>
           </select>
         </label>
+        <label>
+          每页
+          <select id="pageSizeFilter">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
         <button type="button" id="refreshButton" class="secondary">刷新队列</button>
       </div>
       <div id="queueStatus" class="status-line">等待登录 token 后加载队列。</div>
+      <div class="pagination-row">
+        <button type="button" id="previousPageButton" class="secondary" disabled>上一页</button>
+        <span id="paginationStatus" class="muted">第 1 页</span>
+        <button type="button" id="nextPageButton" class="secondary" disabled>下一页</button>
+      </div>
       <div id="queueList"></div>
     </section>
     <section class="detail-panel">
@@ -146,8 +159,8 @@ export function renderShipperInvoiceAdminConsole() {
           <textarea id="rejectionReason" placeholder="驳回时必填"></textarea>
         </label>
         <div class="review-row" style="margin-top:10px;">
-          <button type="button" id="approveButton">通过申请</button>
-          <button type="button" id="rejectButton" class="danger">驳回申请</button>
+          <button type="button" id="approveButton" disabled>通过申请</button>
+          <button type="button" id="rejectButton" class="danger" disabled>驳回申请</button>
         </div>
         <div id="reviewStatus" class="status-line"></div>
       </div>
@@ -164,8 +177,16 @@ export function renderShipperInvoiceAdminConsole() {
     const apiBase = document.querySelector('meta[name="admin-shipper-invoice-api"]').content;
     let selectedApplicationId = '';
     let currentItems = [];
+    let currentDetail = null;
+    let currentReviewEvents = [];
+    let currentPage = 1;
+    let currentTotal = 0;
     let latestQueueRequestId = 0;
-    let latestReviewEventsRequestId = 0;
+    let latestDetailRequestId = 0;
+    let latestReviewMutationRequestId = 0;
+    let latestDownloadRequestId = 0;
+    let reviewMutationPending = false;
+    let downloadPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/shipper-invoice-console',
     })}
@@ -196,23 +217,54 @@ export function renderShipperInvoiceAdminConsole() {
       return {
         status: query.get('status') || 'reviewing',
         applicationId: query.get('applicationId') || '',
+        page: query.get('page') || '',
+        pageSize: query.get('pageSize') || '',
       };
     }
 
     function applyShipperInvoiceRouteState() {
       const routeState = readShipperInvoiceRouteState();
       document.getElementById('statusFilter').value = routeState.status;
+      if (routeState.page) {
+        currentPage = Math.max(1, Number.parseInt(routeState.page, 10) || 1);
+      }
+      if (routeState.pageSize) {
+        document.getElementById('pageSizeFilter').value = String(
+          [20, 50].includes(Number(routeState.pageSize))
+            ? Number(routeState.pageSize)
+            : 20,
+        );
+      }
       selectedApplicationId = routeState.applicationId;
       return routeState;
     }
 
-    function syncShipperInvoiceRouteState(applicationIdOverride) {
+    function getQueuePageSize() {
+      const value = Number.parseInt(
+        document.getElementById('pageSizeFilter').value || '20',
+        10,
+      );
+      return [20, 50].includes(value) ? value : 20;
+    }
+
+    function syncShipperInvoiceRouteState(
+      applicationIdOverride,
+      pageOverride,
+      pageSizeOverride,
+    ) {
       if (!globalThis.history || !globalThis.location) {
         return;
       }
 
       const query = new URLSearchParams();
       const status = document.getElementById('statusFilter').value;
+      const page = Math.max(
+        1,
+        Number.parseInt(String(pageOverride || currentPage || 1), 10) || 1,
+      );
+      const pageSize = [20, 50].includes(Number(pageSizeOverride))
+        ? Number(pageSizeOverride)
+        : getQueuePageSize();
       const applicationId = String(
         typeof applicationIdOverride === 'string'
           ? applicationIdOverride
@@ -224,6 +276,12 @@ export function renderShipperInvoiceAdminConsole() {
       if (applicationId) {
         query.set('applicationId', applicationId);
       }
+      if (page > 1) {
+        query.set('page', String(page));
+      }
+      if (pageSize !== 20) {
+        query.set('pageSize', String(pageSize));
+      }
       const nextQuery = query.toString();
       const nextPath = location.pathname + (nextQuery ? '?' + nextQuery : '');
       history.replaceState(null, '', nextPath);
@@ -233,12 +291,21 @@ export function renderShipperInvoiceAdminConsole() {
       return '¥' + (Number(cents || 0) / 100).toFixed(2);
     }
 
-    function setDownloadState(statusText, disabled) {
+    function setDownloadState(statusText) {
       setText('downloadStatus', statusText);
-      document.getElementById('downloadButton').disabled = disabled;
+    }
+
+    function resetDetail(statusText) {
+      currentDetail = null;
+      setText('detailStatus', statusText);
+      document.getElementById('detailBody').innerHTML = '';
+      setDownloadState(statusText);
+      updateDownloadControls();
+      updateReviewControls();
     }
 
     function resetReviewEvents(statusText) {
+      currentReviewEvents = [];
       setText('reviewEventStatus', statusText);
       document.getElementById('reviewEventList').innerHTML = '<div class="muted">暂无审核事件。</div>';
     }
@@ -254,9 +321,11 @@ export function renderShipperInvoiceAdminConsole() {
       const response = await fetch(apiBase + path, {
         headers: { Authorization: 'Bearer ' + getToken() },
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || payload.code || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -270,9 +339,11 @@ export function renderShipperInvoiceAdminConsole() {
         },
         body: JSON.stringify(body),
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.code !== 'OK') {
-        throw new Error(payload.message || '请求失败');
+        const error = new Error(payload.message || payload.code || '请求失败');
+        error.code = payload.code;
+        throw error;
       }
       return payload.data;
     }
@@ -281,16 +352,9 @@ export function renderShipperInvoiceAdminConsole() {
       currentItems = items || [];
       const root = document.getElementById('queueList');
       if (!currentItems.length) {
-        selectedApplicationId = '';
-        syncShipperInvoiceRouteState('');
         root.innerHTML = '<div class="muted">当前筛选下没有发票申请。</div>';
-        resetReviewEvents('请选择左侧发票申请。');
         return;
       }
-      if (!currentItems.some(item => item.id === selectedApplicationId)) {
-        selectedApplicationId = currentItems[0].id;
-      }
-      syncShipperInvoiceRouteState(selectedApplicationId);
       root.innerHTML = currentItems.map(item => {
         const selected = item.id === selectedApplicationId ? ' selected' : '';
         return '<div class="card queue-item' + selected + '" data-application-id="' + escapeHtml(item.id) + '">' +
@@ -300,21 +364,15 @@ export function renderShipperInvoiceAdminConsole() {
       }).join('');
       root.querySelectorAll('.queue-item').forEach(node => {
         node.addEventListener('click', () => {
-          selectedApplicationId = node.getAttribute('data-application-id') || '';
-          syncShipperInvoiceRouteState(selectedApplicationId);
-          renderQueue(currentItems);
-          renderDetail();
-          loadReviewEvents();
+          selectApplication(node.getAttribute('data-application-id') || '');
         });
       });
     }
 
     function renderDetail() {
-      const item = currentItems.find(entry => entry.id === selectedApplicationId);
+      const item = currentDetail;
       if (!item) {
-        setText('detailStatus', '请选择左侧发票申请。');
-        document.getElementById('detailBody').innerHTML = '';
-        setDownloadState('请选择左侧发票申请。', true);
+        resetDetail('请选择左侧发票申请。');
         return;
       }
       setText('detailStatus', '当前申请：' + item.id);
@@ -328,86 +386,217 @@ export function renderShipperInvoiceAdminConsole() {
           : '',
       ].join('');
       if (item.status === 'approved') {
-        setDownloadState('当前申请已开票，可下载文本发票凭证。', false);
-        return;
+        setDownloadState('当前申请已开票，可下载文本发票凭证。');
+      } else {
+        setDownloadState('仅已通过申请支持下载发票文件。');
       }
-      setDownloadState('仅已通过申请支持下载发票文件。', true);
+      updateDownloadControls();
+      updateReviewControls();
     }
 
-    function renderReviewEvents(events) {
+    function renderReviewEvents() {
       const root = document.getElementById('reviewEventList');
-      if (!events.length) {
+      if (!currentReviewEvents.length) {
         root.innerHTML = '<div class="muted">暂无审核事件。</div>';
+        setText('reviewEventStatus', '当前申请暂无审核事件。');
         return;
       }
-      root.innerHTML = events.map(event => {
+      root.innerHTML = currentReviewEvents.map(event => {
         return '<div class="event-item">' +
           '<strong>' + escapeHtml(formatReviewEventStage(event.stage)) + '</strong>' +
           '<div class="muted">操作者：' + escapeHtml(event.reviewerAdminId || event.actorUserId || '系统') + ' · 时间：' + escapeHtml(event.createdAtIso || '-') + '</div>' +
           '<div class="muted">' + escapeHtml(event.noteText || '无附加说明') + '</div>' +
         '</div>';
       }).join('');
+      setText('reviewEventStatus', '共 ' + currentReviewEvents.length + ' 条审核事件');
     }
 
-    async function loadReviewEvents() {
-      const requestId = ++latestReviewEventsRequestId;
-      if (!selectedApplicationId) {
-        resetReviewEvents('请选择左侧发票申请。');
+    function renderPagination() {
+      const pageSize = getQueuePageSize();
+      const maxPage = Math.max(1, Math.ceil(currentTotal / pageSize));
+      setText(
+        'paginationStatus',
+        '第 ' + currentPage + ' 页 / 共 ' + maxPage + ' 页',
+      );
+      document.getElementById('previousPageButton').disabled = currentPage <= 1;
+      document.getElementById('nextPageButton').disabled = currentPage >= maxPage;
+    }
+
+    function clearQueueResults(statusText) {
+      currentItems = [];
+      currentTotal = 0;
+      renderQueue([]);
+      renderPagination();
+      setText('queueStatus', statusText);
+    }
+
+    function updateReviewControls() {
+      const canReview = Boolean(
+        currentDetail &&
+        currentDetail.id === selectedApplicationId &&
+        currentDetail.status === 'reviewing',
+      );
+      ['approveButton', 'rejectButton'].forEach(id => {
+        document.getElementById(id).disabled = reviewMutationPending || !canReview;
+      });
+    }
+
+    function updateDownloadControls() {
+      const canDownload = Boolean(
+        currentDetail &&
+        currentDetail.id === selectedApplicationId &&
+        currentDetail.status === 'approved',
+      );
+      document.getElementById('downloadButton').disabled =
+        downloadPending || !canDownload;
+    }
+
+    async function selectApplication(applicationId) {
+      const requestId = ++latestDetailRequestId;
+      const targetApplicationId = String(applicationId || '').trim();
+      latestDownloadRequestId += 1;
+      selectedApplicationId = targetApplicationId;
+      syncShipperInvoiceRouteState(selectedApplicationId);
+      renderQueue(currentItems);
+      setText('reviewStatus', '');
+      resetDetail(
+        targetApplicationId ? '发票详情加载中...' : '请选择左侧发票申请。',
+      );
+      resetReviewEvents(
+        targetApplicationId ? '审核事件加载中...' : '请选择左侧发票申请。',
+      );
+      if (!targetApplicationId) {
         return;
       }
       if (!getToken()) {
+        resetDetail('请先填写 admin token。');
         resetReviewEvents('请先填写 admin token。');
         return;
       }
-      setText('reviewEventStatus', '加载审核事件中...');
+
+      const detailRequest = apiGet('/' + encodeURIComponent(targetApplicationId));
+      const reviewEventRequest = apiGet(
+        '/' + encodeURIComponent(targetApplicationId) + '/review-events',
+      ).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason }),
+      );
       try {
-        const events = await apiGet('/' + encodeURIComponent(selectedApplicationId) + '/review-events');
-        if (requestId !== latestReviewEventsRequestId) {
+        const detail = await detailRequest;
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedApplicationId !== targetApplicationId
+        ) {
           return;
         }
-        renderReviewEvents(Array.isArray(events) ? events : []);
-        setText(
-          'reviewEventStatus',
-          '共 ' + (Array.isArray(events) ? events.length : 0) + ' 条审核事件',
-        );
+        currentDetail = detail;
+        renderDetail();
       } catch (error) {
-        if (requestId !== latestReviewEventsRequestId) {
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedApplicationId !== targetApplicationId
+        ) {
           return;
         }
-        resetReviewEvents(error.message || '审核事件加载失败');
+        resetDetail(error.message || '发票详情加载失败');
+        resetReviewEvents('发票详情未加载，审核事件工作区已清空。');
+        return;
       }
+
+      void reviewEventRequest.then(result => {
+        if (
+          requestId !== latestDetailRequestId ||
+          selectedApplicationId !== targetApplicationId
+        ) {
+          return;
+        }
+        if (result.status === 'fulfilled') {
+          currentReviewEvents = Array.isArray(result.value) ? result.value : [];
+          renderReviewEvents();
+          return;
+        }
+        const reviewEventError = result.reason;
+        resetReviewEvents(
+          reviewEventError && reviewEventError.message
+            ? reviewEventError.message
+            : '审核事件加载失败',
+        );
+      });
     }
 
-    async function loadQueue() {
+    async function loadQueue(page) {
       const requestId = ++latestQueueRequestId;
-      latestReviewEventsRequestId += 1;
+      const requestedPage = Math.max(
+        1,
+        Number.parseInt(String(page || currentPage || 1), 10) || 1,
+      );
+      currentPage = requestedPage;
+      syncShipperInvoiceRouteState(
+        selectedApplicationId,
+        currentPage,
+        getQueuePageSize(),
+      );
       if (!getToken()) {
-        setText('queueStatus', '请先填写 admin token。');
-        resetReviewEvents('请先填写 admin token。');
-        setDownloadState('请先填写 admin token。', true);
+        clearQueueResults('请先填写 admin token。');
         return;
       }
       setText('queueStatus', '加载中...');
-      syncShipperInvoiceRouteState(selectedApplicationId);
       try {
         const status = document.getElementById('statusFilter').value;
-        const query = new URLSearchParams({ status, page: '1', pageSize: '50' });
+        const pageSize = getQueuePageSize();
+        const query = new URLSearchParams({
+          status,
+          page: String(requestedPage),
+          pageSize: String(pageSize),
+        });
         const data = await apiGet('?' + query.toString());
         if (requestId !== latestQueueRequestId) {
           return;
         }
+        currentTotal = Number(data.total || 0);
+        const maxPage = Math.max(1, Math.ceil(currentTotal / pageSize));
+        if (requestedPage > maxPage) {
+          return loadQueue(maxPage);
+        }
+        currentPage = Math.max(1, Number(data.page || requestedPage));
         renderQueue(data.items || []);
-        setText('queueStatus', '共 ' + (data.total || 0) + ' 条');
-        renderDetail();
-        await loadReviewEvents();
+        renderPagination();
+        setText('queueStatus', '共 ' + currentTotal + ' 条');
+        syncShipperInvoiceRouteState(
+          selectedApplicationId,
+          currentPage,
+          pageSize,
+        );
+        if (!selectedApplicationId && currentItems.length) {
+          await selectApplication(currentItems[0].id);
+        }
       } catch (error) {
         if (requestId !== latestQueueRequestId) {
           return;
         }
-        setText('queueStatus', error.message || '加载失败');
-        resetReviewEvents('审核事件尚未加载');
-        setDownloadState('发票文件尚未加载。', true);
+        clearQueueResults(error.message || '加载失败');
       }
+    }
+
+    async function refreshWorkspace(page) {
+      const targetApplicationId = selectedApplicationId;
+      await Promise.all([
+        loadQueue(page || currentPage),
+        ...(targetApplicationId ? [selectApplication(targetApplicationId)] : []),
+      ]);
+    }
+
+    function changeQueuePage(offset) {
+      const maxPage = Math.max(
+        1,
+        Math.ceil(currentTotal / getQueuePageSize()),
+      );
+      loadQueue(Math.min(maxPage, Math.max(1, currentPage + offset)));
+    }
+
+    function resetQueuePage() {
+      currentPage = 1;
+      loadQueue(currentPage);
     }
 
     function extractDownloadFilename(contentDisposition, fallbackFileName) {
@@ -417,25 +606,38 @@ export function renderShipperInvoiceAdminConsole() {
     }
 
     async function downloadSelectedInvoice() {
-      const selectedItem = currentItems.find(entry => entry.id === selectedApplicationId);
-      if (!selectedItem) {
-        setDownloadState('请先选择发票申请。', true);
+      if (downloadPending) {
+        return;
+      }
+      const targetDetail = currentDetail;
+      const targetApplicationId = selectedApplicationId;
+      if (
+        !targetDetail ||
+        !targetApplicationId ||
+        targetDetail.id !== targetApplicationId
+      ) {
+        setDownloadState('请先选择发票申请。');
+        updateDownloadControls();
         return;
       }
       if (!getToken()) {
-        setDownloadState('请先填写 admin token。', true);
+        setDownloadState('请先填写 admin token。');
+        updateDownloadControls();
         return;
       }
-      if (selectedItem.status !== 'approved') {
-        setDownloadState('仅已通过申请支持下载发票文件。', true);
+      if (targetDetail.status !== 'approved') {
+        setDownloadState('仅已通过申请支持下载发票文件。');
+        updateDownloadControls();
         return;
       }
-      const applicationId = selectedItem.id;
+      const requestId = ++latestDownloadRequestId;
+      downloadPending = true;
 
-      setDownloadState('下载发票文件中...', true);
+      setDownloadState('下载发票文件中...');
+      updateDownloadControls();
       try {
         const response = await fetch(
-          apiBase + '/' + encodeURIComponent(applicationId) + '/download',
+          apiBase + '/' + encodeURIComponent(targetApplicationId) + '/download',
           {
             headers: { Authorization: 'Bearer ' + getToken() },
           },
@@ -443,21 +645,33 @@ export function renderShipperInvoiceAdminConsole() {
         const responseText = await response.text();
         if (!response.ok) {
           let errorMessage = '发票文件下载失败';
+          let errorCode = '';
           if (responseText) {
             try {
               const payload = JSON.parse(responseText);
               errorMessage = payload.message || errorMessage;
+              errorCode = payload.code || '';
             } catch {
               errorMessage = responseText;
             }
           }
-          throw new Error(errorMessage);
+          const error = new Error(errorMessage);
+          error.code = errorCode;
+          throw error;
         }
 
         const fileName = extractDownloadFilename(
           response.headers.get('content-disposition'),
-          'invoice-' + applicationId + '.txt',
+          'invoice-' + targetApplicationId + '.txt',
         );
+        if (
+          requestId !== latestDownloadRequestId ||
+          selectedApplicationId !== targetApplicationId ||
+          !currentDetail ||
+          currentDetail.id !== targetApplicationId
+        ) {
+          return;
+        }
         const downloadUrl = URL.createObjectURL(
           new Blob([responseText], {
             type: response.headers.get('content-type') || 'text/plain; charset=utf-8',
@@ -473,19 +687,49 @@ export function renderShipperInvoiceAdminConsole() {
           URL.revokeObjectURL(downloadUrl);
         }, 0);
 
-        if (selectedApplicationId === applicationId) {
-          setDownloadState('发票文件下载已触发：' + fileName, false);
-        }
+        setDownloadState('发票文件下载已触发：' + fileName);
       } catch (error) {
-        if (selectedApplicationId === applicationId) {
-          setDownloadState(error.message || '发票文件下载失败', false);
+        if (
+          requestId === latestDownloadRequestId &&
+          selectedApplicationId === targetApplicationId &&
+          currentDetail &&
+          currentDetail.id === targetApplicationId
+        ) {
+          setDownloadState(error.message || '发票文件下载失败');
+          if (
+            error.code === 'INVOICE_APPLICATION_STATE_INVALID' ||
+            error.code === 'INVOICE_APPLICATION_NOT_FOUND'
+          ) {
+            await Promise.all([
+              loadQueue(currentPage),
+              ...(selectedApplicationId === targetApplicationId
+                ? [selectApplication(targetApplicationId)]
+                : []),
+            ]);
+          }
         }
+      } finally {
+        downloadPending = false;
+        updateDownloadControls();
       }
     }
 
     async function review(status) {
-      if (!selectedApplicationId) {
+      if (reviewMutationPending) {
+        return;
+      }
+      const targetApplicationId = selectedApplicationId;
+      const targetDetail = currentDetail;
+      if (
+        !targetApplicationId ||
+        !targetDetail ||
+        targetDetail.id !== targetApplicationId
+      ) {
         setText('reviewStatus', '请先选择发票申请。');
+        return;
+      }
+      if (targetDetail.status !== 'reviewing') {
+        setText('reviewStatus', '当前发票申请不处于待审核状态。');
         return;
       }
       const rejectionReason = document.getElementById('rejectionReason').value.trim();
@@ -496,25 +740,86 @@ export function renderShipperInvoiceAdminConsole() {
         setText('reviewStatus', '驳回时必须填写原因。');
         return;
       }
+      const requestId = ++latestReviewMutationRequestId;
+      let refreshQueueAfterReview = false;
+      let refreshTargetAfterReview = false;
+      let reviewMessage = '';
+      reviewMutationPending = true;
+      updateReviewControls();
       setText('reviewStatus', '提交审核中...');
       try {
-        await apiPost('/' + encodeURIComponent(selectedApplicationId) + '/review', body);
-        setText('reviewStatus', '审核成功：' + status);
-        await loadQueue();
+        try {
+          await apiPost(
+            '/' + encodeURIComponent(targetApplicationId) + '/review',
+            body,
+          );
+          if (requestId !== latestReviewMutationRequestId) {
+            return;
+          }
+          refreshQueueAfterReview = true;
+          refreshTargetAfterReview =
+            selectedApplicationId === targetApplicationId;
+          reviewMessage = '审核成功：' + status;
+        } catch (error) {
+          if (requestId !== latestReviewMutationRequestId) {
+            return;
+          }
+          if (
+            error.code === 'INVOICE_APPLICATION_STATE_INVALID' ||
+            error.code === 'INVOICE_APPLICATION_NOT_FOUND'
+          ) {
+            refreshQueueAfterReview = true;
+            refreshTargetAfterReview =
+              selectedApplicationId === targetApplicationId;
+          }
+          reviewMessage = error.message || error.code || '审核失败';
+        }
+
+        if (refreshQueueAfterReview) {
+          await Promise.all([
+            loadQueue(currentPage),
+            ...(refreshTargetAfterReview &&
+            selectedApplicationId === targetApplicationId
+              ? [selectApplication(targetApplicationId)]
+              : []),
+          ]);
+        }
+        if (
+          requestId === latestReviewMutationRequestId &&
+          selectedApplicationId === targetApplicationId
+        ) {
+          setText('reviewStatus', reviewMessage);
+        }
       } catch (error) {
-        setText('reviewStatus', error.message || '审核失败');
+        if (
+          requestId === latestReviewMutationRequestId &&
+          selectedApplicationId === targetApplicationId
+        ) {
+          setText('reviewStatus', error.message || '审核刷新失败');
+        }
+      } finally {
+        if (requestId === latestReviewMutationRequestId) {
+          reviewMutationPending = false;
+          updateReviewControls();
+        }
       }
     }
 
-    document.getElementById('refreshButton').addEventListener('click', loadQueue);
-    document.getElementById('statusFilter').addEventListener('change', loadQueue);
+    document.getElementById('refreshButton').addEventListener('click', () => refreshWorkspace(currentPage));
+    document.getElementById('statusFilter').addEventListener('change', resetQueuePage);
+    document.getElementById('pageSizeFilter').addEventListener('change', resetQueuePage);
+    document.getElementById('previousPageButton').addEventListener('click', () => changeQueuePage(-1));
+    document.getElementById('nextPageButton').addEventListener('click', () => changeQueuePage(1));
     document.getElementById('downloadButton').addEventListener('click', downloadSelectedInvoice);
     document.getElementById('approveButton').addEventListener('click', () => review('approved'));
     document.getElementById('rejectButton').addEventListener('click', () => review('rejected'));
     applyShipperInvoiceRouteState();
+    updateReviewControls();
+    updateDownloadControls();
+    renderPagination();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
-      loadQueue();
+      refreshWorkspace(currentPage);
     }
   </script>
 </body>
