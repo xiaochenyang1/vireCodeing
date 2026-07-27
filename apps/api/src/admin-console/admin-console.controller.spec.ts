@@ -2744,6 +2744,199 @@ describe('shipper verification admin console page', () => {
 });
 
 describe('support ticket admin console page', () => {
+  type SupportTicketConsoleNode = {
+    innerHTML: string;
+    textContent: string;
+    value: string;
+  };
+
+  const createSupportTicketDeferred = () => {
+    let resolve: ((value?: unknown) => void) | undefined;
+    let reject: ((reason?: unknown) => void) | undefined;
+    const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, reject, resolve };
+  };
+
+  const flushSupportTicketPromises = () =>
+    new Promise<void>(resolve => setImmediate(resolve));
+
+  const supportTicketListPath = (page: number) =>
+    `/admin/support-tickets?page=${page}&pageSize=20`;
+
+  const createSupportTicketConsoleNodes = () => {
+    const nodes = new Map<string, SupportTicketConsoleNode>();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = {
+        innerHTML: '',
+        textContent: '',
+        value: id === 'supportTicketPageSizeInput' ? '20' : '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    return { getNode, nodes };
+  };
+
+  const createSupportTicketWorkspaceHarness = (routeTicketId = 'ticket-a') => {
+    const html = renderSupportTicketAdminConsole();
+    const listStart = html.indexOf('async function loadSupportTickets(page)');
+    const workspaceEnd = html.indexOf(
+      'function loadMySupportTickets()',
+      listStart,
+    );
+    if ([listStart, workspaceEnd].some(index => index < 0)) {
+      throw new Error('support ticket workspace source was not found');
+    }
+
+    const { getNode } = createSupportTicketConsoleNodes();
+    const pending = new Map<
+      string,
+      Array<ReturnType<typeof createSupportTicketDeferred>>
+    >();
+    const enqueue = (path: string) => {
+      const request = createSupportTicketDeferred();
+      pending.set(path, [...(pending.get(path) || []), request]);
+      return request;
+    };
+    const api = jest.fn((path: string) => {
+      const queued = pending.get(path) || [];
+      const request = queued.shift();
+      pending.set(path, queued);
+      return request
+        ? request.promise
+        : Promise.reject(new Error('unexpected request: ' + path));
+    });
+    const syncSupportTicketRouteState = jest.fn();
+    const renderSupportTicketList = jest.fn();
+    const renderSupportTicketListFromSelection = jest.fn();
+    const renderSupportTicketDetail = jest.fn(
+      (ticket: { id: string; updatedAtIso?: string }) => {
+        getNode('supportTicketBaseUpdatedAtIso').value =
+          ticket.updatedAtIso || '';
+        getNode('supportTicketDetail').innerHTML =
+          '<strong>' + ticket.id + '</strong>';
+        getNode('supportTicketActions').innerHTML =
+          '<button data-ticket-id="' + ticket.id + '">action</button>';
+      },
+    );
+    const context = {
+      latestSupportTicketRequestId: 0,
+      latestSupportTicketDetailRequestId: 0,
+      selectedTicketId: routeTicketId,
+      supportTicketSelectionEpoch: 0,
+      selectedTicketStatus: '',
+      selectedTicketClaimedByAdminUserId: '',
+      pendingRouteTicketId: routeTicketId,
+      currentPage: 3,
+      total: 0,
+      document: { getElementById: getNode },
+      syncSupportTicketRouteState,
+      renderSupportTicketList,
+      renderSupportTicketListFromSelection,
+      renderSupportTicketDetail,
+      escapeHtml: (value: unknown) => String(value),
+      api,
+      URLSearchParams,
+      encodeURIComponent,
+      decodeURIComponent,
+      invokeDetail: undefined as
+        | undefined
+        | ((encodedTicketId: string) => Promise<void>),
+      invokeList: undefined as undefined | ((page: number) => Promise<void>),
+      invokeWorkspace: undefined as
+        | undefined
+        | ((page: number) => Promise<void>),
+    };
+    runInNewContext(
+      `${html.slice(listStart, workspaceEnd)}\n` +
+        `invokeDetail = loadSupportTicketDetail;\n` +
+        `invokeList = loadSupportTickets;\n` +
+        `invokeWorkspace = refreshSupportTicketWorkspace;`,
+      context,
+    );
+    return {
+      api,
+      context,
+      enqueue,
+      getNode,
+      renderSupportTicketDetail,
+      renderSupportTicketList,
+      renderSupportTicketListFromSelection,
+      syncSupportTicketRouteState,
+    };
+  };
+
+  const createSupportTicketMutationHarness = () => {
+    const html = renderSupportTicketAdminConsole();
+    const mutationStart = html.indexOf(
+      'function isCurrentSupportTicketMutationTarget(',
+    );
+    const mutationEnd = html.indexOf(
+      'function changeSupportTicketPage(delta)',
+      mutationStart,
+    );
+    if ([mutationStart, mutationEnd].some(index => index < 0)) {
+      throw new Error('support ticket mutation source was not found');
+    }
+    const request = createSupportTicketDeferred();
+    const { getNode } = createSupportTicketConsoleNodes();
+    getNode('supportTicketBaseUpdatedAtIso').value =
+      '2026-07-27T10:00:00.000Z';
+    getNode('supportTicketActionContent').value = 'ticket A mutation draft';
+    getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-target';
+    const api = jest.fn(() => request.promise);
+    const loadSupportTickets = jest.fn().mockResolvedValue(undefined);
+    const loadSupportTicketDetail = jest.fn().mockResolvedValue(undefined);
+    const renderSupportTicketDetail = jest.fn();
+    const renderSelectedSupportTicketActions = jest.fn();
+    const context = {
+      latestSupportTicketDetailRequestId: 4,
+      selectedTicketId: 'ticket-a',
+      supportTicketSelectionEpoch: 1,
+      selectedTicketStatus: 'pending',
+      selectedTicketClaimedByAdminUserId: '',
+      mutationPending: false,
+      currentPage: 2,
+      document: { getElementById: getNode },
+      api,
+      loadSupportTickets,
+      loadSupportTicketDetail,
+      renderSupportTicketActions: jest.fn(() => '<button>action</button>'),
+      renderSupportTicketDetail,
+      renderSelectedSupportTicketActions,
+      encodeURIComponent,
+      invokeAssign: undefined as undefined | (() => Promise<void>),
+      invokeClaim: undefined as undefined | (() => Promise<void>),
+      invokeProcess: undefined as undefined | (() => Promise<void>),
+      invokeRelease: undefined as undefined | (() => Promise<void>),
+      invokeTakeover: undefined as undefined | (() => Promise<void>),
+    };
+    runInNewContext(
+      `${html.slice(mutationStart, mutationEnd)}\n` +
+        `invokeProcess = () => mutateSupportTicket('process');\n` +
+        `invokeClaim = claimSupportTicket;\n` +
+        `invokeTakeover = takeoverSupportTicket;\n` +
+        `invokeAssign = assignSupportTicket;\n` +
+        `invokeRelease = releaseSupportTicketClaim;`,
+      context,
+    );
+    return {
+      api,
+      context,
+      getNode,
+      loadSupportTicketDetail,
+      loadSupportTickets,
+      renderSelectedSupportTicketActions,
+      renderSupportTicketDetail,
+      request,
+    };
+  };
+
   it('renders help-center support ticket filters and admin workflow hooks', () => {
     const html = renderSupportTicketAdminConsole();
 
@@ -2784,20 +2977,21 @@ describe('support ticket admin console page', () => {
 
   it('ignores stale support ticket requests and syncs route state', () => {
     const html = renderSupportTicketAdminConsole();
-    const clearSelectionStart = html.indexOf(
-      'function clearSupportTicketSelection(options = {})',
+    const listStart = html.indexOf('async function loadSupportTickets(page)');
+    const workspaceStart = html.indexOf(
+      'async function refreshSupportTicketWorkspace(page)',
+      listStart,
     );
-    const clearSelectionEnd = html.indexOf(
-      'function readSupportTicketRouteState()',
-      clearSelectionStart,
+    const detailStart = html.indexOf(
+      'async function loadSupportTicketDetail(encodedTicketId)',
+      workspaceStart,
     );
-    const clearSelectionBody = html.slice(
-      clearSelectionStart,
-      clearSelectionEnd,
-    );
+    const listBody = html.slice(listStart, workspaceStart);
+    const workspaceBody = html.slice(workspaceStart, detailStart);
 
     expect(html).toContain('let latestSupportTicketRequestId = 0');
     expect(html).toContain('let latestSupportTicketDetailRequestId = 0');
+    expect(html).toContain('let supportTicketSelectionEpoch = 0');
     expect(html).toContain('const requestId = ++latestSupportTicketRequestId');
     expect(html).toContain('const requestId = ++latestSupportTicketDetailRequestId');
     expect(html).toContain('if (requestId !== latestSupportTicketRequestId) return');
@@ -2810,14 +3004,492 @@ describe('support ticket admin console page', () => {
     expect(html).toContain("query.set('ticketId', ticketId)");
     expect(html).toContain('pendingRouteTicketId');
     expect(html).toContain('pendingRouteTicketId = supportTicketRouteState.ticketId');
-    expect(html).toContain('await loadSupportTicketDetail(');
-    expect(clearSelectionStart).toBeGreaterThan(-1);
-    expect(clearSelectionEnd).toBeGreaterThan(clearSelectionStart);
-    expect(clearSelectionBody).toContain(
-      'latestSupportTicketDetailRequestId += 1;',
+    expect(html).toContain('selectedTicketId = pendingRouteTicketId');
+    expect(html).toContain('refreshSupportTicketWorkspace(currentPage)');
+    expect(listBody).not.toContain('loadSupportTicketDetail(');
+    expect(workspaceBody).toContain('const targetTicketId = selectedTicketId || pendingRouteTicketId');
+    expect(workspaceBody).toContain('await Promise.all([');
+    expect(workspaceBody).toContain('loadSupportTickets(page)');
+    expect(workspaceBody).toContain(
+      '[loadSupportTicketDetail(encodeURIComponent(targetTicketId))]',
     );
-    expect(clearSelectionBody.indexOf('latestSupportTicketDetailRequestId += 1;'))
-      .toBeLessThan(clearSelectionBody.indexOf("selectedTicketId = '';"));
+    expect(html).toContain(
+      'const selectionChanged = selectedTicketId !== targetTicketId',
+    );
+    expect(html).toContain('supportTicketSelectionEpoch += 1');
+  });
+
+  it('loads a routed ticket outside the current list page without waiting for the list', async () => {
+    const {
+      api,
+      context,
+      enqueue,
+      getNode,
+      renderSupportTicketDetail,
+      renderSupportTicketList,
+      syncSupportTicketRouteState,
+    } = createSupportTicketWorkspaceHarness();
+    const listRequest = enqueue(supportTicketListPath(3));
+    const detailRequest = enqueue('/admin/support-tickets/ticket-a');
+
+    const workspace = context.invokeWorkspace!(3);
+
+    expect(api.mock.calls.map(call => call[0])).toEqual([
+      supportTicketListPath(3),
+      '/admin/support-tickets/ticket-a',
+    ]);
+    listRequest.resolve?.({
+      items: [{ id: 'ticket-on-page', status: 'pending' }],
+      total: 1,
+    });
+    await flushSupportTicketPromises();
+    expect(renderSupportTicketList).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'ticket-on-page' }),
+    ]);
+    expect(context.selectedTicketId).toBe('ticket-a');
+    expect(renderSupportTicketDetail).not.toHaveBeenCalled();
+
+    detailRequest.resolve?.({
+      id: 'ticket-a',
+      updatedAtIso: '2026-07-27T11:00:00.000Z',
+    });
+    await workspace;
+
+    expect(context.selectedTicketId).toBe('ticket-a');
+    expect(context.pendingRouteTicketId).toBe('');
+    expect(getNode('supportTicketDetail').innerHTML).toBe(
+      '<strong>ticket-a</strong>',
+    );
+    expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe(
+      '2026-07-27T11:00:00.000Z',
+    );
+    expect(syncSupportTicketRouteState.mock.calls).toContainEqual([
+      3,
+      'ticket-a',
+    ]);
+  });
+
+  it.each(['list-first', 'detail-first'] as const)(
+    'keeps routed ticket A when the list fails %s',
+    async completionOrder => {
+      const {
+        context,
+        enqueue,
+        getNode,
+        renderSupportTicketDetail,
+        syncSupportTicketRouteState,
+      } = createSupportTicketWorkspaceHarness();
+      const listRequest = enqueue(supportTicketListPath(3));
+      const detailRequest = enqueue('/admin/support-tickets/ticket-a');
+
+      const workspace = context.invokeWorkspace!(3);
+      const settleList = () =>
+        listRequest.reject?.(new Error('support list unavailable'));
+      const settleDetail = () =>
+        detailRequest.resolve?.({
+          id: 'ticket-a',
+          updatedAtIso: '2026-07-27T11:30:00.000Z',
+        });
+      if (completionOrder === 'list-first') {
+        settleList();
+        await flushSupportTicketPromises();
+        settleDetail();
+      } else {
+        settleDetail();
+        await flushSupportTicketPromises();
+        settleList();
+      }
+      await workspace;
+
+      expect(context.selectedTicketId).toBe('ticket-a');
+      expect(renderSupportTicketDetail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ticket-a' }),
+      );
+      expect(getNode('supportTicketDetail').innerHTML).toBe(
+        '<strong>ticket-a</strong>',
+      );
+      expect(getNode('supportTicketListNotice').textContent).toBe(
+        'support list unavailable',
+      );
+      expect(syncSupportTicketRouteState.mock.calls.at(-1)).toEqual([
+        3,
+        'ticket-a',
+      ]);
+    },
+  );
+
+  it.each(['success', 'error'] as const)(
+    'ignores a slow ticket A %s after ticket B commits',
+    async slowOutcome => {
+      const {
+        context,
+        enqueue,
+        getNode,
+        renderSupportTicketDetail,
+        syncSupportTicketRouteState,
+      } = createSupportTicketWorkspaceHarness('');
+      const ticketARequest = enqueue('/admin/support-tickets/ticket-a');
+      const ticketBRequest = enqueue('/admin/support-tickets/ticket-b');
+
+      const slowTicketA = context.invokeDetail!(encodeURIComponent('ticket-a'));
+      getNode('supportTicketActionContent').value = 'ticket A draft';
+      getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-a';
+      const fastTicketB = context.invokeDetail!(encodeURIComponent('ticket-b'));
+
+      expect(getNode('supportTicketActionContent').value).toBe('');
+      expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe('');
+      getNode('supportTicketActionContent').value = 'ticket B draft';
+      getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-b';
+      ticketBRequest.resolve?.({
+        id: 'ticket-b',
+        updatedAtIso: '2026-07-27T12:00:00.000Z',
+      });
+      await fastTicketB;
+
+      if (slowOutcome === 'success') {
+        ticketARequest.resolve?.({
+          id: 'ticket-a',
+          updatedAtIso: '2026-07-27T11:00:00.000Z',
+        });
+      } else {
+        ticketARequest.reject?.(new Error('ticket A failed'));
+      }
+      await slowTicketA;
+
+      expect(context.selectedTicketId).toBe('ticket-b');
+      expect(renderSupportTicketDetail).toHaveBeenCalledTimes(1);
+      expect(renderSupportTicketDetail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'ticket-b' }),
+      );
+      expect(getNode('supportTicketDetail').innerHTML).toBe(
+        '<strong>ticket-b</strong>',
+      );
+      expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe(
+        '2026-07-27T12:00:00.000Z',
+      );
+      expect(getNode('supportTicketActionContent').value).toBe('ticket B draft');
+      expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
+        'admin-b',
+      );
+      expect(syncSupportTicketRouteState.mock.calls.at(-1)).toEqual([
+        3,
+        'ticket-b',
+      ]);
+    },
+  );
+
+  it('keeps the latest ticket B error after a slow ticket A succeeds', async () => {
+    const {
+      context,
+      enqueue,
+      getNode,
+      renderSupportTicketDetail,
+      syncSupportTicketRouteState,
+    } = createSupportTicketWorkspaceHarness('');
+    const ticketARequest = enqueue('/admin/support-tickets/ticket-a');
+    const ticketBRequest = enqueue('/admin/support-tickets/ticket-b');
+
+    const slowTicketA = context.invokeDetail!(encodeURIComponent('ticket-a'));
+    const fastTicketB = context.invokeDetail!(encodeURIComponent('ticket-b'));
+    ticketBRequest.reject?.(new Error('ticket B unavailable'));
+    await fastTicketB;
+
+    ticketARequest.resolve?.({
+      id: 'ticket-a',
+      updatedAtIso: '2026-07-27T11:00:00.000Z',
+    });
+    await slowTicketA;
+
+    expect(context.selectedTicketId).toBe('ticket-b');
+    expect(renderSupportTicketDetail).not.toHaveBeenCalled();
+    expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe('');
+    expect(getNode('supportTicketActions').innerHTML).toBe('');
+    expect(getNode('supportTicketDetail').innerHTML).toContain(
+      'ticket B unavailable',
+    );
+    expect(syncSupportTicketRouteState.mock.calls.at(-1)).toEqual([
+      3,
+      'ticket-b',
+    ]);
+  });
+
+  it('retains a failed ticket target and preserves same-target drafts across retry', async () => {
+    const {
+      context,
+      enqueue,
+      getNode,
+      renderSupportTicketDetail,
+      syncSupportTicketRouteState,
+    } = createSupportTicketWorkspaceHarness('');
+    const failedRequest = enqueue('/admin/support-tickets/ticket-a');
+    const retryRequest = enqueue('/admin/support-tickets/ticket-a');
+
+    const failedDetail = context.invokeDetail!(encodeURIComponent('ticket-a'));
+    failedRequest.reject?.(new Error('ticket A unavailable'));
+    await failedDetail;
+
+    expect(context.selectedTicketId).toBe('ticket-a');
+    expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe('');
+    expect(getNode('supportTicketActions').innerHTML).toBe('');
+    expect(getNode('supportTicketDetail').innerHTML).toContain(
+      'ticket A unavailable',
+    );
+    expect(syncSupportTicketRouteState.mock.calls.at(-1)).toEqual([
+      3,
+      'ticket-a',
+    ]);
+
+    getNode('supportTicketActionContent').value = 'retry ticket A draft';
+    getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-retry';
+    const retriedDetail = context.invokeDetail!(encodeURIComponent('ticket-a'));
+    expect(getNode('supportTicketActionContent').value).toBe(
+      'retry ticket A draft',
+    );
+    expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
+      'admin-retry',
+    );
+    retryRequest.resolve?.({
+      id: 'ticket-a',
+      updatedAtIso: '2026-07-27T13:00:00.000Z',
+    });
+    await retriedDetail;
+
+    expect(renderSupportTicketDetail).toHaveBeenCalledTimes(1);
+    expect(getNode('supportTicketDetail').innerHTML).toBe(
+      '<strong>ticket-a</strong>',
+    );
+    expect(getNode('supportTicketActionContent').value).toBe(
+      'retry ticket A draft',
+    );
+    expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
+      'admin-retry',
+    );
+  });
+
+  it('loads only the support ticket list when route state has no ticket id', async () => {
+    const { api, context, enqueue, renderSupportTicketDetail } =
+      createSupportTicketWorkspaceHarness('');
+    const listRequest = enqueue(supportTicketListPath(1));
+
+    const workspace = context.invokeWorkspace!(1);
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(supportTicketListPath(1));
+    listRequest.resolve?.({ items: [], total: 0 });
+    await workspace;
+
+    expect(context.selectedTicketId).toBe('');
+    expect(context.pendingRouteTicketId).toBe('');
+    expect(renderSupportTicketDetail).not.toHaveBeenCalled();
+  });
+
+  it('lets a claim commit invalidate an older same-ticket detail request', async () => {
+    const html = renderSupportTicketAdminConsole();
+    const detailStart = html.indexOf(
+      'async function loadSupportTicketDetail(encodedTicketId)',
+    );
+    const detailEnd = html.indexOf(
+      'function loadMySupportTickets()',
+      detailStart,
+    );
+    const mutationStart = html.indexOf(
+      'function isCurrentSupportTicketMutationTarget(',
+    );
+    const claimEnd = html.indexOf(
+      'async function takeoverSupportTicket()',
+      mutationStart,
+    );
+    const detailRequest = createSupportTicketDeferred();
+    const claimRequest = createSupportTicketDeferred();
+    const { getNode } = createSupportTicketConsoleNodes();
+    getNode('supportTicketBaseUpdatedAtIso').value =
+      '2026-07-27T09:00:00.000Z';
+    getNode('supportTicketActionContent').value = 'claim ticket A';
+    const api = jest.fn(
+      (_path: string, options?: { method?: string }) =>
+        options?.method === 'POST'
+          ? claimRequest.promise
+          : detailRequest.promise,
+    );
+    const renderSupportTicketDetail = jest.fn(
+      (ticket: { id: string; updatedAtIso: string }) => {
+        getNode('supportTicketDetail').innerHTML =
+          '<strong>' + ticket.updatedAtIso + '</strong>';
+        getNode('supportTicketBaseUpdatedAtIso').value = ticket.updatedAtIso;
+      },
+    );
+    const loadSupportTickets = jest.fn().mockResolvedValue(undefined);
+    const context = {
+      latestSupportTicketDetailRequestId: 0,
+      selectedTicketId: 'ticket-a',
+      supportTicketSelectionEpoch: 1,
+      selectedTicketStatus: 'pending',
+      selectedTicketClaimedByAdminUserId: '',
+      pendingRouteTicketId: '',
+      mutationPending: false,
+      currentPage: 2,
+      document: { getElementById: getNode },
+      api,
+      syncSupportTicketRouteState: jest.fn(),
+      renderSupportTicketListFromSelection: jest.fn(),
+      renderSupportTicketActions: jest.fn(() => '<button>action</button>'),
+      renderSupportTicketDetail,
+      renderSelectedSupportTicketActions: jest.fn(),
+      loadSupportTickets,
+      escapeHtml: (value: unknown) => String(value),
+      encodeURIComponent,
+      decodeURIComponent,
+      invokeClaim: undefined as undefined | (() => Promise<void>),
+      invokeDetail: undefined as undefined | (() => Promise<void>),
+    };
+    runInNewContext(
+      `${html.slice(detailStart, detailEnd)}\n` +
+        `${html.slice(mutationStart, claimEnd)}\n` +
+        `invokeDetail = () => loadSupportTicketDetail('ticket-a');\n` +
+        `invokeClaim = claimSupportTicket;`,
+      context,
+    );
+
+    const oldDetail = context.invokeDetail!();
+    expect(context.latestSupportTicketDetailRequestId).toBe(1);
+    getNode('supportTicketBaseUpdatedAtIso').value =
+      '2026-07-27T09:00:00.000Z';
+    const claim = context.invokeClaim!();
+    expect(api.mock.calls.map(call => call[1]?.method || 'GET')).toEqual([
+      'GET',
+      'POST',
+    ]);
+
+    claimRequest.resolve?.({
+      id: 'ticket-a',
+      updatedAtIso: '2026-07-27T10:00:00.000Z',
+    });
+    await claim;
+    expect(context.latestSupportTicketDetailRequestId).toBe(2);
+    expect(renderSupportTicketDetail).toHaveBeenCalledTimes(1);
+    expect(loadSupportTickets).toHaveBeenCalledWith(2);
+
+    detailRequest.resolve?.({
+      id: 'ticket-a',
+      updatedAtIso: '2026-07-27T08:00:00.000Z',
+    });
+    await oldDetail;
+
+    expect(renderSupportTicketDetail).toHaveBeenCalledTimes(1);
+    expect(getNode('supportTicketBaseUpdatedAtIso').value).toBe(
+      '2026-07-27T10:00:00.000Z',
+    );
+    expect(getNode('supportTicketDetail').innerHTML).toBe(
+      '<strong>2026-07-27T10:00:00.000Z</strong>',
+    );
+    expect(getNode('supportTicketMutationNotice').textContent).toBe(
+      '工单已认领，当前客服可继续跟进。',
+    );
+    expect(context.mutationPending).toBe(false);
+  });
+
+  it('guards all support ticket mutation outcomes with the starting selection epoch', async () => {
+    const mutations = [
+      {
+        invoke: 'invokeProcess',
+        path: '/admin/support-tickets/ticket-a/process',
+      },
+      {
+        invoke: 'invokeClaim',
+        path: '/admin/support-tickets/ticket-a/claim',
+      },
+      {
+        invoke: 'invokeTakeover',
+        path: '/admin/support-tickets/ticket-a/takeover',
+      },
+      {
+        invoke: 'invokeAssign',
+        path: '/admin/support-tickets/ticket-a/assign',
+      },
+      {
+        invoke: 'invokeRelease',
+        path: '/admin/support-tickets/ticket-a/unclaim',
+      },
+    ] as const;
+    const outcomes = ['success', 'error', 'conflict'] as const;
+
+    for (const mutation of mutations) {
+      for (const outcome of outcomes) {
+        const {
+          api,
+          context,
+          getNode,
+          loadSupportTicketDetail,
+          loadSupportTickets,
+          renderSelectedSupportTicketActions,
+          renderSupportTicketDetail,
+          request,
+        } = createSupportTicketMutationHarness();
+        const invokeMutation = context[mutation.invoke];
+        if (!invokeMutation) {
+          throw new Error(`${mutation.invoke} was not initialized`);
+        }
+
+        const pendingMutation = invokeMutation();
+        expect(context.mutationPending).toBe(true);
+        expect(api).toHaveBeenCalledWith(
+          mutation.path,
+          expect.objectContaining({ method: 'POST' }),
+        );
+
+        context.selectedTicketId = 'ticket-b';
+        context.supportTicketSelectionEpoch = 2;
+        context.selectedTicketId = 'ticket-a';
+        context.supportTicketSelectionEpoch = 3;
+        context.selectedTicketStatus = 'processing';
+        getNode('supportTicketBaseUpdatedAtIso').value =
+          '2026-07-27T12:00:00.000Z';
+        getNode('supportTicketActionContent').value = 'new ticket A draft';
+        getNode('supportTicketAssignTargetAdminUserIdInput').value = 'admin-new';
+        getNode('supportTicketMutationNotice').textContent =
+          'new ticket A notice';
+        getNode('supportTicketDetail').innerHTML =
+          '<strong>new ticket A detail</strong>';
+        getNode('supportTicketActions').innerHTML =
+          '<button>new ticket A action</button>';
+
+        if (outcome === 'success') {
+          request.resolve?.({ id: 'ticket-a', status: 'processing' });
+        } else if (outcome === 'conflict') {
+          request.reject?.(
+            Object.assign(new Error('ticket A conflict'), {
+              code: 'SUPPORT_TICKET_CONFLICT',
+            }),
+          );
+        } else {
+          request.reject?.(new Error('ticket A failed'));
+        }
+        await pendingMutation;
+
+        expect(context.mutationPending).toBe(false);
+        expect(context.selectedTicketId).toBe('ticket-a');
+        expect(context.supportTicketSelectionEpoch).toBe(3);
+        expect(context.latestSupportTicketDetailRequestId).toBe(4);
+        expect(getNode('supportTicketActionContent').value).toBe(
+          'new ticket A draft',
+        );
+        expect(getNode('supportTicketAssignTargetAdminUserIdInput').value).toBe(
+          'admin-new',
+        );
+        expect(getNode('supportTicketMutationNotice').textContent).toBe(
+          'new ticket A notice',
+        );
+        expect(getNode('supportTicketDetail').innerHTML).toBe(
+          '<strong>new ticket A detail</strong>',
+        );
+        expect(getNode('supportTicketActions').innerHTML).toBe(
+          '<button>new ticket A action</button>',
+        );
+        expect(renderSupportTicketDetail).not.toHaveBeenCalled();
+        expect(loadSupportTickets).not.toHaveBeenCalled();
+        expect(loadSupportTicketDetail).not.toHaveBeenCalled();
+        expect(renderSelectedSupportTicketActions).toHaveBeenCalledTimes(1);
+      }
+    }
   });
 
   it('keeps support ticket mutation responses bound to their starting selection', () => {
@@ -2827,8 +3499,16 @@ describe('support ticket admin console page', () => {
       5,
     );
     expect(
-      html.match(/if \(selectedTicketId !== targetTicketId\) return;/g),
+      html.match(
+        /const mutationTargetSelectionEpoch = supportTicketSelectionEpoch;/g,
+      ),
+    ).toHaveLength(5);
+    expect(
+      html.match(/!isCurrentSupportTicketMutationTarget\(/g),
     ).toHaveLength(11);
+    expect(html.match(/latestSupportTicketDetailRequestId \+= 1;/g)).toHaveLength(
+      5,
+    );
     expect(html).toContain(
       "encodeURIComponent(targetTicketId) + '/claim'",
     );
@@ -2841,7 +3521,8 @@ describe('support ticket admin console page', () => {
     expect(html).toContain(
       "encodeURIComponent(targetTicketId) + '/unclaim'",
     );
-    expect(html).toContain('recoverSupportTicketFromConflict(targetTicketId)');
+    expect(html).toContain('isCurrentSupportTicketMutationTarget(');
+    expect(html).toContain('mutationTargetSelectionEpoch,');
     expect(html).toContain('renderSelectedSupportTicketActions()');
     expect(html).not.toContain(
       "encodeURIComponent(selectedTicketId) + '/claim'",
