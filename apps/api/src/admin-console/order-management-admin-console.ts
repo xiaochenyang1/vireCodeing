@@ -1048,12 +1048,24 @@ export function renderOrderManagementAdminConsole() {
 
     async function loadOrderDetail(orderIdOverride) {
       const requestId = ++latestOrderDetailRequestId;
+      const orderId = String(
+        orderIdOverride || state.selectedOrderId || '',
+      ).trim();
       try {
         setNotice('');
-        const orderId = String(orderIdOverride || state.selectedOrderId || '').trim();
         if (!orderId) {
           throw new Error('请先从列表选择订单');
         }
+        state.selectedOrderId = orderId;
+        state.selectedOrder = null;
+        latestOrderFinanceRequestId += 1;
+        state.orderFinance = createEmptyOrderFinanceState(orderId);
+        syncOrderManagementRouteState();
+        renderSelectedOrder();
+        document.getElementById('selectedOrderSummary').innerHTML =
+          '<div class="empty">正在加载订单 <span class="mono">' +
+          escapeHtml(orderId) +
+          '</span> 的详情...</div>';
         const response = await fetch(apiBase + '/admin/orders/' + encodeURIComponent(orderId), {
           headers: authHeaders(),
         });
@@ -1061,15 +1073,37 @@ export function renderOrderManagementAdminConsole() {
         if (!response.ok || body.code !== 'OK') {
           throw new Error(body.message || body.code || '请求失败');
         }
-        if (requestId !== latestOrderDetailRequestId) return;
+        if (
+          requestId !== latestOrderDetailRequestId ||
+          state.selectedOrderId !== orderId
+        ) {
+          return;
+        }
 
-        state.selectedOrderId = orderId;
         state.selectedOrder = body.data;
         syncOrderManagementRouteState();
         renderSelectedOrder();
         loadSelectedOrderFinance(orderId);
       } catch (error) {
-        if (requestId !== latestOrderDetailRequestId) return;
+        if (!orderId) {
+          if (requestId !== latestOrderDetailRequestId) return;
+          setNotice(error.message);
+          return;
+        }
+        if (
+          requestId !== latestOrderDetailRequestId ||
+          state.selectedOrderId !== orderId
+        ) {
+          return;
+        }
+        state.selectedOrder = null;
+        latestOrderFinanceRequestId += 1;
+        state.orderFinance = createEmptyOrderFinanceState(orderId);
+        renderSelectedOrder();
+        document.getElementById('selectedOrderSummary').innerHTML =
+          '<div class="empty">订单 <span class="mono">' +
+          escapeHtml(orderId) +
+          '</span> 的详情加载失败，可直接重试。</div>';
         setNotice(error.message);
       }
     }
@@ -1176,6 +1210,7 @@ export function renderOrderManagementAdminConsole() {
         if (state.selectedOrderId) {
           const selectedOrder = cancelledOrderById.get(state.selectedOrderId);
           if (selectedOrder) {
+            latestOrderDetailRequestId += 1;
             state.selectedOrder = selectedOrder;
             renderSelectedOrder();
             loadSelectedOrderFinance(selectedOrder.id);

@@ -4399,6 +4399,32 @@ describe('order management admin console page', () => {
     expect(html).toContain(
       'if (requestId !== latestOrderDetailRequestId) return',
     );
+    expect(html).toContain('state.selectedOrderId !== orderId');
+    expect(html).toContain('state.selectedOrder = null');
+    expect(html).toContain('createEmptyOrderFinanceState(orderId)');
+    expect(html).toContain('的详情加载失败，可直接重试。');
+  });
+
+  it('invalidates older order details when batch cancellation commits', () => {
+    const html = renderOrderManagementAdminConsole();
+    const batchStart = html.indexOf(
+      'async function runBatchCancelWaitingOrders()',
+    );
+    const renderListStart = html.indexOf(
+      'function renderOrderList(result)',
+      batchStart,
+    );
+    const batchBody = html.slice(batchStart, renderListStart);
+    const detailInvalidation = batchBody.indexOf(
+      'latestOrderDetailRequestId += 1',
+    );
+    const selectedOrderCommit = batchBody.indexOf(
+      'state.selectedOrder = selectedOrder',
+    );
+
+    expect(detailInvalidation).toBeGreaterThan(-1);
+    expect(selectedOrderCommit).toBeGreaterThan(detailInvalidation);
+    expect(batchBody).toContain('loadSelectedOrderFinance(selectedOrder.id)');
   });
 
   it('renders a selected-order finance drill-down action', () => {
