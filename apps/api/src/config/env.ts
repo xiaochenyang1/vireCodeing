@@ -42,6 +42,11 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(86400),
+  COUPON_ISSUE_IDEMPOTENCY_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(86400),
   PAYMENT_PROVIDER_MODE: z
     .enum(['disabled', 'sandbox', 'wechat', 'alipay', 'wechat-alipay'])
     .default('disabled'),

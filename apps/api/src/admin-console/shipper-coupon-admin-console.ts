@@ -238,6 +238,9 @@ export function renderShipperCouponAdminConsole() {
   <script>
     const apiBase = '/api';
     let latestCouponReportRequestId = 0;
+    let couponIssuePending = false;
+    let issueCouponRetryContext = null;
+    let batchIssueCouponRetryContext = null;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/shipper-coupon-console',
     })}
@@ -294,7 +297,7 @@ export function renderShipperCouponAdminConsole() {
         throw new Error('至少要填写一个批量货主 ID');
       }
 
-      return shipperIds;
+      return shipperIds.sort((left, right) => left.localeCompare(right));
     }
 
     function buildBatchIssueRequest() {
@@ -302,6 +305,86 @@ export function renderShipperCouponAdminConsole() {
         shipperIds: readBatchShipperIds(),
         ...buildCouponTemplate(),
       };
+    }
+
+    function stableJsonStringify(value) {
+      function sortJsonValue(current) {
+        if (Array.isArray(current)) {
+          return current.map(sortJsonValue);
+        }
+        if (current && typeof current === 'object') {
+          return Object.keys(current)
+            .sort()
+            .reduce(function(sorted, key) {
+              sorted[key] = sortJsonValue(current[key]);
+              return sorted;
+            }, {});
+        }
+        return current;
+      }
+
+      return JSON.stringify(sortJsonValue(value));
+    }
+
+    function createCouponIdempotencyKey() {
+      if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+        return globalThis.crypto.randomUUID();
+      }
+
+      function randomHex(length) {
+        let output = '';
+        while (output.length < length) {
+          output += Math.floor(Math.random() * 0x100000000)
+            .toString(16)
+            .padStart(8, '0');
+        }
+        return output.slice(0, length);
+      }
+
+      return [
+        randomHex(8),
+        randomHex(4),
+        '4' + randomHex(3),
+        ['8', '9', 'a', 'b'][Math.floor(Math.random() * 4)] + randomHex(3),
+        randomHex(12),
+      ].join('-');
+    }
+
+    function getCouponIssueRetryContext(operation, request) {
+      const requestBody = stableJsonStringify(request);
+      const currentContext = operation === 'batch'
+        ? batchIssueCouponRetryContext
+        : issueCouponRetryContext;
+      if (currentContext && currentContext.requestBody === requestBody) {
+        return currentContext;
+      }
+
+      const nextContext = {
+        requestBody,
+        idempotencyKey: createCouponIdempotencyKey(),
+      };
+      if (operation === 'batch') {
+        batchIssueCouponRetryContext = nextContext;
+      } else {
+        issueCouponRetryContext = nextContext;
+      }
+      return nextContext;
+    }
+
+    function clearCouponIssueRetryContext(operation) {
+      if (operation === 'batch') {
+        batchIssueCouponRetryContext = null;
+      } else {
+        issueCouponRetryContext = null;
+      }
+    }
+
+    function shouldClearCouponIssueRetryContext(payload) {
+      return Boolean(
+        payload &&
+          (payload.code === 'IDEMPOTENCY_KEY_REUSED' ||
+            payload.code === 'IDEMPOTENCY_KEY_EXPIRED'),
+      );
     }
 
     function readCouponReportTopShippersLimit() {
@@ -496,6 +579,10 @@ export function renderShipperCouponAdminConsole() {
     }
 
     async function issueCoupon() {
+      if (couponIssuePending) {
+        setStatus('优惠券发放请求正在处理中，请勿重复提交', true);
+        return;
+      }
       const token = readTrimmed('adminToken');
       if (!token) {
         setStatus('请先填写 admin access token', true);
@@ -512,6 +599,8 @@ export function renderShipperCouponAdminConsole() {
           return;
       }
 
+      const retryContext = getCouponIssueRetryContext('single', request);
+      couponIssuePending = true;
       setButtonsDisabled(true);
       setStatus('正在发放优惠券...', false);
 
@@ -521,14 +610,19 @@ export function renderShipperCouponAdminConsole() {
           headers: {
             'authorization': 'Bearer ' + token,
             'content-type': 'application/json',
+            'Idempotency-Key': retryContext.idempotencyKey,
             'x-request-id': 'req_coupon_console_' + Date.now(),
           },
-          body: JSON.stringify(request),
+          body: retryContext.requestBody,
         });
         const payload = await response.json();
         if (!response.ok) {
+          if (shouldClearCouponIssueRetryContext(payload)) {
+            clearCouponIssueRetryContext('single');
+          }
           throw new Error(payload.message || '优惠券发放失败');
         }
+        clearCouponIssueRetryContext('single');
         renderResult('issuedCouponResult', payload.data, false);
         const refreshTasks = [
           loadCouponReport(),
@@ -543,11 +637,16 @@ export function renderShipperCouponAdminConsole() {
         renderResult('issuedCouponResult', { message: error.message }, true);
         setStatus(error.message, true);
       } finally {
+        couponIssuePending = false;
         setButtonsDisabled(false);
       }
     }
 
     async function batchIssueCoupon() {
+      if (couponIssuePending) {
+        setStatus('优惠券发放请求正在处理中，请勿重复提交', true);
+        return;
+      }
       const token = readTrimmed('adminToken');
       if (!token) {
         setStatus('请先填写 admin access token', true);
@@ -564,6 +663,8 @@ export function renderShipperCouponAdminConsole() {
         return;
       }
 
+      const retryContext = getCouponIssueRetryContext('batch', request);
+      couponIssuePending = true;
       setButtonsDisabled(true);
       setStatus('正在批量发放优惠券...', false);
 
@@ -573,14 +674,19 @@ export function renderShipperCouponAdminConsole() {
           headers: {
             'authorization': 'Bearer ' + token,
             'content-type': 'application/json',
+            'Idempotency-Key': retryContext.idempotencyKey,
             'x-request-id': 'req_coupon_batch_console_' + Date.now(),
           },
-          body: JSON.stringify(request),
+          body: retryContext.requestBody,
         });
         const payload = await response.json();
         if (!response.ok) {
+          if (shouldClearCouponIssueRetryContext(payload)) {
+            clearCouponIssueRetryContext('batch');
+          }
           throw new Error(payload.message || '优惠券批量发放失败');
         }
+        clearCouponIssueRetryContext('batch');
         renderResult('batchIssuedCouponResult', payload.data, false);
         const refreshTasks = [
           loadCouponReport(),
@@ -595,6 +701,7 @@ export function renderShipperCouponAdminConsole() {
         renderResult('batchIssuedCouponResult', { message: error.message }, true);
         setStatus(error.message, true);
       } finally {
+        couponIssuePending = false;
         setButtonsDisabled(false);
       }
     }

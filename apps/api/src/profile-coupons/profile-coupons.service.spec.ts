@@ -2,13 +2,17 @@ import {
   InMemoryProfileCouponsRepository,
 } from './profile-coupons.repository';
 import { ProfileCouponsService } from './profile-coupons.service';
+import { ApiErrorCode } from '../common/errors';
 
 describe('ProfileCouponsService', () => {
+  const singleIssueKey = '550e8400-e29b-41d4-a716-446655440000';
+  const batchIssueKey = '550e8400-e29b-41d4-a716-446655440001';
+
   it('issues a usable coupon for a shipper from the admin first slice', async () => {
     const repository = new InMemoryProfileCouponsRepository();
     const service = new ProfileCouponsService(repository);
 
-    const coupon = await service.issueCoupon('admin-1', {
+    const coupon = await service.issueCoupon('admin-1', singleIssueKey, {
       shipperId: 'shipper-1',
       title: '后台满 500 减 50',
       conditionText: '平台订单满 500 元可用',
@@ -37,11 +41,65 @@ describe('ProfileCouponsService', () => {
     });
   });
 
+  it('replays one committed coupon for concurrent and later identical requests', async () => {
+    const now = new Date('2026-07-27T08:00:00.000Z');
+    const repository = new InMemoryProfileCouponsRepository({ now: () => now });
+    const service = new ProfileCouponsService(repository, () => now);
+    const request = createIssueRequest();
+
+    const [first, concurrentReplay] = await Promise.all([
+      service.issueCoupon('admin-1', singleIssueKey, request),
+      service.issueCoupon('admin-1', singleIssueKey, request),
+    ]);
+    const laterReplay = await service.issueCoupon(
+      'admin-1',
+      singleIssueKey,
+      request,
+    );
+
+    expect(concurrentReplay).toEqual(first);
+    expect(laterReplay).toEqual(first);
+    await expect(service.listCoupons('shipper-1')).resolves.toMatchObject({
+      summary: { usableCount: 1 },
+      items: [first],
+    });
+  });
+
+  it('rejects a coupon issue key reused for a different normalized request', async () => {
+    const repository = new InMemoryProfileCouponsRepository();
+    const service = new ProfileCouponsService(repository);
+
+    await service.issueCoupon('admin-1', singleIssueKey, createIssueRequest());
+
+    await expect(
+      service.issueCoupon('admin-1', singleIssueKey, createIssueRequest({
+        title: '另一张补偿券',
+      })),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(service.listCoupons('shipper-1')).resolves.toMatchObject({
+      summary: { usableCount: 1 },
+    });
+  });
+
+  it('keeps expired coupon issue keys reserved', async () => {
+    let now = new Date('2026-07-27T08:00:00.000Z');
+    const repository = new InMemoryProfileCouponsRepository({ now: () => now });
+    const service = new ProfileCouponsService(repository, () => now, 1);
+    const request = createIssueRequest();
+
+    await service.issueCoupon('admin-1', singleIssueKey, request);
+    now = new Date('2026-07-27T08:00:01.000Z');
+
+    await expect(
+      service.issueCoupon('admin-1', singleIssueKey, request),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED });
+  });
+
   it('issues the same coupon template to multiple shippers in one batch', async () => {
     const repository = new InMemoryProfileCouponsRepository();
     const service = new ProfileCouponsService(repository);
 
-    const result = await service.batchIssueCoupons('admin-1', {
+    const result = await service.batchIssueCoupons('admin-1', batchIssueKey, {
       shipperIds: ['shipper-1', 'shipper-2', 'shipper-3'],
       title: '后台批量满 300 减 30',
       conditionText: '平台订单满 300 元可用',
@@ -90,6 +148,38 @@ describe('ProfileCouponsService', () => {
         }),
       ],
     });
+  });
+
+  it('replays a batch for the same recipient set regardless of input order', async () => {
+    const repository = new InMemoryProfileCouponsRepository();
+    const service = new ProfileCouponsService(repository);
+    const request = {
+      shipperIds: ['shipper-2', 'shipper-1', 'shipper-2'],
+      title: '批量补偿券',
+      conditionText: '平台订单满 100 元可用',
+      discountCents: 1000,
+      minOrderAmountCents: 10000,
+      validFromIso: '2026-07-27T00:00:00.000Z',
+      validUntilIso: '2026-08-27T00:00:00.000Z',
+    };
+
+    const first = await service.batchIssueCoupons(
+      'admin-1',
+      batchIssueKey,
+      request,
+    );
+    const replay = await service.batchIssueCoupons(
+      'admin-1',
+      batchIssueKey,
+      { ...request, shipperIds: ['shipper-1', 'shipper-2'] },
+    );
+
+    expect(replay).toEqual(first);
+    expect(first.coupons.map(coupon => coupon.shipperId)).toEqual([
+      'shipper-1',
+      'shipper-2',
+    ]);
+    await expect(repository.listAllCoupons()).resolves.toHaveLength(2);
   });
 
   it('builds an admin coupon report with source breakdown and top shippers', async () => {
@@ -482,6 +572,30 @@ function createCoupon(
     validUntilIso: '2026-07-31T15:59:59.000Z',
     sourceText: '平台活动发放',
     issuedAtIso: '2026-07-09T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function createIssueRequest(
+  overrides: Partial<{
+    shipperId: string;
+    title: string;
+    conditionText: string;
+    discountCents: number;
+    minOrderAmountCents: number;
+    validFromIso: string;
+    validUntilIso: string;
+    sourceText: string;
+  }> = {},
+) {
+  return {
+    shipperId: 'shipper-1',
+    title: '后台满 500 减 50',
+    conditionText: '平台订单满 500 元可用',
+    discountCents: 5000,
+    minOrderAmountCents: 50000,
+    validFromIso: '2026-07-27T00:00:00.000Z',
+    validUntilIso: '2026-08-27T00:00:00.000Z',
     ...overrides,
   };
 }

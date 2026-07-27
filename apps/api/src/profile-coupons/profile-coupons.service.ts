@@ -11,12 +11,20 @@ import type {
   ShipperCouponWallet,
 } from './dto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
-import type { ProfileCouponsRepository } from './profile-coupons.repository';
+import {
+  createCouponIssueFingerprint,
+} from './profile-coupons.idempotency';
+import type {
+  AdminCouponIssueResponse,
+  ExecuteAdminCouponIssueResult,
+  ProfileCouponsRepository,
+} from './profile-coupons.repository';
 
 export class ProfileCouponsService {
   constructor(
     private readonly repository: ProfileCouponsRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly couponIssueIdempotencyTtlSeconds = 86400,
   ) {}
 
   async listCoupons(shipperId: string): Promise<ShipperCouponWallet> {
@@ -30,38 +38,62 @@ export class ProfileCouponsService {
   }
 
   async issueCoupon(
-    _adminId: string,
+    adminId: string,
+    idempotencyKey: string,
     input: IssueShipperCouponRequest,
   ): Promise<ShipperCouponRecord> {
-    return this.repository.createCoupon(normalizeIssueCouponInput(input), new Date());
+    const normalizedInput = normalizeIssueCouponInput(input);
+    const result = await this.executeIdempotentCouponIssue({
+      actorAdminId: adminId,
+      operation: 'single_issue',
+      idempotencyKey,
+      requestFingerprint: createCouponIssueFingerprint(
+        'single_issue',
+        normalizedInput,
+      ),
+      couponInputs: [normalizedInput],
+    });
+
+    if (!('shipperId' in result)) {
+      throw new Error('Single coupon issue returned an invalid snapshot');
+    }
+
+    return result;
   }
 
   async batchIssueCoupons(
-    _adminId: string,
+    adminId: string,
+    idempotencyKey: string,
     input: BatchIssueShipperCouponsRequest,
   ): Promise<BatchIssueShipperCouponsResult> {
-    const issuedAt = new Date();
-    const coupons = await this.repository.createCoupons(
-      input.shipperIds.map(shipperId =>
+    const normalizedInput = normalizeBatchIssueCouponInput(input);
+    const result = await this.executeIdempotentCouponIssue({
+      actorAdminId: adminId,
+      operation: 'batch_issue',
+      idempotencyKey,
+      requestFingerprint: createCouponIssueFingerprint(
+        'batch_issue',
+        normalizedInput,
+      ),
+      couponInputs: normalizedInput.shipperIds.map(shipperId =>
         normalizeIssueCouponInput({
           shipperId,
-          title: input.title,
-          conditionText: input.conditionText,
-          discountCents: input.discountCents,
-          minOrderAmountCents: input.minOrderAmountCents,
-          validFromIso: input.validFromIso,
-          validUntilIso: input.validUntilIso,
-          sourceText: input.sourceText,
+          title: normalizedInput.title,
+          conditionText: normalizedInput.conditionText,
+          discountCents: normalizedInput.discountCents,
+          minOrderAmountCents: normalizedInput.minOrderAmountCents,
+          validFromIso: normalizedInput.validFromIso,
+          validUntilIso: normalizedInput.validUntilIso,
+          sourceText: normalizedInput.sourceText,
         }),
       ),
-      issuedAt,
-    );
+    });
 
-    return {
-      requestedCount: input.shipperIds.length,
-      issuedCount: coupons.length,
-      coupons,
-    };
+    if (!('coupons' in result)) {
+      throw new Error('Batch coupon issue returned an invalid snapshot');
+    }
+
+    return result;
   }
 
   async getAdminCouponReport(
@@ -137,6 +169,43 @@ export class ProfileCouponsService {
 
     return coupon;
   }
+
+  private async executeIdempotentCouponIssue(
+    input: Omit<
+      Parameters<ProfileCouponsRepository['executeIdempotentCouponIssue']>[0],
+      'issuedAtIso' | 'expiresAtIso'
+    >,
+  ): Promise<AdminCouponIssueResponse> {
+    const issuedAt = this.now();
+    const result = await this.repository.executeIdempotentCouponIssue({
+      ...input,
+      issuedAtIso: issuedAt.toISOString(),
+      expiresAtIso: new Date(
+        issuedAt.getTime() + this.couponIssueIdempotencyTtlSeconds * 1000,
+      ).toISOString(),
+    });
+
+    return this.unwrapCouponIssueResult(result);
+  }
+
+  private unwrapCouponIssueResult(
+    result: ExecuteAdminCouponIssueResult,
+  ): AdminCouponIssueResponse {
+    switch (result.kind) {
+      case 'success':
+        return result.response;
+      case 'key-reused':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+          'Idempotency-Key 已被其他请求复用',
+        );
+      case 'key-expired':
+        throw new BusinessError(
+          ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED,
+          'Idempotency-Key 已过期',
+        );
+    }
+  }
 }
 
 function createSummary(items: ShipperCouponRecord[]) {
@@ -155,6 +224,18 @@ function normalizeIssueCouponInput(
 ): IssueShipperCouponRequest {
   return {
     ...input,
+    sourceText: input.sourceText ?? '后台手工发放',
+  };
+}
+
+function normalizeBatchIssueCouponInput(
+  input: BatchIssueShipperCouponsRequest,
+): BatchIssueShipperCouponsRequest {
+  return {
+    ...input,
+    shipperIds: [...new Set(input.shipperIds)].sort((left, right) =>
+      left.localeCompare(right),
+    ),
     sourceText: input.sourceText ?? '后台手工发放',
   };
 }

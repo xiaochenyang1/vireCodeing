@@ -12,6 +12,7 @@ import {
   type PrismaProfileCouponsClient,
 } from './profile-coupons.repository';
 import { ProfileCouponsService } from './profile-coupons.service';
+import { createCouponIssueIdempotencyConfigFromEnv } from './profile-coupons.idempotency';
 
 @Module({
   imports: [AuthModule, PrismaModule],
@@ -28,7 +29,11 @@ import { ProfileCouponsService } from './profile-coupons.service';
     {
       provide: ProfileCouponsService,
       useFactory: (repository: PrismaProfileCouponsRepository) =>
-        new ProfileCouponsService(repository),
+        new ProfileCouponsService(
+          repository,
+          () => new Date(),
+          createCouponIssueIdempotencyConfigFromEnv(process.env).ttlSeconds,
+        ),
       inject: [PrismaProfileCouponsRepository],
     },
     ShipperOnlyGuard,

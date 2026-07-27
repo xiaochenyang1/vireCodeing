@@ -2013,8 +2013,9 @@ describe('stage 1 OpenAPI contract', () => {
 
   it('documents the admin manual shipper coupon issue endpoint', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const path = '/admin/shipper-coupons';
 
-    expect(source).toContain('/admin/shipper-coupons:');
+    expect(source).toContain(`${path}:`);
     expect(source).toContain('Issue a shipper coupon manually');
     expect(source).toContain('IssueShipperCouponRequest');
     expect(source).toContain('ShipperCouponRecordResponse');
@@ -2022,7 +2023,27 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('minOrderAmountCents');
     expectPathBlockToContain(
       source,
-      '/admin/shipper-coupons',
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(source, path, "'400':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_INVALID');
+    expectPathBlockToContain(source, path, "'409':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_EXPIRED');
+    expectPathBlockToContain(
+      source,
+      path,
+      'atomically replays the first successful response without issuing another coupon',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'The idempotency reservation, coupon write and response snapshot commit in one database transaction.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
       "$ref: '#/components/responses/AdminOnlyError'",
     );
     expect(source).toContain('Current authenticated user is not an admin');
@@ -2030,8 +2051,9 @@ describe('stage 1 OpenAPI contract', () => {
 
   it('documents the admin batch shipper coupon issue endpoint', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const path = '/admin/shipper-coupons/batch-issue';
 
-    expect(source).toContain('/admin/shipper-coupons/batch-issue:');
+    expect(source).toContain(`${path}:`);
     expect(source).toContain('Issue shipper coupons in batch');
     expect(source).toContain('BatchIssueShipperCouponsRequest');
     expect(source).toContain('BatchIssueShipperCouponsResponse');
@@ -2039,7 +2061,27 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('shipperIds');
     expectPathBlockToContain(
       source,
-      '/admin/shipper-coupons/batch-issue',
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(source, path, "'400':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_INVALID');
+    expectPathBlockToContain(source, path, "'409':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_EXPIRED');
+    expectPathBlockToContain(
+      source,
+      path,
+      'atomically replays the first successful batch response without issuing another coupon',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'The idempotency reservation, all coupon writes and response snapshot commit in one database transaction.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
       "$ref: '#/components/responses/AdminOnlyError'",
     );
   });

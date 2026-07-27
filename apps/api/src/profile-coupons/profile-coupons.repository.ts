@@ -1,7 +1,42 @@
 import type {
+  BatchIssueShipperCouponsResult,
   IssueShipperCouponRequest,
   ShipperCouponRecord,
 } from './dto';
+import type { AdminCouponIssueOperation } from './profile-coupons.idempotency';
+
+export type AdminCouponIssueResponse =
+  | ShipperCouponRecord
+  | BatchIssueShipperCouponsResult;
+
+export type ExecuteAdminCouponIssueInput = {
+  actorAdminId: string;
+  operation: AdminCouponIssueOperation;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  couponInputs: IssueShipperCouponRequest[];
+  issuedAtIso: string;
+  expiresAtIso: string;
+};
+
+export type ExecuteAdminCouponIssueResult =
+  | {
+      kind: 'success';
+      response: AdminCouponIssueResponse;
+      replayed: boolean;
+    }
+  | { kind: 'key-reused' }
+  | { kind: 'key-expired' };
+
+type InMemoryAdminCouponIssueIdempotencyRecord = {
+  actorAdminId: string;
+  operation: AdminCouponIssueOperation;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  responseSnapshot: AdminCouponIssueResponse;
+  createdAtIso: string;
+  expiresAtIso: string;
+};
 
 export interface ProfileCouponsRepository {
   listCoupons(shipperId: string): Promise<ShipperCouponRecord[]>;
@@ -14,6 +49,9 @@ export interface ProfileCouponsRepository {
     inputs: IssueShipperCouponRequest[],
     issuedAt: Date,
   ): Promise<ShipperCouponRecord[]>;
+  executeIdempotentCouponIssue(
+    input: ExecuteAdminCouponIssueInput,
+  ): Promise<ExecuteAdminCouponIssueResult>;
   lockCoupon(
     shipperId: string,
     couponId: string,
@@ -40,9 +78,18 @@ export interface ProfileCouponsRepository {
 
 export class InMemoryProfileCouponsStore {
   coupons: ShipperCouponRecord[];
+  couponIssueIdempotencyRecords: InMemoryAdminCouponIssueIdempotencyRecord[];
 
-  constructor(seed: { coupons?: ShipperCouponRecord[] } = {}) {
+  constructor(
+    seed: {
+      coupons?: ShipperCouponRecord[];
+      couponIssueIdempotencyRecords?: InMemoryAdminCouponIssueIdempotencyRecord[];
+    } = {},
+  ) {
     this.coupons = structuredClone(seed.coupons ?? []);
+    this.couponIssueIdempotencyRecords = structuredClone(
+      seed.couponIssueIdempotencyRecords ?? [],
+    );
   }
 
   clone() {
@@ -58,15 +105,18 @@ export class InMemoryProfileCouponsRepository
   implements ProfileCouponsRepository
 {
   private readonly store: InMemoryProfileCouponsStore;
+  private readonly now: () => Date;
 
   constructor(
     seed: {
       coupons?: ShipperCouponRecord[];
       store?: InMemoryProfileCouponsStore;
+      now?: () => Date;
     } = {},
   ) {
     this.store =
       seed.store ?? new InMemoryProfileCouponsStore({ coupons: seed.coupons });
+    this.now = seed.now ?? (() => new Date());
   }
 
   async listCoupons(shipperId: string) {
@@ -109,6 +159,53 @@ export class InMemoryProfileCouponsRepository
     }
 
     return created;
+  }
+
+  async executeIdempotentCouponIssue(input: ExecuteAdminCouponIssueInput) {
+    const existing = this.store.couponIssueIdempotencyRecords.find(
+      record =>
+        record.actorAdminId === input.actorAdminId &&
+        record.operation === input.operation &&
+        record.idempotencyKey === input.idempotencyKey,
+    );
+
+    if (existing) {
+      return mapExistingCouponIssueRecord(existing, input, this.now());
+    }
+
+    const stagedCoupons = structuredClone(this.store.coupons);
+    const issuedAt = new Date(input.issuedAtIso);
+    const coupons = input.couponInputs.map((couponInput, index) =>
+      createInMemoryCoupon(
+        couponInput,
+        issuedAt,
+        stagedCoupons.length + index + 1,
+      ),
+    );
+    stagedCoupons.push(...coupons);
+    const response = createCouponIssueResponse(input.operation, coupons);
+    const record: InMemoryAdminCouponIssueIdempotencyRecord = {
+      actorAdminId: input.actorAdminId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot: cloneJsonValue(response),
+      createdAtIso: this.now().toISOString(),
+      expiresAtIso: input.expiresAtIso,
+    };
+
+    this.store.coupons.splice(
+      0,
+      this.store.coupons.length,
+      ...stagedCoupons,
+    );
+    this.store.couponIssueIdempotencyRecords.push(record);
+
+    return {
+      kind: 'success' as const,
+      response: cloneJsonValue(response),
+      replayed: false,
+    };
   }
 
   async lockCoupon(
@@ -228,6 +325,25 @@ export type PrismaShipperCouponRecord = {
   usedAt: Date | null;
 };
 
+export type PrismaAdminCouponIssueIdempotencyRecord = {
+  id: string;
+  actorAdminId: string;
+  operation: string;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  responseSnapshot: unknown;
+  createdAt: Date;
+  expiresAt: Date;
+};
+
+type AdminCouponIssueIdempotencyWhereUnique = {
+  AdminCouponIssueIdempotency_actor_operation_key_unique: {
+    actorAdminId: string;
+    operation: AdminCouponIssueOperation;
+    idempotencyKey: string;
+  };
+};
+
 export type PrismaProfileCouponsClient = {
   $transaction<T>(
     callback: (prisma: PrismaProfileCouponsClient) => Promise<T>,
@@ -274,12 +390,35 @@ export type PrismaProfileCouponsClient = {
       };
     }): Promise<PrismaShipperCouponRecord | null>;
   };
+  adminCouponIssueIdempotencyRecord: {
+    findUnique(args: {
+      where: AdminCouponIssueIdempotencyWhereUnique;
+    }): Promise<PrismaAdminCouponIssueIdempotencyRecord | null>;
+    create(args: {
+      data: {
+        actorAdminId: string;
+        operation: AdminCouponIssueOperation;
+        idempotencyKey: string;
+        requestFingerprint: string;
+        responseSnapshot: unknown;
+        createdAt: Date;
+        expiresAt: Date;
+      };
+    }): Promise<PrismaAdminCouponIssueIdempotencyRecord>;
+    update(args: {
+      where: { id: string };
+      data: { responseSnapshot: unknown };
+    }): Promise<PrismaAdminCouponIssueIdempotencyRecord>;
+  };
 };
 
 export class PrismaProfileCouponsRepository
   implements ProfileCouponsRepository
 {
-  constructor(private readonly prisma: PrismaProfileCouponsClient) {}
+  constructor(
+    private readonly prisma: PrismaProfileCouponsClient,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async listCoupons(shipperId: string) {
     const coupons = await this.prisma.shipperCoupon.findMany({
@@ -342,6 +481,68 @@ export class PrismaProfileCouponsRepository
 
       return created.map(mapPrismaCoupon);
     });
+  }
+
+  async executeIdempotentCouponIssue(input: ExecuteAdminCouponIssueInput) {
+    const existing = await this.findCouponIssueIdempotencyRecord(input);
+
+    if (existing) {
+      return mapExistingCouponIssueRecord(existing, input, this.now());
+    }
+
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const createdAt = this.now();
+        const reservation =
+          await transaction.adminCouponIssueIdempotencyRecord.create({
+            data: {
+              actorAdminId: input.actorAdminId,
+              operation: input.operation,
+              idempotencyKey: input.idempotencyKey,
+              requestFingerprint: input.requestFingerprint,
+              responseSnapshot: {},
+              createdAt,
+              expiresAt: new Date(input.expiresAtIso),
+            },
+          });
+        const issuedAt = new Date(input.issuedAtIso);
+        const coupons: ShipperCouponRecord[] = [];
+
+        for (const couponInput of input.couponInputs) {
+          const coupon = await transaction.shipperCoupon.create({
+            data: createPrismaCouponData(couponInput, issuedAt),
+          });
+          coupons.push(mapPrismaCoupon(coupon));
+        }
+
+        const response = createCouponIssueResponse(input.operation, coupons);
+        await transaction.adminCouponIssueIdempotencyRecord.update({
+          where: { id: reservation.id },
+          data: { responseSnapshot: response },
+        });
+
+        return {
+          kind: 'success' as const,
+          response: cloneJsonValue(response),
+          replayed: false,
+        };
+      });
+    } catch (error) {
+      if (isPrismaErrorCode(error, 'P2002')) {
+        const winningRecord =
+          await this.findCouponIssueIdempotencyRecord(input);
+
+        if (winningRecord) {
+          return mapExistingCouponIssueRecord(
+            winningRecord,
+            input,
+            this.now(),
+          );
+        }
+      }
+
+      throw error;
+    }
   }
 
   async lockCoupon(
@@ -446,6 +647,17 @@ export class PrismaProfileCouponsRepository
 
     return coupon ? mapPrismaCoupon(coupon) : undefined;
   }
+
+  private findCouponIssueIdempotencyRecord(
+    input: Pick<
+      ExecuteAdminCouponIssueInput,
+      'actorAdminId' | 'operation' | 'idempotencyKey'
+    >,
+  ) {
+    return this.prisma.adminCouponIssueIdempotencyRecord.findUnique({
+      where: createCouponIssueIdempotencyWhereUnique(input),
+    });
+  }
 }
 
 export function mapPrismaCoupon(
@@ -476,4 +688,120 @@ function normalizeCouponStatus(status: string): ShipperCouponRecord['status'] {
   }
 
   return 'usable';
+}
+
+function createInMemoryCoupon(
+  input: IssueShipperCouponRequest,
+  issuedAt: Date,
+  sequence: number,
+): ShipperCouponRecord {
+  return {
+    id: `coupon-${sequence}`,
+    shipperId: input.shipperId,
+    title: input.title,
+    status: 'usable',
+    conditionText: input.conditionText,
+    discountCents: input.discountCents,
+    minOrderAmountCents: input.minOrderAmountCents,
+    validFromIso: input.validFromIso,
+    validUntilIso: input.validUntilIso,
+    sourceText: input.sourceText ?? '后台手工发放',
+    issuedAtIso: issuedAt.toISOString(),
+  };
+}
+
+function createPrismaCouponData(
+  input: IssueShipperCouponRequest,
+  issuedAt: Date,
+) {
+  return {
+    shipperId: input.shipperId,
+    title: input.title,
+    status: 'usable',
+    conditionText: input.conditionText,
+    discountCents: input.discountCents,
+    minOrderAmountCents: input.minOrderAmountCents,
+    validFrom: new Date(input.validFromIso),
+    validUntil: new Date(input.validUntilIso),
+    sourceText: input.sourceText ?? '后台手工发放',
+    issuedAt,
+  };
+}
+
+function createCouponIssueResponse(
+  operation: AdminCouponIssueOperation,
+  coupons: ShipperCouponRecord[],
+): AdminCouponIssueResponse {
+  if (operation === 'single_issue') {
+    const coupon = coupons[0];
+
+    if (!coupon || coupons.length !== 1) {
+      throw new Error('Single coupon issue must create exactly one coupon');
+    }
+
+    return cloneJsonValue(coupon);
+  }
+
+  return {
+    requestedCount: coupons.length,
+    issuedCount: coupons.length,
+    coupons: cloneJsonValue(coupons),
+  };
+}
+
+function mapExistingCouponIssueRecord(
+  record:
+    | InMemoryAdminCouponIssueIdempotencyRecord
+    | PrismaAdminCouponIssueIdempotencyRecord,
+  input: Pick<
+    ExecuteAdminCouponIssueInput,
+    'requestFingerprint'
+  >,
+  now: Date,
+): ExecuteAdminCouponIssueResult {
+  if (record.requestFingerprint !== input.requestFingerprint) {
+    return { kind: 'key-reused' };
+  }
+
+  const expiresAt =
+    'expiresAtIso' in record ? record.expiresAtIso : record.expiresAt.toISOString();
+  if (Date.parse(expiresAt) <= now.getTime()) {
+    return { kind: 'key-expired' };
+  }
+
+  return {
+    kind: 'success',
+    response: cloneJsonValue(
+      record.responseSnapshot as AdminCouponIssueResponse,
+    ),
+    replayed: true,
+  };
+}
+
+function createCouponIssueIdempotencyWhereUnique(
+  input: Pick<
+    ExecuteAdminCouponIssueInput,
+    'actorAdminId' | 'operation' | 'idempotencyKey'
+  >,
+): AdminCouponIssueIdempotencyWhereUnique {
+  return {
+    AdminCouponIssueIdempotency_actor_operation_key_unique: {
+      actorAdminId: input.actorAdminId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+    },
+  };
+}
+
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isPrismaErrorCode(error: unknown, code: string) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === code
+  );
 }

@@ -3648,10 +3648,7 @@ describe('session governance admin console page', () => {
     const loadAdminSessions = jest.fn().mockResolvedValue(undefined);
     const loadSessionAuditEvents = jest.fn().mockResolvedValue(undefined);
     const mutationButtons = [{ disabled: false }, { disabled: false }];
-    const nodes = new Map<
-      string,
-      { disabled: boolean; textContent: string }
-    >();
+    const nodes = new Map<string, { disabled: boolean; textContent: string }>();
     const getNode = (id: string) => {
       const existing = nodes.get(id);
       if (existing) return existing;
@@ -3676,9 +3673,7 @@ describe('session governance admin console page', () => {
       invokeRevokeSession: undefined as
         | undefined
         | ((sessionId: string) => Promise<void>),
-      invokeRevokeOtherSessions: undefined as
-        | undefined
-        | (() => Promise<void>),
+      invokeRevokeOtherSessions: undefined as undefined | (() => Promise<void>),
     };
 
     runInNewContext(
@@ -3692,10 +3687,9 @@ describe('session governance admin console page', () => {
     await context.invokeRevokeOtherSessions!();
 
     expect(api).toHaveBeenCalledTimes(1);
-    expect(api).toHaveBeenCalledWith(
-      '/admin/auth/sessions/session-a/revoke',
-      { method: 'POST' },
-    );
+    expect(api).toHaveBeenCalledWith('/admin/auth/sessions/session-a/revoke', {
+      method: 'POST',
+    });
     expect(getNode('revokeOtherAdminSessionsButton').disabled).toBe(true);
     expect(mutationButtons.every(button => button.disabled)).toBe(true);
 
@@ -3710,9 +3704,7 @@ describe('session governance admin console page', () => {
     api.mockRejectedValueOnce(new Error('session revoke failed'));
     await context.invokeRevokeOtherSessions!();
 
-    expect(getNode('sessionNotice').textContent).toBe(
-      'session revoke failed',
-    );
+    expect(getNode('sessionNotice').textContent).toBe('session revoke failed');
     expect(getNode('revokeOtherAdminSessionsButton').disabled).toBe(false);
     expect(mutationButtons.some(button => button.disabled)).toBe(false);
   });
@@ -5993,6 +5985,11 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('issueCoupon');
     expect(html).toContain('batchIssueCoupon');
     expect(html).toContain('loadCouponReport');
+    expect(html).toContain('stableJsonStringify');
+    expect(html).toContain('createCouponIdempotencyKey');
+    expect(html).toContain("'Idempotency-Key': retryContext.idempotencyKey");
+    expect(html).toContain('IDEMPOTENCY_KEY_REUSED');
+    expect(html).toContain('IDEMPOTENCY_KEY_EXPIRED');
     expect(html).toContain("const apiBase = '/api'");
     expect(html).toContain('/admin/shipper-coupons');
     expect(html).toContain('/admin/shipper-coupons/batch-issue');
@@ -6009,6 +6006,241 @@ describe('AdminConsoleController', () => {
     expect(html).toContain('/api/admin/order-exception-case-console');
     expect(html).toContain('/api/admin/evaluation-audit-console');
     expect(html).not.toContain('hero');
+  });
+
+  it('keeps coupon issue retries idempotent and blocks overlapping single and batch submissions', async () => {
+    const controller = new AdminConsoleController();
+    const html = (
+      controller as unknown as {
+        getShipperCouponConsole: () => string;
+      }
+    ).getShipperCouponConsole();
+    const stateStart = html.indexOf('let couponIssuePending = false;');
+    const stateEnd = html.indexOf('const adminSessionStorageKey', stateStart);
+    const helpersStart = html.indexOf('function readTrimmed(id)');
+    const helpersEnd = html.indexOf(
+      'function readCouponReportTopShippersLimit()',
+      helpersStart,
+    );
+    const mutationStart = html.indexOf('async function issueCoupon()');
+    const mutationEnd = html.indexOf(
+      'applyShipperCouponRouteState();',
+      mutationStart,
+    );
+    expect([
+      stateStart,
+      stateEnd,
+      helpersStart,
+      helpersEnd,
+      mutationStart,
+      mutationEnd,
+    ]).not.toContain(-1);
+
+    const nodes = new Map<
+      string,
+      {
+        className: string;
+        disabled: boolean;
+        innerHTML: string;
+        textContent: string;
+        value: string;
+      }
+    >();
+    const inputValues: Record<string, string> = {
+      adminToken: 'admin-token',
+      shipperIdInput: 'shipper-a',
+      batchShipperIdsInput: 'shipper-a\nshipper-b',
+      couponTitleInput: '运营补偿券',
+      conditionTextInput: '订单满 500 元可用',
+      discountCentsInput: '5000',
+      minOrderAmountCentsInput: '50000',
+      validFromIsoInput: '2026-07-27T00:00:00.000Z',
+      validUntilIsoInput: '2026-08-27T00:00:00.000Z',
+      sourceTextInput: '运营补偿',
+    };
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = {
+        className: '',
+        disabled: false,
+        innerHTML: '',
+        textContent: '',
+        value: inputValues[id] || '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    let generatedKeyCount = 0;
+    const randomUUID = jest.fn(() => {
+      generatedKeyCount += 1;
+      return (
+        '00000000-0000-4000-8000-' +
+        generatedKeyCount.toString(16).padStart(12, '0')
+      );
+    });
+    const fetch = jest.fn();
+    const setStatus = jest.fn();
+    const context = {
+      apiBase: '/api',
+      crypto: { randomUUID } as { randomUUID: typeof randomUUID } | undefined,
+      document: { getElementById: getNode },
+      fetch,
+      loadCouponReport: jest.fn().mockResolvedValue(undefined),
+      persistAdminAccessToken: jest.fn(),
+      renderResult: jest.fn(),
+      setButtonsDisabled: jest.fn(),
+      setStatus,
+      syncShipperCouponRouteState: jest.fn(),
+      invokeIssueCoupon: undefined as undefined | (() => Promise<void>),
+      invokeBatchIssueCoupon: undefined as undefined | (() => Promise<void>),
+      getIssueRetryContext: undefined as
+        | undefined
+        | (() => { idempotencyKey: string; requestBody: string } | null),
+      getBatchRetryContext: undefined as
+        | undefined
+        | (() => { idempotencyKey: string; requestBody: string } | null),
+      stringifyStableJson: undefined as
+        | undefined
+        | ((value: unknown) => string),
+      createFallbackIdempotencyKey: undefined as undefined | (() => string),
+    };
+    runInNewContext(
+      html.slice(stateStart, stateEnd) +
+        '\n' +
+        html.slice(helpersStart, helpersEnd) +
+        '\n' +
+        html.slice(mutationStart, mutationEnd) +
+        '\ninvokeIssueCoupon = issueCoupon;' +
+        '\ninvokeBatchIssueCoupon = batchIssueCoupon;' +
+        '\ngetIssueRetryContext = () => issueCouponRetryContext;' +
+        '\ngetBatchRetryContext = () => batchIssueCouponRetryContext;' +
+        '\nstringifyStableJson = stableJsonStringify;' +
+        '\ncreateFallbackIdempotencyKey = createCouponIdempotencyKey;',
+      context,
+    );
+    const invokeIssueCoupon = context.invokeIssueCoupon;
+    const invokeBatchIssueCoupon = context.invokeBatchIssueCoupon;
+    if (!invokeIssueCoupon || !invokeBatchIssueCoupon) {
+      throw new Error('coupon issue VM functions were not initialized');
+    }
+    const response = (ok: boolean, payload: unknown) => ({
+      ok,
+      json: jest.fn().mockResolvedValue(payload),
+    });
+    const idempotencyKeyAt = (index: number) => {
+      const options = fetch.mock.calls[index][1] as {
+        headers: Record<string, string>;
+      };
+      return options.headers['Idempotency-Key'];
+    };
+
+    expect(
+      context.stringifyStableJson?.({ z: 1, nested: { b: 2, a: 3 } }),
+    ).toBe(context.stringifyStableJson?.({ nested: { a: 3, b: 2 }, z: 1 }));
+
+    let resolvePendingIssue:
+      | ((value: ReturnType<typeof response>) => void)
+      | undefined;
+    const pendingIssueResponse = new Promise<ReturnType<typeof response>>(
+      resolve => {
+        resolvePendingIssue = resolve;
+      },
+    );
+    fetch.mockReturnValueOnce(pendingIssueResponse);
+    const pendingIssue = invokeIssueCoupon();
+    await invokeBatchIssueCoupon();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(setStatus).toHaveBeenLastCalledWith(
+      '优惠券发放请求正在处理中，请勿重复提交',
+      true,
+    );
+    expect(context.getBatchRetryContext?.()).toBeNull();
+
+    resolvePendingIssue?.(response(true, { data: { id: 'coupon-a' } }));
+    await pendingIssue;
+    expect(context.getIssueRetryContext?.()).toBeNull();
+
+    fetch.mockRejectedValueOnce(new Error('network unavailable'));
+    await invokeIssueCoupon();
+    const singleRetryKey = idempotencyKeyAt(1);
+    const singleRetryBody = fetch.mock.calls[1][1].body;
+
+    fetch.mockResolvedValueOnce(
+      response(false, { code: 'COUPON_ISSUE_FAILED', message: 'issue failed' }),
+    );
+    await invokeIssueCoupon();
+    expect(idempotencyKeyAt(2)).toBe(singleRetryKey);
+    expect(fetch.mock.calls[2][1].body).toBe(singleRetryBody);
+
+    getNode('shipperIdInput').value = 'shipper-c';
+    fetch.mockRejectedValueOnce(new Error('network unavailable again'));
+    await invokeIssueCoupon();
+    const changedSingleKey = idempotencyKeyAt(3);
+    expect(changedSingleKey).not.toBe(singleRetryKey);
+
+    fetch.mockResolvedValueOnce(response(true, { data: { id: 'coupon-c' } }));
+    await invokeIssueCoupon();
+    expect(idempotencyKeyAt(4)).toBe(changedSingleKey);
+    expect(context.getIssueRetryContext?.()).toBeNull();
+
+    fetch.mockResolvedValueOnce(
+      response(false, { code: 'BATCH_FAILED', message: 'batch failed' }),
+    );
+    await invokeBatchIssueCoupon();
+    const batchRetryKey = idempotencyKeyAt(5);
+
+    fetch.mockRejectedValueOnce(new Error('batch network unavailable'));
+    await invokeBatchIssueCoupon();
+    expect(idempotencyKeyAt(6)).toBe(batchRetryKey);
+    const batchRetryBody = fetch.mock.calls[6][1].body;
+
+    getNode('batchShipperIdsInput').value =
+      'shipper-b\nshipper-a\nshipper-a';
+    fetch.mockRejectedValueOnce(new Error('batch reordered retry unavailable'));
+    await invokeBatchIssueCoupon();
+    expect(idempotencyKeyAt(7)).toBe(batchRetryKey);
+    expect(fetch.mock.calls[7][1].body).toBe(batchRetryBody);
+
+    getNode('batchShipperIdsInput').value = 'shipper-a\nshipper-d';
+    fetch.mockResolvedValueOnce(response(true, { data: { issuedCount: 2 } }));
+    await invokeBatchIssueCoupon();
+    expect(idempotencyKeyAt(8)).not.toBe(batchRetryKey);
+    expect(context.getBatchRetryContext?.()).toBeNull();
+
+    fetch.mockRejectedValueOnce(new Error('retry before reused'));
+    await invokeIssueCoupon();
+    const reusedKey = idempotencyKeyAt(9);
+    fetch.mockResolvedValueOnce(
+      response(false, {
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: 'key reused',
+      }),
+    );
+    await invokeIssueCoupon();
+    expect(idempotencyKeyAt(10)).toBe(reusedKey);
+    expect(context.getIssueRetryContext?.()).toBeNull();
+
+    fetch.mockRejectedValueOnce(new Error('retry before expired'));
+    await invokeIssueCoupon();
+    const expiredKey = idempotencyKeyAt(11);
+    expect(expiredKey).not.toBe(reusedKey);
+    fetch.mockResolvedValueOnce(
+      response(false, {
+        code: 'IDEMPOTENCY_KEY_EXPIRED',
+        message: 'key expired',
+      }),
+    );
+    await invokeIssueCoupon();
+    expect(idempotencyKeyAt(12)).toBe(expiredKey);
+    expect(context.getIssueRetryContext?.()).toBeNull();
+
+    context.crypto = undefined;
+    const fallbackKey = context.createFallbackIdempotencyKey?.();
+    expect(fallbackKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it('ignores stale coupon report responses and keeps the coupon console operational', () => {

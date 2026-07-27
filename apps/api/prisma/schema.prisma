@@ -162,6 +162,7 @@ model User {
   driverCertificationReviewEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewEvents")
   driverCertificationReviewerEvents DriverCertificationReviewEvent[] @relation("DriverCertificationReviewerEvents")
   orderIdempotencyRecords     OrderIdempotencyRecord[]   @relation("OrderIdempotencyActor")
+  adminCouponIssueIdempotencyRecords AdminCouponIssueIdempotencyRecord[] @relation("AdminCouponIssueIdempotencyActor")
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
@@ -595,6 +596,21 @@ model ShipperCoupon {
 
   @@index([shipperId, status, issuedAt], name: "ShipperCoupon_shipper_status_issued_idx")
   @@index([shipperId, validUntil], name: "ShipperCoupon_shipper_valid_until_idx")
+}
+
+model AdminCouponIssueIdempotencyRecord {
+  id                 String   @id @default(uuid())
+  actorAdminId       String
+  operation          String
+  idempotencyKey     String
+  requestFingerprint String
+  responseSnapshot   Json
+  createdAt          DateTime @default(now())
+  expiresAt          DateTime
+  actorAdmin          User     @relation("AdminCouponIssueIdempotencyActor", fields: [actorAdminId], references: [id])
+
+  @@unique([actorAdminId, operation, idempotencyKey], name: "AdminCouponIssueIdempotency_actor_operation_key_unique")
+  @@index([expiresAt], name: "AdminCouponIssueIdempotency_expires_idx")
 }
 
 model ShipperIdentityVerification {

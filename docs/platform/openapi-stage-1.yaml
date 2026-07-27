@@ -2039,9 +2039,10 @@ paths:
   /admin/shipper-coupons:
     post:
       summary: Issue a shipper coupon manually
-      description: Admin-only first slice for manually issuing a usable coupon to a shipper wallet. It does not include marketing rule engines, campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
+      description: Admin-only first slice for manually issuing a usable coupon to a shipper wallet. Requires Idempotency-Key. Reusing the same key with the same normalized request atomically replays the first successful response without issuing another coupon; reusing it for a different request is rejected. The idempotency reservation, coupon write and response snapshot commit in one database transaction. It does not include marketing rule engines, campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
       security:
         - bearerAuth: []
       requestBody:
@@ -2058,16 +2059,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/ShipperCouponRecordResponse'
         '400':
-          description: Coupon issue request is invalid
+          description: Idempotency key is missing or invalid, or the coupon issue request is invalid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: VALIDATION_ERROR
-                message: 优惠券失效时间必须晚于生效时间
-                requestId: req_local
-                timestamp: '2026-07-09T10:00:00.000Z'
+              examples:
+                idempotencyKeyInvalid:
+                  summary: The required idempotency key is missing or invalid
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
+                requestInvalid:
+                  summary: The coupon issue request is invalid
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 优惠券失效时间必须晚于生效时间
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -2076,12 +2087,34 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Idempotency key is reused for another request or its replay window has expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotencyKeyReused:
+                  summary: The key was already used for a different normalized coupon issue request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
+                idempotencyKeyExpired:
+                  summary: The stored coupon issue replay snapshot has expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
   /admin/shipper-coupons/batch-issue:
     post:
       summary: Issue shipper coupons in batch
-      description: Admin-only first slice for issuing the same usable coupon template to multiple shipper wallets in one batch. This slice only covers direct manual issuance, not campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
+      description: Admin-only first slice for issuing the same usable coupon template to multiple shipper wallets in one batch. Requires Idempotency-Key. Reusing the same key with the same normalized request atomically replays the first successful batch response without issuing another coupon; reusing it for a different request is rejected. The idempotency reservation, all coupon writes and response snapshot commit in one database transaction. This slice only covers direct manual issuance, not campaign orchestration, approval workflow, pricing deduction, or refund-return rule configuration.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
       security:
         - bearerAuth: []
       requestBody:
@@ -2098,16 +2131,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/BatchIssueShipperCouponsResponse'
         '400':
-          description: Batch coupon issue request is invalid
+          description: Idempotency key is missing or invalid, or the batch coupon issue request is invalid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: VALIDATION_ERROR
-                message: 至少要指定一个货主
-                requestId: req_local
-                timestamp: '2026-07-20T10:00:00.000Z'
+              examples:
+                idempotencyKeyInvalid:
+                  summary: The required idempotency key is missing or invalid
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
+                requestInvalid:
+                  summary: The batch coupon issue request is invalid
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 至少要指定一个货主
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -2116,6 +2159,27 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+        '409':
+          description: Idempotency key is reused for another request or its replay window has expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotencyKeyReused:
+                  summary: The key was already used for a different normalized batch coupon issue request
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
+                idempotencyKeyExpired:
+                  summary: The stored batch coupon issue replay snapshot has expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-27T01:00:00.000Z'
   /admin/shipper-coupons/report:
     get:
       summary: Get admin shipper coupon report
@@ -7263,7 +7327,7 @@ components:
         type: string
         format: uuid
         maxLength: 64
-      description: Required UUID idempotency key for order creation and protected versioned order mutations. Creation has no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
+      description: Required UUID idempotency key for order creation, protected versioned order mutations and admin coupon issuance. Creation has no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
       example: 550e8400-e29b-41d4-a716-446655440000
   securitySchemes:
     bearerAuth:

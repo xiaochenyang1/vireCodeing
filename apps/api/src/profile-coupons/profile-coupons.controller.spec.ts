@@ -93,7 +93,11 @@ describe('AdminProfileCouponsController', () => {
     };
 
     await expect(
-      controller.issueCoupon(createRequest('admin-1', 'admin'), requestBody),
+      controller.issueCoupon(
+        createRequest('admin-1', 'admin'),
+        '550e8400-e29b-41d4-a716-446655440000',
+        requestBody,
+      ),
     ).resolves.toEqual(
       expect.objectContaining({
         code: 'OK',
@@ -105,7 +109,11 @@ describe('AdminProfileCouponsController', () => {
         requestId: 'req_profile_coupons_test',
       }),
     );
-    expect(service.issueCoupon).toHaveBeenCalledWith('admin-1', requestBody);
+    expect(service.issueCoupon).toHaveBeenCalledWith(
+      'admin-1',
+      '550e8400-e29b-41d4-a716-446655440000',
+      requestBody,
+    );
   });
 
   it('issues coupons in batch as an authenticated admin', async () => {
@@ -158,6 +166,7 @@ describe('AdminProfileCouponsController', () => {
     await expect(
       controller.batchIssueCoupons(
         createRequest('admin-1', 'admin'),
+        '550e8400-e29b-41d4-a716-446655440001',
         requestBody,
       ),
     ).resolves.toEqual(
@@ -172,6 +181,7 @@ describe('AdminProfileCouponsController', () => {
     );
     expect(service.batchIssueCoupons).toHaveBeenCalledWith(
       'admin-1',
+      '550e8400-e29b-41d4-a716-446655440001',
       requestBody,
     );
   });
@@ -243,15 +253,19 @@ describe('AdminProfileCouponsController', () => {
     const controller = new AdminProfileCouponsController(service);
 
     await expect(
-      controller.issueCoupon(createRequest('shipper-1', 'shipper'), {
-        shipperId: 'shipper-1',
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }),
+      controller.issueCoupon(
+        createRequest('shipper-1', 'shipper'),
+        '550e8400-e29b-41d4-a716-446655440000',
+        {
+          shipperId: 'shipper-1',
+          title: '后台满 500 减 50',
+          conditionText: '平台订单满 500 元可用',
+          discountCents: 5000,
+          minOrderAmountCents: 50000,
+          validFromIso: '2026-07-09T00:00:00.000Z',
+          validUntilIso: '2026-08-09T00:00:00.000Z',
+        },
+      ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
     );
@@ -265,18 +279,64 @@ describe('AdminProfileCouponsController', () => {
     const controller = new AdminProfileCouponsController(service);
 
     await expect(
-      controller.batchIssueCoupons(createRequest('shipper-1', 'shipper'), {
-        shipperIds: ['shipper-1', 'shipper-2'],
-        title: '后台批量满 300 减 30',
-        conditionText: '平台订单满 300 元可用',
-        discountCents: 3000,
-        minOrderAmountCents: 30000,
-        validFromIso: '2026-07-20T00:00:00.000Z',
-        validUntilIso: '2026-08-20T00:00:00.000Z',
-      }),
+      controller.batchIssueCoupons(
+        createRequest('shipper-1', 'shipper'),
+        '550e8400-e29b-41d4-a716-446655440001',
+        {
+          shipperIds: ['shipper-1', 'shipper-2'],
+          title: '后台批量满 300 减 30',
+          conditionText: '平台订单满 300 元可用',
+          discountCents: 3000,
+          minOrderAmountCents: 30000,
+          validFromIso: '2026-07-20T00:00:00.000Z',
+          validUntilIso: '2026-08-20T00:00:00.000Z',
+        },
+      ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
     );
+    expect(service.batchIssueCoupons).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing or invalid coupon issue idempotency keys', async () => {
+    const service = {
+      issueCoupon: jest.fn(),
+      batchIssueCoupons: jest.fn(),
+    } as unknown as ProfileCouponsService;
+    const controller = new AdminProfileCouponsController(service);
+    const issueBody = {
+      shipperId: 'shipper-1',
+      title: '后台满 500 减 50',
+      conditionText: '平台订单满 500 元可用',
+      discountCents: 5000,
+      minOrderAmountCents: 50000,
+      validFromIso: '2026-07-09T00:00:00.000Z',
+      validUntilIso: '2026-08-09T00:00:00.000Z',
+    };
+
+    await expect(
+      controller.issueCoupon(
+        createRequest('admin-1', 'admin'),
+        undefined,
+        issueBody,
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID });
+    await expect(
+      controller.batchIssueCoupons(
+        createRequest('admin-1', 'admin'),
+        'repeat-click',
+        {
+          shipperIds: ['shipper-1', 'shipper-2'],
+          title: '后台批量满 300 减 30',
+          conditionText: '平台订单满 300 元可用',
+          discountCents: 3000,
+          minOrderAmountCents: 30000,
+          validFromIso: '2026-07-20T00:00:00.000Z',
+          validUntilIso: '2026-08-20T00:00:00.000Z',
+        },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID });
+    expect(service.issueCoupon).not.toHaveBeenCalled();
     expect(service.batchIssueCoupons).not.toHaveBeenCalled();
   });
 

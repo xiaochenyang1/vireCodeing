@@ -4,6 +4,7 @@ import type {
   BatchIssueShipperCouponsRequest,
   IssueShipperCouponRequest,
 } from './dto';
+export { parseCouponIssueIdempotencyKey } from './profile-coupons.idempotency';
 
 const shipperIdSchema = z
   .string()

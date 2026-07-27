@@ -23,6 +23,7 @@ describe('parseEnv', () => {
       REFRESH_TOKEN_TTL_SECONDS: 604800,
       VERIFICATION_CODE_TTL_SECONDS: 300,
       ORDER_IDEMPOTENCY_TTL_SECONDS: 86400,
+      COUPON_ISSUE_IDEMPOTENCY_TTL_SECONDS: 86400,
       PAYMENT_PROVIDER_MODE: 'disabled',
       PAYMENT_PLATFORM_FEE_BPS: 500,
       PAYMENT_ORDER_TTL_SECONDS: 900,
@@ -73,6 +74,32 @@ describe('parseEnv', () => {
         ACCESS_TOKEN_TTL_SECONDS: '900',
         REFRESH_TOKEN_TTL_SECONDS: '604800',
         ORDER_IDEMPOTENCY_TTL_SECONDS: '0',
+      }),
+    ).toThrow('Invalid API environment');
+  });
+
+  it('parses custom coupon issue idempotency ttl values', () => {
+    expect(
+      parseEnv({
+        NODE_ENV: 'development',
+        PORT: '3000',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        COUPON_ISSUE_IDEMPOTENCY_TTL_SECONDS: '172800',
+      }),
+    ).toMatchObject({
+      COUPON_ISSUE_IDEMPOTENCY_TTL_SECONDS: 172800,
+    });
+  });
+
+  it('rejects invalid coupon issue idempotency ttl values', () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: 'development',
+        PORT: '3000',
+        DATABASE_URL: 'postgresql://truck:truck@localhost:5432/truck_platform',
+        JWT_ACCESS_SECRET: 'access-secret',
+        COUPON_ISSUE_IDEMPOTENCY_TTL_SECONDS: '0',
       }),
     ).toThrow('Invalid API environment');
   });

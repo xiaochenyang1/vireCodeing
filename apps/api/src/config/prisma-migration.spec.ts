@@ -502,6 +502,29 @@ describe('Prisma initial migration', () => {
     expect(sql).toContain('REFERENCES "Order"("id")');
   });
 
+  it('contains admin coupon issue idempotency persistence', () => {
+    const sql = readAllMigrations();
+
+    expect(sql).toContain(
+      'CREATE TABLE "AdminCouponIssueIdempotencyRecord"',
+    );
+    expect(sql).toContain('"actorAdminId" TEXT NOT NULL');
+    expect(sql).toContain('"operation" TEXT NOT NULL');
+    expect(sql).toContain('"idempotencyKey" TEXT NOT NULL');
+    expect(sql).toContain('"requestFingerprint" TEXT NOT NULL');
+    expect(sql).toContain('"responseSnapshot" JSONB NOT NULL');
+    expect(sql).toContain('"expiresAt" TIMESTAMP(3) NOT NULL');
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "AdminCouponIssueIdempotency_actor_operation_key_unique"',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX "AdminCouponIssueIdempotency_expires_idx"',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "AdminCouponIssueIdempotencyRecord_actorAdminId_fkey"',
+    );
+  });
+
   it('wraps sequence allocation and canonical coupon repair in one transaction', () => {
     const sql = readTargetMigration();
     const beginIndex = sql.indexOf('BEGIN;');

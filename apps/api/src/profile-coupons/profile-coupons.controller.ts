@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   AccessTokenGuard,
   type AuthenticatedRequest,
@@ -17,6 +26,7 @@ import {
   batchIssueShipperCouponsSchema,
   parseAdminShipperCouponReportQuery,
   parseBatchIssueShipperCouponsRequest,
+  parseCouponIssueIdempotencyKey,
   issueShipperCouponSchema,
   parseIssueShipperCouponRequest,
 } from './profile-coupons.validation';
@@ -50,6 +60,7 @@ export class AdminProfileCouponsController {
   @Post()
   async issueCoupon(
     @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(issueShipperCouponSchema))
     body: IssueShipperCouponRequest,
   ) {
@@ -58,6 +69,7 @@ export class AdminProfileCouponsController {
     return ok(
       await this.profileCouponsService.issueCoupon(
         currentAdmin.id,
+        parseCouponIssueIdempotencyKey(idempotencyKey),
         parseIssueShipperCouponRequest(body),
       ),
       getRequestId(request),
@@ -67,6 +79,7 @@ export class AdminProfileCouponsController {
   @Post('batch-issue')
   async batchIssueCoupons(
     @Req() request: AuthenticatedRequest,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(batchIssueShipperCouponsSchema))
     body: BatchIssueShipperCouponsRequest,
   ) {
@@ -75,6 +88,7 @@ export class AdminProfileCouponsController {
     return ok(
       await this.profileCouponsService.batchIssueCoupons(
         currentAdmin.id,
+        parseCouponIssueIdempotencyKey(idempotencyKey),
         parseBatchIssueShipperCouponsRequest(body),
       ),
       getRequestId(request),
