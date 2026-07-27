@@ -435,7 +435,8 @@ export function renderAccountManagementAdminConsole() {
     let currentAccountItems = [];
     let currentAccountDetail = null;
     let currentAccountReport = null;
-    let pendingAccountDetailUserId = '';
+    let accountDetailTargetUserId = '';
+    let accountDetailMutationPending = false;
     const selectedAccountIds = new Set();
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/account-management-console',
@@ -617,12 +618,6 @@ export function renderAccountManagementAdminConsole() {
       return buildAccountFilterQuery();
     }
 
-    function currentAccountDetailUserId() {
-      return currentAccountDetail && currentAccountDetail.account
-        ? currentAccountDetail.account.userId
-        : '';
-    }
-
     function readAccountManagementRouteState() {
       const query = new URLSearchParams(
         globalThis.location && typeof globalThis.location.search === 'string'
@@ -677,7 +672,7 @@ export function renderAccountManagementAdminConsole() {
           ),
         );
       }
-      pendingAccountDetailUserId = routeState.userId.trim();
+      accountDetailTargetUserId = routeState.userId.trim();
       return routeState;
     }
 
@@ -698,7 +693,7 @@ export function renderAccountManagementAdminConsole() {
       const userId = String(
         typeof userIdOverride === 'string'
           ? userIdOverride
-          : currentAccountDetailUserId() || pendingAccountDetailUserId || '',
+          : accountDetailTargetUserId || '',
       ).trim();
       if (userId) {
         query.set('userId', userId);
@@ -754,10 +749,15 @@ export function renderAccountManagementAdminConsole() {
 
     async function refreshAccountWorkspace(page) {
       const targetPage = Math.max(1, page || currentAccountPage || 1);
-      await Promise.all([
+      const targetDetailUserId = accountDetailTargetUserId;
+      const refreshTasks = [
         loadAdminAuthAccounts(targetPage),
         loadAccountReport(),
-      ]);
+      ];
+      if (targetDetailUserId) {
+        refreshTasks.push(loadAdminAuthAccountDetail(targetDetailUserId));
+      }
+      await Promise.all(refreshTasks);
     }
 
     async function loadAccountReport() {
@@ -912,17 +912,23 @@ export function renderAccountManagementAdminConsole() {
       document.getElementById('accountBulkActionStatus').textContent = '已清空批量勾选。';
     }
 
-    async function refreshAccountWorkspaceAfterMutation() {
-      const detailUserId = currentAccountDetail && currentAccountDetail.account
-        ? currentAccountDetail.account.userId
-        : '';
-      await Promise.all([
+    async function refreshAccountWorkspaceAfterMutation(detailUserId) {
+      const targetDetailUserId = String(
+        typeof detailUserId === 'string'
+          ? detailUserId
+          : accountDetailTargetUserId || '',
+      ).trim();
+      const refreshTasks = [
         loadAdminAuthAccounts(currentAccountPage),
         loadAccountReport(),
-      ]);
-      if (detailUserId) {
-        await loadAdminAuthAccountDetail(detailUserId);
+      ];
+      if (
+        targetDetailUserId &&
+        accountDetailTargetUserId === targetDetailUserId
+      ) {
+        refreshTasks.push(loadAdminAuthAccountDetail(targetDetailUserId));
       }
+      await Promise.all(refreshTasks);
     }
 
     async function runBatchStatusUpdate(status) {
@@ -1336,10 +1342,39 @@ export function renderAccountManagementAdminConsole() {
 
     function resetAccountDetail() {
       latestAccountDetailRequestId += 1;
+      accountDetailTargetUserId = '';
       currentAccountDetail = null;
+      document.getElementById('accountDetailNotice').textContent = '';
       document.getElementById('accountDetailStatus').textContent = '点左边一条账号再看详情，不然这块儿只能空着。';
       document.getElementById('accountDetailShell').innerHTML =
         '<div class="empty-card"><h3>未选择账号</h3><p class="muted">先从左边选一条账号，再决定是冻结、解冻还是按账号撤销会话。别闭眼乱点。</p></div>';
+      updateAccountDetailMutationUi();
+    }
+
+    function renderAccountDetailError(userId, message) {
+      currentAccountDetail = null;
+      document.getElementById('accountDetailNotice').textContent = message;
+      document.getElementById('accountDetailStatus').textContent =
+        '账号详情加载失败：' + userId;
+      document.getElementById('accountDetailShell').innerHTML =
+        '<div class="empty-card"><h3>详情暂不可用</h3><p class="muted">目标账号 ' +
+        escapeHtml(userId) +
+        ' 仍保留在地址栏，可重试详情而不会被当前列表替换。</p></div>';
+      renderAccountListFromCurrentPage();
+      updateAccountDetailMutationUi();
+    }
+
+    function updateAccountDetailMutationUi() {
+      [
+        'accountStatusActionButton',
+        'accountRevokeSessionsButton',
+        'accountKeepSessionIdInput',
+      ].forEach(function(id) {
+        const control = document.getElementById(id);
+        if (control) {
+          control.disabled = accountDetailMutationPending;
+        }
+      });
     }
 
     function renderAccountDetail(detail) {
@@ -1387,7 +1422,7 @@ export function renderAccountManagementAdminConsole() {
               '<button id="accountStatusActionButton" type="button" class="' + (account.status === 'disabled' ? 'secondary-button' : 'danger-button') + '" onclick="toggleSelectedAccountStatus()">' +
                 escapeHtml(account.status === 'disabled' ? '恢复账号' : '禁用账号') +
               '</button>' +
-              '<button type="button" class="secondary-button" onclick="revokeAdminAuthAccountSessions()">按账号撤销会话</button>' +
+              '<button id="accountRevokeSessionsButton" type="button" class="secondary-button" onclick="revokeAdminAuthAccountSessions()">按账号撤销会话</button>' +
             '</div>' +
             '<label style="margin-top:12px;">保留一个 sessionId（可选）<input id="accountKeepSessionIdInput" placeholder="550e8400-e29b-41d4-a716-446655440112" /></label>' +
             '<p class="footnote">禁用账号会立即撤销该账号所有活跃 refresh 会话；解冻只允许后续重新登录，不会把旧会话诈尸回来。</p>' +
@@ -1401,6 +1436,7 @@ export function renderAccountManagementAdminConsole() {
           '<h3>近期治理审计</h3>' +
           '<div id="accountAuditList" class="stack-list">' + renderAccountAuditList(detail.recentAuditEvents) + '</div>' +
         '</div>';
+      updateAccountDetailMutationUi();
     }
 
     async function loadAdminAuthAccounts(page) {
@@ -1425,18 +1461,7 @@ export function renderAccountManagementAdminConsole() {
         );
         syncAccountManagementRouteState(currentAccountPage);
         updateAccountBulkSelectionUi();
-
-        if (pendingAccountDetailUserId) {
-          const nextUserId = pendingAccountDetailUserId;
-          pendingAccountDetailUserId = '';
-          await loadAdminAuthAccountDetail(nextUserId);
-          return;
-        }
-
-        const detailUserId = currentAccountDetailUserId();
-        if (detailUserId) {
-          renderAccountListFromCurrentPage();
-        }
+        renderAccountListFromCurrentPage();
       } catch (error) {
         if (requestId !== latestAccountRequestId) return;
         document.getElementById('accountNotice').textContent = error.message;
@@ -1447,34 +1472,59 @@ export function renderAccountManagementAdminConsole() {
         document.getElementById('accountPreviousPageButton').disabled = true;
         document.getElementById('accountNextPageButton').disabled = true;
         updateAccountBulkSelectionUi();
-        resetAccountDetail();
       }
     }
 
     async function loadAdminAuthAccountDetail(userId) {
+      const targetUserId = String(userId || '').trim();
+      if (!targetUserId) {
+        resetAccountDetail();
+        syncAccountManagementRouteState(currentAccountPage, '');
+        renderAccountListFromCurrentPage();
+        return;
+      }
       const requestId = ++latestAccountDetailRequestId;
-      pendingAccountDetailUserId = '';
-      syncAccountManagementRouteState(currentAccountPage, userId);
+      accountDetailTargetUserId = targetUserId;
+      currentAccountDetail = null;
+      syncAccountManagementRouteState(currentAccountPage, targetUserId);
       document.getElementById('accountDetailNotice').textContent = '';
-      document.getElementById('accountDetailStatus').textContent = '正在拉账号详情...';
+      document.getElementById('accountDetailStatus').textContent =
+        '正在拉账号详情：' + targetUserId;
+      document.getElementById('accountDetailShell').innerHTML =
+        '<div class="empty-card"><h3>正在加载</h3><p class="muted">账号 ' +
+        escapeHtml(targetUserId) +
+        ' 的详情正在读取。</p></div>';
+      renderAccountListFromCurrentPage();
+      updateAccountDetailMutationUi();
       try {
-        const detail = await api('/admin/auth/accounts/' + encodeURIComponent(userId));
-        if (requestId !== latestAccountDetailRequestId) return;
+        const detail = await api(
+          '/admin/auth/accounts/' + encodeURIComponent(targetUserId),
+        );
+        if (
+          requestId !== latestAccountDetailRequestId ||
+          accountDetailTargetUserId !== targetUserId
+        ) return;
+        if (
+          !detail ||
+          !detail.account ||
+          detail.account.userId !== targetUserId
+        ) {
+          throw new Error('账号详情响应与当前目标不一致');
+        }
         renderAccountDetail(detail);
         renderAccountListFromCurrentPage();
       } catch (error) {
-        if (requestId !== latestAccountDetailRequestId) return;
-        document.getElementById('accountDetailNotice').textContent = error.message;
-        resetAccountDetail();
-        syncAccountManagementRouteState(currentAccountPage, '');
+        if (
+          requestId !== latestAccountDetailRequestId ||
+          accountDetailTargetUserId !== targetUserId
+        ) return;
+        renderAccountDetailError(targetUserId, error.message);
       }
     }
 
     function renderAccountListFromCurrentPage() {
       const cards = document.querySelectorAll('#accountList .account-card');
-      const selectedUserId = currentAccountDetail && currentAccountDetail.account
-        ? currentAccountDetail.account.userId
-        : '';
+      const selectedUserId = accountDetailTargetUserId;
       cards.forEach(function(card) {
         const button = card.querySelector('button');
         const onclick = button ? button.getAttribute('onclick') || '' : '';
@@ -1487,7 +1537,11 @@ export function renderAccountManagementAdminConsole() {
     }
 
     function selectedAccountUserId() {
-      if (!currentAccountDetail || !currentAccountDetail.account) {
+      if (
+        !currentAccountDetail ||
+        !currentAccountDetail.account ||
+        currentAccountDetail.account.userId !== accountDetailTargetUserId
+      ) {
         throw new Error('请先选择一个账号');
       }
       return currentAccountDetail.account.userId;
@@ -1502,20 +1556,31 @@ export function renderAccountManagementAdminConsole() {
     }
 
     async function updateAdminAuthAccountStatus(userId, status) {
+      if (accountDetailMutationPending) return;
+      const targetUserId = String(userId || '').trim();
+      accountDetailMutationPending = true;
+      updateAccountDetailMutationUi();
       document.getElementById('accountDetailNotice').textContent = '';
       try {
-        const data = await api('/admin/auth/accounts/' + encodeURIComponent(userId) + '/status', {
+        const data = await api('/admin/auth/accounts/' + encodeURIComponent(targetUserId) + '/status', {
           method: 'POST',
           body: JSON.stringify({
             status,
           }),
         });
-        document.getElementById('accountDetailStatus').textContent =
-          '账号状态已更新为 ' + formatAccountStatus(data.status) + '，顺手撤销会话 ' +
-          String(data.revokedSessionCount || 0) + ' 条。';
-        await refreshAccountWorkspaceAfterMutation();
+        if (accountDetailTargetUserId === targetUserId) {
+          document.getElementById('accountDetailStatus').textContent =
+            '账号状态已更新为 ' + formatAccountStatus(data.status) + '，顺手撤销会话 ' +
+            String(data.revokedSessionCount || 0) + ' 条。';
+        }
+        await refreshAccountWorkspaceAfterMutation(targetUserId);
       } catch (error) {
-        document.getElementById('accountDetailNotice').textContent = error.message;
+        if (accountDetailTargetUserId === targetUserId) {
+          document.getElementById('accountDetailNotice').textContent = error.message;
+        }
+      } finally {
+        accountDetailMutationPending = false;
+        updateAccountDetailMutationUi();
       }
     }
 
@@ -1527,23 +1592,34 @@ export function renderAccountManagementAdminConsole() {
     }
 
     async function revokeAdminAuthAccountSessions() {
+      if (accountDetailMutationPending) return;
+      const targetUserId = selectedAccountUserId();
+      const keepSessionIdInput = document.getElementById('accountKeepSessionIdInput');
+      const keepSessionId = keepSessionIdInput ? keepSessionIdInput.value.trim() : '';
+      accountDetailMutationPending = true;
+      updateAccountDetailMutationUi();
       document.getElementById('accountDetailNotice').textContent = '';
       try {
-        const keepSessionIdInput = document.getElementById('accountKeepSessionIdInput');
-        const keepSessionId = keepSessionIdInput ? keepSessionIdInput.value.trim() : '';
         const data = await api(
-          '/admin/auth/accounts/' + encodeURIComponent(selectedAccountUserId()) + '/revoke-sessions',
+          '/admin/auth/accounts/' + encodeURIComponent(targetUserId) + '/revoke-sessions',
           {
             method: 'POST',
             body: JSON.stringify(keepSessionId ? { keepSessionId } : {}),
           },
         );
-        document.getElementById('accountDetailStatus').textContent =
-          '已按账号撤销会话 ' + String(data.revokedCount || 0) + ' 条。' +
-          (data.keepSessionId ? ' 保留 sessionId：' + data.keepSessionId : '');
-        await refreshAccountWorkspaceAfterMutation();
+        if (accountDetailTargetUserId === targetUserId) {
+          document.getElementById('accountDetailStatus').textContent =
+            '已按账号撤销会话 ' + String(data.revokedCount || 0) + ' 条。' +
+            (data.keepSessionId ? ' 保留 sessionId：' + data.keepSessionId : '');
+        }
+        await refreshAccountWorkspaceAfterMutation(targetUserId);
       } catch (error) {
-        document.getElementById('accountDetailNotice').textContent = error.message;
+        if (accountDetailTargetUserId === targetUserId) {
+          document.getElementById('accountDetailNotice').textContent = error.message;
+        }
+      } finally {
+        accountDetailMutationPending = false;
+        updateAccountDetailMutationUi();
       }
     }
 

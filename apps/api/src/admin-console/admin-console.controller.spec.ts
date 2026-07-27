@@ -2437,7 +2437,7 @@ describe('account management admin console page', () => {
     expect(html).not.toContain('hero');
   });
 
-  it('ignores stale account list/detail/report responses and resets detail state on failures', () => {
+  it('keeps account list, detail and report generations independent', () => {
     const html = renderAccountManagementAdminConsole();
 
     expect(html).toContain('let latestAccountRequestId = 0');
@@ -2446,8 +2446,9 @@ describe('account management admin console page', () => {
     expect(html).toContain('let latestAccountDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestAccountDetailRequestId');
     expect(html).toContain(
-      'if (requestId !== latestAccountDetailRequestId) return',
+      'requestId !== latestAccountDetailRequestId ||',
     );
+    expect(html).toContain('accountDetailTargetUserId !== targetUserId');
     expect(html).toContain('let latestAccountReportRequestId = 0');
     expect(html).toContain('const requestId = ++latestAccountReportRequestId');
     expect(html).toContain(
@@ -2460,6 +2461,9 @@ describe('account management admin console page', () => {
     expect(html).toContain('resetAccountReport(');
     expect(html).toContain('renderAccountReportError');
     expect(html).toContain('resetAccountDetail()');
+    expect(html).toContain('let accountDetailMutationPending = false');
+    expect(html).toContain('if (accountDetailMutationPending) return');
+    expect(html).toContain('updateAccountDetailMutationUi');
     expect(html).toContain('风险账号');
     expect(html).toContain('不能禁用当前管理员账号');
   });
@@ -2484,7 +2488,7 @@ describe('account management admin console page', () => {
     expect(exportScript).not.toContain('let query;');
   });
 
-  it('loads routed account details outside the current page and invalidates resets', () => {
+  it('loads routed account details independently from the account page', () => {
     const html = renderAccountManagementAdminConsole();
     const resetStart = html.indexOf('function resetAccountDetail()');
     const resetEnd = html.indexOf('function renderAccountDetail(', resetStart);
@@ -2495,17 +2499,412 @@ describe('account management admin console page', () => {
       listStart,
     );
     const listScript = html.slice(listStart, listEnd);
+    const detailStart = listEnd;
+    const detailEnd = html.indexOf(
+      'function renderAccountListFromCurrentPage()',
+      detailStart,
+    );
+    const detailScript = html.slice(detailStart, detailEnd);
+    const detailCatchScript = detailScript.slice(
+      detailScript.indexOf('} catch (error) {'),
+    );
+    const refreshStart = html.indexOf(
+      'async function refreshAccountWorkspace(page)',
+    );
+    const refreshEnd = html.indexOf(
+      'async function loadAccountReport()',
+      refreshStart,
+    );
+    const refreshScript = html.slice(refreshStart, refreshEnd);
+    const bootstrapStart = html.indexOf('const storedSession = initializeAdminSession()');
+    const bootstrapScript = html.slice(bootstrapStart);
 
     expect(resetScript).toContain(
       'function resetAccountDetail() {\n      latestAccountDetailRequestId += 1;',
     );
-    expect(listScript).toContain(
-      "if (pendingAccountDetailUserId) {\n          const nextUserId = pendingAccountDetailUserId;\n          pendingAccountDetailUserId = '';\n          await loadAdminAuthAccountDetail(nextUserId);",
+    expect(resetScript).toContain("accountDetailTargetUserId = ''");
+    expect(listScript).not.toContain('loadAdminAuthAccountDetail');
+    expect(listScript).not.toContain('resetAccountDetail');
+    expect(listScript).not.toContain('latestAccountDetailRequestId');
+    expect(detailScript).toContain('accountDetailTargetUserId = targetUserId');
+    expect(detailScript).toContain(
+      'accountDetailTargetUserId !== targetUserId',
     );
-    expect(listScript).not.toContain('pendingAccountDetailUserId &&');
-    expect(listScript).toContain(
-      'const detailUserId = currentAccountDetailUserId();\n        if (detailUserId) {\n          renderAccountListFromCurrentPage();',
+    expect(detailScript).toContain(
+      'renderAccountDetailError(targetUserId, error.message)',
     );
+    expect(detailCatchScript).not.toContain(
+      "syncAccountManagementRouteState(currentAccountPage, '')",
+    );
+    expect(refreshScript).toContain(
+      'const targetDetailUserId = accountDetailTargetUserId',
+    );
+    expect(refreshScript).toContain(
+      'refreshTasks.push(loadAdminAuthAccountDetail(targetDetailUserId))',
+    );
+    expect(bootstrapScript).toContain('refreshAccountWorkspace(currentAccountPage)');
+    expect(bootstrapScript).not.toContain(
+      'loadAdminAuthAccountDetail(accountDetailTargetUserId)',
+    );
+  });
+
+  it('keeps a routed account detail when the independent list request fails', async () => {
+    const html = renderAccountManagementAdminConsole();
+    const listStart = html.indexOf('async function loadAdminAuthAccounts(');
+    const detailStart = html.indexOf(
+      'async function loadAdminAuthAccountDetail(',
+      listStart,
+    );
+    const detailEnd = html.indexOf(
+      'function renderAccountListFromCurrentPage()',
+      detailStart,
+    );
+    const listSource = html.slice(listStart, detailStart);
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const list = createDeferred();
+    const detail = createDeferred();
+    const nodes = new Map<
+      string,
+      { disabled: boolean; innerHTML: string; textContent: string }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = { disabled: false, innerHTML: '', textContent: '' };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn((path: string) =>
+      path.startsWith('/admin/auth/accounts?')
+        ? list.promise
+        : detail.promise,
+    );
+    const syncAccountManagementRouteState = jest.fn();
+    const renderAccountDetail = jest.fn();
+    const renderAccountDetailError = jest.fn();
+    const context = {
+      latestAccountRequestId: 0,
+      latestAccountDetailRequestId: 0,
+      currentAccountPage: 1,
+      currentAccountTotal: 0,
+      currentAccountItems: [] as unknown[],
+      currentAccountDetail: null as unknown,
+      accountDetailTargetUserId: 'account-routed',
+      document: {
+        getElementById: getNode,
+      },
+      syncAccountManagementRouteState,
+      buildAccountQuery: jest.fn(() => ({ toString: () => 'page=1' })),
+      api,
+      renderAccountSummary: jest.fn(),
+      renderAccountList: jest.fn(),
+      renderAccountPagination: jest.fn(),
+      accountPageSizeValue: jest.fn(() => 20),
+      updateAccountBulkSelectionUi: jest.fn(),
+      renderAccountListFromCurrentPage: jest.fn(),
+      updateAccountDetailMutationUi: jest.fn(),
+      resetAccountDetail: jest.fn(),
+      renderAccountDetail,
+      renderAccountDetailError,
+      escapeHtml: (value: unknown) => String(value),
+      encodeURIComponent,
+      invokeList: undefined as undefined | ((page: number) => Promise<void>),
+      invokeDetail: undefined as
+        | undefined
+        | ((userId: string) => Promise<void>),
+    };
+
+    runInNewContext(
+      `${listSource}\n${detailSource}\ninvokeList = loadAdminAuthAccounts; invokeDetail = loadAdminAuthAccountDetail;`,
+      context,
+    );
+
+    const listRequest = context.invokeList!(1);
+    const detailRequest = context.invokeDetail!('account-routed');
+    list.reject!(new Error('账号目录暂不可用'));
+    detail.resolve!({
+      account: { userId: 'account-routed' },
+      activeSessions: [],
+      recentAuditEvents: [],
+    });
+    await Promise.all([listRequest, detailRequest]);
+
+    expect(renderAccountDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: expect.objectContaining({ userId: 'account-routed' }),
+      }),
+    );
+    expect(renderAccountDetailError).not.toHaveBeenCalled();
+    expect(context.accountDetailTargetUserId).toBe('account-routed');
+    expect(syncAccountManagementRouteState.mock.calls).not.toContainEqual([
+      1,
+      '',
+    ]);
+    expect(getNode('accountNotice').textContent).toBe('账号目录暂不可用');
+  });
+
+  it('commits only the latest routed account detail and retains failed targets', async () => {
+    const html = renderAccountManagementAdminConsole();
+    const detailStart = html.indexOf(
+      'async function loadAdminAuthAccountDetail(',
+    );
+    const detailEnd = html.indexOf(
+      'function renderAccountListFromCurrentPage()',
+      detailStart,
+    );
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const pending = new Map<string, ReturnType<typeof createDeferred>>();
+    const nodes = new Map<
+      string,
+      { disabled: boolean; innerHTML: string; textContent: string }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = { disabled: false, innerHTML: '', textContent: '' };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn((path: string) => {
+      const request = pending.get(path);
+      if (!request) {
+        return Promise.reject(new Error('unexpected request: ' + path));
+      }
+      return request.promise;
+    });
+    const renderAccountDetail = jest.fn();
+    const renderAccountDetailError = jest.fn();
+    const syncAccountManagementRouteState = jest.fn();
+    const context = {
+      latestAccountDetailRequestId: 0,
+      currentAccountPage: 1,
+      currentAccountDetail: null as unknown,
+      accountDetailTargetUserId: '',
+      document: { getElementById: getNode },
+      syncAccountManagementRouteState,
+      renderAccountListFromCurrentPage: jest.fn(),
+      updateAccountDetailMutationUi: jest.fn(),
+      resetAccountDetail: jest.fn(),
+      renderAccountDetail,
+      renderAccountDetailError,
+      escapeHtml: (value: unknown) => String(value),
+      encodeURIComponent,
+      api,
+      invokeDetail: undefined as
+        | undefined
+        | ((userId: string) => Promise<void>),
+    };
+    runInNewContext(
+      `${detailSource}\ninvokeDetail = loadAdminAuthAccountDetail;`,
+      context,
+    );
+
+    const requestA = createDeferred();
+    const requestB = createDeferred();
+    pending.set('/admin/auth/accounts/account-a', requestA);
+    pending.set('/admin/auth/accounts/account-b', requestB);
+    const detailA = context.invokeDetail!('account-a');
+    const detailB = context.invokeDetail!('account-b');
+    requestB.resolve!({ account: { userId: 'account-b' } });
+    await detailB;
+    requestA.resolve!({ account: { userId: 'account-a' } });
+    await detailA;
+
+    expect(renderAccountDetail).toHaveBeenCalledTimes(1);
+    expect(renderAccountDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: expect.objectContaining({ userId: 'account-b' }),
+      }),
+    );
+    expect(context.accountDetailTargetUserId).toBe('account-b');
+
+    const failedRequest = createDeferred();
+    pending.set('/admin/auth/accounts/account-missing', failedRequest);
+    const missingDetail = context.invokeDetail!('account-missing');
+    failedRequest.reject!(new Error('账号不存在'));
+    await missingDetail;
+
+    expect(renderAccountDetailError).toHaveBeenCalledWith(
+      'account-missing',
+      '账号不存在',
+    );
+    expect(context.accountDetailTargetUserId).toBe('account-missing');
+    expect(syncAccountManagementRouteState.mock.calls.at(-1)).toEqual([
+      1,
+      'account-missing',
+    ]);
+  });
+
+  it('locks duplicate account mutations and never writes an older target into the new selection', async () => {
+    const html = renderAccountManagementAdminConsole();
+    const refreshStart = html.indexOf(
+      'async function refreshAccountWorkspaceAfterMutation(',
+    );
+    const refreshEnd = html.indexOf(
+      'async function runBatchStatusUpdate(',
+      refreshStart,
+    );
+    const refreshSource = html.slice(refreshStart, refreshEnd);
+    const mutationStart = html.indexOf(
+      'async function updateAdminAuthAccountStatus(',
+    );
+    const mutationEnd = html.indexOf(
+      'async function toggleSelectedAccountStatus()',
+      mutationStart,
+    );
+    const mutationSource = html.slice(mutationStart, mutationEnd);
+    let resolveMutation: ((value: unknown) => void) | undefined;
+    const mutation = new Promise<unknown>(resolve => {
+      resolveMutation = resolve;
+    });
+    const nodes = new Map<string, { textContent: string }>();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = { textContent: id === 'accountDetailStatus' ? '账号 B' : '' };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn(() => mutation);
+    const updateAccountDetailMutationUi = jest.fn();
+    const loadAdminAuthAccounts = jest.fn().mockResolvedValue(undefined);
+    const loadAccountReport = jest.fn().mockResolvedValue(undefined);
+    const loadAdminAuthAccountDetail = jest.fn().mockResolvedValue(undefined);
+    const context = {
+      accountDetailMutationPending: false,
+      accountDetailTargetUserId: 'account-a',
+      currentAccountPage: 3,
+      document: { getElementById: getNode },
+      api,
+      updateAccountDetailMutationUi,
+      loadAdminAuthAccounts,
+      loadAccountReport,
+      loadAdminAuthAccountDetail,
+      formatAccountStatus: (status: string) => status,
+      encodeURIComponent,
+      invokeMutation: undefined as
+        | undefined
+        | ((userId: string, status: string) => Promise<void>),
+    };
+    runInNewContext(
+      `${refreshSource}\n${mutationSource}\ninvokeMutation = updateAdminAuthAccountStatus;`,
+      context,
+    );
+
+    const firstMutation = context.invokeMutation!('account-a', 'disabled');
+    const duplicateMutation = context.invokeMutation!('account-a', 'disabled');
+    context.accountDetailTargetUserId = 'account-b';
+    resolveMutation!({ status: 'disabled', revokedSessionCount: 2 });
+    await Promise.all([firstMutation, duplicateMutation]);
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(
+      '/admin/auth/accounts/account-a/status',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(loadAdminAuthAccounts).toHaveBeenCalledWith(3);
+    expect(loadAccountReport).toHaveBeenCalledTimes(1);
+    expect(loadAdminAuthAccountDetail).not.toHaveBeenCalled();
+    expect(getNode('accountDetailStatus').textContent).toBe('账号 B');
+    expect(getNode('accountDetailNotice').textContent).toBe('');
+    expect(context.accountDetailMutationPending).toBe(false);
+    expect(updateAccountDetailMutationUi).toHaveBeenCalledTimes(2);
+  });
+
+  it('binds session revocation failures to their starting account and releases the lock', async () => {
+    const html = renderAccountManagementAdminConsole();
+    const selectionStart = html.indexOf('function selectedAccountUserId()');
+    const selectionEnd = html.indexOf(
+      'function changeAccountPage(',
+      selectionStart,
+    );
+    const selectionAndMutationSource = html.slice(
+      selectionStart,
+      selectionEnd,
+    );
+    let rejectMutation: ((reason?: unknown) => void) | undefined;
+    const mutation = new Promise<unknown>((_resolve, reject) => {
+      rejectMutation = reject;
+    });
+    const nodes = new Map<
+      string,
+      { textContent: string; value: string }
+    >();
+    const getNode = (id: string) => {
+      const existing = nodes.get(id);
+      if (existing) return existing;
+      const created = {
+        textContent: id === 'accountDetailStatus' ? '账号 B' : '',
+        value:
+          id === 'accountKeepSessionIdInput'
+            ? ' 550e8400-e29b-41d4-a716-446655440112 '
+            : '',
+      };
+      nodes.set(id, created);
+      return created;
+    };
+    const api = jest.fn(() => mutation);
+    const updateAccountDetailMutationUi = jest.fn();
+    const refreshAccountWorkspaceAfterMutation = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    const context = {
+      currentAccountDetail: {
+        account: { userId: 'account-a', status: 'active' },
+      },
+      accountDetailTargetUserId: 'account-a',
+      accountDetailMutationPending: false,
+      document: { getElementById: getNode },
+      api,
+      updateAccountDetailMutationUi,
+      refreshAccountWorkspaceAfterMutation,
+      encodeURIComponent,
+      invokeRevoke: undefined as undefined | (() => Promise<void>),
+    };
+    runInNewContext(
+      `${selectionAndMutationSource}\ninvokeRevoke = revokeAdminAuthAccountSessions;`,
+      context,
+    );
+
+    const firstMutation = context.invokeRevoke!();
+    const duplicateMutation = context.invokeRevoke!();
+    context.accountDetailTargetUserId = 'account-b';
+    rejectMutation!(new Error('会话撤销失败'));
+    await Promise.all([firstMutation, duplicateMutation]);
+
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(api).toHaveBeenCalledWith(
+      '/admin/auth/accounts/account-a/revoke-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          keepSessionId: '550e8400-e29b-41d4-a716-446655440112',
+        }),
+      }),
+    );
+    expect(refreshAccountWorkspaceAfterMutation).not.toHaveBeenCalled();
+    expect(getNode('accountDetailStatus').textContent).toBe('账号 B');
+    expect(getNode('accountDetailNotice').textContent).toBe('');
+    expect(context.accountDetailMutationPending).toBe(false);
+    expect(updateAccountDetailMutationUi).toHaveBeenCalledTimes(2);
   });
 
   it('syncs account filters, pagination and selected account detail into route state', () => {
