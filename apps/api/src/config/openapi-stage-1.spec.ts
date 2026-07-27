@@ -1825,20 +1825,34 @@ describe('stage 1 OpenAPI contract', () => {
 
   it('documents the admin evaluation audit endpoints', () => {
     const source = readFileSync(openApiPath, 'utf8');
+    const detailPath = '/admin/evaluations/{evaluationId}';
 
     expect(source).toContain('/admin/evaluations:');
+    expect(source).toContain(`${detailPath}:`);
     expect(source).toContain('/admin/evaluations/{evaluationId}/attachments:');
     expect(source).toContain('List admin evaluation audit records');
+    expect(source).toContain('Get admin evaluation audit detail');
     expect(source).toContain('Get admin evaluation audit attachment previews');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: direction');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: rating');
     expectPathBlockToContain(source, '/admin/evaluations', 'name: keyword');
     expectPathBlockToContain(
       source,
+      detailPath,
+      "$ref: '#/components/schemas/AdminEvaluationAuditResponse'",
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
+      'EVALUATION_AUDIT_NOT_FOUND',
+    );
+    expectPathBlockToContain(
+      source,
       '/admin/evaluations/{evaluationId}/attachments',
       'name: evaluationId',
     );
     expect(source).toContain('AdminEvaluationAuditListResponse');
+    expect(source).toContain('AdminEvaluationAuditResponse');
     expect(source).toContain('AdminEvaluationAuditRecord');
     expect(source).toContain('AdminEvaluationAuditAttachmentPreviewResponse');
     expect(source).toContain('AdminEvaluationAuditAttachmentPreview');
@@ -1860,6 +1874,11 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(
       source,
       '/admin/evaluations',
+      "$ref: '#/components/responses/AdminOnlyError'",
+    );
+    expectPathBlockToContain(
+      source,
+      detailPath,
       "$ref: '#/components/responses/AdminOnlyError'",
     );
     expectPathBlockToContain(

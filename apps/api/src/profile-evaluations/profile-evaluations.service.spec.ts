@@ -456,6 +456,99 @@ describe('ProfileEvaluationsService', () => {
       });
   });
 
+  it('returns one admin evaluation audit independently from list pagination', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-audit-detail',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090104',
+          events: [
+            createEvent({
+              id: 'accepted-audit-detail',
+              actorUserId: 'driver-1',
+              eventType: 'driver_accepted',
+              noteText: JSON.stringify({
+                noteText: '司机接单',
+                driverSnapshot: { driverName: '李师傅' },
+              }),
+              createdAtIso: '2026-07-09T07:30:00.000Z',
+            }),
+            createEvent({
+              id: 'audit-detail-1',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText: '5 星：准时送达；司机服务细致',
+              attachmentFileIds: ['file-eval-detail'],
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(
+      service.getAdminEvaluationAudit(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'audit-detail-1',
+      ),
+    ).resolves.toEqual({
+      id: 'audit-detail-1',
+      orderId: 'order-audit-detail',
+      orderNo: 'HY202607090104',
+      direction: 'shipper_to_driver',
+      reviewerUserId: 'shipper-1',
+      reviewerName: '平台货主 shipper-1',
+      revieweeUserId: 'driver-1',
+      revieweeName: '李师傅',
+      rating: 5,
+      tags: ['准时送达'],
+      content: '司机服务细致',
+      anonymous: false,
+      photoCount: 1,
+      photoFileIds: ['file-eval-detail'],
+      submittedAtIso: '2026-07-09T09:00:00.000Z',
+    });
+  });
+
+  it('rejects missing admin evaluation audit details with not found', async () => {
+    const service = new ProfileEvaluationsService(
+      new InMemoryProfileEvaluationsRepository(),
+    );
+
+    await expect(
+      service.getAdminEvaluationAudit(
+        { id: 'admin-1', phone: '13900139000', userType: 'admin' },
+        'missing-evaluation',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(
+        ApiErrorCode.EVALUATION_AUDIT_NOT_FOUND,
+        '评价审计记录不存在',
+      ),
+    );
+  });
+
+  it('rejects non-admin audit detail access before repository reads', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository();
+    const findAudit = jest.spyOn(
+      repository,
+      'findAdminEvaluationOrderByEventId',
+    );
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(
+      service.getAdminEvaluationAudit(
+        { id: 'shipper-1', phone: '13900139000', userType: 'shipper' },
+        'audit-detail-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(findAudit).not.toHaveBeenCalled();
+  });
+
   it('returns admin evaluation attachment previews with missing file hints', async () => {
     const repository = new InMemoryProfileEvaluationsRepository({
       orders: [

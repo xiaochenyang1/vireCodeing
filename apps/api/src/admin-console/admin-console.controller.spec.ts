@@ -352,43 +352,182 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain('auditRatingInput');
     expect(html).toContain('auditKeywordInput');
     expect(html).toContain('/admin/evaluations?');
-    expect(html).toContain('/admin/evaluations/');
-    expect(html).toContain('/attachments');
-    expect(html).toContain('loadAuditAttachments');
+    expect(html).toContain(
+      "api('/admin/evaluations/' + encodeURIComponent(targetAuditId))",
+    );
+    expect(html).toContain(
+      "encodeURIComponent(targetAuditId) + '/attachments'",
+    );
     expect(html).toContain('auditPhotoNotice');
     expect(html).toContain('打开预览');
     expect(html).toContain('/api/admin/file-maintenance-console');
     expect(html).toContain('/api/admin/order-exception-case-console');
   });
 
-  it('ignores stale query responses and clears stale records after errors', () => {
+  it('keeps queue and routed detail request generations independent', () => {
     const html = renderEvaluationAuditAdminConsole();
+    const queueStart = html.indexOf('async function loadAudits(page)');
+    const queueEnd = html.indexOf(
+      'async function refreshAuditWorkspace(page)',
+      queueStart,
+    );
+    const queueBody = html.slice(queueStart, queueEnd);
+    const refreshEnd = html.indexOf(
+      'function clearAuditQueueResults()',
+      queueEnd,
+    );
+    const refreshBody = html.slice(queueEnd, refreshEnd);
+    const clearEnd = html.indexOf(
+      'function renderAuditPagination(pageSizeValue)',
+      refreshEnd,
+    );
+    const clearBody = html.slice(refreshEnd, clearEnd);
+    const requestedPageIndex = queueBody.indexOf(
+      'const requestedPage = Math.max(1, page)',
+    );
+    const currentPageIndex = queueBody.indexOf(
+      'currentPage = requestedPage',
+      requestedPageIndex,
+    );
+    const queueApiIndex = queueBody.indexOf(
+      "api('/admin/evaluations?'",
+      currentPageIndex,
+    );
 
     expect(html).toContain('let latestAuditRequestId = 0');
+    expect(html).toContain('let latestAuditDetailRequestId = 0');
     expect(html).toContain('const requestId = ++latestAuditRequestId');
     expect(html).toContain('if (requestId !== latestAuditRequestId) return');
-    expect(html).toContain('clearAuditResults()');
+    expect(currentPageIndex).toBeGreaterThan(requestedPageIndex);
+    expect(queueApiIndex).toBeGreaterThan(currentPageIndex);
+    expect(queueBody).toContain(
+      'if (requestedPage > maxPage) return loadAudits(maxPage)',
+    );
+    expect(queueBody).not.toContain('latestAuditDetailRequestId');
+    expect(queueBody).not.toContain("selectedAuditId = ''");
+    expect(refreshBody).toContain('loadAudits(page)');
+    expect(refreshBody).toContain('selectAudit(targetAuditId)');
+    expect(clearBody).not.toContain('selectedAuditId');
+    expect(clearBody).not.toContain('auditDetail');
   });
 
-  it('invalidates pending attachment requests when the evaluation context clears', () => {
+  it('commits only the latest routed evaluation detail and attachment state', async () => {
     const html = renderEvaluationAuditAdminConsole();
-    const attachmentLoaderStart = html.indexOf(
-      'async function loadAuditAttachments(item)',
+    const detailStart = html.indexOf('async function selectAudit(auditId)');
+    const detailEnd = html.indexOf(
+      'function renderAuditDetail(item)',
+      detailStart,
     );
-    const requestIdIndex = html.indexOf(
-      'const requestId = ++latestAuditAttachmentRequestId',
-      attachmentLoaderStart,
+    const detailSource = html.slice(detailStart, detailEnd);
+    const createDeferred = () => {
+      let resolve: ((value: unknown) => void) | undefined;
+      let reject: ((reason?: unknown) => void) | undefined;
+      const promise = new Promise<unknown>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+      });
+      return { promise, reject, resolve };
+    };
+    const pending = new Map<string, ReturnType<typeof createDeferred>>();
+    const createAuditRequests = (auditId: string) => {
+      const detail = createDeferred();
+      const attachments = createDeferred();
+      pending.set('/admin/evaluations/' + auditId, detail);
+      pending.set('/admin/evaluations/' + auditId + '/attachments', attachments);
+      return { attachments, detail };
+    };
+    const api = jest.fn((path: string) => {
+      const deferred = pending.get(path);
+      return deferred
+        ? deferred.promise
+        : Promise.reject(new Error('unexpected request: ' + path));
+    });
+    const renderAuditDetail = jest.fn();
+    const renderAuditAttachments = jest.fn();
+    const renderAuditAttachmentError = jest.fn();
+    const renderAuditDetailMessage = jest.fn();
+    const context = {
+      latestAuditDetailRequestId: 0,
+      selectedAuditId: '',
+      currentPage: 1,
+      document: {
+        getElementById: jest.fn(() => ({ value: '20' })),
+      },
+      syncEvaluationAuditRouteState: jest.fn(),
+      renderAuditList: jest.fn(),
+      renderAuditDetailMessage,
+      api,
+      encodeURIComponent,
+      renderAuditDetail,
+      renderAuditAttachments,
+      renderAuditAttachmentError,
+      invokeSelectAudit: undefined as
+        | undefined
+        | ((auditId: string) => Promise<void>),
+    };
+    runInNewContext(
+      `${detailSource}\ninvokeSelectAudit = selectAudit;`,
+      context,
     );
-    const emptyAttachmentIndex = html.indexOf(
-      'if (item.photoCount === 0 && photoFileIds.length === 0)',
-      attachmentLoaderStart,
+    if (!context.invokeSelectAudit) {
+      throw new Error('selectAudit function was not initialized');
+    }
+
+    const auditA = createAuditRequests('audit-a');
+    const auditB = createAuditRequests('audit-b');
+    const slowAuditA = context.invokeSelectAudit('audit-a');
+    const fastAuditB = context.invokeSelectAudit('audit-b');
+    const auditBDetail = { id: 'audit-b', orderId: 'order-b' };
+    const auditBAttachments = { evaluationId: 'audit-b', items: [] };
+    auditB.detail.resolve?.(auditBDetail);
+    auditB.attachments.resolve?.(auditBAttachments);
+    await fastAuditB;
+
+    expect(renderAuditDetail).toHaveBeenCalledTimes(1);
+    expect(renderAuditDetail).toHaveBeenLastCalledWith(auditBDetail);
+    expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
+    expect(renderAuditAttachments).toHaveBeenLastCalledWith(auditBAttachments);
+
+    auditA.detail.resolve?.({ id: 'audit-a', orderId: 'order-a' });
+    auditA.attachments.resolve?.({ evaluationId: 'audit-a', items: [] });
+    await slowAuditA;
+    expect(renderAuditDetail).toHaveBeenCalledTimes(1);
+    expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
+
+    const auditC = createAuditRequests('audit-c');
+    const failedAuditC = context.invokeSelectAudit('audit-c');
+    const auditCDetail = {
+      id: 'audit-c',
+      orderId: 'order-c',
+      photoCount: 1,
+      photoFileIds: ['file-c'],
+    };
+    auditC.detail.resolve?.(auditCDetail);
+    auditC.attachments.reject?.(new Error('附件加载失败'));
+    await failedAuditC;
+
+    expect(context.selectedAuditId).toBe('audit-c');
+    expect(renderAuditDetail).toHaveBeenCalledTimes(2);
+    expect(renderAuditDetail).toHaveBeenLastCalledWith(auditCDetail);
+    expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
+    expect(renderAuditAttachmentError).toHaveBeenCalledWith(
+      auditCDetail,
+      expect.objectContaining({ message: '附件加载失败' }),
     );
 
-    expect(html).toContain('function invalidateAuditAttachments()');
-    expect(html).toContain('latestAuditAttachmentRequestId += 1');
-    expect(html).toContain('clearAuditAttachmentPanel()');
-    expect(requestIdIndex).toBeGreaterThan(attachmentLoaderStart);
-    expect(requestIdIndex).toBeLessThan(emptyAttachmentIndex);
+    const auditD = createAuditRequests('audit-d');
+    const failedAuditD = context.invokeSelectAudit('audit-d');
+    auditD.detail.reject?.(new Error('评价记录不存在'));
+    auditD.attachments.resolve?.({ evaluationId: 'audit-d', items: [] });
+    await failedAuditD;
+
+    expect(context.selectedAuditId).toBe('audit-d');
+    expect(renderAuditDetail).toHaveBeenCalledTimes(2);
+    expect(renderAuditAttachments).toHaveBeenCalledTimes(1);
+    expect(renderAuditAttachmentError).toHaveBeenCalledTimes(1);
+    expect(renderAuditDetailMessage).toHaveBeenLastCalledWith(
+      '评价记录不存在',
+    );
   });
 
   it('syncs evaluation filters and selected audit detail into route state', () => {
@@ -400,7 +539,7 @@ describe('evaluation audit admin console page', () => {
     expect(html).toContain("query.set('auditId', auditId)");
     expect(html).toContain("query.set('direction', direction)");
     expect(html).toContain("query.set('rating', rating)");
-    expect(html).toContain('loadAudits(currentPage)');
+    expect(html).toContain('refreshAuditWorkspace(currentPage)');
   });
 });
 

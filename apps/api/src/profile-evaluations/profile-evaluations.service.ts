@@ -84,24 +84,22 @@ export class ProfileEvaluationsService {
     };
   }
 
+  async getAdminEvaluationAudit(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+  ): Promise<AdminEvaluationAuditRecord> {
+    this.assertAdmin(currentUser);
+
+    return this.requireAdminEvaluationAudit(evaluationId);
+  }
+
   async getAdminEvaluationAuditAttachments(
     currentUser: AuthenticatedUser,
     evaluationId: string,
   ): Promise<AdminEvaluationAuditAttachmentPreview> {
     this.assertAdmin(currentUser);
     const filesRepository = this.requireFilesRepository();
-    const order =
-      await this.repository.findAdminEvaluationOrderByEventId(evaluationId);
-
-    if (!order) {
-      throw evaluationAuditNotFoundError();
-    }
-
-    const evaluation = findAdminEvaluationAuditRecordById(order, evaluationId);
-
-    if (!evaluation) {
-      throw evaluationAuditNotFoundError();
-    }
+    const evaluation = await this.requireAdminEvaluationAudit(evaluationId);
 
     const photoFileIds = evaluation.photoFileIds ?? [];
 
@@ -138,6 +136,20 @@ export class ProfileEvaluationsService {
       items,
       missingFileIds,
     };
+  }
+
+  private async requireAdminEvaluationAudit(evaluationId: string) {
+    const order =
+      await this.repository.findAdminEvaluationOrderByEventId(evaluationId);
+    const evaluation = order
+      ? findAdminEvaluationAuditRecordById(order, evaluationId)
+      : undefined;
+
+    if (!evaluation) {
+      throw evaluationAuditNotFoundError();
+    }
+
+    return evaluation;
   }
 
   private assertAdmin(currentUser: AuthenticatedUser) {

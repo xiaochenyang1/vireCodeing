@@ -705,6 +705,14 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         `/admin/evaluations?${new URLSearchParams(normalizedQuery).toString()}`,
       );
     },
+    async getAdminEvaluationAudit(evaluationId: string) {
+      return platformGet<PlatformAdminEvaluationAuditRecord>(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}`,
+      );
+    },
     async getAdminEvaluationAuditAttachments(evaluationId: string) {
       return platformGet<PlatformAdminEvaluationAuditAttachmentPreview>(
         config,

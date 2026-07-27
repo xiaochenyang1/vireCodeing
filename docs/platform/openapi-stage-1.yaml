@@ -1833,6 +1833,46 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           $ref: '#/components/responses/AdminOnlyError'
+  /admin/evaluations/{evaluationId}:
+    get:
+      summary: Get admin evaluation audit detail
+      description: Returns one complete evaluation audit record by its source event ID, independent of the current list page and filters.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: admin-evaluation-audit-1
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin evaluation audit detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationAuditResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/AdminOnlyError'
+        '404':
+          description: Evaluation audit record does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: EVALUATION_AUDIT_NOT_FOUND
+                message: 评价审计记录不存在
+                requestId: req_local
+                timestamp: '2026-07-26T08:00:00.000Z'
   /admin/evaluations/{evaluationId}/attachments:
     get:
       summary: Get admin evaluation audit attachment previews
@@ -12591,6 +12631,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/AdminEvaluationAuditListResult'
+    AdminEvaluationAuditResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/AdminEvaluationAuditRecord'
     AdminEvaluationAuditAttachmentRecord:
       allOf:
         - $ref: '#/components/schemas/FileUploadRecord'

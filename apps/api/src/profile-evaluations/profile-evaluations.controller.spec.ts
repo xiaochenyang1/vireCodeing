@@ -211,6 +211,63 @@ describe('AdminProfileEvaluationsController', () => {
     );
   });
 
+  it('returns one admin evaluation audit detail', async () => {
+    const service = {
+      getAdminEvaluationAudit: jest.fn().mockResolvedValue({
+        id: 'audit-1',
+        orderId: 'order-1',
+        orderNo: 'HY202607090001',
+        direction: 'driver_to_shipper',
+        reviewerUserId: 'driver-1',
+        reviewerName: '平台司机 driver-1',
+        revieweeUserId: 'shipper-1',
+        revieweeName: '平台货主 shipper-1',
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主配合很好',
+        anonymous: false,
+        photoCount: 0,
+        submittedAtIso: '2026-07-09T08:00:00.000Z',
+      }),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+
+    await expect(
+      controller.getEvaluationAudit(
+        createRequest('admin-1', 'admin'),
+        'audit-1',
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        id: 'audit-1',
+        orderId: 'order-1',
+        direction: 'driver_to_shipper',
+      },
+    });
+    expect(service.getAdminEvaluationAudit).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'audit-1',
+    );
+  });
+
+  it('rejects non-admin evaluation audit detail access before service calls', async () => {
+    const service = {
+      getAdminEvaluationAudit: jest.fn(),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+
+    await expect(
+      controller.getEvaluationAudit(
+        createRequest('shipper-1', 'shipper'),
+        'audit-1',
+      ),
+    ).rejects.toMatchObject(
+      new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员'),
+    );
+    expect(service.getAdminEvaluationAudit).not.toHaveBeenCalled();
+  });
+
   it('rejects non-admin users before reading evaluation audit records', async () => {
     const service = {
       listAdminEvaluationAudits: jest.fn(),

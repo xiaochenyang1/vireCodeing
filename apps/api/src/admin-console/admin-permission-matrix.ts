@@ -387,6 +387,7 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
     riskLevel: 'sensitive',
     apiPaths: [
       '/admin/evaluations',
+      '/admin/evaluations/{evaluationId}',
       '/admin/evaluations/{evaluationId}/attachments',
     ],
   },

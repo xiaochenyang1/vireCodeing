@@ -61,7 +61,7 @@ export function renderEvaluationAuditAdminConsole() {
       </div>
       <div class="filters">
         <label>每页<input id="auditPageSizeInput" type="number" min="1" max="50" value="20" /></label>
-        <label>&nbsp;<button id="loadAuditButton" onclick="loadAudits(1)">查询评价</button></label>
+        <label>&nbsp;<button id="loadAuditButton" onclick="refreshAuditWorkspace(1)">查询评价</button></label>
       </div>
       <div id="auditListNotice" class="error"></div>
       <div id="auditPaginationStatus" class="muted">暂无评价记录</div>
@@ -89,7 +89,7 @@ export function renderEvaluationAuditAdminConsole() {
     let currentItems = [];
     let selectedAuditId = '';
     let latestAuditRequestId = 0;
-    let latestAuditAttachmentRequestId = 0;
+    let latestAuditDetailRequestId = 0;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/evaluation-audit-console',
     })}
@@ -134,8 +134,10 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditPhotoPanel').hidden = true;
     }
 
-    function invalidateAuditAttachments() {
-      latestAuditAttachmentRequestId += 1;
+    function renderAuditDetailMessage(message) {
+      document.getElementById('auditDetail').innerHTML =
+        '<p class="muted">' + escapeHtml(message || '请选择左侧评价记录') + '</p>';
+      document.getElementById('auditTags').innerHTML = '';
       clearAuditAttachmentPanel();
     }
 
@@ -211,6 +213,7 @@ export function renderEvaluationAuditAdminConsole() {
     async function loadAudits(page) {
       const requestId = ++latestAuditRequestId;
       const requestedPage = Math.max(1, page);
+      currentPage = requestedPage;
       try {
         const pageSize = document.getElementById('auditPageSizeInput').value || '20';
         const query = new URLSearchParams({
@@ -226,48 +229,44 @@ export function renderEvaluationAuditAdminConsole() {
         syncEvaluationAuditRouteState(requestedPage, pageSize);
         const result = await api('/admin/evaluations?' + query.toString());
         if (requestId !== latestAuditRequestId) return;
-        currentPage = requestedPage;
-        total = result.total;
+        const resultTotal = Number(result.total || 0);
+        const maxPage = Math.max(1, Math.ceil(resultTotal / Number(pageSize)));
+        if (requestedPage > maxPage) return loadAudits(maxPage);
+        total = resultTotal;
         currentItems = result.items || [];
         document.getElementById('auditListNotice').textContent = '';
         renderAuditPagination(pageSize);
         renderAuditList();
-        const nextSelectedId = currentItems.some(item => item.id === selectedAuditId)
-          ? selectedAuditId
-          : currentItems[0]?.id;
-        if (nextSelectedId) {
-          selectAudit(nextSelectedId);
-        } else {
-          selectedAuditId = '';
-          syncEvaluationAuditRouteState(currentPage, pageSize, '');
-          document.getElementById('auditDetail').innerHTML = '<p class="muted">当前筛选条件下暂无评价记录</p>';
-          document.getElementById('auditTags').innerHTML = '';
-          invalidateAuditAttachments();
+        if (!selectedAuditId) {
+          const firstAuditId = currentItems[0]?.id || '';
+          if (firstAuditId) {
+            await selectAudit(firstAuditId);
+          } else {
+            renderAuditDetailMessage('当前筛选条件下暂无评价记录');
+          }
         }
       } catch (error) {
         if (requestId !== latestAuditRequestId) return;
-        currentPage = requestedPage;
-        clearAuditResults();
+        clearAuditQueueResults();
         document.getElementById('auditListNotice').textContent = error.message;
       }
     }
 
-    function clearAuditResults() {
+    async function refreshAuditWorkspace(page) {
+      const targetAuditId = selectedAuditId;
+      await Promise.all([
+        loadAudits(page),
+        ...(targetAuditId ? [selectAudit(targetAuditId)] : []),
+      ]);
+    }
+
+    function clearAuditQueueResults() {
       total = 0;
       currentItems = [];
-      selectedAuditId = '';
-      syncEvaluationAuditRouteState(
-        currentPage,
-        document.getElementById('auditPageSizeInput').value || '20',
-        '',
-      );
       document.getElementById('auditPaginationStatus').textContent = '评价记录加载失败';
       document.getElementById('auditList').innerHTML = '';
       document.getElementById('auditPreviousPage').disabled = true;
       document.getElementById('auditNextPage').disabled = true;
-      document.getElementById('auditDetail').innerHTML = '<p class="muted">暂无可展示的评价详情</p>';
-      document.getElementById('auditTags').innerHTML = '';
-      invalidateAuditAttachments();
     }
 
     function renderAuditPagination(pageSizeValue) {
@@ -288,22 +287,61 @@ export function renderEvaluationAuditAdminConsole() {
     function changeAuditPage(offset) {
       const pageSize = Number(document.getElementById('auditPageSizeInput').value || 20);
       const maxPage = Math.max(1, Math.ceil(total / pageSize));
-      loadAudits(Math.min(maxPage, Math.max(1, currentPage + offset)));
+      refreshAuditWorkspace(Math.min(maxPage, Math.max(1, currentPage + offset)));
     }
 
-    function selectAudit(auditId) {
-      selectedAuditId = auditId;
+    async function selectAudit(auditId) {
+      const requestId = ++latestAuditDetailRequestId;
+      const targetAuditId = String(auditId || '').trim();
+      selectedAuditId = targetAuditId;
       syncEvaluationAuditRouteState(
         currentPage,
         document.getElementById('auditPageSizeInput').value || '20',
         selectedAuditId,
       );
       renderAuditList();
-      const item = currentItems.find(candidate => candidate.id === auditId);
-      if (!item) {
-        invalidateAuditAttachments();
+      renderAuditDetailMessage(
+        targetAuditId ? '评价详情与图片加载中...' : '请选择左侧评价记录',
+      );
+      if (!targetAuditId) {
         return;
       }
+
+      try {
+        const [detailResult, attachmentResult] = await Promise.allSettled([
+          api('/admin/evaluations/' + encodeURIComponent(targetAuditId)),
+          api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/attachments'),
+        ]);
+        if (
+          requestId !== latestAuditDetailRequestId ||
+          selectedAuditId !== targetAuditId
+        ) return;
+        if (detailResult.status !== 'fulfilled') {
+          const detailError = detailResult.reason;
+          renderAuditDetailMessage(
+            detailError && detailError.message
+              ? detailError.message
+              : '评价详情加载失败',
+          );
+          return;
+        }
+        const item = detailResult.value;
+        renderAuditDetail(item);
+        if (attachmentResult.status === 'fulfilled') {
+          renderAuditAttachments(attachmentResult.value);
+        } else {
+          renderAuditAttachmentError(item, attachmentResult.reason);
+        }
+      } catch (error) {
+        if (
+          requestId !== latestAuditDetailRequestId ||
+          selectedAuditId !== targetAuditId
+        ) return;
+        renderAuditDetailMessage(error.message || '评价详情加载失败');
+      }
+    }
+
+    function renderAuditDetail(item) {
       document.getElementById('auditDetail').innerHTML =
         '<div class="detail-grid">' +
           '<div class="detail-card"><strong>订单</strong><div>' + escapeHtml(item.orderNo) + '</div><div class="muted">' + escapeHtml(item.orderId) + '</div></div>' +
@@ -313,35 +351,20 @@ export function renderEvaluationAuditAdminConsole() {
         '</div>' +
         '<div class="detail-card"><strong>评价内容</strong><p>' + escapeHtml(item.content) + '</p><div class="muted">提交时间：' + escapeHtml(item.submittedAtIso) + '</div></div>';
       document.getElementById('auditTags').innerHTML = (item.tags || []).map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('');
-      loadAuditAttachments(item);
     }
 
-    async function loadAuditAttachments(item) {
-      const requestId = ++latestAuditAttachmentRequestId;
+    function renderAuditAttachmentError(item, error) {
       const photoFileIds = Array.isArray(item.photoFileIds) ? item.photoFileIds : [];
-      const panel = document.getElementById('auditPhotoPanel');
-      const notice = document.getElementById('auditPhotoNotice');
-      const list = document.getElementById('auditPhotoList');
-      if (item.photoCount === 0 && photoFileIds.length === 0) {
+      if (Number(item.photoCount || 0) === 0 && photoFileIds.length === 0) {
         clearAuditAttachmentPanel();
         return;
       }
-
-      panel.hidden = false;
-      notice.textContent = '图片附件加载中...';
-      list.innerHTML = '';
-
-      try {
-        const preview = await api('/admin/evaluations/' + encodeURIComponent(item.id) + '/attachments');
-        if (requestId !== latestAuditAttachmentRequestId) return;
-        renderAuditAttachments(preview);
-      } catch (error) {
-        if (requestId !== latestAuditAttachmentRequestId) return;
-        notice.textContent = error.message || '图片附件加载失败';
-        list.innerHTML = photoFileIds.length
-          ? photoFileIds.map(fileId => '<li>文件 ID：' + escapeHtml(fileId) + '</li>').join('')
-          : '<li>暂无可展示附件</li>';
-      }
+      document.getElementById('auditPhotoPanel').hidden = false;
+      document.getElementById('auditPhotoNotice').textContent =
+        error && error.message ? error.message : '图片附件加载失败';
+      document.getElementById('auditPhotoList').innerHTML = photoFileIds.length
+        ? photoFileIds.map(fileId => '<li>文件 ID：' + escapeHtml(fileId) + '</li>').join('')
+        : '<li>附件元数据暂不可用</li>';
     }
 
     function renderAuditAttachments(preview) {
@@ -378,7 +401,7 @@ export function renderEvaluationAuditAdminConsole() {
     applyEvaluationAuditRouteState();
     const currentAdminSession = initializeAdminSession();
     if (currentAdminSession && currentAdminSession.accessToken) {
-      loadAudits(currentPage);
+      refreshAuditWorkspace(currentPage);
     }
   </script>
 </body>

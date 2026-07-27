@@ -76,6 +76,20 @@ export class AdminProfileEvaluationsController {
     );
   }
 
+  @Get(':evaluationId')
+  async getEvaluationAudit(
+    @Req() request: AuthenticatedRequest,
+    @Param('evaluationId') evaluationId: string,
+  ) {
+    return ok(
+      await this.profileEvaluationsService.getAdminEvaluationAudit(
+        getCurrentAdmin(request),
+        evaluationId,
+      ),
+      getRequestId(request),
+    );
+  }
+
   @Get(':evaluationId/attachments')
   async getEvaluationAttachments(
     @Req() request: AuthenticatedRequest,

@@ -281,6 +281,7 @@ describe('AdminPermissionMatrixService', () => {
             riskLevel: 'sensitive',
             apiPaths: expect.arrayContaining([
               '/admin/evaluations',
+              '/admin/evaluations/{evaluationId}',
               '/admin/evaluations/{evaluationId}/attachments',
             ]),
           }),
