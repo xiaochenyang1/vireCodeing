@@ -149,6 +149,13 @@ type ParsedPlatformChangeRequestReviewEvent = {
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
   fundDispositionSummaryText?: string;
+  fundDispositionKind?: NonNullable<
+    NonNullable<
+      import('../types').RecentOrder['modificationRequest']
+    >['fundDispositionKind']
+  >;
+  topUpPaymentId?: string;
+  topUpPaymentNo?: string;
 };
 
 function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
@@ -329,6 +336,15 @@ function createModificationRequestFromPlatformEvents(
       : {}),
     ...(parsedReview.fundDispositionSummaryText
       ? { fundDispositionSummaryText: parsedReview.fundDispositionSummaryText }
+      : {}),
+    ...(parsedReview.fundDispositionKind
+      ? { fundDispositionKind: parsedReview.fundDispositionKind }
+      : {}),
+    ...(parsedReview.topUpPaymentId
+      ? { topUpPaymentId: parsedReview.topUpPaymentId }
+      : {}),
+    ...(parsedReview.topUpPaymentNo
+      ? { topUpPaymentNo: parsedReview.topUpPaymentNo }
       : {}),
   };
 }
@@ -811,16 +827,47 @@ function parsePlatformChangeRequestReviewEvent(
       Number.isInteger(payload.previousPayablePriceCents)
         ? payload.previousPayablePriceCents
         : undefined;
-    const fundDispositionSummaryText =
+    const fundDisposition =
       payload.fundDisposition &&
       typeof payload.fundDisposition === 'object' &&
-      !Array.isArray(payload.fundDisposition) &&
-      typeof (payload.fundDisposition as { summaryText?: unknown }).summaryText ===
-        'string'
-        ? (
-            payload.fundDisposition as { summaryText: string }
-          ).summaryText.trim()
+      !Array.isArray(payload.fundDisposition)
+        ? (payload.fundDisposition as {
+            summaryText?: unknown;
+            kind?: unknown;
+            paymentId?: unknown;
+            paymentNo?: unknown;
+          })
+        : undefined;
+    const fundDispositionSummaryText =
+      typeof fundDisposition?.summaryText === 'string'
+        ? fundDisposition.summaryText.trim()
         : '';
+    const fundDispositionKind =
+      typeof fundDisposition?.kind === 'string' &&
+      [
+        'none',
+        'cod_price_snapshot_only',
+        'online_topup_queued',
+        'online_topup_pending_manual',
+        'online_partial_refund_queued',
+        'online_partial_refund_pending_manual',
+        'online_price_unchanged',
+        'online_not_escrowed',
+      ].includes(fundDisposition.kind)
+        ? (fundDisposition.kind as NonNullable<
+            ParsedPlatformChangeRequestReviewEvent['fundDispositionKind']
+          >)
+        : undefined;
+    const topUpPaymentId =
+      typeof fundDisposition?.paymentId === 'string' &&
+      fundDisposition.paymentId.trim()
+        ? fundDisposition.paymentId.trim()
+        : undefined;
+    const topUpPaymentNo =
+      typeof fundDisposition?.paymentNo === 'string' &&
+      fundDisposition.paymentNo.trim()
+        ? fundDisposition.paymentNo.trim()
+        : undefined;
 
     return {
       ...(reviewResultText ? { reviewResultText } : {}),
@@ -836,6 +883,9 @@ function parsePlatformChangeRequestReviewEvent(
       ...(fundDispositionSummaryText
         ? { fundDispositionSummaryText }
         : {}),
+      ...(fundDispositionKind ? { fundDispositionKind } : {}),
+      ...(topUpPaymentId ? { topUpPaymentId } : {}),
+      ...(topUpPaymentNo ? { topUpPaymentNo } : {}),
     };
   } catch {
     return { reviewResultText: noteText.trim() || undefined };

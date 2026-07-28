@@ -235,6 +235,17 @@ export type RecentOrder = {
     adjustedPayablePriceCents?: number;
     previousPayablePriceCents?: number;
     fundDispositionSummaryText?: string;
+    fundDispositionKind?:
+      | 'none'
+      | 'cod_price_snapshot_only'
+      | 'online_topup_queued'
+      | 'online_topup_pending_manual'
+      | 'online_partial_refund_queued'
+      | 'online_partial_refund_pending_manual'
+      | 'online_price_unchanged'
+      | 'online_not_escrowed';
+    topUpPaymentId?: string;
+    topUpPaymentNo?: string;
   };
   cancellation?: {
     reasonText: string;

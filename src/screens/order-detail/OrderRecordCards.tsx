@@ -180,6 +180,19 @@ export function ModificationRequestRecordCard({
           {`资金处置：${modificationRequest.fundDispositionSummaryText}`}
         </Text>
       ) : null}
+      {modificationRequest.topUpPaymentNo ? (
+        <Text
+          style={styles.detailMeta}
+          testID="modification-request-topup-payment"
+        >
+          {`补差支付单：${modificationRequest.topUpPaymentNo}`}
+        </Text>
+      ) : null}
+      {modificationRequest.fundDispositionKind === 'online_topup_queued' ? (
+        <Text style={styles.draftNotice} testID="modification-request-topup-hint">
+          主资金已托管。请在下方「改单补差」完成差额支付。
+        </Text>
+      ) : null}
       {canReviewLocally && modificationRequest.statusText === '待客服确认' ? (
         <>
           <Pressable

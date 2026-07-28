@@ -107,24 +107,34 @@ export function PaymentStatusCard({
   });
   const hasActivePayment =
     payment?.status === 'pending' || payment?.status === 'processing';
+  const isTopUpPayment =
+    hasActivePayment &&
+    (Boolean(payment?.paymentNo?.includes('PAY-TOPUP-')) ||
+      orderPaymentStatus === 'escrowed');
   const canPay =
     hasActivePayment ||
     orderPaymentStatus === 'pending' ||
-    orderPaymentStatus === 'failed';
+    orderPaymentStatus === 'failed' ||
+    isTopUpPayment;
   const shouldShowPaymentAction =
     canSubmitPaymentAction &&
     canPay &&
-    effectiveStatus !== 'escrowed' &&
-    effectiveStatus !== 'settled' &&
-    effectiveStatus !== 'refund_pending' &&
-    effectiveStatus !== 'refunded';
+    (isTopUpPayment ||
+      (effectiveStatus !== 'escrowed' &&
+        effectiveStatus !== 'settled' &&
+        effectiveStatus !== 'refund_pending' &&
+        effectiveStatus !== 'refunded'));
 
   return (
     <View style={cardStyles.card} testID="payment-status-card">
       <View style={cardStyles.header}>
         <View style={cardStyles.titleGroup}>
-          <Text style={cardStyles.eyebrow}>资金状态</Text>
-          <Text style={cardStyles.status}>{status.label}</Text>
+          <Text style={cardStyles.eyebrow}>
+            {isTopUpPayment ? '改单补差' : '资金状态'}
+          </Text>
+          <Text style={cardStyles.status}>
+            {isTopUpPayment && hasActivePayment ? '待补差支付' : status.label}
+          </Text>
         </View>
         <Pressable
           testID="payment-refresh"
@@ -141,7 +151,15 @@ export function PaymentStatusCard({
         </Pressable>
       </View>
 
-      <Text style={cardStyles.description}>{description}</Text>
+      <Text style={cardStyles.description}>
+        {isTopUpPayment && hasActivePayment
+          ? `订单主资金已托管，改单后还需补差 ${
+              payment?.amountCents !== undefined
+                ? formatPaymentAmount(payment.amountCents)
+                : ''
+            }。请选择渠道完成补差支付。`
+          : description}
+      </Text>
 
       {factTexts.length > 0 ? (
         <View style={cardStyles.factRow}>
@@ -185,9 +203,13 @@ export function PaymentStatusCard({
             <Text style={cardStyles.payButtonText}>
               {isBusy
                 ? '正在确认'
-                : hasActivePayment
-                  ? '继续支付'
-                  : '立即支付'}
+                : isTopUpPayment
+                  ? hasActivePayment
+                    ? '继续补差支付'
+                    : '支付改单补差'
+                  : hasActivePayment
+                    ? '继续支付'
+                    : '立即支付'}
             </Text>
           </Pressable>
         </View>

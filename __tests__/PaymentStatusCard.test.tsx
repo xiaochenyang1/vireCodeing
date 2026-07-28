@@ -100,6 +100,49 @@ describe('PaymentStatusCard', () => {
     expect(renderedText).toContain('结算时间 2026-07-15 16:10');
     expect(renderedText).toContain('支付时间 2026-07-15 16:05');
   });
+
+  it('shows a top-up pay action when the order is escrowed but a top-up payment is pending', async () => {
+    const onPay = jest.fn();
+    const renderer = await renderPaymentStatusCard({
+      orderPaymentStatus: 'escrowed',
+      payment: createPayment({
+        paymentNo: 'PAY-TOPUP-PAY-main-6000',
+        amountCents: 6000,
+        status: 'pending',
+      }),
+      onPay,
+      supportsPlatformPaymentFlow: true,
+      hasPlatformOrderBinding: true,
+    });
+
+    const renderedText = getRenderedText(renderer);
+    expect(renderedText).toContain('改单补差');
+    expect(renderedText).toContain('待补差支付');
+    expect(renderedText).toContain('￥60.00');
+    expect(renderedText).toContain('继续补差支付');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root.findByProps({ testID: 'payment-submit' }).props.onPress();
+    });
+    expect(onPay).toHaveBeenCalled();
+  });
+
+  it('hides the top-up pay action after the top-up payment is escrowed', async () => {
+    const renderer = await renderPaymentStatusCard({
+      orderPaymentStatus: 'escrowed',
+      payment: createPayment({
+        paymentNo: 'PAY-TOPUP-PAY-main-6000',
+        amountCents: 6000,
+        status: 'escrowed',
+      }),
+      supportsPlatformPaymentFlow: true,
+      hasPlatformOrderBinding: true,
+    });
+
+    expect(
+      renderer.root.findAllByProps({ testID: 'payment-submit' }),
+    ).toHaveLength(0);
+  });
 });
 
 function createPayment(

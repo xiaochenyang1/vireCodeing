@@ -1152,4 +1152,51 @@ describe('platform order mapper', () => {
       reviewResultText: '已确认地址变更',
     });
   });
+
+  it('maps top-up fund disposition fields from approved change request reviews', () => {
+    const approved = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'loading',
+        paymentMethod: 'online',
+        paymentStatus: 'escrowed',
+        events: [
+          event({
+            id: 'change-1',
+            eventType: 'change_requested',
+            createdAtIso: '2026-07-24T08:00:00.000Z',
+            noteText: '请上调运费',
+          }),
+          event({
+            id: 'change-2',
+            eventType: 'change_request_approved',
+            createdAtIso: '2026-07-24T09:00:00.000Z',
+            noteText: JSON.stringify({
+              reviewResultText: '确认上调运费',
+              adjustedPayablePriceCents: 82000,
+              previousPayablePriceCents: 76000,
+              fundDisposition: {
+                kind: 'online_topup_queued',
+                deltaCents: 6000,
+                summaryText:
+                  '在线托管订单应付上调 60.00 元；已创建补差支付单 PAY-TOPUP-1。',
+                requiresManualFollowUp: true,
+                paymentId: 'payment-topup-1',
+                paymentNo: 'PAY-TOPUP-1',
+              },
+            }),
+          }),
+        ],
+      }),
+    );
+
+    expect(approved.modificationRequest).toMatchObject({
+      fundDispositionKind: 'online_topup_queued',
+      fundDispositionSummaryText:
+        '在线托管订单应付上调 60.00 元；已创建补差支付单 PAY-TOPUP-1。',
+      topUpPaymentId: 'payment-topup-1',
+      topUpPaymentNo: 'PAY-TOPUP-1',
+      adjustedPayablePriceCents: 82000,
+      previousPayablePriceCents: 76000,
+    });
+  });
 });
