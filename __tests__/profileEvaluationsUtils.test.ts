@@ -1,10 +1,14 @@
 import type { RecentOrder } from '../src/types';
 import {
+  applySubmittedEvaluationAppeal,
+  canSubmitEvaluationAppeal,
   createLocalReceivedEvaluationRecordsFromPlatformSnapshot,
   createLocalEvaluationRecordsFromPlatformSnapshot,
   createLocalEvaluationRecordsFromPlatformSnapshots,
   createEvaluationRecords,
   filterEvaluationRecords,
+  getEvaluationAppealStatusText,
+  mergeEvaluationAppealCases,
   type ProfileEvaluationRecordItem,
 } from '../src/utils/profileEvaluations';
 
@@ -266,6 +270,7 @@ test('sorts local profile evaluation records from platform snapshot by submitted
       driverReplyText: '',
       driverReplyTimeText: '',
       direction: 'shipper_to_driver',
+      platformEvaluationId: 'evaluation-platform-1',
       photoFiles: [
         {
           fileId: 'file-eval-1',
@@ -292,6 +297,7 @@ test('sorts local profile evaluation records from platform snapshot by submitted
       driverReplyText: '感谢反馈',
       driverReplyTimeText: '2026-07-09 16:30',
       direction: 'shipper_to_driver',
+      platformEvaluationId: 'evaluation-platform-anonymous',
     },
   ]);
 });
@@ -432,4 +438,160 @@ test('merges platform sent and received evaluation records by submitted time', (
     'received-evaluation-platform-received-platform-mid',
     'evaluation-platform-evaluation-platform-older',
   ]);
+});
+
+test('merges hidden appeal cases into evaluation records and preserves appeal fields', () => {
+  const records = createLocalEvaluationRecordsFromPlatformSnapshots(
+    {
+      shipperId: 'shipper-1',
+      items: [
+        {
+          id: 'evaluation-visible',
+          orderId: 'order-1',
+          orderNo: 'HY-1',
+          driverName: '李师傅',
+          rating: 5,
+          tags: [],
+          content: '可见评价',
+          anonymous: false,
+          photoCount: 0,
+          submittedAtIso: '2026-07-22T08:00:00.000Z',
+        },
+      ],
+    },
+    {
+      shipperId: 'shipper-1',
+      items: [],
+    },
+  );
+
+  const merged = mergeEvaluationAppealCases(records, {
+    userId: 'shipper-1',
+    items: [
+      {
+        id: 'evaluation-visible',
+        orderId: 'order-1',
+        orderNo: 'HY-1',
+        direction: 'shipper_to_driver',
+        reviewerUserId: 'shipper-1',
+        reviewerName: '货主',
+        revieweeUserId: 'driver-1',
+        revieweeName: '李师傅',
+        rating: 5,
+        tags: [],
+        content: '可见评价',
+        anonymous: false,
+        photoCount: 0,
+        submittedAtIso: '2026-07-22T08:00:00.000Z',
+        moderationStatus: 'hidden',
+        moderationVersion: 2,
+        appealStatus: 'requested',
+        latestAppeal: {
+          id: 'appeal-1',
+          evaluationId: 'evaluation-visible',
+          appellantUserId: 'shipper-1',
+          status: 'requested',
+          version: 1,
+          reason: '内容被误隐藏，请复核',
+          moderationVersion: 2,
+          submittedAtIso: '2026-07-22T09:00:00.000Z',
+        },
+      },
+      {
+        id: 'evaluation-hidden-only',
+        orderId: 'order-2',
+        orderNo: 'HY-2',
+        direction: 'shipper_to_driver',
+        reviewerUserId: 'shipper-1',
+        reviewerName: '货主',
+        revieweeUserId: 'driver-2',
+        revieweeName: '王师傅',
+        rating: 3,
+        tags: [],
+        content: '仅申诉列表可见的隐藏评价',
+        anonymous: false,
+        photoCount: 0,
+        submittedAtIso: '2026-07-22T07:00:00.000Z',
+        moderationStatus: 'hidden',
+        moderationVersion: 1,
+        appealStatus: 'none',
+      },
+    ],
+  });
+
+  expect(merged[0]).toMatchObject({
+    platformEvaluationId: 'evaluation-hidden-only',
+    moderationStatus: 'hidden',
+    moderationVersion: 1,
+    appealStatus: 'none',
+  });
+  expect(merged[1]).toMatchObject({
+    platformEvaluationId: 'evaluation-visible',
+    moderationStatus: 'hidden',
+    moderationVersion: 2,
+    appealStatus: 'requested',
+    appealReason: '内容被误隐藏，请复核',
+  });
+});
+
+test('only hidden evaluations without open appeals can be appealed', () => {
+  expect(
+    canSubmitEvaluationAppeal(
+      createEvaluationRecord({
+        platformEvaluationId: 'evaluation-1',
+        moderationStatus: 'hidden',
+        moderationVersion: 2,
+        appealStatus: 'none',
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    canSubmitEvaluationAppeal(
+      createEvaluationRecord({
+        platformEvaluationId: 'evaluation-1',
+        moderationStatus: 'hidden',
+        moderationVersion: 2,
+        appealStatus: 'rejected',
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    canSubmitEvaluationAppeal(
+      createEvaluationRecord({
+        platformEvaluationId: 'evaluation-1',
+        moderationStatus: 'hidden',
+        moderationVersion: 2,
+        appealStatus: 'requested',
+      }),
+    ),
+  ).toBe(false);
+  expect(
+    canSubmitEvaluationAppeal(
+      createEvaluationRecord({
+        platformEvaluationId: 'evaluation-1',
+        moderationStatus: 'visible',
+        moderationVersion: 2,
+        appealStatus: 'none',
+      }),
+    ),
+  ).toBe(false);
+  expect(getEvaluationAppealStatusText('requested')).toBe('申诉处理中');
+  expect(
+    applySubmittedEvaluationAppeal(
+      createEvaluationRecord({
+        platformEvaluationId: 'evaluation-1',
+        moderationStatus: 'hidden',
+        moderationVersion: 2,
+        appealStatus: 'none',
+      }),
+      {
+        reason: '请恢复展示该评价',
+        moderationVersion: 2,
+      },
+    ),
+  ).toMatchObject({
+    appealStatus: 'requested',
+    appealReason: '请恢复展示该评价',
+    moderationVersion: 2,
+  });
 });

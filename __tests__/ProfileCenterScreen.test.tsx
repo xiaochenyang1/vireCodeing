@@ -24,6 +24,11 @@ function createPlatformProfileApiMock(overrides: Record<string, unknown> = {}) {
     getCoupons: jest.fn().mockResolvedValue(undefined),
     getEvaluations: jest.fn().mockResolvedValue(undefined),
     getReceivedEvaluations: jest.fn().mockResolvedValue(undefined),
+    listEvaluationAppealCases: jest.fn().mockResolvedValue({
+      userId: 'shipper-1',
+      items: [],
+    }),
+    submitEvaluationAppeal: jest.fn(),
     createInvoiceApplication: jest.fn(),
     getAddressBook: jest.fn().mockResolvedValue(null),
     saveAddressBook: jest.fn(),
@@ -740,6 +745,117 @@ describe('ProfileCenterScreen verification sync guards', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-platform-received-1.png',
     });
+  });
+
+  it('merges appeal cases and submits evaluation appeals from profile records', async () => {
+    saveAuthSession(1000, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+    });
+
+    const hiddenAppealCase = {
+      id: 'evaluation-hidden-1',
+      orderId: 'order-hidden-1',
+      orderNo: 'HY-HIDDEN-1',
+      direction: 'shipper_to_driver' as const,
+      reviewerUserId: 'shipper-1',
+      reviewerName: '货主',
+      revieweeUserId: 'driver-1',
+      revieweeName: '李师傅',
+      rating: 2,
+      tags: [] as string[],
+      content: '被隐藏的评价',
+      anonymous: false,
+      photoCount: 0,
+      submittedAtIso: '2026-07-22T08:00:00.000Z',
+      moderationStatus: 'hidden' as const,
+      moderationVersion: 3,
+      appealStatus: 'none' as const,
+    };
+    const platformProfileApi = createPlatformProfileApiMock({
+      getEvaluations: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        items: [],
+      }),
+      getReceivedEvaluations: jest.fn().mockResolvedValue({
+        shipperId: 'shipper-1',
+        items: [],
+      }),
+      listEvaluationAppealCases: jest
+        .fn()
+        .mockResolvedValueOnce({
+          userId: 'shipper-1',
+          items: [hiddenAppealCase],
+        })
+        .mockResolvedValue({
+          userId: 'shipper-1',
+          items: [
+            {
+              ...hiddenAppealCase,
+              appealStatus: 'requested',
+              latestAppeal: {
+                id: 'appeal-1',
+                evaluationId: 'evaluation-hidden-1',
+                appellantUserId: 'shipper-1',
+                status: 'requested',
+                version: 1,
+                reason: '评价内容合规，请恢复展示',
+                moderationVersion: 3,
+                submittedAtIso: '2026-07-22T09:00:00.000Z',
+              },
+            },
+          ],
+        }),
+      submitEvaluationAppeal: jest.fn().mockResolvedValue({
+        id: 'appeal-1',
+        evaluationId: 'evaluation-hidden-1',
+        appellantUserId: 'shipper-1',
+        status: 'requested',
+        version: 1,
+        reason: '评价内容合规，请恢复展示',
+        moderationVersion: 3,
+        submittedAtIso: '2026-07-22T09:00:00.000Z',
+      }),
+    });
+
+    const renderer = await renderProfileCenter(platformProfileApi);
+    await openProfileSection(renderer, 'evaluations');
+
+    expect(platformProfileApi.listEvaluationAppealCases).toHaveBeenCalled();
+    expect(
+      renderer.root.findByProps({
+        testID: 'evaluation-moderation-status-evaluation-hidden-1',
+      }).props.children,
+    ).toBe('展示状态：已隐藏');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'evaluation-appeal-reason-evaluation-hidden-1',
+        })
+        .props.onChangeText('评价内容合规，请恢复展示');
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'evaluation-appeal-submit-evaluation-hidden-1',
+        })
+        .props.onPress();
+    });
+
+    expect(platformProfileApi.submitEvaluationAppeal).toHaveBeenCalledWith(
+      'evaluation-hidden-1',
+      {
+        reason: '评价内容合规，请恢复展示',
+        baseModerationVersion: 3,
+      },
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'evaluation-appeal-status-evaluation-hidden-1',
+      }).props.children,
+    ).toEqual(['申诉状态：', '申诉处理中']);
   });
 
   it('keeps the local account profile draft and hides manual refresh while account sync is still failed', async () => {

@@ -92,6 +92,8 @@ type HomePlatformProfileApi = Pick<
   | 'getCoupons'
   | 'getEvaluations'
   | 'getReceivedEvaluations'
+  | 'listEvaluationAppealCases'
+  | 'submitEvaluationAppeal'
   | 'createInvoiceApplication'
   | 'getAddressBook'
   | 'saveAddressBook'

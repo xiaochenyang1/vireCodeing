@@ -109,6 +109,8 @@ export function ProfileDetailScreen({
   canRefreshPlatformEvaluations,
   isRefreshingPlatformEvaluations,
   evaluationNotice,
+  appealingEvaluationId,
+  onSubmitEvaluationAppeal,
   canRefreshPlatformCoupons,
   isRefreshingPlatformCoupons,
   couponNotice,
@@ -186,6 +188,11 @@ export function ProfileDetailScreen({
   canRefreshPlatformEvaluations?: boolean;
   isRefreshingPlatformEvaluations?: boolean;
   evaluationNotice?: string;
+  appealingEvaluationId?: string;
+  onSubmitEvaluationAppeal?: (
+    record: ProfileEvaluationRecordItem,
+    reason: string,
+  ) => void;
   canRefreshPlatformCoupons?: boolean;
   isRefreshingPlatformCoupons?: boolean;
   couponNotice?: string;
@@ -323,6 +330,9 @@ export function ProfileDetailScreen({
           isRefreshing={isRefreshingPlatformEvaluations}
           notice={evaluationNotice}
           onRefresh={onRefreshPlatformEvaluations}
+          canSubmitAppeal={Boolean(onSubmitEvaluationAppeal)}
+          appealingEvaluationId={appealingEvaluationId}
+          onSubmitAppeal={onSubmitEvaluationAppeal}
         />
       ) : null}
       {sectionId === 'spending' ? (

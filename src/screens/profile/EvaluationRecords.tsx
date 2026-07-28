@@ -1,11 +1,13 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useState } from 'react';
 
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
 import { styles } from '../../styles';
 import type { FileAttachmentRef } from '../../types';
 import {
+  canSubmitEvaluationAppeal,
   filterEvaluationRecords,
+  getEvaluationAppealStatusText,
   type EvaluationFilter,
   type ProfileEvaluationDirection,
   type ProfileEvaluationRecordItem,
@@ -50,20 +52,35 @@ function createAttachmentMetaLines(file: FileAttachmentRef) {
   ];
 }
 
+function getRecordKey(item: ProfileEvaluationRecordItem) {
+  return item.platformEvaluationId ?? item.id;
+}
+
 export function EvaluationRecords({
   evaluationRecords,
   canRefresh = false,
   isRefreshing = false,
   notice,
   onRefresh,
+  canSubmitAppeal = false,
+  appealingEvaluationId,
+  onSubmitAppeal,
 }: {
   evaluationRecords: ProfileEvaluationRecordItem[];
   canRefresh?: boolean;
   isRefreshing?: boolean;
   notice?: string;
   onRefresh?: () => void;
+  canSubmitAppeal?: boolean;
+  appealingEvaluationId?: string;
+  onSubmitAppeal?: (
+    record: ProfileEvaluationRecordItem,
+    reason: string,
+  ) => void;
 }) {
   const [filter, setFilter] = useState<EvaluationFilter>('all');
+  const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
+  const [localAppealNotice, setLocalAppealNotice] = useState('');
   const filterOptions: Array<{
     id: EvaluationFilter;
     label: string;
@@ -101,6 +118,9 @@ export function EvaluationRecords({
         </View>
       ) : null}
       {notice ? <Text style={styles.draftNotice}>{notice}</Text> : null}
+      {localAppealNotice ? (
+        <Text style={styles.draftNotice}>{localAppealNotice}</Text>
+      ) : null}
       <Text style={styles.draftSectionTitle}>评价筛选</Text>
       <View style={styles.draftChoiceGrid}>
         {filterOptions.map(option => {
@@ -130,50 +150,127 @@ export function EvaluationRecords({
       </View>
 
       <Text style={styles.draftSectionTitle}>评价明细</Text>
-      {filteredRecords.map(item => (
-        <View key={item.id} style={styles.driverInfoCard}>
-          <View style={styles.routeHeader}>
-            <Text style={styles.routeName}>{item.orderId}</Text>
-            <Text style={styles.routeAction}>{item.ratingText}</Text>
-          </View>
-          <Text style={styles.driverName}>{item.driverName}</Text>
-          {item.photoText ? (
-            <Text style={styles.detailMeta}>{item.photoText}</Text>
-          ) : null}
-          {item.photoFiles?.length ? (
-            <View style={styles.detailInlineGroup}>
-              <Text style={styles.draftSectionTitle}>
-                {getAttachmentTitle(item.direction)}清单
-              </Text>
-              {item.photoFiles.map((file, index) => (
-                <ImageCredentialCard
-                  key={`${item.id}-${file.fileId}-${index}`}
-                  title={`${getAttachmentTitle(item.direction)}：${file.fileName}`}
-                  publicUrl={file.publicUrl}
-                  placeholderLabel={getAttachmentPlaceholderLabel(
-                    item.direction,
-                  )}
-                  metaLines={createAttachmentMetaLines(file)}
-                  imageTestID={`profile-evaluation-photo-image-${item.id}-${index + 1}`}
-                  placeholderTestID={`profile-evaluation-photo-placeholder-${item.id}-${index + 1}`}
-                />
-              ))}
+      {filteredRecords.map(item => {
+        const recordKey = getRecordKey(item);
+        const isAppealing = appealingEvaluationId === recordKey;
+        const canAppeal =
+          canSubmitAppeal &&
+          Boolean(onSubmitAppeal) &&
+          canSubmitEvaluationAppeal(item);
+        const appealDraft = appealDrafts[recordKey] ?? '';
+
+        return (
+          <View key={item.id} style={styles.driverInfoCard}>
+            <View style={styles.routeHeader}>
+              <Text style={styles.routeName}>{item.orderId}</Text>
+              <Text style={styles.routeAction}>{item.ratingText}</Text>
             </View>
-          ) : null}
-          <Text style={styles.detailMeta}>{item.content}</Text>
-          <Text style={styles.routeMeta}>{item.timeText}</Text>
-          {item.driverReplyText ? (
-            <>
+            <Text style={styles.driverName}>{item.driverName}</Text>
+            {item.moderationStatus === 'hidden' ? (
+              <Text
+                style={styles.detailMeta}
+                testID={`evaluation-moderation-status-${recordKey}`}
+              >
+                展示状态：已隐藏
+              </Text>
+            ) : null}
+            {item.appealStatus && item.appealStatus !== 'none' ? (
+              <Text
+                style={styles.detailMeta}
+                testID={`evaluation-appeal-status-${recordKey}`}
+              >
+                申诉状态：{getEvaluationAppealStatusText(item.appealStatus)}
+              </Text>
+            ) : null}
+            {item.appealReason ? (
               <Text style={styles.detailMeta}>
-                {`司机回复：${item.driverReplyText}`}
+                申诉理由：{item.appealReason}
               </Text>
-              <Text style={styles.routeMeta}>
-                {`回复时间：${item.driverReplyTimeText}`}
+            ) : null}
+            {item.appealResolutionReason ? (
+              <Text style={styles.detailMeta}>
+                裁定说明：{item.appealResolutionReason}
               </Text>
-            </>
-          ) : null}
-        </View>
-      ))}
+            ) : null}
+            {item.photoText ? (
+              <Text style={styles.detailMeta}>{item.photoText}</Text>
+            ) : null}
+            {item.photoFiles?.length ? (
+              <View style={styles.detailInlineGroup}>
+                <Text style={styles.draftSectionTitle}>
+                  {getAttachmentTitle(item.direction)}清单
+                </Text>
+                {item.photoFiles.map((file, index) => (
+                  <ImageCredentialCard
+                    key={`${item.id}-${file.fileId}-${index}`}
+                    title={`${getAttachmentTitle(item.direction)}：${file.fileName}`}
+                    publicUrl={file.publicUrl}
+                    placeholderLabel={getAttachmentPlaceholderLabel(
+                      item.direction,
+                    )}
+                    metaLines={createAttachmentMetaLines(file)}
+                    imageTestID={`profile-evaluation-photo-image-${item.id}-${index + 1}`}
+                    placeholderTestID={`profile-evaluation-photo-placeholder-${item.id}-${index + 1}`}
+                  />
+                ))}
+              </View>
+            ) : null}
+            <Text style={styles.detailMeta}>{item.content}</Text>
+            <Text style={styles.routeMeta}>{item.timeText}</Text>
+            {item.driverReplyText ? (
+              <>
+                <Text style={styles.detailMeta}>
+                  {`司机回复：${item.driverReplyText}`}
+                </Text>
+                <Text style={styles.routeMeta}>
+                  {`回复时间：${item.driverReplyTimeText}`}
+                </Text>
+              </>
+            ) : null}
+            {canAppeal ? (
+              <View style={styles.detailInlineGroup}>
+                <Text style={styles.detailMeta}>申请申诉</Text>
+                <TextInput
+                  testID={`evaluation-appeal-reason-${recordKey}`}
+                  style={styles.ordersSearchInput}
+                  placeholder="请填写 6-500 字申诉理由"
+                  value={appealDraft}
+                  editable={!isAppealing}
+                  multiline
+                  onChangeText={value =>
+                    setAppealDrafts(current => ({
+                      ...current,
+                      [recordKey]: value,
+                    }))
+                  }
+                />
+                <Pressable
+                  testID={`evaluation-appeal-submit-${recordKey}`}
+                  style={[
+                    styles.detailSecondaryButton,
+                    isAppealing && styles.buttonDisabled,
+                  ]}
+                  disabled={isAppealing}
+                  onPress={() => {
+                    const reason = appealDraft.trim();
+                    if (reason.length < 6 || reason.length > 500) {
+                      setLocalAppealNotice('请填写 6 到 500 字的申诉理由。');
+                      return;
+                    }
+
+                    setLocalAppealNotice('');
+                    onSubmitAppeal?.(item, reason);
+                  }}
+                >
+                  <Text style={styles.detailSecondaryButtonText}>
+                    {isAppealing ? '申诉提交中...' : '提交申诉'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
     </View>
   );
 }

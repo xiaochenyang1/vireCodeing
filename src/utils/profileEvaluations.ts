@@ -1,5 +1,7 @@
 import { evaluationRecordItems } from '../data/mockData';
 import type {
+  PlatformAdminEvaluationAuditRecord,
+  PlatformEvaluationAppealCaseListResult,
   PlatformProfileEvaluationSnapshot,
   PlatformProfileReceivedEvaluationSnapshot,
 } from '../services/platformProfileApi';
@@ -23,6 +25,12 @@ export type ProfileEvaluationRecordItem = {
   driverReplyTimeText: string;
   direction: ProfileEvaluationDirection;
   photoFiles?: FileAttachmentRef[];
+  platformEvaluationId?: string;
+  moderationStatus?: PlatformAdminEvaluationAuditRecord['moderationStatus'];
+  moderationVersion?: number;
+  appealStatus?: PlatformAdminEvaluationAuditRecord['appealStatus'];
+  appealReason?: string;
+  appealResolutionReason?: string;
 };
 
 type ProfileEvaluationFileMetadataApi = Partial<
@@ -184,6 +192,87 @@ export function createLocalEvaluationRecordsFromPlatformSnapshots(
     );
 }
 
+export function mergeEvaluationAppealCases(
+  records: ProfileEvaluationRecordItem[],
+  appealCases: PlatformEvaluationAppealCaseListResult,
+) {
+  const appealCaseById = new Map(appealCases.items.map(item => [item.id, item]));
+  const mergedEvaluationIds = new Set<string>();
+  const mergedRecords = records.map(record => {
+    if (!record.platformEvaluationId) {
+      return record;
+    }
+    const appealCase = appealCaseById.get(record.platformEvaluationId);
+    if (!appealCase) {
+      return record;
+    }
+    mergedEvaluationIds.add(appealCase.id);
+    return applyEvaluationAppealCase(record, appealCase);
+  });
+
+  const hiddenOrHistoricalRecords = appealCases.items
+    .filter(item => !mergedEvaluationIds.has(item.id))
+    .map(createEvaluationAppealCaseRecord);
+
+  return [...hiddenOrHistoricalRecords, ...mergedRecords];
+}
+
+export function getEvaluationAppealStatusText(
+  status: NonNullable<ProfileEvaluationRecordItem['appealStatus']>,
+) {
+  switch (status) {
+    case 'requested':
+      return '申诉处理中';
+    case 'accepted':
+      return '申诉已通过';
+    case 'rejected':
+      return '申诉已驳回';
+    case 'none':
+    default:
+      return '未申诉';
+  }
+}
+
+export function canSubmitEvaluationAppeal(
+  record: ProfileEvaluationRecordItem,
+) {
+  if (!record.platformEvaluationId) {
+    return false;
+  }
+
+  if (record.moderationStatus !== 'hidden') {
+    return false;
+  }
+
+  if (
+    typeof record.moderationVersion !== 'number' ||
+    !Number.isInteger(record.moderationVersion) ||
+    record.moderationVersion < 1
+  ) {
+    return false;
+  }
+
+  const appealStatus = record.appealStatus ?? 'none';
+  return appealStatus === 'none' || appealStatus === 'rejected';
+}
+
+export function applySubmittedEvaluationAppeal(
+  record: ProfileEvaluationRecordItem,
+  appeal: {
+    reason: string;
+    moderationVersion: number;
+  },
+): ProfileEvaluationRecordItem {
+  return {
+    ...record,
+    moderationStatus: 'hidden',
+    moderationVersion: appeal.moderationVersion,
+    appealStatus: 'requested',
+    appealReason: appeal.reason,
+    appealResolutionReason: undefined,
+  };
+}
+
 export async function hydrateProfileEvaluationRecords(
   records: ProfileEvaluationRecordItem[],
   platformFileApi?: ProfileEvaluationFileMetadataApi,
@@ -276,8 +365,64 @@ function createPlatformEvaluationRecord(
       ? formatIsoMinute(item.driverReplyAtIso)
       : '',
     direction: 'shipper_to_driver',
+    platformEvaluationId: item.id,
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
+}
+
+function applyEvaluationAppealCase(
+  record: ProfileEvaluationRecordItem,
+  appealCase: PlatformAdminEvaluationAuditRecord,
+): ProfileEvaluationRecordItem {
+  return {
+    ...record,
+    moderationStatus: appealCase.moderationStatus,
+    moderationVersion: appealCase.moderationVersion,
+    appealStatus: appealCase.appealStatus,
+    ...(appealCase.latestAppeal?.reason
+      ? { appealReason: appealCase.latestAppeal.reason }
+      : {}),
+    ...(appealCase.latestAppeal?.resolutionReason
+      ? { appealResolutionReason: appealCase.latestAppeal.resolutionReason }
+      : {}),
+  };
+}
+
+function createEvaluationAppealCaseRecord(
+  appealCase: PlatformAdminEvaluationAuditRecord,
+): ProfileEvaluationRecordItem {
+  return applyEvaluationAppealCase(
+    {
+      id: `evaluation-appeal-${appealCase.id}`,
+      orderId: appealCase.orderNo,
+      driverName: appealCase.anonymous
+        ? '匿名评价'
+        : appealCase.revieweeName,
+      ratingText: `${appealCase.rating} 星`,
+      content: appealCase.content,
+      photoText:
+        appealCase.photoCount > 0
+          ? `图片凭证 ${appealCase.photoCount} 张`
+          : '',
+      timeText: `平台提交：${formatIsoMinute(appealCase.submittedAtIso)}`,
+      driverReplyText: '',
+      driverReplyTimeText: '',
+      direction: appealCase.direction,
+      platformEvaluationId: appealCase.id,
+      ...(createProfileEvaluationAttachmentRefs(
+        appealCase.photoFileIds,
+        '评价图片凭证',
+      ).length
+        ? {
+            photoFiles: createProfileEvaluationAttachmentRefs(
+              appealCase.photoFileIds,
+              '评价图片凭证',
+            ),
+          }
+        : {}),
+    },
+    appealCase,
+  );
 }
 
 function createPlatformReceivedEvaluationRecord(

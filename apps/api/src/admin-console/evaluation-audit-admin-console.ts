@@ -39,6 +39,9 @@ export function renderEvaluationAuditAdminConsole() {
     .status-badge { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
     .status-badge.visible { background: #dcfce7; color: #166534; }
     .status-badge.hidden { background: #fee2e2; color: #991b1b; }
+    .status-badge.requested { background: #fef3c7; color: #92400e; }
+    .status-badge.accepted { background: #dbeafe; color: #1d4ed8; }
+    .status-badge.rejected { background: #f3f4f6; color: #4b5563; }
     .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .detail-card { border: 1px solid #edf0f2; border-radius: 10px; padding: 12px; margin-top: 12px; }
     .moderation-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -70,8 +73,12 @@ export function renderEvaluationAuditAdminConsole() {
         <label>展示状态<select id="auditModerationStatusInput"><option value="">全部状态</option><option value="visible">展示中</option><option value="hidden">已隐藏</option></select></label>
       </div>
       <div class="filters">
+        <label>申诉状态<select id="auditAppealStatusInput"><option value="">全部申诉</option><option value="none">未申诉</option><option value="requested">待处理</option><option value="accepted">已通过</option><option value="rejected">已驳回</option></select></label>
         <label>每页<input id="auditPageSizeInput" type="number" min="1" max="50" value="20" /></label>
+      </div>
+      <div class="filters">
         <label>&nbsp;<button id="loadAuditButton" onclick="refreshAuditWorkspace(1)">查询评价</button></label>
+        <label>&nbsp;</label>
       </div>
       <div id="auditListNotice" class="error"></div>
       <div id="auditPaginationStatus" class="muted">暂无评价记录</div>
@@ -100,6 +107,24 @@ export function renderEvaluationAuditAdminConsole() {
         <div id="auditModerationHistoryNotice" class="muted"></div>
         <div id="auditModerationHistory"></div>
       </div>
+      <div id="auditAppealPanel" class="detail-card" hidden>
+        <div class="moderation-heading">
+          <strong>评价申诉</strong>
+          <span id="auditAppealStatus" class="status-badge">未申诉</span>
+        </div>
+        <p id="auditAppealSummary" class="muted"></p>
+        <div id="auditAppealDecisionForm">
+          <label>裁定结果<select id="auditAppealDecisionInput"><option value="accepted">通过申诉并恢复展示</option><option value="rejected">驳回申诉并保持隐藏</option></select></label>
+          <label>裁定原因<textarea id="auditAppealReason" maxlength="500" placeholder="填写本次申诉裁定依据（至少 2 个字符）"></textarea></label>
+          <button id="auditAppealButton" type="button" onclick="submitEvaluationAppealDecision()">提交申诉裁定</button>
+        </div>
+        <div id="auditAppealNotice" class="error" aria-live="polite"></div>
+      </div>
+      <div id="auditAppealHistoryPanel" class="detail-card" hidden>
+        <strong>申诉历史</strong>
+        <div id="auditAppealHistoryNotice" class="muted"></div>
+        <div id="auditAppealHistory"></div>
+      </div>
       <div id="auditPhotoPanel" class="detail-card" hidden>
         <strong>图片文件</strong>
         <p id="auditPhotoNotice" class="muted"></p>
@@ -118,7 +143,9 @@ export function renderEvaluationAuditAdminConsole() {
     let latestAuditRequestId = 0;
     let latestAuditDetailRequestId = 0;
     let latestAuditModerationMutationRequestId = 0;
+    let latestAuditAppealMutationRequestId = 0;
     let auditModerationMutationPending = false;
+    let auditAppealMutationPending = false;
     ${renderAdminSessionScript({
       currentRoute: '/api/admin/evaluation-audit-console',
     })}
@@ -168,6 +195,26 @@ export function renderEvaluationAuditAdminConsole() {
       return normalizeModerationStatus(status) === 'hidden' ? '已隐藏' : '展示中';
     }
 
+    function normalizeAppealStatus(status) {
+      if (status === 'requested' || status === 'accepted' || status === 'rejected') {
+        return status;
+      }
+      return 'none';
+    }
+
+    function formatAppealStatus(status) {
+      switch (normalizeAppealStatus(status)) {
+        case 'requested':
+          return '待处理';
+        case 'accepted':
+          return '已通过';
+        case 'rejected':
+          return '已驳回';
+        default:
+          return '未申诉';
+      }
+    }
+
     function isCurrentAuditSelection(targetAuditId, selectionEpoch) {
       return (
         selectedAuditId === targetAuditId &&
@@ -189,6 +236,12 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditModerationHistoryPanel').hidden = true;
       document.getElementById('auditModerationHistoryNotice').textContent = '';
       document.getElementById('auditModerationHistory').innerHTML = '';
+      document.getElementById('auditAppealPanel').hidden = true;
+      document.getElementById('auditAppealReason').value = '';
+      document.getElementById('auditAppealNotice').textContent = '';
+      document.getElementById('auditAppealHistoryPanel').hidden = true;
+      document.getElementById('auditAppealHistoryNotice').textContent = '';
+      document.getElementById('auditAppealHistory').innerHTML = '';
     }
 
     function renderAuditDetailMessage(message) {
@@ -208,6 +261,7 @@ export function renderEvaluationAuditAdminConsole() {
       return {
         direction: query.get('direction') || '',
         moderationStatus: query.get('moderationStatus') || '',
+        appealStatus: query.get('appealStatus') || '',
         rating: query.get('rating') || '',
         keyword: query.get('keyword') || '',
         auditId: query.get('auditId') || '',
@@ -221,6 +275,8 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditDirectionInput').value = routeState.direction;
       document.getElementById('auditModerationStatusInput').value =
         routeState.moderationStatus;
+      document.getElementById('auditAppealStatusInput').value =
+        routeState.appealStatus;
       document.getElementById('auditRatingInput').value = routeState.rating;
       document.getElementById('auditKeywordInput').value = routeState.keyword;
       if (routeState.page) {
@@ -243,6 +299,7 @@ export function renderEvaluationAuditAdminConsole() {
       const query = new URLSearchParams();
       const direction = document.getElementById('auditDirectionInput').value;
       const moderationStatus = document.getElementById('auditModerationStatusInput').value;
+      const appealStatus = document.getElementById('auditAppealStatusInput').value;
       const rating = document.getElementById('auditRatingInput').value;
       const keyword = document.getElementById('auditKeywordInput').value.trim();
       const pageSize = Math.min(
@@ -263,6 +320,7 @@ export function renderEvaluationAuditAdminConsole() {
       ).trim();
       if (direction) query.set('direction', direction);
       if (moderationStatus) query.set('moderationStatus', moderationStatus);
+      if (appealStatus) query.set('appealStatus', appealStatus);
       if (rating) query.set('rating', rating);
       if (keyword) query.set('keyword', keyword);
       if (auditId) query.set('auditId', auditId);
@@ -285,10 +343,12 @@ export function renderEvaluationAuditAdminConsole() {
         });
         const direction = document.getElementById('auditDirectionInput').value;
         const moderationStatus = document.getElementById('auditModerationStatusInput').value;
+        const appealStatus = document.getElementById('auditAppealStatusInput').value;
         const rating = document.getElementById('auditRatingInput').value;
         const keyword = document.getElementById('auditKeywordInput').value.trim();
         if (direction) query.set('direction', direction);
         if (moderationStatus) query.set('moderationStatus', moderationStatus);
+        if (appealStatus) query.set('appealStatus', appealStatus);
         if (rating) query.set('rating', rating);
         if (keyword) query.set('keyword', keyword);
         syncEvaluationAuditRouteState(requestedPage, pageSize);
@@ -347,7 +407,16 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditList').innerHTML = currentItems.length
         ? currentItems.map(item => {
             const moderationStatus = normalizeModerationStatus(item.moderationStatus);
-            return '<div class="audit-row' + (item.id === selectedAuditId ? ' selected' : '') + '" data-audit-id="' + escapeHtml(item.id) + '" onclick="selectAudit(this.dataset.auditId)"><strong>' + escapeHtml(item.orderNo) + '</strong> · ' + escapeHtml(formatDirection(item.direction)) + ' <span class="status-badge ' + moderationStatus + '">' + escapeHtml(formatModerationStatus(moderationStatus)) + '</span><div>' + escapeHtml(item.reviewerName) + ' → ' + escapeHtml(item.revieweeName) + '</div><div class="muted">' + escapeHtml(formatRating(item.rating)) + ' · ' + escapeHtml(item.submittedAtIso) + '</div></div>';
+            const appealStatus = normalizeAppealStatus(item.appealStatus);
+            const appealBadge =
+              appealStatus === 'none'
+                ? ''
+                : ' <span class="status-badge ' +
+                  appealStatus +
+                  '">' +
+                  escapeHtml(formatAppealStatus(appealStatus)) +
+                  '</span>';
+            return '<div class="audit-row' + (item.id === selectedAuditId ? ' selected' : '') + '" data-audit-id="' + escapeHtml(item.id) + '" onclick="selectAudit(this.dataset.auditId)"><strong>' + escapeHtml(item.orderNo) + '</strong> · ' + escapeHtml(formatDirection(item.direction)) + ' <span class="status-badge ' + moderationStatus + '">' + escapeHtml(formatModerationStatus(moderationStatus)) + '</span>' + appealBadge + '<div>' + escapeHtml(item.reviewerName) + ' → ' + escapeHtml(item.revieweeName) + '</div><div class="muted">' + escapeHtml(formatRating(item.rating)) + ' · ' + escapeHtml(item.submittedAtIso) + '</div></div>';
           }).join('')
         : '<p class="muted">暂无评价记录</p>';
     }
@@ -377,11 +446,16 @@ export function renderEvaluationAuditAdminConsole() {
       }
 
       try {
-        const [detailResult, attachmentResult, moderationEventsResult] =
-          await Promise.allSettled([
+        const [
+          detailResult,
+          attachmentResult,
+          moderationEventsResult,
+          appealEventsResult,
+        ] = await Promise.allSettled([
           api('/admin/evaluations/' + encodeURIComponent(targetAuditId)),
           api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/attachments'),
           api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/moderation-events'),
+          api('/admin/evaluations/' + encodeURIComponent(targetAuditId) + '/appeal-events'),
         ]);
         if (
           requestId !== latestAuditDetailRequestId ||
@@ -408,6 +482,11 @@ export function renderEvaluationAuditAdminConsole() {
         } else {
           renderAuditModerationEventsError(moderationEventsResult.reason);
         }
+        if (appealEventsResult.status === 'fulfilled') {
+          renderAuditAppealEvents(appealEventsResult.value);
+        } else {
+          renderAuditAppealEventsError(appealEventsResult.reason);
+        }
       } catch (error) {
         if (
           requestId !== latestAuditDetailRequestId ||
@@ -429,6 +508,7 @@ export function renderEvaluationAuditAdminConsole() {
         '<div class="detail-card"><strong>评价内容</strong><p>' + escapeHtml(item.content) + '</p><div class="muted">提交时间：' + escapeHtml(item.submittedAtIso) + '</div></div>';
       document.getElementById('auditTags').innerHTML = (item.tags || []).map(tag => '<span class="tag">' + escapeHtml(tag) + '</span>').join('');
       renderAuditModeration(item);
+      renderAuditAppeal(item);
     }
 
     function renderAuditModeration(item) {
@@ -447,7 +527,13 @@ export function renderEvaluationAuditAdminConsole() {
       const button = document.getElementById('auditModerationButton');
       button.textContent = targetStatus === 'hidden' ? '隐藏评价' : '恢复展示';
       button.className = targetStatus === 'hidden' ? 'danger-button' : 'restore-button';
-      button.disabled = auditModerationMutationPending;
+      const appealPending =
+        normalizeAppealStatus(item.appealStatus) === 'requested';
+      button.disabled = auditModerationMutationPending || appealPending;
+      if (appealPending) {
+        document.getElementById('auditModerationNotice').textContent =
+          '存在待处理申诉时，请先裁定申诉，不能直接改展示状态';
+      }
       document.getElementById('auditModerationPanel').hidden = false;
     }
 
@@ -475,6 +561,176 @@ export function renderEvaluationAuditAdminConsole() {
       document.getElementById('auditModerationHistoryNotice').textContent =
         error && error.message ? error.message : '处置历史加载失败';
       document.getElementById('auditModerationHistory').innerHTML = '';
+    }
+
+    function renderAuditAppeal(item) {
+      const appealStatus = normalizeAppealStatus(item.appealStatus);
+      const latestAppeal = item.latestAppeal || null;
+      const statusNode = document.getElementById('auditAppealStatus');
+      statusNode.className = 'status-badge ' + appealStatus;
+      statusNode.textContent = formatAppealStatus(appealStatus);
+      if (latestAppeal) {
+        document.getElementById('auditAppealSummary').textContent =
+          '申诉版本 ' +
+          (latestAppeal.version || '-') +
+          ' · 理由：' +
+          (latestAppeal.reason || '-') +
+          ' · 提交：' +
+          (latestAppeal.submittedAtIso || '-') +
+          (latestAppeal.resolutionReason
+            ? ' · 裁定：' + latestAppeal.resolutionReason
+            : '');
+      } else {
+        document.getElementById('auditAppealSummary').textContent =
+          appealStatus === 'none' ? '当前没有申诉记录' : '暂无最新申诉快照';
+      }
+      const decisionForm = document.getElementById('auditAppealDecisionForm');
+      const canDecide =
+        appealStatus === 'requested' &&
+        latestAppeal &&
+        latestAppeal.id &&
+        Number(latestAppeal.version || 0) >= 1;
+      decisionForm.hidden = !canDecide;
+      document.getElementById('auditAppealButton').disabled =
+        auditAppealMutationPending || !canDecide;
+      document.getElementById('auditAppealPanel').hidden = false;
+    }
+
+    function renderAuditAppealEvents(events) {
+      const items = Array.isArray(events) ? events : [];
+      document.getElementById('auditAppealHistoryPanel').hidden = false;
+      document.getElementById('auditAppealHistoryNotice').textContent =
+        items.length ? '共 ' + items.length + ' 条申诉记录' : '暂无申诉记录';
+      document.getElementById('auditAppealHistory').innerHTML = items
+        .map(event =>
+          '<div class="moderation-event"><strong>' +
+            escapeHtml(formatAppealStatus(event.fromStatus || 'none')) +
+            ' → ' +
+            escapeHtml(formatAppealStatus(event.toStatus)) +
+            '</strong><div>' +
+            escapeHtml(event.reason) +
+            '</div>' +
+            '<div class="muted">版本 ' +
+            escapeHtml(event.fromVersion) +
+            ' → ' +
+            escapeHtml(event.toVersion) +
+            ' · 操作人：' +
+            escapeHtml(event.actorUserId) +
+            ' · ' +
+            escapeHtml(event.createdAtIso) +
+            '</div></div>',
+        )
+        .join('');
+    }
+
+    function renderAuditAppealEventsError(error) {
+      document.getElementById('auditAppealHistoryPanel').hidden = false;
+      document.getElementById('auditAppealHistoryNotice').textContent =
+        error && error.message ? error.message : '申诉历史加载失败';
+      document.getElementById('auditAppealHistory').innerHTML = '';
+    }
+
+    async function submitEvaluationAppealDecision() {
+      if (auditAppealMutationPending) return;
+      if (!selectedAuditDetail || selectedAuditDetail.id !== selectedAuditId) {
+        document.getElementById('auditAppealNotice').textContent = '请先选择评价记录';
+        return;
+      }
+
+      const latestAppeal = selectedAuditDetail.latestAppeal;
+      if (!latestAppeal || !latestAppeal.id) {
+        document.getElementById('auditAppealNotice').textContent = '当前评价没有可裁定的申诉';
+        return;
+      }
+      if (normalizeAppealStatus(selectedAuditDetail.appealStatus) !== 'requested') {
+        document.getElementById('auditAppealNotice').textContent = '仅待处理申诉可裁定';
+        return;
+      }
+
+      const targetAuditId = selectedAuditId;
+      const selectionEpoch = auditSelectionEpoch;
+      const requestId = ++latestAuditAppealMutationRequestId;
+      const decision = document.getElementById('auditAppealDecisionInput').value;
+      const reason = document.getElementById('auditAppealReason').value.trim();
+      if (decision !== 'accepted' && decision !== 'rejected') {
+        document.getElementById('auditAppealNotice').textContent = '请选择裁定结果';
+        return;
+      }
+      if (reason.length < 2 || reason.length > 500) {
+        document.getElementById('auditAppealNotice').textContent =
+          '裁定原因需为 2-500 个字符';
+        return;
+      }
+
+      auditAppealMutationPending = true;
+      renderAuditAppeal(selectedAuditDetail);
+      document.getElementById('auditAppealNotice').textContent = '提交申诉裁定中...';
+      let refreshMessage = '';
+      let shouldRefreshList = false;
+      try {
+        await api(
+          '/admin/evaluations/' +
+            encodeURIComponent(targetAuditId) +
+            '/appeals/' +
+            encodeURIComponent(latestAppeal.id),
+          {
+            method: 'PUT',
+            body: JSON.stringify({
+              decision: decision,
+              reason: reason,
+              baseAppealVersion: Math.max(1, Number(latestAppeal.version || 1)),
+              baseModerationVersion: Math.max(
+                1,
+                Number(selectedAuditDetail.moderationVersion || 1),
+              ),
+            }),
+          },
+        );
+        if (requestId !== latestAuditAppealMutationRequestId) return;
+        shouldRefreshList = true;
+        if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+          refreshMessage =
+            decision === 'accepted' ? '申诉已通过，评价已恢复展示' : '申诉已驳回';
+        }
+      } catch (error) {
+        if (requestId !== latestAuditAppealMutationRequestId) return;
+        if (
+          error.code === 'EVALUATION_APPEAL_CONFLICT' ||
+          error.code === 'EVALUATION_MODERATION_CONFLICT'
+        ) {
+          shouldRefreshList = true;
+          if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+            refreshMessage =
+              (error.message || '评价申诉状态已更新') + '，已刷新最新状态';
+          }
+        } else if (isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+          document.getElementById('auditAppealNotice').textContent =
+            error.message || '申诉裁定失败';
+        }
+      } finally {
+        auditAppealMutationPending = false;
+        if (
+          selectedAuditDetail &&
+          selectedAuditDetail.id === selectedAuditId
+        ) {
+          renderAuditAppeal(selectedAuditDetail);
+        }
+      }
+
+      if (!shouldRefreshList) {
+        return;
+      }
+      if (!refreshMessage || !isCurrentAuditSelection(targetAuditId, selectionEpoch)) {
+        await loadAudits(currentPage);
+        return;
+      }
+      const detailRefresh = selectAudit(targetAuditId);
+      const refreshSelectionEpoch = auditSelectionEpoch;
+      await Promise.all([loadAudits(currentPage), detailRefresh]);
+      if (isCurrentAuditSelection(targetAuditId, refreshSelectionEpoch)) {
+        document.getElementById('auditAppealReason').value = '';
+        document.getElementById('auditAppealNotice').textContent = refreshMessage;
+      }
     }
 
     async function submitEvaluationModeration() {

@@ -32,9 +32,11 @@ import {
   updateProfileContact,
 } from '../utils/profileAddressBook';
 import {
+  applySubmittedEvaluationAppeal,
   createEvaluationRecords,
   createLocalEvaluationRecordsFromPlatformSnapshots,
   hydrateProfileEvaluationRecords,
+  mergeEvaluationAppealCases,
   type ProfileEvaluationRecordItem,
 } from '../utils/profileEvaluations';
 import { createLocalCouponsFromPlatformWallet } from '../utils/profileCoupons';
@@ -351,6 +353,8 @@ export function ProfileCenterScreen({
     | 'getCoupons'
     | 'getEvaluations'
     | 'getReceivedEvaluations'
+    | 'listEvaluationAppealCases'
+    | 'submitEvaluationAppeal'
     | 'createInvoiceApplication'
     | 'getAddressBook'
     | 'saveAddressBook'
@@ -378,6 +382,7 @@ export function ProfileCenterScreen({
     useState(false);
   const [isRefreshingPlatformEvaluations, setIsRefreshingPlatformEvaluations] =
     useState(false);
+  const [appealingEvaluationId, setAppealingEvaluationId] = useState<string>();
   const [
     isRefreshingPlatformIdentityVerification,
     setIsRefreshingPlatformIdentityVerification,
@@ -1123,8 +1128,19 @@ export function ProfileCenterScreen({
       Promise.all([
         platformProfileApi.getEvaluations(),
         platformProfileApi.getReceivedEvaluations(),
+        typeof platformProfileApi.listEvaluationAppealCases === 'function'
+          ? platformProfileApi.listEvaluationAppealCases().catch(() => ({
+              userId: '',
+              items: [],
+            }))
+          : Promise.resolve({ userId: '', items: [] }),
       ])
-        .then(async ([evaluationSnapshot, receivedEvaluationSnapshot]) => {
+        .then(
+          async ([
+            evaluationSnapshot,
+            receivedEvaluationSnapshot,
+            appealCases,
+          ]) => {
           if (
             requestVersion !== evaluationLoadRequestVersionRef.current ||
             !isValidPlatformEvaluationSnapshot(evaluationSnapshot) ||
@@ -1133,11 +1149,16 @@ export function ProfileCenterScreen({
             return;
           }
 
+          const baseRecords = createLocalEvaluationRecordsFromPlatformSnapshots(
+            evaluationSnapshot,
+            receivedEvaluationSnapshot,
+          );
+          const mergedRecords =
+            appealCases && Array.isArray(appealCases.items)
+              ? mergeEvaluationAppealCases(baseRecords, appealCases)
+              : baseRecords;
           const nextEvaluationRecords = await hydrateProfileEvaluationRecords(
-            createLocalEvaluationRecordsFromPlatformSnapshots(
-              evaluationSnapshot,
-              receivedEvaluationSnapshot,
-            ),
+            mergedRecords,
             platformFileApi,
           );
 
@@ -1170,6 +1191,98 @@ export function ProfileCenterScreen({
         });
     },
     [platformFileApi, platformProfileApi],
+  );
+
+  const submitEvaluationAppeal = useCallback(
+    async (record: ProfileEvaluationRecordItem, reason: string) => {
+      if (!platformProfileApi) {
+        setEvaluationNotice('评价申诉需要平台 API 配置。');
+        return;
+      }
+
+      if (!record.platformEvaluationId) {
+        setEvaluationNotice('当前评价不支持平台申诉。');
+        return;
+      }
+
+      if (
+        typeof record.moderationVersion !== 'number' ||
+        !Number.isInteger(record.moderationVersion) ||
+        record.moderationVersion < 1
+      ) {
+        setEvaluationNotice('评价处置版本无效，请刷新后重试。');
+        return;
+      }
+
+      if (!getAuthSessionSnapshot()?.accessToken) {
+        setEvaluationNotice('评价申诉需要重新登录后再提交。');
+        return;
+      }
+
+      const evaluationId = record.platformEvaluationId;
+      setAppealingEvaluationId(evaluationId);
+      setEvaluationNotice('正在提交评价申诉...');
+
+      try {
+        const appeal = await platformProfileApi.submitEvaluationAppeal(
+          evaluationId,
+          {
+            reason,
+            baseModerationVersion: record.moderationVersion,
+          },
+        );
+
+        setPlatformEvaluationRecords(current =>
+          (current ?? []).map(item =>
+            item.platformEvaluationId === evaluationId
+              ? applySubmittedEvaluationAppeal(item, {
+                  reason: appeal.reason,
+                  moderationVersion: appeal.moderationVersion,
+                })
+              : item,
+          ),
+        );
+        setEvaluationNotice('评价申诉已提交，请等待平台处理。');
+        refreshPlatformEvaluations('manual');
+      } catch (error) {
+        if (error instanceof PlatformApiError) {
+          if (error.code === 'EVALUATION_APPEAL_CONFLICT') {
+            setEvaluationNotice('评价处置状态已更新，请刷新后重试。');
+            refreshPlatformEvaluations('manual');
+            return;
+          }
+          if (error.code === 'EVALUATION_APPEAL_ALREADY_REQUESTED') {
+            setEvaluationNotice('当前评价已有待处理申诉。');
+            refreshPlatformEvaluations('manual');
+            return;
+          }
+          if (error.code === 'EVALUATION_APPEAL_NOT_ALLOWED') {
+            setEvaluationNotice('当前评价状态不允许申诉。');
+            refreshPlatformEvaluations('manual');
+            return;
+          }
+          if (
+            error.code === 'AUTH_ACCESS_TOKEN_MISSING' ||
+            error.code === 'AUTH_ACCESS_TOKEN_INVALID'
+          ) {
+            setEvaluationNotice('评价申诉需要重新登录后再提交。');
+            return;
+          }
+          if (error.code === 'NETWORK_ERROR') {
+            setEvaluationNotice('网络异常，评价申诉提交失败，请稍后重试。');
+            return;
+          }
+
+          setEvaluationNotice(error.message || '评价申诉提交失败，请稍后重试。');
+          return;
+        }
+
+        setEvaluationNotice('评价申诉提交失败，请稍后重试。');
+      } finally {
+        setAppealingEvaluationId(undefined);
+      }
+    },
+    [platformProfileApi, refreshPlatformEvaluations],
   );
   useEffect(() => {
     if (
@@ -2116,6 +2229,10 @@ export function ProfileCenterScreen({
         canRefreshPlatformEvaluations={Boolean(platformProfileApi)}
         isRefreshingPlatformEvaluations={isRefreshingPlatformEvaluations}
         evaluationNotice={evaluationNotice}
+        appealingEvaluationId={appealingEvaluationId}
+        onSubmitEvaluationAppeal={
+          platformProfileApi ? submitEvaluationAppeal : undefined
+        }
         canRefreshPlatformCoupons={Boolean(platformProfileApi)}
         isRefreshingPlatformCoupons={isRefreshingPlatformCoupons}
         couponNotice={couponNotice}
