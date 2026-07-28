@@ -462,6 +462,7 @@ export type PlatformOrderChangeRequestFundDisposition = {
   kind:
     | 'none'
     | 'cod_price_snapshot_only'
+    | 'online_topup_queued'
     | 'online_topup_pending_manual'
     | 'online_partial_refund_queued'
     | 'online_partial_refund_pending_manual'
@@ -473,6 +474,8 @@ export type PlatformOrderChangeRequestFundDisposition = {
   refundId?: string;
   refundNo?: string;
   outboxEventId?: string;
+  paymentId?: string;
+  paymentNo?: string;
 };
 
 export type PlatformOrderChangeRequestReviewSnapshot = {

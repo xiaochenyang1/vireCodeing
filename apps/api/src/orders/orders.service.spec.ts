@@ -2256,6 +2256,131 @@ describe('OrdersService', () => {
     ).toBe(true);
   });
 
+  it('queues a top-up payment order when approving an online escrowed price increase', async () => {
+    const nowIso = '2026-07-28T10:00:00.000Z';
+    const repository = new InMemoryOrdersRepository(() => new Date(nowIso));
+    const service = new OrdersService(repository);
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+
+    const orderRef = (
+      repository as unknown as {
+        orders: Array<{
+          id: string;
+          orderNo: string;
+          paymentMethod: string;
+          paymentStatus: string;
+          priceCents?: number;
+          payablePriceCents?: number;
+        }>;
+      }
+    ).orders[0];
+    orderRef.paymentMethod = 'online';
+    orderRef.paymentStatus = 'escrowed';
+    orderRef.priceCents = 76000;
+    orderRef.payablePriceCents = 76000;
+
+    const financialStore = (
+      repository as unknown as {
+        financialStore: {
+          upsertPaymentOrder: (payment: Record<string, unknown>) => void;
+          listPaymentOrders: () => Array<{
+            id: string;
+            paymentNo: string;
+            amountCents: number;
+            status: string;
+            idempotencyKey: string;
+          }>;
+          listFinancialAuditLogs: () => Array<{
+            action: string;
+            entityId: string;
+          }>;
+        };
+      }
+    ).financialStore;
+
+    financialStore.upsertPaymentOrder({
+      id: 'payment-escrow-2',
+      paymentNo: 'PAY-escrow-2',
+      orderId: orderRef.id,
+      orderNo: orderRef.orderNo,
+      shipperId: 'shipper-1',
+      channel: 'wechat',
+      amountCents: 76000,
+      status: 'escrowed',
+      idempotencyKey: 'pay-key-2',
+      requestFingerprint: 'pay-fp-2',
+      expiresAtIso: '2026-07-28T11:00:00.000Z',
+      paidAtIso: nowIso,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+    });
+
+    await service.submitOrderChangeRequest('shipper-1', orderRef.id, {
+      description: '卸货地址变更并上调运费',
+    });
+
+    const reviewed = await service.reviewOrderChangeRequest(
+      'admin-1',
+      orderRef.id,
+      {
+        decision: 'approved',
+        reviewResultText: '确认上调运费',
+        adjustedPayablePriceCents: 82000,
+      },
+    );
+
+    expect(reviewed.payablePriceCents).toBe(82000);
+    expect(reviewed.paymentStatus).toBe('escrowed');
+    const reviewNote = JSON.parse(
+      reviewed.events.find(
+        event => event.eventType === 'change_request_approved',
+      )?.noteText ?? '{}',
+    );
+    expect(reviewNote.fundDisposition).toMatchObject({
+      kind: 'online_topup_queued',
+      deltaCents: 6000,
+      requiresManualFollowUp: true,
+      paymentNo: expect.stringContaining('PAY-TOPUP-PAY-escrow-2-6000'),
+    });
+    expect(financialStore.listPaymentOrders()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'payment-escrow-2',
+          status: 'escrowed',
+          amountCents: 76000,
+        }),
+        expect.objectContaining({
+          amountCents: 6000,
+          status: 'pending',
+          idempotencyKey: expect.stringContaining('order-change-topup:'),
+          paymentNo: expect.stringContaining('PAY-TOPUP-PAY-escrow-2-6000'),
+        }),
+      ]),
+    );
+    expect(
+      financialStore
+        .listFinancialAuditLogs()
+        .some(
+          item =>
+            item.action === 'order_change_request_fund_disposition' &&
+            item.entityId === orderRef.id,
+        ),
+    ).toBe(true);
+  });
+
   it('pushes order-linked notifications when admin reviews a change request', async () => {
     const repository = new InMemoryOrdersRepository(() => now);
     const filesRepository = new InMemoryFilesRepository(() => now);

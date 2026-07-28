@@ -1498,6 +1498,50 @@ export class InMemoryOrdersRepository implements OrdersRepository {
             );
         }
       }
+    } else if (
+      input.decision === 'approved' &&
+      preliminaryPayload.fundDisposition?.kind ===
+        'online_topup_pending_manual' &&
+      preliminaryPayload.fundDisposition.deltaCents > 0
+    ) {
+      const existingPayment =
+        this.financialStore.findLatestPaymentByOrderId(orderId);
+      if (
+        existingPayment &&
+        existingPayment.status === 'escrowed' &&
+        order.paymentMethod === 'online' &&
+        order.paymentStatus === 'escrowed'
+      ) {
+        const topUpAmountCents = preliminaryPayload.fundDisposition.deltaCents;
+        const topUpPaymentId = randomUUID();
+        const topUpPaymentNo = `PAY-TOPUP-${existingPayment.paymentNo}-${topUpAmountCents}`;
+        const now = this.now();
+        const nowIso = now.toISOString();
+        this.financialStore.upsertPaymentOrder({
+          id: topUpPaymentId,
+          paymentNo: topUpPaymentNo,
+          orderId,
+          orderNo: order.orderNo,
+          shipperId: order.shipperId,
+          channel: existingPayment.channel,
+          amountCents: topUpAmountCents,
+          status: 'pending',
+          idempotencyKey: `order-change-topup:${orderId}:${latestRequest.requestedAtIso}`,
+          requestFingerprint: JSON.stringify({
+            type: 'change_request_price_increase',
+            orderId,
+            amountCents: topUpAmountCents,
+            basePaymentId: existingPayment.id,
+          }),
+          expiresAtIso: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          createdAtIso: nowIso,
+          updatedAtIso: nowIso,
+        });
+        fundDispositionOverride = createQueuedOrderChangeTopUpDisposition(
+          topUpAmountCents,
+          { id: topUpPaymentId, paymentNo: topUpPaymentNo },
+        );
+      }
     }
 
     const reviewNoteText = createOrderChangeReviewNote(
@@ -1528,7 +1572,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       input.decision === 'approved' &&
       reviewPayload.fundDisposition &&
       (reviewPayload.fundDisposition.requiresManualFollowUp ||
-        reviewPayload.fundDisposition.kind === 'online_partial_refund_queued')
+        reviewPayload.fundDisposition.kind === 'online_partial_refund_queued' ||
+        reviewPayload.fundDisposition.kind === 'online_topup_queued')
     ) {
       this.financialStore.createFinancialAuditLog({
         id: randomUUID(),
@@ -1543,6 +1588,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
           fundDispositionKind: reviewPayload.fundDisposition.kind,
           deltaCents: reviewPayload.fundDisposition.deltaCents,
           refundId: reviewPayload.fundDisposition.refundId ?? null,
+          paymentId: reviewPayload.fundDisposition.paymentId ?? null,
         }),
         requestId: `order-change-review:${orderId}:${nowIso}`,
         reason: reviewPayload.fundDisposition.summaryText,
@@ -3908,6 +3954,7 @@ type PrismaOrdersTransactionClient = {
   };
   paymentOrder: {
     findFirst(args: unknown): Promise<PrismaOrderPaymentRecord | null>;
+    create(args: unknown): Promise<PrismaOrderPaymentRecord>;
     updateMany(args: unknown): Promise<{ count: number }>;
   };
   refund: {
@@ -5873,6 +5920,60 @@ export class PrismaOrdersRepository implements OrdersRepository {
               );
           }
         }
+      } else if (
+        input.decision === 'approved' &&
+        preliminaryPayload.fundDisposition?.kind ===
+          'online_topup_pending_manual' &&
+        preliminaryPayload.fundDisposition.deltaCents > 0
+      ) {
+        const payment = await transaction.paymentOrder.findFirst({
+          where: { orderId },
+          orderBy: { createdAt: 'desc' },
+        });
+        const topUpAmountCents = preliminaryPayload.fundDisposition.deltaCents;
+        if (
+          payment &&
+          payment.status === 'escrowed' &&
+          currentOrder.paymentMethod === 'online' &&
+          currentOrder.paymentStatus === 'escrowed' &&
+          topUpAmountCents > 0
+        ) {
+          const topUpPaymentId = randomUUID();
+          const topUpPaymentNo = `PAY-TOPUP-${payment.paymentNo}-${topUpAmountCents}`;
+          const existingTopUp = await transaction.paymentOrder.findFirst({
+            where: {
+              shipperId: currentOrder.shipperId,
+              idempotencyKey: `order-change-topup:${orderId}:${latestRequest.requestedAtIso}`,
+            },
+          });
+          if (!existingTopUp) {
+            await transaction.paymentOrder.create({
+              data: {
+                id: topUpPaymentId,
+                paymentNo: topUpPaymentNo,
+                orderId,
+                shipperId: currentOrder.shipperId,
+                channel: payment.channel,
+                amountCents: topUpAmountCents,
+                status: 'pending',
+                idempotencyKey: `order-change-topup:${orderId}:${latestRequest.requestedAtIso}`,
+                requestFingerprint: JSON.stringify({
+                  type: 'change_request_price_increase',
+                  orderId,
+                  amountCents: topUpAmountCents,
+                  basePaymentId: payment.id,
+                }),
+                expiresAt: new Date(updatedAt.getTime() + 24 * 60 * 60 * 1000),
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
+              },
+            });
+            fundDispositionOverride = createQueuedOrderChangeTopUpDisposition(
+              topUpAmountCents,
+              { id: topUpPaymentId, paymentNo: topUpPaymentNo },
+            );
+          }
+        }
       }
 
       const reviewNoteText = createOrderChangeReviewNote(
@@ -5901,7 +6002,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
         reviewPayload.fundDisposition &&
         (reviewPayload.fundDisposition.requiresManualFollowUp ||
           reviewPayload.fundDisposition.kind ===
-            'online_partial_refund_queued')
+            'online_partial_refund_queued' ||
+          reviewPayload.fundDisposition.kind === 'online_topup_queued')
       ) {
         await transaction.financialAuditLog.create({
           data: {
@@ -5918,6 +6020,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
               fundDispositionKind: reviewPayload.fundDisposition.kind,
               deltaCents: reviewPayload.fundDisposition.deltaCents,
               refundId: reviewPayload.fundDisposition.refundId ?? null,
+              paymentId: reviewPayload.fundDisposition.paymentId ?? null,
             }),
             requestId: `order-change-review:${orderId}:${updatedAt.toISOString()}`,
             reason: reviewPayload.fundDisposition.summaryText,
@@ -7029,6 +7132,20 @@ function createQueuedOrderChangePartialRefundDisposition(
   };
 }
 
+function createQueuedOrderChangeTopUpDisposition(
+  deltaCents: number,
+  payment: { id: string; paymentNo: string },
+): import('./dto').OrderChangeRequestFundDisposition {
+  return {
+    kind: 'online_topup_queued',
+    deltaCents,
+    summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；已创建补差支付单 ${payment.paymentNo}（pending），主托管单保持 escrowed，需货主另行完成补差支付。`,
+    requiresManualFollowUp: true,
+    paymentId: payment.id,
+    paymentNo: payment.paymentNo,
+  };
+}
+
 function applyOrderChangePriceAdjustment(
   order: ShipperOrderRecord,
   adjustedPayablePriceCents: number,
@@ -7174,6 +7291,7 @@ function parseOrderChangeFundDisposition(
   const allowedKinds = new Set([
     'none',
     'cod_price_snapshot_only',
+    'online_topup_queued',
     'online_topup_pending_manual',
     'online_partial_refund_queued',
     'online_partial_refund_pending_manual',
@@ -7206,6 +7324,16 @@ function parseOrderChangeFundDisposition(
     typeof payload.outboxEventId === 'string' && payload.outboxEventId.trim()
       ? payload.outboxEventId.trim()
       : undefined;
+  const paymentId =
+    typeof (payload as { paymentId?: unknown }).paymentId === 'string' &&
+    (payload as { paymentId: string }).paymentId.trim()
+      ? (payload as { paymentId: string }).paymentId.trim()
+      : undefined;
+  const paymentNo =
+    typeof (payload as { paymentNo?: unknown }).paymentNo === 'string' &&
+    (payload as { paymentNo: string }).paymentNo.trim()
+      ? (payload as { paymentNo: string }).paymentNo.trim()
+      : undefined;
 
   return {
     kind: kind as import('./dto').OrderChangeRequestFundDispositionKind,
@@ -7215,6 +7343,8 @@ function parseOrderChangeFundDisposition(
     ...(refundId ? { refundId } : {}),
     ...(refundNo ? { refundNo } : {}),
     ...(outboxEventId ? { outboxEventId } : {}),
+    ...(paymentId ? { paymentId } : {}),
+    ...(paymentNo ? { paymentNo } : {}),
   };
 }
 
