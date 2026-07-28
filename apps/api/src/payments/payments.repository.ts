@@ -272,6 +272,19 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     );
     const eligibility = resolvePaymentCreationEligibility(order);
 
+    if (eligibility.kind === 'already-escrowed') {
+      const topUpPreparation = this.resolveTopUpPaymentPreparation(
+        input.orderId,
+        input.shipperId,
+        input.idempotencyKey,
+        input.requestFingerprint,
+      );
+      if (topUpPreparation) {
+        return topUpPreparation;
+      }
+      return eligibility;
+    }
+
     if (eligibility.kind !== 'eligible') {
       return eligibility;
     }
@@ -283,6 +296,24 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     );
 
     if (activePayment) {
+      if (isOrderChangeTopUpPayment(activePayment)) {
+        return {
+          kind: 'success',
+          payment: clonePayment(activePayment),
+          replayed: false,
+          preparationRequired:
+            activePayment.status === 'pending' || !activePayment.clientPayload,
+        };
+      }
+      const topUpPreparation = this.resolveTopUpPaymentPreparation(
+        input.orderId,
+        input.shipperId,
+        input.idempotencyKey,
+        input.requestFingerprint,
+      );
+      if (topUpPreparation) {
+        return topUpPreparation;
+      }
       return {
         kind: 'active-payment-exists',
         paymentId: activePayment.id,
@@ -985,6 +1016,50 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     return structuredClone(result);
   }
 
+  private resolveTopUpPaymentPreparation(
+    orderId: string,
+    shipperId: string,
+    idempotencyKey: string,
+    requestFingerprint: string,
+  ): Extract<ExecutePaymentCreateResult, { kind: 'success' }> | undefined {
+    const topUpPayment = [...this.paymentOrders]
+      .filter(
+        payment =>
+          payment.orderId === orderId &&
+          payment.shipperId === shipperId &&
+          isOrderChangeTopUpPayment(payment) &&
+          (payment.status === 'pending' || payment.status === 'processing'),
+      )
+      .sort((left, right) =>
+        right.createdAtIso.localeCompare(left.createdAtIso),
+      )[0];
+
+    if (!topUpPayment) {
+      return undefined;
+    }
+
+    const existingByKey = this.paymentOrders.find(
+      payment =>
+        payment.shipperId === shipperId &&
+        payment.idempotencyKey === idempotencyKey,
+    );
+    if (existingByKey) {
+      const mapped = mapExistingPaymentCreate(
+        existingByKey,
+        requestFingerprint,
+      );
+      return mapped.kind === 'success' ? mapped : undefined;
+    }
+
+    return {
+      kind: 'success',
+      payment: clonePayment(topUpPayment),
+      replayed: false,
+      preparationRequired:
+        topUpPayment.status === 'pending' || !topUpPayment.clientPayload,
+    };
+  }
+
   private createEscrowTransaction(
     payment: PaymentOrderRecord,
     occurredAtIso: string,
@@ -1348,6 +1423,41 @@ export class PrismaPaymentsRepository implements PaymentsRepository {
           order ? mapPrismaPaymentSourceOrder(order) : undefined,
         );
 
+        if (eligibility.kind === 'already-escrowed') {
+          const topUpPayment = await transaction.paymentOrder.findFirst({
+            where: {
+              orderId: input.orderId,
+              shipperId: input.shipperId,
+              status: { in: ['pending', 'processing'] },
+              OR: [
+                {
+                  idempotencyKey: {
+                    startsWith: 'order-change-topup:',
+                  },
+                },
+                {
+                  requestFingerprint: {
+                    contains: 'change_request_price_increase',
+                  },
+                },
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+            include: paymentOrderInclude,
+          });
+          if (topUpPayment) {
+            return {
+              kind: 'success' as const,
+              payment: mapPrismaPaymentOrder(topUpPayment),
+              replayed: false,
+              preparationRequired:
+                topUpPayment.status === 'pending' ||
+                topUpPayment.clientPayload == null,
+            };
+          }
+          return eligibility;
+        }
+
         if (eligibility.kind !== 'eligible') {
           return eligibility;
         }
@@ -1361,6 +1471,47 @@ export class PrismaPaymentsRepository implements PaymentsRepository {
         });
 
         if (activePayment) {
+          if (isOrderChangeTopUpPayment(mapPrismaPaymentOrder(activePayment))) {
+            return {
+              kind: 'success' as const,
+              payment: mapPrismaPaymentOrder(activePayment),
+              replayed: false,
+              preparationRequired:
+                activePayment.status === 'pending' ||
+                activePayment.clientPayload == null,
+            };
+          }
+          const topUpPayment = await transaction.paymentOrder.findFirst({
+            where: {
+              orderId: input.orderId,
+              shipperId: input.shipperId,
+              status: { in: ['pending', 'processing'] },
+              OR: [
+                {
+                  idempotencyKey: {
+                    startsWith: 'order-change-topup:',
+                  },
+                },
+                {
+                  requestFingerprint: {
+                    contains: 'change_request_price_increase',
+                  },
+                },
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+            include: paymentOrderInclude,
+          });
+          if (topUpPayment) {
+            return {
+              kind: 'success' as const,
+              payment: mapPrismaPaymentOrder(topUpPayment),
+              replayed: false,
+              preparationRequired:
+                topUpPayment.status === 'pending' ||
+                topUpPayment.clientPayload == null,
+            };
+          }
           return {
             kind: 'active-payment-exists' as const,
             paymentId: activePayment.id,
@@ -2667,6 +2818,16 @@ function mapExistingPaymentCreate(
   requestFingerprint: string,
 ): ExecutePaymentCreateResult {
   if (payment.requestFingerprint !== requestFingerprint) {
+    // Allow preparing a queued change-request top-up with a fresh client key.
+    if (isOrderChangeTopUpPayment(payment)) {
+      return {
+        kind: 'success',
+        payment: clonePayment(payment),
+        replayed: false,
+        preparationRequired:
+          payment.status === 'pending' || !payment.clientPayload,
+      };
+    }
     return { kind: 'key-reused' };
   }
 
@@ -2676,6 +2837,21 @@ function mapExistingPaymentCreate(
     replayed: true,
     preparationRequired: false,
   };
+}
+
+function isOrderChangeTopUpPayment(payment: PaymentOrderRecord) {
+  if (payment.idempotencyKey.startsWith('order-change-topup:')) {
+    return true;
+  }
+
+  try {
+    const fingerprint = JSON.parse(payment.requestFingerprint) as {
+      type?: unknown;
+    };
+    return fingerprint?.type === 'change_request_price_increase';
+  } catch {
+    return false;
+  }
 }
 
 function isActivePaymentStatus(status: PaymentOrderRecord['status']) {

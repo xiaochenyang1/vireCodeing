@@ -115,6 +115,113 @@ describe('PaymentsService', () => {
     },
   );
 
+  it('prepares an existing change-request top-up payment when the order is already escrowed', async () => {
+    const topUpIdempotencyKey =
+      'order-change-topup:order-1:2026-07-15T07:00:00.000Z';
+    const repository = new InMemoryPaymentsRepository({
+      now: () => NOW,
+      createId: () => 'repository-id-1',
+      orders: [
+        createSourceOrder({
+          status: 'loading',
+          paymentStatus: 'escrowed',
+          payablePriceCents: 79000,
+        }),
+      ],
+      paymentOrders: [
+        {
+          id: 'payment-main-1',
+          paymentNo: 'PAY-main-1',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 73000,
+          status: 'escrowed',
+          idempotencyKey: 'main-payment-key',
+          requestFingerprint: 'main-fp',
+          expiresAtIso: '2026-07-15T08:15:00.000Z',
+          paidAtIso: '2026-07-15T07:50:00.000Z',
+          createdAtIso: '2026-07-15T07:40:00.000Z',
+          updatedAtIso: NOW.toISOString(),
+        },
+        {
+          id: 'payment-topup-1',
+          paymentNo: 'PAY-TOPUP-PAY-main-1-6000',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 6000,
+          status: 'pending',
+          idempotencyKey: topUpIdempotencyKey,
+          requestFingerprint: JSON.stringify({
+            type: 'change_request_price_increase',
+            orderId: 'order-1',
+            amountCents: 6000,
+            basePaymentId: 'payment-main-1',
+          }),
+          expiresAtIso: '2026-07-16T08:00:00.000Z',
+          createdAtIso: NOW.toISOString(),
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+    });
+    const provider = createProvider();
+    const service = new PaymentsService(repository, () => provider, {
+      now: () => NOW,
+      createId: () => 'payment-id-ignored',
+      paymentExpiresSeconds: 900,
+    });
+
+    const result = await service.createPayment(
+      'shipper-1',
+      'order-1',
+      '660e8400-e29b-41d4-a716-446655440111',
+      { channel: 'wechat' },
+    );
+
+    expect(provider.createClientPayment).toHaveBeenCalledWith({
+      paymentNo: 'PAY-TOPUP-PAY-main-1-6000',
+      amountCents: 6000,
+      description: '货运订单补差 HY202607150001',
+      expiresAtIso: '2026-07-16T08:00:00.000Z',
+    });
+    expect(result).toEqual({
+      replayed: false,
+      payment: expect.objectContaining({
+        id: 'payment-topup-1',
+        amountCents: 6000,
+        status: 'processing',
+      }),
+    });
+
+    const callbackResult = await service.applyVerifiedPaymentCallback(
+      'sandbox',
+      {
+        eventId: 'topup-event-1',
+        paymentNo: 'PAY-TOPUP-PAY-main-1-6000',
+        providerTradeNo: 'sandbox-topup-trade-1',
+        amountCents: 6000,
+        status: 'succeeded',
+        occurredAtIso: '2026-07-15T08:05:00.000Z',
+        rawPayloadHash: 'topup-payload-hash',
+      },
+    );
+
+    expect(callbackResult).toMatchObject({
+      kind: 'applied',
+      payment: { id: 'payment-topup-1', status: 'escrowed', amountCents: 6000 },
+      orderPaymentStatus: 'escrowed',
+    });
+    await expect(
+      repository.findPaymentOrderForShipper('shipper-1', 'payment-main-1'),
+    ).resolves.toMatchObject({ status: 'escrowed', amountCents: 73000 });
+    await expect(
+      repository.findLatestPaymentOrderForShipper('shipper-1', 'order-1'),
+    ).resolves.toMatchObject({ id: 'payment-topup-1', status: 'escrowed' });
+  });
+
   it('marks a reservation failed when provider preparation fails', async () => {
     const { service, provider, repository } = createService();
     jest

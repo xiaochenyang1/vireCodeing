@@ -80,7 +80,11 @@ export class PaymentsService {
       const providerPayload = await provider.createClientPayment({
         paymentNo: reservation.payment.paymentNo,
         amountCents: reservation.payment.amountCents,
-        description: `货运订单 ${reservation.payment.orderNo}`,
+        description: reservation.payment.idempotencyKey.startsWith(
+          'order-change-topup:',
+        )
+          ? `货运订单补差 ${reservation.payment.orderNo}`
+          : `货运订单 ${reservation.payment.orderNo}`,
         expiresAtIso: reservation.payment.expiresAtIso,
       });
 
