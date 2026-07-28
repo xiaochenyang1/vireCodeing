@@ -135,6 +135,11 @@ type PrismaAdminPaymentRecord = {
   cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  refund?: {
+    id: string;
+    amountCents: number;
+    status: string;
+  } | null;
 };
 
 type PrismaAdminRefundRecord = {
@@ -455,6 +460,15 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
         orderBy: { createdAt: 'desc' },
         skip: getSkip(query),
         take: query.pageSize,
+        include: {
+          refund: {
+            select: {
+              id: true,
+              amountCents: true,
+              status: true,
+            },
+          },
+        },
       }),
       this.prisma.paymentOrder.count({ where }),
     ]);
@@ -464,6 +478,15 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
   async getPayment(paymentId: string) {
     const payment = await this.prisma.paymentOrder.findUnique({
       where: { id: paymentId },
+      include: {
+        refund: {
+          select: {
+            id: true,
+            amountCents: true,
+            status: true,
+          },
+        },
+      },
     });
     return payment ? mapAdminPayment(payment) : undefined;
   }
@@ -871,6 +894,12 @@ function createAuditWhere(input: RetryRefundInput) {
 }
 
 function mapAdminPayment(record: PrismaAdminPaymentRecord) {
+  const refundedAmountCents =
+    record.refund && record.refund.status === 'succeeded'
+      ? record.refund.amountCents
+      : 0;
+  const netAmountCents = Math.max(0, record.amountCents - refundedAmountCents);
+
   return {
     id: record.id,
     paymentNo: record.paymentNo,
@@ -878,6 +907,10 @@ function mapAdminPayment(record: PrismaAdminPaymentRecord) {
     shipperId: record.shipperId,
     channel: record.channel,
     amountCents: record.amountCents,
+    ...(refundedAmountCents > 0 ? { refundedAmountCents } : {}),
+    ...(refundedAmountCents > 0 || record.status === 'escrowed'
+      ? { netAmountCents }
+      : {}),
     status: record.status,
     ...(record.providerTradeNo
       ? { providerTradeNo: record.providerTradeNo }

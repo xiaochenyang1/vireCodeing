@@ -878,7 +878,14 @@ export function renderFinanceAdminConsole() {
 
     function formatSecondaryLine(item) {
       if (currentFinanceTab === 'payments') {
-        return '订单 ' + (item.orderId || '-') + ' · ' + formatMoney(item.amountCents) + ' · ' + (item.channel || '-');
+        const amountText =
+          item.netAmountCents !== undefined &&
+          item.netAmountCents !== item.amountCents
+            ? formatMoney(item.amountCents) +
+              ' / 净 ' +
+              formatMoney(item.netAmountCents)
+            : formatMoney(item.amountCents);
+        return '订单 ' + (item.orderId || '-') + ' · ' + amountText + ' · ' + (item.channel || '-');
       }
       if (currentFinanceTab === 'refunds') {
         return '订单 ' + (item.orderId || '-') + ' · ' + formatMoney(item.amountCents) + ' · outbox ' + (item.outboxEvent ? item.outboxEvent.status + '#' + item.outboxEvent.attemptCount : '无');

@@ -222,6 +222,86 @@ describe('PaymentsService', () => {
     ).resolves.toMatchObject({ id: 'payment-topup-1', status: 'escrowed' });
   });
 
+  it('exposes refunded and net amounts after a succeeded partial refund', async () => {
+    const repository = new InMemoryPaymentsRepository({
+      now: () => NOW,
+      createId: () => 'repository-id-1',
+      orders: [
+        createSourceOrder({
+          status: 'loading',
+          paymentStatus: 'escrowed',
+          payablePriceCents: 67000,
+        }),
+      ],
+      paymentOrders: [
+        {
+          id: 'payment-main-2',
+          paymentNo: 'PAY-main-2',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 73000,
+          status: 'escrowed',
+          idempotencyKey: 'main-payment-key-2',
+          requestFingerprint: 'main-fp-2',
+          expiresAtIso: '2026-07-15T08:15:00.000Z',
+          paidAtIso: '2026-07-15T07:50:00.000Z',
+          createdAtIso: '2026-07-15T07:40:00.000Z',
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+      refunds: [
+        {
+          id: 'refund-partial-1',
+          refundNo: 'RF-PAY-main-2-P6000',
+          paymentOrderId: 'payment-main-2',
+          orderId: 'order-1',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 6000,
+          reason: 'change_request_price_decrease',
+          status: 'pending',
+          createdAtIso: NOW.toISOString(),
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+    });
+    const provider = createProvider();
+    const service = new PaymentsService(repository, () => provider, {
+      now: () => NOW,
+    });
+
+    const result = await service.applyVerifiedRefundCallback('sandbox', {
+      eventId: 'partial-refund-event-1',
+      refundNo: 'RF-PAY-main-2-P6000',
+      providerRefundNo: 'sandbox-partial-refund-1',
+      amountCents: 6000,
+      status: 'succeeded',
+      occurredAtIso: '2026-07-15T08:20:00.000Z',
+      rawPayloadHash: 'partial-refund-payload-hash',
+    });
+
+    expect(result).toMatchObject({
+      kind: 'applied',
+      payment: {
+        id: 'payment-main-2',
+        status: 'escrowed',
+        amountCents: 73000,
+        refundedAmountCents: 6000,
+        netAmountCents: 67000,
+      },
+      orderPaymentStatus: 'escrowed',
+    });
+    await expect(
+      repository.findPaymentOrderForShipper('shipper-1', 'payment-main-2'),
+    ).resolves.toMatchObject({
+      refundedAmountCents: 6000,
+      netAmountCents: 67000,
+      status: 'escrowed',
+    });
+  });
+
   it('marks a reservation failed when provider preparation fails', async () => {
     const { service, provider, repository } = createService();
     jest

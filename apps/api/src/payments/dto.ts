@@ -41,6 +41,15 @@ export type PaymentOrderRecord = {
   shipperId: string;
   channel: PaymentProviderChannel;
   amountCents: number;
+  /**
+   * Sum of succeeded refunds against this payment.
+   * Derived at read time; not a persisted column in stage-1.
+   */
+  refundedAmountCents?: number;
+  /**
+   * amountCents - refundedAmountCents for the remaining escrowed principal.
+   */
+  netAmountCents?: number;
   status: PaymentOrderStatus;
   idempotencyKey: string;
   requestFingerprint: string;

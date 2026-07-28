@@ -404,7 +404,9 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       item => item.id === paymentId && item.shipperId === shipperId,
     );
 
-    return payment ? clonePayment(payment) : undefined;
+    return payment
+      ? withInMemoryPaymentNetAmounts(payment, this.refunds)
+      : undefined;
   }
 
   async findLatestPaymentOrderForShipper(shipperId: string, orderId: string) {
@@ -416,7 +418,9 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
         right.createdAtIso.localeCompare(left.createdAtIso),
       )[0];
 
-    return payment ? clonePayment(payment) : undefined;
+    return payment
+      ? withInMemoryPaymentNetAmounts(payment, this.refunds)
+      : undefined;
   }
 
   async claimRefundOutboxEvents(
@@ -827,7 +831,7 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       kind: 'applied',
       replayed: false,
       refund: structuredClone(refund),
-      payment: clonePayment(payment),
+      payment: withInMemoryPaymentNetAmounts(payment, this.refunds),
       orderPaymentStatus: isPartialRefund
         ? (order.paymentStatus as Extract<
             OrderPaymentStatus,
@@ -1223,6 +1227,12 @@ type PrismaPaymentOrderRecord = {
   createdAt: Date;
   updatedAt: Date;
   order: PrismaPaymentSourceOrderRecord;
+  refund?: {
+    id: string;
+    amountCents: number;
+    status: string;
+    succeededAt: Date | null;
+  } | null;
 };
 
 type PrismaPaymentSourceOrderRecord = {
@@ -1378,6 +1388,14 @@ const paymentOrderInclude = {
       payablePriceCents: true,
       couponId: true,
       refundedAt: true,
+    },
+  },
+  refund: {
+    select: {
+      id: true,
+      amountCents: true,
+      status: true,
+      succeededAt: true,
     },
   },
 } as const;
@@ -2914,6 +2932,11 @@ function mapPrismaPaymentOrder(
   payment: PrismaPaymentOrderRecord,
 ): PaymentOrderRecord {
   const clientPayload = parseClientPayload(payment.clientPayload);
+  const refundedAmountCents =
+    payment.refund && payment.refund.status === 'succeeded'
+      ? payment.refund.amountCents
+      : 0;
+  const netAmountCents = Math.max(0, payment.amountCents - refundedAmountCents);
 
   return {
     id: payment.id,
@@ -2923,6 +2946,10 @@ function mapPrismaPaymentOrder(
     shipperId: payment.shipperId,
     channel: payment.channel,
     amountCents: payment.amountCents,
+    ...(refundedAmountCents > 0 ? { refundedAmountCents } : {}),
+    ...(refundedAmountCents > 0 || payment.status === 'escrowed'
+      ? { netAmountCents }
+      : {}),
     status: payment.status,
     idempotencyKey: payment.idempotencyKey,
     requestFingerprint: payment.requestFingerprint,
@@ -3086,6 +3113,27 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
 
 function clonePayment(payment: PaymentOrderRecord) {
   return structuredClone(payment);
+}
+
+function withInMemoryPaymentNetAmounts(
+  payment: PaymentOrderRecord,
+  refunds: RefundRecord[],
+): PaymentOrderRecord {
+  const refundedAmountCents = refunds
+    .filter(
+      refund =>
+        refund.paymentOrderId === payment.id && refund.status === 'succeeded',
+    )
+    .reduce((total, refund) => total + refund.amountCents, 0);
+  const netAmountCents = Math.max(0, payment.amountCents - refundedAmountCents);
+
+  return {
+    ...clonePayment(payment),
+    ...(refundedAmountCents > 0 ? { refundedAmountCents } : {}),
+    ...(refundedAmountCents > 0 || payment.status === 'escrowed'
+      ? { netAmountCents }
+      : {}),
+  };
 }
 
 function cloneFinancialTransaction(transaction: FinancialTransactionRecord) {

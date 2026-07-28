@@ -34,6 +34,8 @@ export type PlatformPaymentRecord = {
   shipperId: string;
   channel: PlatformProviderPaymentChannel;
   amountCents: number;
+  refundedAmountCents?: number;
+  netAmountCents?: number;
   status: PlatformPaymentStatus;
   clientPayload?: Record<string, unknown> | string;
   providerTradeNo?: string;
@@ -167,6 +169,8 @@ export type PlatformAdminFinancePaymentRecord = {
   shipperId: string;
   channel: PlatformProviderPaymentChannel;
   amountCents: number;
+  refundedAmountCents?: number;
+  netAmountCents?: number;
   status: PlatformPaymentStatus;
   providerTradeNo?: string;
   failureCode?: string;

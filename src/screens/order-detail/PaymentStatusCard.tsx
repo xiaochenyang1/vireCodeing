@@ -308,6 +308,21 @@ function buildPaymentFactTexts({
 
   if (payment) {
     facts.push(`金额 ${formatPaymentAmount(payment.amountCents)}`);
+    if (
+      typeof payment.refundedAmountCents === 'number' &&
+      payment.refundedAmountCents > 0
+    ) {
+      facts.push(
+        `已退 ${formatPaymentAmount(payment.refundedAmountCents)}`,
+      );
+    }
+    if (
+      typeof payment.netAmountCents === 'number' &&
+      (payment.netAmountCents !== payment.amountCents ||
+        (payment.refundedAmountCents ?? 0) > 0)
+    ) {
+      facts.push(`净托管 ${formatPaymentAmount(payment.netAmountCents)}`);
+    }
   }
 
   const effectiveChannel = payment?.channel ?? orderPaymentChannel;

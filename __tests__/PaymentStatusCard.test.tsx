@@ -143,6 +143,27 @@ describe('PaymentStatusCard', () => {
       renderer.root.findAllByProps({ testID: 'payment-submit' }),
     ).toHaveLength(0);
   });
+
+  it('renders refunded and net escrow amounts for partial refunds', async () => {
+    const renderer = await renderPaymentStatusCard({
+      orderPaymentStatus: 'escrowed',
+      payment: createPayment({
+        paymentNo: 'PAY-MAIN-1',
+        amountCents: 73000,
+        refundedAmountCents: 6000,
+        netAmountCents: 67000,
+        status: 'escrowed',
+      }),
+      canSubmitPaymentAction: false,
+      supportsPlatformPaymentFlow: true,
+      hasPlatformOrderBinding: true,
+    });
+
+    const renderedText = getRenderedText(renderer);
+    expect(renderedText).toContain('金额 ￥730.00');
+    expect(renderedText).toContain('已退 ￥60.00');
+    expect(renderedText).toContain('净托管 ￥670.00');
+  });
 });
 
 function createPayment(
