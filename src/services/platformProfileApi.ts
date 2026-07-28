@@ -59,9 +59,7 @@ export type PlatformProfileVerificationStatus =
   | 'approved'
   | 'rejected';
 
-export type PlatformAdminShipperVerificationType =
-  | 'identity'
-  | 'enterprise';
+export type PlatformAdminShipperVerificationType = 'identity' | 'enterprise';
 
 export type PlatformSaveProfileIdentityVerificationRequest = {
   realName: string;
@@ -445,12 +443,18 @@ export type PlatformAdminEvaluationDirection =
   | 'driver_to_shipper';
 
 export type PlatformAdminEvaluationModerationStatus = 'visible' | 'hidden';
+export type PlatformEvaluationAppealStatus =
+  | 'none'
+  | 'requested'
+  | 'accepted'
+  | 'rejected';
 
 export type PlatformAdminEvaluationAuditListQuery = {
   page?: number;
   pageSize?: number;
   direction?: PlatformAdminEvaluationDirection;
   moderationStatus?: PlatformAdminEvaluationModerationStatus;
+  appealStatus?: PlatformEvaluationAppealStatus;
   rating?: number;
   keyword?: string;
 };
@@ -476,6 +480,52 @@ export type PlatformAdminEvaluationAuditRecord = {
   moderationReason?: string;
   moderatedByAdminId?: string;
   moderatedAtIso?: string;
+  appealStatus: PlatformEvaluationAppealStatus;
+  latestAppeal?: PlatformEvaluationAppealSnapshot;
+};
+
+export type PlatformEvaluationAppealSnapshot = {
+  id: string;
+  evaluationId: string;
+  appellantUserId: string;
+  status: Exclude<PlatformEvaluationAppealStatus, 'none'>;
+  version: number;
+  reason: string;
+  moderationVersion: number;
+  submittedAtIso: string;
+  resolutionReason?: string;
+  resolvedByAdminId?: string;
+  resolvedAtIso?: string;
+};
+
+export type PlatformEvaluationAppealCaseListResult = {
+  userId: string;
+  items: PlatformAdminEvaluationAuditRecord[];
+};
+
+export type PlatformSubmitEvaluationAppealRequest = {
+  reason: string;
+  baseModerationVersion: number;
+};
+
+export type PlatformResolveAdminEvaluationAppealRequest = {
+  decision: 'accepted' | 'rejected';
+  reason: string;
+  baseAppealVersion: number;
+  baseModerationVersion: number;
+};
+
+export type PlatformEvaluationAppealEventRecord = {
+  id: string;
+  appealId: string;
+  evaluationId: string;
+  actorUserId: string;
+  fromStatus?: Exclude<PlatformEvaluationAppealStatus, 'none'>;
+  toStatus: Exclude<PlatformEvaluationAppealStatus, 'none'>;
+  reason: string;
+  fromVersion: number;
+  toVersion: number;
+  createdAtIso: string;
 };
 
 export type PlatformAdminEvaluationAuditListResult = {
@@ -562,11 +612,7 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       return platformPut<
         PlatformSaveProfileIdentityVerificationRequest,
         PlatformProfileIdentityVerification
-      >(
-        config,
-        '/shipper/profile/identity-verification',
-        normalizedRequest,
-      );
+      >(config, '/shipper/profile/identity-verification', normalizedRequest);
     },
     getEnterpriseVerification() {
       return platformGet<PlatformProfileEnterpriseVerification | null>(
@@ -583,11 +629,7 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       return platformPut<
         PlatformSaveProfileEnterpriseVerificationRequest,
         PlatformProfileEnterpriseVerification
-      >(
-        config,
-        '/shipper/profile/enterprise-verification',
-        normalizedRequest,
-      );
+      >(config, '/shipper/profile/enterprise-verification', normalizedRequest);
     },
     async listAdminVerifications(
       query: PlatformListAdminShipperVerificationQuery = {},
@@ -685,7 +727,8 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
       request: PlatformAdminIssueShipperCouponRequest,
       idempotencyKey: string,
     ) {
-      const normalizedRequest = normalizeAdminIssueShipperCouponRequest(request);
+      const normalizedRequest =
+        normalizeAdminIssueShipperCouponRequest(request);
       const normalizedIdempotencyKey =
         normalizeAdminShipperCouponIdempotencyKey(idempotencyKey);
 
@@ -746,6 +789,27 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         '/shipper/profile/evaluations/received',
       );
     },
+    listEvaluationAppealCases() {
+      return platformGet<PlatformEvaluationAppealCaseListResult>(
+        config,
+        '/profile/evaluations/appeals',
+      );
+    },
+    async submitEvaluationAppeal(
+      evaluationId: string,
+      request: PlatformSubmitEvaluationAppealRequest,
+    ) {
+      return platformPost<
+        PlatformSubmitEvaluationAppealRequest,
+        PlatformEvaluationAppealSnapshot
+      >(
+        config,
+        `/profile/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/appeals`,
+        normalizeSubmitEvaluationAppealRequest(request),
+      );
+    },
     async listAdminEvaluationAudits(
       query: PlatformAdminEvaluationAuditListQuery = {},
     ) {
@@ -780,11 +844,20 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
         )}/moderation-events`,
       );
     },
+    async listAdminEvaluationAppealEvents(evaluationId: string) {
+      return platformGet<PlatformEvaluationAppealEventRecord[]>(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/appeal-events`,
+      );
+    },
     async moderateAdminEvaluation(
       evaluationId: string,
       request: PlatformModerateAdminEvaluationRequest,
     ) {
-      const normalizedRequest = normalizeModerateAdminEvaluationRequest(request);
+      const normalizedRequest =
+        normalizeModerateAdminEvaluationRequest(request);
 
       return platformPut<
         PlatformModerateAdminEvaluationRequest,
@@ -795,6 +868,24 @@ export function createPlatformProfileApi(config: PlatformApiConfig) {
           normalizeAdminEvaluationAuditId(evaluationId),
         )}/moderation`,
         normalizedRequest,
+      );
+    },
+    async resolveAdminEvaluationAppeal(
+      evaluationId: string,
+      appealId: string,
+      request: PlatformResolveAdminEvaluationAppealRequest,
+    ) {
+      return platformPut<
+        PlatformResolveAdminEvaluationAppealRequest,
+        PlatformAdminEvaluationAuditRecord
+      >(
+        config,
+        `/admin/evaluations/${encodeURIComponent(
+          normalizeAdminEvaluationAuditId(evaluationId),
+        )}/appeals/${encodeURIComponent(
+          normalizeAdminEvaluationAppealId(appealId),
+        )}`,
+        normalizeResolveAdminEvaluationAppealRequest(request),
       );
     },
     async createInvoiceApplication(
@@ -1202,10 +1293,7 @@ function normalizeAdminBatchIssueShipperCouponsRequest(
     ),
   );
 
-  if (
-    normalizedShipperIds.length === 0 ||
-    normalizedShipperIds.length > 50
-  ) {
+  if (normalizedShipperIds.length === 0 || normalizedShipperIds.length > 50) {
     throwInvalidAdminShipperCouponRequest(
       'Admin shipper coupon shipperIds are invalid',
     );
@@ -1388,6 +1476,15 @@ function normalizeAdminEvaluationAuditListQuery(
   }
 
   if (
+    query.appealStatus !== undefined &&
+    !['none', 'requested', 'accepted', 'rejected'].includes(query.appealStatus)
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation audit appeal status is invalid',
+    );
+  }
+
+  if (
     query.rating !== undefined &&
     (!Number.isInteger(query.rating) || query.rating < 1 || query.rating > 5)
   ) {
@@ -1408,6 +1505,7 @@ function normalizeAdminEvaluationAuditListQuery(
     ...(query.moderationStatus
       ? { moderationStatus: query.moderationStatus }
       : {}),
+    ...(query.appealStatus ? { appealStatus: query.appealStatus } : {}),
     ...(query.rating !== undefined ? { rating: String(query.rating) } : {}),
     ...(normalizedKeyword ? { keyword: normalizedKeyword } : {}),
     page: String(page),
@@ -1467,6 +1565,79 @@ function normalizeModerateAdminEvaluationRequest(
   };
 }
 
+function normalizeAdminEvaluationAppealId(appealId: string) {
+  return normalizeRequiredString(
+    appealId,
+    120,
+    'Admin evaluation appeal id is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
+}
+
+function normalizeSubmitEvaluationAppealRequest(
+  request: PlatformSubmitEvaluationAppealRequest,
+): PlatformSubmitEvaluationAppealRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Evaluation appeal request must be an object',
+    );
+  }
+  const reason = normalizeRequiredString(
+    request.reason,
+    500,
+    'Evaluation appeal reason is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
+  if (
+    reason.length < 6 ||
+    !Number.isInteger(request.baseModerationVersion) ||
+    request.baseModerationVersion < 1
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Evaluation appeal request is invalid',
+    );
+  }
+  return { reason, baseModerationVersion: request.baseModerationVersion };
+}
+
+function normalizeResolveAdminEvaluationAppealRequest(
+  request: PlatformResolveAdminEvaluationAppealRequest,
+): PlatformResolveAdminEvaluationAppealRequest {
+  if (!isPlainObject(request)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation appeal decision must be an object',
+    );
+  }
+  if (!['accepted', 'rejected'].includes(request.decision)) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation appeal decision is invalid',
+    );
+  }
+  const reason = normalizeRequiredString(
+    request.reason,
+    500,
+    'Admin evaluation appeal reason is invalid',
+    throwInvalidAdminEvaluationAuditRequest,
+  );
+  if (
+    reason.length < 2 ||
+    !Number.isInteger(request.baseAppealVersion) ||
+    request.baseAppealVersion < 1 ||
+    !Number.isInteger(request.baseModerationVersion) ||
+    request.baseModerationVersion < 1
+  ) {
+    throwInvalidAdminEvaluationAuditRequest(
+      'Admin evaluation appeal decision is invalid',
+    );
+  }
+  return {
+    decision: request.decision,
+    reason,
+    baseAppealVersion: request.baseAppealVersion,
+    baseModerationVersion: request.baseModerationVersion,
+  };
+}
+
 function normalizeListAdminShipperVerificationQuery(
   query: PlatformListAdminShipperVerificationQuery,
 ) {
@@ -1486,7 +1657,10 @@ function normalizeListAdminShipperVerificationQuery(
     );
   }
 
-  if (query.type !== undefined && !['identity', 'enterprise'].includes(query.type)) {
+  if (
+    query.type !== undefined &&
+    !['identity', 'enterprise'].includes(query.type)
+  ) {
     throwInvalidAdminShipperVerificationRequest(
       'Admin shipper verification type is invalid',
     );
@@ -1780,9 +1954,7 @@ function createOptionalAccountAvatarFields(avatarFileId: unknown) {
     throwInvalidAccountRequest,
   );
 
-  return normalizedAvatarFileId
-    ? { avatarFileId: normalizedAvatarFileId }
-    : {};
+  return normalizedAvatarFileId ? { avatarFileId: normalizedAvatarFileId } : {};
 }
 
 function createOptionalAccountPhoneField(phone: unknown) {
@@ -1861,12 +2033,8 @@ function createOptionalAccountSettingsFields(
   }
 
   return {
-    ...(phoneProtectionEnabled !== undefined
-      ? { phoneProtectionEnabled }
-      : {}),
-    ...(loginProtectionEnabled !== undefined
-      ? { loginProtectionEnabled }
-      : {}),
+    ...(phoneProtectionEnabled !== undefined ? { phoneProtectionEnabled } : {}),
+    ...(loginProtectionEnabled !== undefined ? { loginProtectionEnabled } : {}),
     ...(orderNotificationEnabled !== undefined
       ? { orderNotificationEnabled }
       : {}),
@@ -1984,7 +2152,9 @@ function normalizeOptionalBoolean(value: unknown, message: string) {
 async function createTextResponseApiError(response: Response) {
   try {
     const text = await response.text();
-    const payload = text ? (JSON.parse(text) as PlatformApiErrorBody) : undefined;
+    const payload = text
+      ? (JSON.parse(text) as PlatformApiErrorBody)
+      : undefined;
 
     if (payload?.code && payload.message) {
       return new PlatformApiError(

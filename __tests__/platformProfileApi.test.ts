@@ -733,26 +733,58 @@ describe('platform profile api', () => {
       'bad-request',
       { ...validRequest, addresses: 'bad-addresses' },
       { ...validRequest, contacts: 'bad-contacts' },
-      { ...validRequest, addresses: Array.from({ length: 21 }, (_, index) => ({
-        id: `address-${index}`,
-        name: '龙华临时仓',
-        address: '龙华区临时中转仓',
-        contactText: '吴主管 13900139001',
-      })) },
-      { ...validRequest, contacts: Array.from({ length: 51 }, (_, index) => ({
-        id: `contact-${index}`,
-        name: '吴主管',
-        roleText: '仓库负责人',
-        phoneText: '13900139001',
-      })) },
-      { ...validRequest, addresses: [{ ...validRequest.addresses[0], id: ' ' }] },
-      { ...validRequest, addresses: [{ ...validRequest.addresses[0], name: 'x'.repeat(31) }] },
-      { ...validRequest, addresses: [{ ...validRequest.addresses[0], address: 'x'.repeat(121) }] },
-      { ...validRequest, addresses: [{ ...validRequest.addresses[0], contactText: 'x'.repeat(81) }] },
-      { ...validRequest, contacts: [{ ...validRequest.contacts[0], roleText: ' ' }] },
-      { ...validRequest, contacts: [{ ...validRequest.contacts[0], phoneText: '123456' }] },
-      { ...validRequest, addresses: [{ ...validRequest.addresses[0], tagText: 123 }] },
-      { ...validRequest, contacts: [{ ...validRequest.contacts[0], noteText: 123 }] },
+      {
+        ...validRequest,
+        addresses: Array.from({ length: 21 }, (_, index) => ({
+          id: `address-${index}`,
+          name: '龙华临时仓',
+          address: '龙华区临时中转仓',
+          contactText: '吴主管 13900139001',
+        })),
+      },
+      {
+        ...validRequest,
+        contacts: Array.from({ length: 51 }, (_, index) => ({
+          id: `contact-${index}`,
+          name: '吴主管',
+          roleText: '仓库负责人',
+          phoneText: '13900139001',
+        })),
+      },
+      {
+        ...validRequest,
+        addresses: [{ ...validRequest.addresses[0], id: ' ' }],
+      },
+      {
+        ...validRequest,
+        addresses: [{ ...validRequest.addresses[0], name: 'x'.repeat(31) }],
+      },
+      {
+        ...validRequest,
+        addresses: [{ ...validRequest.addresses[0], address: 'x'.repeat(121) }],
+      },
+      {
+        ...validRequest,
+        addresses: [
+          { ...validRequest.addresses[0], contactText: 'x'.repeat(81) },
+        ],
+      },
+      {
+        ...validRequest,
+        contacts: [{ ...validRequest.contacts[0], roleText: ' ' }],
+      },
+      {
+        ...validRequest,
+        contacts: [{ ...validRequest.contacts[0], phoneText: '123456' }],
+      },
+      {
+        ...validRequest,
+        addresses: [{ ...validRequest.addresses[0], tagText: 123 }],
+      },
+      {
+        ...validRequest,
+        contacts: [{ ...validRequest.contacts[0], noteText: 123 }],
+      },
       { ...validRequest, clientUpdatedAtIso: 'not-a-date' },
       { ...validRequest, baseUpdatedAtIso: 123 },
     ];
@@ -1408,16 +1440,19 @@ describe('platform profile api', () => {
     });
 
     await expect(
-      api.issueAdminCoupon({
-        shipperId: ' shipper-1 ',
-        title: ' 后台满 500 减 50 ',
-        conditionText: ' 平台订单满 500 元可用 ',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-        sourceText: ' 运营补偿 ',
-      }, ` ${adminCouponIssueKey} `),
+      api.issueAdminCoupon(
+        {
+          shipperId: ' shipper-1 ',
+          title: ' 后台满 500 减 50 ',
+          conditionText: ' 平台订单满 500 元可用 ',
+          discountCents: 5000,
+          minOrderAmountCents: 50000,
+          validFromIso: '2026-07-09T00:00:00.000Z',
+          validUntilIso: '2026-08-09T00:00:00.000Z',
+          sourceText: ' 运营补偿 ',
+        },
+        ` ${adminCouponIssueKey} `,
+      ),
     ).resolves.toMatchObject({
       id: 'coupon-platform-issue-1',
       shipperId: 'shipper-1',
@@ -1425,16 +1460,19 @@ describe('platform profile api', () => {
     });
 
     await expect(
-      api.batchIssueAdminCoupons({
-        shipperIds: [' shipper-1 ', 'shipper-2', ' shipper-1 '],
-        title: ' 后台满 500 减 50 ',
-        conditionText: ' 平台订单满 500 元可用 ',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-        sourceText: ' 运营补偿 ',
-      }, ` ${adminCouponBatchIssueKey} `),
+      api.batchIssueAdminCoupons(
+        {
+          shipperIds: [' shipper-1 ', 'shipper-2', ' shipper-1 '],
+          title: ' 后台满 500 减 50 ',
+          conditionText: ' 平台订单满 500 元可用 ',
+          discountCents: 5000,
+          minOrderAmountCents: 50000,
+          validFromIso: '2026-07-09T00:00:00.000Z',
+          validUntilIso: '2026-08-09T00:00:00.000Z',
+          sourceText: ' 运营补偿 ',
+        },
+        ` ${adminCouponBatchIssueKey} `,
+      ),
     ).resolves.toMatchObject({
       requestedCount: 2,
       issuedCount: 2,
@@ -1692,6 +1730,7 @@ describe('platform profile api', () => {
       api.listAdminEvaluationAudits({
         direction: 'shipper_to_driver',
         moderationStatus: 'hidden',
+        appealStatus: 'requested',
         rating: 5,
         keyword: '  评价审计  ',
         page: 2,
@@ -1712,11 +1751,74 @@ describe('platform profile api', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/admin/evaluations?direction=shipper_to_driver&moderationStatus=hidden&rating=5&keyword=%E8%AF%84%E4%BB%B7%E5%AE%A1%E8%AE%A1&page=2&pageSize=10',
+      'http://localhost:3000/api/admin/evaluations?direction=shipper_to_driver&moderationStatus=hidden&appealStatus=requested&rating=5&keyword=%E8%AF%84%E4%BB%B7%E5%AE%A1%E8%AE%A1&page=2&pageSize=10',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+        }),
+      }),
+    );
+  });
+
+  it('lists and submits normalized evaluation appeals', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          data: { userId: 'shipper-1', items: [] },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          data: {
+            id: 'appeal-1',
+            evaluationId: 'audit-1',
+            appellantUserId: 'shipper-1',
+            status: 'requested',
+            version: 1,
+            reason: '评价来自真实运输过程，请复核。',
+            moderationVersion: 1,
+            submittedAtIso: '2026-07-28T02:00:00.000Z',
+          },
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.listEvaluationAppealCases()).resolves.toEqual({
+      userId: 'shipper-1',
+      items: [],
+    });
+    await expect(
+      api.submitEvaluationAppeal(' audit-1 ', {
+        reason: '  评价来自真实运输过程，请复核。  ',
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toMatchObject({ id: 'appeal-1', status: 'requested' });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://localhost:3000/api/profile/evaluations/appeals',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/profile/evaluations/audit-1/appeals',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          reason: '评价来自真实运输过程，请复核。',
+          baseModerationVersion: 1,
         }),
       }),
     );
@@ -1758,7 +1860,9 @@ describe('platform profile api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await expect(api.getAdminEvaluationAudit(' audit-1 ')).resolves.toMatchObject({
+    await expect(
+      api.getAdminEvaluationAudit(' audit-1 '),
+    ).resolves.toMatchObject({
       id: 'audit-1',
       orderId: 'order-1',
       direction: 'shipper_to_driver',
@@ -1936,6 +2040,58 @@ describe('platform profile api', () => {
     );
   });
 
+  it('lists appeal events and submits a normalized admin appeal decision', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 'OK', data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          code: 'OK',
+          data: {
+            id: 'audit-1',
+            moderationStatus: 'visible',
+            moderationVersion: 2,
+            appealStatus: 'accepted',
+          },
+        }),
+      });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformProfileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      api.listAdminEvaluationAppealEvents(' audit-1 '),
+    ).resolves.toEqual([]);
+    await api.resolveAdminEvaluationAppeal(' audit-1 ', ' appeal-1 ', {
+      decision: 'accepted',
+      reason: '  复核后恢复展示  ',
+      baseAppealVersion: 1,
+      baseModerationVersion: 1,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3000/api/admin/evaluations/audit-1/appeals/appeal-1',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          decision: 'accepted',
+          reason: '复核后恢复展示',
+          baseAppealVersion: 1,
+          baseModerationVersion: 1,
+        }),
+      }),
+    );
+  });
+
   it('rejects invalid admin evaluation audit requests before sending them', async () => {
     const fetchMock = jest.fn();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -1974,9 +2130,7 @@ describe('platform profile api', () => {
       status: 0,
     } satisfies Partial<PlatformApiError>);
 
-    await expect(
-      api.getAdminEvaluationAudit('   '),
-    ).rejects.toMatchObject({
+    await expect(api.getAdminEvaluationAudit('   ')).rejects.toMatchObject({
       code: 'PLATFORM_ADMIN_EVALUATION_AUDIT_REQUEST_INVALID',
       status: 0,
     } satisfies Partial<PlatformApiError>);
@@ -2358,18 +2512,18 @@ describe('platform profile api', () => {
     for (const request of [
       null,
       'bad-request',
-      {...validRequest, invoiceType: 'bad-type'},
-      {...validRequest, invoiceTitleType: 'bad-title-type'},
-      {...validRequest, invoiceTitle: ' '},
-      {...validRequest, receiverEmail: 'bad-email'},
-      {...validRequest, orderIds: 'bad-order-ids'},
-      {...validRequest, orderIds: []},
+      { ...validRequest, invoiceType: 'bad-type' },
+      { ...validRequest, invoiceTitleType: 'bad-title-type' },
+      { ...validRequest, invoiceTitle: ' ' },
+      { ...validRequest, receiverEmail: 'bad-email' },
+      { ...validRequest, orderIds: 'bad-order-ids' },
+      { ...validRequest, orderIds: [] },
       {
         ...validRequest,
-        orderIds: Array.from({length: 21}, (_, index) => `order-${index}`),
+        orderIds: Array.from({ length: 21 }, (_, index) => `order-${index}`),
       },
-      {...validRequest, orderIds: ['order-platform-1', 'order-platform-1']},
-      {...validRequest, orderIds: [' ']},
+      { ...validRequest, orderIds: ['order-platform-1', 'order-platform-1'] },
+      { ...validRequest, orderIds: [' '] },
     ]) {
       await expect(
         api.createInvoiceApplication(
@@ -2417,7 +2571,10 @@ describe('platform profile api', () => {
       { displayName: '晨星货主', phoneProtectionEnabled: 'true' },
       { displayName: '晨星货主', privacyConfirmedAtIso: 123 },
       { displayName: '晨星货主', privacyConfirmedAtIso: 'not-a-date' },
-      { displayName: '晨星货主', privacyPolicyVersion: 'privacy-policy-v2026-07-22' },
+      {
+        displayName: '晨星货主',
+        privacyPolicyVersion: 'privacy-policy-v2026-07-22',
+      },
       {
         displayName: '晨星货主',
         privacyPolicyVersion: 'privacy-policy-v2026-07-22',
@@ -2526,35 +2683,78 @@ describe('platform profile api', () => {
   });
 
   it.each([
-    ['null admin shipper verification query', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerifications(null as never)],
-    ['invalid admin shipper verification status', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerifications({ status: 'pending' as never })],
-    ['invalid admin shipper verification type', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerifications({ type: 'vehicle' as never })],
-    ['invalid admin shipper verification page', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerifications({ page: 0 })],
-    ['invalid admin shipper verification pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerifications({ pageSize: 51 })],
-    ['empty admin shipper review-events id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerificationReviewEvents('   ')],
-    ['empty admin shipper attachments id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminVerificationAttachments('   ')],
-    ['empty admin shipper detail id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.getAdminVerification('   ')],
-    ['empty admin shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminIdentityVerification('   ', { status: 'approved' })],
-    ['invalid admin shipper verification review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminIdentityVerification('shipper-1', { status: 'reviewing' as never })],
-    ['missing admin rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminEnterpriseVerification('shipper-1', { status: 'rejected' } as never)],
-    ['blank admin rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminEnterpriseVerification('shipper-1', {
-        status: 'rejected',
-        rejectionReason: '   ',
-      })],
-    ['non-object admin review request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminIdentityVerification('shipper-1', null as never)],
+    [
+      'null admin shipper verification query',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerifications(null as never),
+    ],
+    [
+      'invalid admin shipper verification status',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerifications({ status: 'pending' as never }),
+    ],
+    [
+      'invalid admin shipper verification type',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerifications({ type: 'vehicle' as never }),
+    ],
+    [
+      'invalid admin shipper verification page',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerifications({ page: 0 }),
+    ],
+    [
+      'invalid admin shipper verification pageSize',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerifications({ pageSize: 51 }),
+    ],
+    [
+      'empty admin shipper review-events id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerificationReviewEvents('   '),
+    ],
+    [
+      'empty admin shipper attachments id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminVerificationAttachments('   '),
+    ],
+    [
+      'empty admin shipper detail id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.getAdminVerification('   '),
+    ],
+    [
+      'empty admin shipper id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminIdentityVerification('   ', { status: 'approved' }),
+    ],
+    [
+      'invalid admin shipper verification review status',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminIdentityVerification('shipper-1', {
+          status: 'reviewing' as never,
+        }),
+    ],
+    [
+      'missing admin rejection reason',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminEnterpriseVerification('shipper-1', {
+          status: 'rejected',
+        } as never),
+    ],
+    [
+      'blank admin rejection reason',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminEnterpriseVerification('shipper-1', {
+          status: 'rejected',
+          rejectionReason: '   ',
+        }),
+    ],
+    [
+      'non-object admin review request',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminIdentityVerification('shipper-1', null as never),
+    ],
   ])(
     'rejects invalid admin shipper verification inputs before sending them: %s',
     async (_label, run) => {
@@ -2574,33 +2774,73 @@ describe('platform profile api', () => {
   );
 
   it.each([
-    ['null admin shipper invoice query', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminInvoiceApplications(null as never)],
-    ['invalid admin shipper invoice status', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminInvoiceApplications({ status: 'pending' as never })],
-    ['invalid admin shipper invoice page', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminInvoiceApplications({ page: 0 })],
-    ['invalid admin shipper invoice pageSize', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminInvoiceApplications({ pageSize: 51 })],
-    ['empty admin shipper invoice review-events id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.listAdminInvoiceApplicationReviewEvents('   ')],
-    ['empty admin shipper invoice detail id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.getAdminInvoiceApplication('   ')],
-    ['empty admin shipper invoice id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminInvoiceApplication('   ', { status: 'approved' })],
-    ['empty admin shipper invoice download id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.downloadAdminInvoiceApplication('   ')],
-    ['invalid admin shipper invoice review status', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminInvoiceApplication('invoice-platform-1', { status: 'reviewing' as never })],
-    ['missing admin shipper invoice rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminInvoiceApplication('invoice-platform-1', { status: 'rejected' } as never)],
-    ['blank admin shipper invoice rejection reason', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminInvoiceApplication('invoice-platform-1', {
-        status: 'rejected',
-        rejectionReason: '   ',
-      })],
-    ['non-object admin shipper invoice review request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.reviewAdminInvoiceApplication('invoice-platform-1', null as never)],
+    [
+      'null admin shipper invoice query',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminInvoiceApplications(null as never),
+    ],
+    [
+      'invalid admin shipper invoice status',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminInvoiceApplications({ status: 'pending' as never }),
+    ],
+    [
+      'invalid admin shipper invoice page',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminInvoiceApplications({ page: 0 }),
+    ],
+    [
+      'invalid admin shipper invoice pageSize',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminInvoiceApplications({ pageSize: 51 }),
+    ],
+    [
+      'empty admin shipper invoice review-events id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.listAdminInvoiceApplicationReviewEvents('   '),
+    ],
+    [
+      'empty admin shipper invoice detail id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.getAdminInvoiceApplication('   '),
+    ],
+    [
+      'empty admin shipper invoice id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminInvoiceApplication('   ', { status: 'approved' }),
+    ],
+    [
+      'empty admin shipper invoice download id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.downloadAdminInvoiceApplication('   '),
+    ],
+    [
+      'invalid admin shipper invoice review status',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminInvoiceApplication('invoice-platform-1', {
+          status: 'reviewing' as never,
+        }),
+    ],
+    [
+      'missing admin shipper invoice rejection reason',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminInvoiceApplication('invoice-platform-1', {
+          status: 'rejected',
+        } as never),
+    ],
+    [
+      'blank admin shipper invoice rejection reason',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminInvoiceApplication('invoice-platform-1', {
+          status: 'rejected',
+          rejectionReason: '   ',
+        }),
+    ],
+    [
+      'non-object admin shipper invoice review request',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.reviewAdminInvoiceApplication('invoice-platform-1', null as never),
+    ],
   ])(
     'rejects invalid admin shipper invoice inputs before sending them: %s',
     async (_label, run) => {
@@ -2620,74 +2860,125 @@ describe('platform profile api', () => {
   );
 
   it.each([
-    ['null admin shipper coupon issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon(null as never, adminCouponIssueKey)],
-    ['blank admin shipper coupon shipper id', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon({
-        shipperId: '   ',
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }, adminCouponIssueKey)],
-    ['invalid admin shipper coupon discount', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon({
-        shipperId: 'shipper-1',
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 0,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }, adminCouponIssueKey)],
-    ['invalid admin shipper coupon time window', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon({
-        shipperId: 'shipper-1',
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-08-09T00:00:00.000Z',
-        validUntilIso: '2026-07-09T00:00:00.000Z',
-      }, adminCouponIssueKey)],
-    ['null admin shipper coupon batch issue request', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.batchIssueAdminCoupons(null as never, adminCouponBatchIssueKey)],
-    ['empty admin shipper coupon shipperIds', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.batchIssueAdminCoupons({
-        shipperIds: [],
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }, adminCouponBatchIssueKey)],
-    ['invalid admin shipper coupon batch issue count', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.batchIssueAdminCoupons({
-        shipperIds: Array.from({ length: 51 }, (_, index) => `shipper-${index}`),
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }, adminCouponBatchIssueKey)],
-    ['invalid admin shipper coupon idempotency key', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.issueAdminCoupon({
-        shipperId: 'shipper-1',
-        title: '后台满 500 减 50',
-        conditionText: '平台订单满 500 元可用',
-        discountCents: 5000,
-        minOrderAmountCents: 50000,
-        validFromIso: '2026-07-09T00:00:00.000Z',
-        validUntilIso: '2026-08-09T00:00:00.000Z',
-      }, 'repeat-click')],
-    ['invalid admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.getAdminCouponReport({ topShippersLimit: 21 })],
-    ['null admin shipper coupon report query', (api: ReturnType<typeof createPlatformProfileApi>) =>
-      api.getAdminCouponReport(null as never)],
+    [
+      'null admin shipper coupon issue request',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.issueAdminCoupon(null as never, adminCouponIssueKey),
+    ],
+    [
+      'blank admin shipper coupon shipper id',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.issueAdminCoupon(
+          {
+            shipperId: '   ',
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+          },
+          adminCouponIssueKey,
+        ),
+    ],
+    [
+      'invalid admin shipper coupon discount',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.issueAdminCoupon(
+          {
+            shipperId: 'shipper-1',
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 0,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+          },
+          adminCouponIssueKey,
+        ),
+    ],
+    [
+      'invalid admin shipper coupon time window',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.issueAdminCoupon(
+          {
+            shipperId: 'shipper-1',
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-08-09T00:00:00.000Z',
+            validUntilIso: '2026-07-09T00:00:00.000Z',
+          },
+          adminCouponIssueKey,
+        ),
+    ],
+    [
+      'null admin shipper coupon batch issue request',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.batchIssueAdminCoupons(null as never, adminCouponBatchIssueKey),
+    ],
+    [
+      'empty admin shipper coupon shipperIds',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.batchIssueAdminCoupons(
+          {
+            shipperIds: [],
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+          },
+          adminCouponBatchIssueKey,
+        ),
+    ],
+    [
+      'invalid admin shipper coupon batch issue count',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.batchIssueAdminCoupons(
+          {
+            shipperIds: Array.from(
+              { length: 51 },
+              (_, index) => `shipper-${index}`,
+            ),
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+          },
+          adminCouponBatchIssueKey,
+        ),
+    ],
+    [
+      'invalid admin shipper coupon idempotency key',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.issueAdminCoupon(
+          {
+            shipperId: 'shipper-1',
+            title: '后台满 500 减 50',
+            conditionText: '平台订单满 500 元可用',
+            discountCents: 5000,
+            minOrderAmountCents: 50000,
+            validFromIso: '2026-07-09T00:00:00.000Z',
+            validUntilIso: '2026-08-09T00:00:00.000Z',
+          },
+          'repeat-click',
+        ),
+    ],
+    [
+      'invalid admin shipper coupon report query',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.getAdminCouponReport({ topShippersLimit: 21 }),
+    ],
+    [
+      'null admin shipper coupon report query',
+      (api: ReturnType<typeof createPlatformProfileApi>) =>
+        api.getAdminCouponReport(null as never),
+    ],
   ])(
     'rejects invalid admin shipper coupon inputs before sending them: %s',
     async (_label, run) => {
