@@ -126,11 +126,11 @@ function createModules(
       route: '/api/admin/order-change-request-console',
       stage: 'first_slice',
       summary:
-        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上；留空的审核快照也会按订单金额、支付状态和司机分配自动补全；通过审核时可选填写调整后应付金额并同步改写订单 price/payable 快照，同时会写入资金处置结论与财务审计留痕；在线托管降价会排队部分退款 outbox，涨价会创建补差 PaymentOrder 并可拉起/入账；支付单读取侧会派生 refundedAmountCents/netAmountCents，并提供订单级 payments/summary 托管合计（毛托管/已退/净托管/待补差）。',
+        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上；留空的审核快照也会按订单金额、支付状态和司机分配自动补全；通过审核时可选填写调整后应付金额并同步改写订单 price/payable 快照，同时会写入资金处置结论与财务审计留痕；在线托管降价会排队部分退款 outbox，涨价会创建补差 PaymentOrder 并可拉起/入账；支付单读取侧会派生 refundedAmountCents/netAmountCents，并提供订单级 payments/summary 托管合计；后台订单管理台按单资金视图也会展示托管合计卡。',
       metrics: [],
       pendingGaps: [
-        '后台订单管理台直出托管合计',
-        'OpenAPI 文档同步 payments/summary',
+        '正式微信/支付宝商户联调',
+        '多次部分退款模型（当前一支付单一退款）',
       ],
     },
     {

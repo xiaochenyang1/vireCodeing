@@ -670,12 +670,27 @@ export function renderOrderChangeRequestAdminConsole() {
       const costImpactText = document.getElementById('costImpactText').value.trim();
       const refundText = document.getElementById('refundText').value.trim();
       const driverNoticeText = document.getElementById('driverNoticeText').value.trim();
+      const adjustedPayablePriceYuanInput = document.getElementById(
+        'adjustedPayablePriceYuan',
+      );
+      const adjustedPayablePriceYuan = (
+        adjustedPayablePriceYuanInput && adjustedPayablePriceYuanInput.value
+          ? String(adjustedPayablePriceYuanInput.value)
+          : ''
+      ).trim();
       let adjustedPayablePriceCents;
-      try {
-        adjustedPayablePriceCents = parseAdjustedPayablePriceCents();
-      } catch (error) {
-        setText('reviewStatus', error.message || '调整后应付金额不合法');
-        return;
+      if (adjustedPayablePriceYuan) {
+        const yuan = Number(adjustedPayablePriceYuan);
+        if (!Number.isFinite(yuan)) {
+          setText('reviewStatus', '调整后应付金额格式不正确');
+          return;
+        }
+        const cents = Math.round(yuan * 100);
+        if (!Number.isInteger(cents) || cents < 100 || cents > 10_000_000) {
+          setText('reviewStatus', '调整后应付金额需在 1 到 100000 元之间');
+          return;
+        }
+        adjustedPayablePriceCents = cents;
       }
       if (decision === 'rejected' && adjustedPayablePriceCents !== undefined) {
         setText('reviewStatus', '驳回修改申请时不能调整订单金额');
@@ -721,12 +736,13 @@ export function renderOrderChangeRequestAdminConsole() {
             : {}),
         };
         renderDetail();
-        setText(
-          'reviewStatus',
-          adjustedPayablePriceCents !== undefined
-            ? '审核成功：' + decision + '，已同步订单应付金额'
-            : '审核成功：' + decision,
-        );
+        setText('reviewStatus', '审核成功：' + decision);
+        if (adjustedPayablePriceCents !== undefined) {
+          setText(
+            'reviewStatus',
+            '审核成功：' + decision + '，已同步订单应付金额',
+          );
+        }
         shouldRefresh = true;
       } catch (error) {
         if (

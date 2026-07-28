@@ -2427,7 +2427,47 @@ describe('stage 1 OpenAPI contract', () => {
       'PaymentOrderRecord',
       'refundedAtIso:',
     );
+    expectSchemaBlockToContain(
+      source,
+      'PaymentOrderRecord',
+      'refundedAmountCents:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'PaymentOrderRecord',
+      'netAmountCents:',
+    );
     expect(source).toContain('opaque provider payload');
+  });
+
+  it('documents shipper order payment escrow summary', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/shipper/orders/{orderId}/payments/summary';
+
+    expect(source).toContain(`${path}:`);
+    expectPathBlockToContain(source, path, 'Get order escrow payment summary');
+    expectPathBlockToContain(source, path, 'bearerAuth: []');
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/schemas/OrderPaymentEscrowSummaryResponse'",
+    );
+    expectPathBlockToContain(source, path, 'PAYMENT_ORDER_NOT_AVAILABLE');
+    expectSchemaBlockToContain(
+      source,
+      'OrderPaymentEscrowSummary',
+      'grossEscrowedCents:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'OrderPaymentEscrowSummary',
+      'netEscrowedCents:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'OrderPaymentEscrowSummary',
+      'pendingTopUpCents:',
+    );
   });
 
   it('documents six unauthenticated signed callback routes with provider-native acknowledgements', () => {

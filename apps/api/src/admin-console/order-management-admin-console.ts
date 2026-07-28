@@ -1612,8 +1612,63 @@ export function renderOrderManagementAdminConsole() {
       '</div></div>';
     }
 
+    function buildOrderPaymentEscrowSummary(payments) {
+      const items = Array.isArray(payments) ? payments : [];
+      let grossEscrowedCents = 0;
+      let refundedCents = 0;
+      let netEscrowedCents = 0;
+      let pendingTopUpCents = 0;
+      let escrowedPaymentCount = 0;
+      let pendingTopUpCount = 0;
+
+      items.forEach(item => {
+        const amountCents = Number(item.amountCents || 0);
+        const refundedAmountCents = Number(item.refundedAmountCents || 0);
+        const netAmountCents =
+          item.netAmountCents !== undefined && item.netAmountCents !== null
+            ? Number(item.netAmountCents)
+            : Math.max(0, amountCents - refundedAmountCents);
+        const paymentNo = String(item.paymentNo || '');
+        const isTopUp =
+          paymentNo.indexOf('PAY-TOPUP-') >= 0 ||
+          String(item.idempotencyKey || '').indexOf('order-change-topup:') === 0;
+
+        if (item.status === 'escrowed' || item.status === 'settled') {
+          escrowedPaymentCount += 1;
+          grossEscrowedCents += amountCents;
+          refundedCents += refundedAmountCents;
+          netEscrowedCents += netAmountCents;
+        } else if (
+          isTopUp &&
+          (item.status === 'pending' || item.status === 'processing')
+        ) {
+          pendingTopUpCount += 1;
+          pendingTopUpCents += amountCents;
+        }
+      });
+
+      return {
+        paymentCount: items.length,
+        escrowedPaymentCount,
+        pendingTopUpCount,
+        grossEscrowedCents,
+        refundedCents,
+        netEscrowedCents,
+        pendingTopUpCents,
+      };
+    }
+
     function buildOrderFinanceSummaryCards(orderId, finance) {
-      return '<div class="meta-card"><strong>支付单</strong>' +
+      const escrowSummary = buildOrderPaymentEscrowSummary(
+        finance.payments && finance.payments.items,
+      );
+      return '<div class="meta-card"><strong>托管合计</strong>' +
+        '<div class="muted">净托管：' + escapeHtml(formatPrice(escrowSummary.netEscrowedCents)) + '</div>' +
+        '<div class="muted">毛托管 / 已退：' + escapeHtml(formatPrice(escrowSummary.grossEscrowedCents)) + ' / ' + escapeHtml(formatPrice(escrowSummary.refundedCents)) + '</div>' +
+        '<div class="muted">待补差：' + escapeHtml(formatPrice(escrowSummary.pendingTopUpCents)) + '（' + escapeHtml(formatCount(escrowSummary.pendingTopUpCount)) + ' 笔）</div>' +
+        '<div class="muted">支付单：' + escapeHtml(formatCount(escrowSummary.paymentCount)) + ' 笔 / 已托管 ' + escapeHtml(formatCount(escrowSummary.escrowedPaymentCount)) + ' 笔</div>' +
+      '</div>' +
+      '<div class="meta-card"><strong>支付单</strong>' +
         '<div class="muted">数量：' + escapeHtml(formatCount(finance.payments.total)) + '</div>' +
         '<div class="muted">状态：' + escapeHtml(summarizeFinanceStatuses(finance.payments.items, formatPaymentStatus)) + '</div>' +
         '<div class="muted">金额：' + escapeHtml(formatPrice(sumOrderFinanceAmounts(finance.payments.items, 'amountCents'))) + '</div>' +
@@ -1643,9 +1698,21 @@ export function renderOrderManagementAdminConsole() {
     }
 
     function buildPaymentFinanceRecord(item) {
+      const amountLine =
+        item.netAmountCents !== undefined &&
+        item.netAmountCents !== null &&
+        Number(item.netAmountCents) !== Number(item.amountCents || 0)
+          ? '金额：' +
+            escapeHtml(formatPrice(item.amountCents)) +
+            ' / 净 ' +
+            escapeHtml(formatPrice(item.netAmountCents))
+          : '金额：' + escapeHtml(formatPrice(item.amountCents));
       return '<article class="event-card">' +
         '<div class="inline-actions"><strong>' + escapeHtml(item.paymentNo || item.id) + '</strong><span class="pill">' + escapeHtml(formatPaymentStatus(item.status)) + '</span></div>' +
-        '<div class="muted">金额：' + escapeHtml(formatPrice(item.amountCents)) + ' · 渠道：' + escapeHtml(item.channel || '-') + '</div>' +
+        '<div class="muted">' + amountLine + ' · 渠道：' + escapeHtml(item.channel || '-') + '</div>' +
+        (item.refundedAmountCents
+          ? '<div class="muted">已退：' + escapeHtml(formatPrice(item.refundedAmountCents)) + '</div>'
+          : '') +
         '<div class="muted">创建：' + escapeHtml(formatTime(item.createdAtIso)) + ' · 支付：' + escapeHtml(formatTime(item.paidAtIso)) + '</div>' +
         '<div class="muted">结算：' + escapeHtml(formatTime(item.settledAtIso)) + ' · 更新时间：' + escapeHtml(formatTime(item.updatedAtIso)) + '</div>' +
         (item.providerTradeNo

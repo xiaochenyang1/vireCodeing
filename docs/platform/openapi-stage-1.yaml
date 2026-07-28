@@ -3882,6 +3882,46 @@ paths:
                 message: 订单支付单不存在
                 requestId: req_local
                 timestamp: '2026-07-15T08:04:00.000Z'
+  /shipper/orders/{orderId}/payments/summary:
+    get:
+      summary: Get order escrow payment summary
+      description: Aggregates main escrow payments, change-request top-up payments, and succeeded refunds for the current shipper order into gross escrowed, refunded, net escrowed, and pending top-up totals. Derived net fields are read-time snapshots and do not rewrite payment principal amountCents.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: order_01J1Z7P7V2QM9B3V8M3G1N6K8S
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Order escrow payment summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPaymentEscrowSummaryResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ShipperOnlyError'
+        '404':
+          description: Payment order does not exist for the current shipper order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: PAYMENT_ORDER_NOT_AVAILABLE
+                message: 订单支付单不存在
+                requestId: req_local
+                timestamp: '2026-07-15T08:04:30.000Z'
   /callbacks/payment/wechat:
     post:
       summary: Accept signed WeChat payment callback
@@ -9718,6 +9758,16 @@ components:
           type: integer
           minimum: 1
           example: 31000
+        refundedAmountCents:
+          type: integer
+          minimum: 0
+          description: Sum of succeeded refunds against this payment. Derived at read time.
+          example: 6000
+        netAmountCents:
+          type: integer
+          minimum: 0
+          description: amountCents minus refundedAmountCents for remaining escrowed principal.
+          example: 25000
         status:
           $ref: '#/components/schemas/PaymentOrderStatus'
         idempotencyKey:
@@ -9772,6 +9822,61 @@ components:
           type: string
           format: date-time
           example: '2026-07-15T08:00:30.000Z'
+    OrderPaymentEscrowSummary:
+      type: object
+      required:
+        [
+          orderId,
+          paymentCount,
+          escrowedPaymentCount,
+          pendingTopUpCount,
+          grossEscrowedCents,
+          refundedCents,
+          netEscrowedCents,
+          pendingTopUpCents,
+          payments,
+        ]
+      properties:
+        orderId:
+          type: string
+          example: order-platform-payment-1
+        orderNo:
+          type: string
+          example: HY202607150001
+        paymentCount:
+          type: integer
+          minimum: 0
+          example: 2
+        escrowedPaymentCount:
+          type: integer
+          minimum: 0
+          example: 1
+        pendingTopUpCount:
+          type: integer
+          minimum: 0
+          example: 1
+        grossEscrowedCents:
+          type: integer
+          minimum: 0
+          example: 73000
+        refundedCents:
+          type: integer
+          minimum: 0
+          example: 3000
+        netEscrowedCents:
+          type: integer
+          minimum: 0
+          example: 70000
+        pendingTopUpCents:
+          type: integer
+          minimum: 0
+          example: 6000
+        latestPayment:
+          $ref: '#/components/schemas/PaymentOrderRecord'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentOrderRecord'
     CreatePaymentResult:
       type: object
       required: [replayed, payment]
@@ -9797,6 +9902,14 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/PaymentOrderRecord'
+    OrderPaymentEscrowSummaryResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderPaymentEscrowSummary'
     WechatCallbackSuccessAck:
       type: object
       required: [code, message]
