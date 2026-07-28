@@ -71,7 +71,7 @@ describe('PaymentStatusCard', () => {
 
     const renderedText = getRenderedText(renderer);
 
-    expect(renderedText).toContain('金额 ￥310.00');
+    expect(renderedText).toContain('当前支付单 ￥310.00');
     expect(renderedText).toContain('渠道 微信支付');
     expect(renderedText).toContain('支付单号 PAY-DETAIL-1');
     expect(renderedText).toContain('渠道流水 WX-TRADE-1');
@@ -160,9 +160,41 @@ describe('PaymentStatusCard', () => {
     });
 
     const renderedText = getRenderedText(renderer);
-    expect(renderedText).toContain('金额 ￥730.00');
-    expect(renderedText).toContain('已退 ￥60.00');
-    expect(renderedText).toContain('净托管 ￥670.00');
+    expect(renderedText).toContain('当前支付单 ￥730.00');
+    expect(renderedText).toContain('本单已退 ￥60.00');
+    expect(renderedText).toContain('本单净额 ￥670.00');
+  });
+
+  it('renders order-level escrow summary facts across main and top-up payments', async () => {
+    const renderer = await renderPaymentStatusCard({
+      orderPaymentStatus: 'escrowed',
+      payment: createPayment({
+        paymentNo: 'PAY-TOPUP-1',
+        amountCents: 6000,
+        status: 'pending',
+      }),
+      escrowSummary: {
+        orderId: 'order-1',
+        orderNo: 'HY1',
+        paymentCount: 2,
+        escrowedPaymentCount: 1,
+        pendingTopUpCount: 1,
+        grossEscrowedCents: 73000,
+        refundedCents: 3000,
+        netEscrowedCents: 70000,
+        pendingTopUpCents: 6000,
+        payments: [],
+      },
+      supportsPlatformPaymentFlow: true,
+      hasPlatformOrderBinding: true,
+    });
+
+    const renderedText = getRenderedText(renderer);
+    expect(renderedText).toContain('订单净托管 ￥700.00');
+    expect(renderedText).toContain('毛托管 ￥730.00');
+    expect(renderedText).toContain('已退合计 ￥30.00');
+    expect(renderedText).toContain('待补差 ￥60.00');
+    expect(renderedText).toContain('支付单 2 笔 / 已托管 1 笔');
   });
 });
 

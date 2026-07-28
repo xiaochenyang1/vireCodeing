@@ -50,6 +50,20 @@ export type PlatformPaymentRecord = {
   updatedAtIso: string;
 };
 
+export type PlatformOrderPaymentEscrowSummary = {
+  orderId: string;
+  orderNo?: string;
+  paymentCount: number;
+  escrowedPaymentCount: number;
+  pendingTopUpCount: number;
+  grossEscrowedCents: number;
+  refundedCents: number;
+  netEscrowedCents: number;
+  pendingTopUpCents: number;
+  latestPayment?: PlatformPaymentRecord;
+  payments: PlatformPaymentRecord[];
+};
+
 export type PlatformPaymentSdkResult = {
   status: 'succeeded' | 'cancelled' | 'failed';
   message?: string;
@@ -400,6 +414,13 @@ export function createPlatformPaymentApi(config: PlatformApiConfig) {
       return platformGet<PlatformPaymentRecord>(
         config,
         `/shipper/orders/${encodeURIComponent(normalizedOrderId)}/payments`,
+      );
+    },
+    getOrderPaymentEscrowSummary(orderId: string) {
+      const normalizedOrderId = normalizeOrderId(orderId);
+      return platformGet<PlatformOrderPaymentEscrowSummary>(
+        config,
+        `/shipper/orders/${encodeURIComponent(normalizedOrderId)}/payments/summary`,
       );
     },
     getAdminFinanceReport() {

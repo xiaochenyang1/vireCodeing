@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type {
   PlatformPaymentChannel,
   PlatformPaymentRecord,
+  PlatformOrderPaymentEscrowSummary,
 } from '../../services/platformPaymentApi';
 import { colors, shadows } from '../../styles';
 import type { OrderPaymentStatus, PaymentChannel } from '../../types';
@@ -64,6 +65,7 @@ const paymentStatusCopy: Record<
 export function PaymentStatusCard({
   orderPaymentStatus,
   payment,
+  escrowSummary,
   orderPaymentChannel,
   paymentSettledAtIso,
   refundedAtIso,
@@ -79,6 +81,7 @@ export function PaymentStatusCard({
 }: {
   orderPaymentStatus: OrderPaymentStatus;
   payment?: PlatformPaymentRecord;
+  escrowSummary?: PlatformOrderPaymentEscrowSummary;
   orderPaymentChannel?: PaymentChannel;
   paymentSettledAtIso?: string;
   refundedAtIso?: string;
@@ -100,6 +103,7 @@ export function PaymentStatusCard({
   });
   const factTexts = buildPaymentFactTexts({
     payment,
+    escrowSummary,
     orderPaymentChannel,
     effectiveStatus,
     paymentSettledAtIso,
@@ -290,12 +294,14 @@ function formatPaymentAmount(amountCents: number) {
 
 function buildPaymentFactTexts({
   payment,
+  escrowSummary,
   orderPaymentChannel,
   effectiveStatus,
   paymentSettledAtIso,
   refundedAtIso,
 }: {
   payment?: PlatformPaymentRecord;
+  escrowSummary?: PlatformOrderPaymentEscrowSummary;
   orderPaymentChannel?: PaymentChannel;
   effectiveStatus: OrderPaymentStatus | PlatformPaymentRecord['status'];
   paymentSettledAtIso?: string;
@@ -306,14 +312,40 @@ function buildPaymentFactTexts({
     payment?.settledAtIso ?? paymentSettledAtIso;
   const effectiveRefundedAtIso = payment?.refundedAtIso ?? refundedAtIso;
 
+  if (escrowSummary && escrowSummary.paymentCount > 0) {
+    facts.push(
+      `订单净托管 ${formatPaymentAmount(escrowSummary.netEscrowedCents)}`,
+    );
+    if (escrowSummary.grossEscrowedCents > 0) {
+      facts.push(
+        `毛托管 ${formatPaymentAmount(escrowSummary.grossEscrowedCents)}`,
+      );
+    }
+    if (escrowSummary.refundedCents > 0) {
+      facts.push(`已退合计 ${formatPaymentAmount(escrowSummary.refundedCents)}`);
+    }
+    if (escrowSummary.pendingTopUpCents > 0) {
+      facts.push(
+        `待补差 ${formatPaymentAmount(escrowSummary.pendingTopUpCents)}`,
+      );
+    }
+    facts.push(
+      `支付单 ${escrowSummary.paymentCount} 笔 / 已托管 ${escrowSummary.escrowedPaymentCount} 笔`,
+    );
+  }
+
   if (payment) {
-    facts.push(`金额 ${formatPaymentAmount(payment.amountCents)}`);
+    facts.push(
+      `${
+        payment.paymentNo?.includes('PAY-TOPUP-') ? '补差单金额' : '当前支付单'
+      } ${formatPaymentAmount(payment.amountCents)}`,
+    );
     if (
       typeof payment.refundedAmountCents === 'number' &&
       payment.refundedAmountCents > 0
     ) {
       facts.push(
-        `已退 ${formatPaymentAmount(payment.refundedAmountCents)}`,
+        `本单已退 ${formatPaymentAmount(payment.refundedAmountCents)}`,
       );
     }
     if (
@@ -321,7 +353,7 @@ function buildPaymentFactTexts({
       (payment.netAmountCents !== payment.amountCents ||
         (payment.refundedAmountCents ?? 0) > 0)
     ) {
-      facts.push(`净托管 ${formatPaymentAmount(payment.netAmountCents)}`);
+      facts.push(`本单净额 ${formatPaymentAmount(payment.netAmountCents)}`);
     }
   }
 

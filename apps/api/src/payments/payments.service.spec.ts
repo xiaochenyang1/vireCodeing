@@ -302,6 +302,88 @@ describe('PaymentsService', () => {
     });
   });
 
+  it('summarizes main escrow, top-up, and partial refunds for an order', async () => {
+    const repository = new InMemoryPaymentsRepository({
+      now: () => NOW,
+      orders: [
+        createSourceOrder({
+          status: 'loading',
+          paymentStatus: 'escrowed',
+          payablePriceCents: 79000,
+        }),
+      ],
+      paymentOrders: [
+        {
+          id: 'payment-main-3',
+          paymentNo: 'PAY-main-3',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 73000,
+          status: 'escrowed',
+          idempotencyKey: 'main-payment-key-3',
+          requestFingerprint: 'main-fp-3',
+          expiresAtIso: '2026-07-15T08:15:00.000Z',
+          paidAtIso: '2026-07-15T07:50:00.000Z',
+          createdAtIso: '2026-07-15T07:40:00.000Z',
+          updatedAtIso: NOW.toISOString(),
+        },
+        {
+          id: 'payment-topup-3',
+          paymentNo: 'PAY-TOPUP-PAY-main-3-6000',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 6000,
+          status: 'pending',
+          idempotencyKey: 'order-change-topup:order-1:2026-07-15T08:00:00.000Z',
+          requestFingerprint: JSON.stringify({
+            type: 'change_request_price_increase',
+            orderId: 'order-1',
+            amountCents: 6000,
+          }),
+          expiresAtIso: '2026-07-16T08:00:00.000Z',
+          createdAtIso: '2026-07-15T08:01:00.000Z',
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+      refunds: [
+        {
+          id: 'refund-partial-3',
+          refundNo: 'RF-PAY-main-3-P3000',
+          paymentOrderId: 'payment-main-3',
+          orderId: 'order-1',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 3000,
+          reason: 'change_request_price_decrease',
+          status: 'succeeded',
+          createdAtIso: NOW.toISOString(),
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+    });
+    const service = new PaymentsService(repository, () => createProvider(), {
+      now: () => NOW,
+    });
+
+    await expect(
+      service.getOrderPaymentEscrowSummary('shipper-1', 'order-1'),
+    ).resolves.toMatchObject({
+      orderId: 'order-1',
+      paymentCount: 2,
+      escrowedPaymentCount: 1,
+      pendingTopUpCount: 1,
+      grossEscrowedCents: 73000,
+      refundedCents: 3000,
+      netEscrowedCents: 70000,
+      pendingTopUpCents: 6000,
+      latestPayment: { id: 'payment-topup-3' },
+    });
+  });
+
   it('marks a reservation failed when provider preparation fails', async () => {
     const { service, provider, repository } = createService();
     jest

@@ -66,6 +66,20 @@ export type PaymentOrderRecord = {
   updatedAtIso: string;
 };
 
+export type OrderPaymentEscrowSummary = {
+  orderId: string;
+  orderNo?: string;
+  paymentCount: number;
+  escrowedPaymentCount: number;
+  pendingTopUpCount: number;
+  grossEscrowedCents: number;
+  refundedCents: number;
+  netEscrowedCents: number;
+  pendingTopUpCents: number;
+  latestPayment?: PaymentOrderRecord;
+  payments: PaymentOrderRecord[];
+};
+
 export type FinancialLedgerEntryRecord = {
   id: string;
   transactionId: string;

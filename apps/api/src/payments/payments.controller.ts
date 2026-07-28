@@ -68,6 +68,27 @@ export class PaymentsController {
       getRequestId(request),
     );
   }
+
+  @Get('summary')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '订单托管合计',
+    description:
+      '汇总订单下主支付/补差支付与已成功退款，返回毛托管、已退、净托管和待补差金额。',
+  })
+  async getPaymentEscrowSummary(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+  ) {
+    const currentUser = getCurrentShipper(request);
+    return ok(
+      await this.paymentsService.getOrderPaymentEscrowSummary(
+        currentUser.id,
+        orderId,
+      ),
+      getRequestId(request),
+    );
+  }
 }
 
 function getCurrentShipper(request: AuthenticatedRequest) {

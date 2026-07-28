@@ -192,6 +192,10 @@ export interface PaymentsRepository {
     shipperId: string,
     orderId: string,
   ): Promise<PaymentOrderRecord | undefined>;
+  listPaymentOrdersForShipperOrder(
+    shipperId: string,
+    orderId: string,
+  ): Promise<PaymentOrderRecord[]>;
   applyVerifiedPaymentCallback(
     input: ApplyVerifiedPaymentCallbackInput,
   ): Promise<ApplyPaymentCallbackResult>;
@@ -421,6 +425,17 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     return payment
       ? withInMemoryPaymentNetAmounts(payment, this.refunds)
       : undefined;
+  }
+
+  async listPaymentOrdersForShipperOrder(shipperId: string, orderId: string) {
+    return [...this.paymentOrders]
+      .filter(
+        item => item.orderId === orderId && item.shipperId === shipperId,
+      )
+      .sort((left, right) =>
+        right.createdAtIso.localeCompare(left.createdAtIso),
+      )
+      .map(payment => withInMemoryPaymentNetAmounts(payment, this.refunds));
   }
 
   async claimRefundOutboxEvents(
@@ -1371,6 +1386,7 @@ export type PrismaPaymentsClient = {
   paymentOrder: {
     findUnique(args: unknown): Promise<PrismaPaymentOrderRecord | null>;
     findFirst(args: unknown): Promise<PrismaPaymentOrderRecord | null>;
+    findMany(args: unknown): Promise<PrismaPaymentOrderRecord[]>;
   };
 };
 
@@ -1673,6 +1689,16 @@ export class PrismaPaymentsRepository implements PaymentsRepository {
     });
 
     return payment ? mapPrismaPaymentOrder(payment) : undefined;
+  }
+
+  async listPaymentOrdersForShipperOrder(shipperId: string, orderId: string) {
+    const payments = await this.prisma.paymentOrder.findMany({
+      where: { shipperId, orderId },
+      orderBy: { createdAt: 'desc' },
+      include: paymentOrderInclude,
+    });
+
+    return payments.map(mapPrismaPaymentOrder);
   }
 
   async claimRefundOutboxEvents(

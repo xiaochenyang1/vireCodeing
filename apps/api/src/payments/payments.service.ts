@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { NotificationsService } from '../notifications/notifications.service';
-import type { CreatePaymentRequest } from './dto';
+import type { CreatePaymentRequest, OrderPaymentEscrowSummary } from './dto';
 import {
   hashCallbackPayload,
   type PaymentProvider,
@@ -143,6 +143,25 @@ export class PaymentsService {
     }
 
     return payment;
+  }
+
+  async getOrderPaymentEscrowSummary(
+    shipperId: string,
+    orderId: string,
+  ): Promise<OrderPaymentEscrowSummary> {
+    const payments = await this.repository.listPaymentOrdersForShipperOrder(
+      shipperId,
+      orderId,
+    );
+
+    if (payments.length === 0) {
+      throw new BusinessError(
+        ApiErrorCode.PAYMENT_ORDER_NOT_AVAILABLE,
+        '订单支付单不存在',
+      );
+    }
+
+    return buildOrderPaymentEscrowSummary(orderId, payments);
   }
 
   async handlePaymentCallback(
@@ -389,4 +408,56 @@ export class PaymentsService {
       // Inbox/push is best-effort and must not break payment/refund callbacks.
     }
   }
+}
+
+function buildOrderPaymentEscrowSummary(
+  orderId: string,
+  payments: import('./dto').PaymentOrderRecord[],
+): OrderPaymentEscrowSummary {
+  const sorted = [...payments].sort((left, right) =>
+    right.createdAtIso.localeCompare(left.createdAtIso),
+  );
+  let grossEscrowedCents = 0;
+  let refundedCents = 0;
+  let netEscrowedCents = 0;
+  let pendingTopUpCents = 0;
+  let escrowedPaymentCount = 0;
+  let pendingTopUpCount = 0;
+
+  for (const payment of sorted) {
+    const isTopUp =
+      payment.idempotencyKey.startsWith('order-change-topup:') ||
+      payment.paymentNo.includes('PAY-TOPUP-');
+    const refundedAmountCents = payment.refundedAmountCents ?? 0;
+    const netAmountCents =
+      payment.netAmountCents ??
+      Math.max(0, payment.amountCents - refundedAmountCents);
+
+    if (payment.status === 'escrowed' || payment.status === 'settled') {
+      escrowedPaymentCount += 1;
+      grossEscrowedCents += payment.amountCents;
+      refundedCents += refundedAmountCents;
+      netEscrowedCents += netAmountCents;
+    } else if (
+      isTopUp &&
+      (payment.status === 'pending' || payment.status === 'processing')
+    ) {
+      pendingTopUpCount += 1;
+      pendingTopUpCents += payment.amountCents;
+    }
+  }
+
+  return {
+    orderId,
+    ...(sorted[0]?.orderNo ? { orderNo: sorted[0].orderNo } : {}),
+    paymentCount: sorted.length,
+    escrowedPaymentCount,
+    pendingTopUpCount,
+    grossEscrowedCents,
+    refundedCents,
+    netEscrowedCents,
+    pendingTopUpCents,
+    latestPayment: sorted[0],
+    payments: sorted,
+  };
 }

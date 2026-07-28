@@ -40,6 +40,7 @@ import type {
   createPlatformPaymentApi,
   PlatformPaymentChannel,
   PlatformPaymentRecord,
+  PlatformOrderPaymentEscrowSummary,
   PlatformPaymentSdk,
 } from '../services/platformPaymentApi';
 import type { createPlatformMapsApi } from '../services/platformMapsApi';
@@ -149,7 +150,13 @@ export function OrderDetailScreen({
   platformPaymentApi?: Pick<
     ReturnType<typeof createPlatformPaymentApi>,
     'createPayment' | 'getLatestPayment'
-  >;
+  > &
+    Partial<
+      Pick<
+        ReturnType<typeof createPlatformPaymentApi>,
+        'getOrderPaymentEscrowSummary'
+      >
+    >;
   platformMapsApi?: Pick<
     ReturnType<typeof createPlatformMapsApi>,
     'getShipperDriverLocation'
@@ -189,6 +196,8 @@ export function OrderDetailScreen({
   const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
   const [appealingCaseId, setAppealingCaseId] = useState<string>();
   const [payment, setPayment] = useState<PlatformPaymentRecord>();
+  const [paymentEscrowSummary, setPaymentEscrowSummary] =
+    useState<PlatformOrderPaymentEscrowSummary>();
   const [paymentChannel, setPaymentChannel] =
     useState<PlatformPaymentChannel>('wechat');
   const [isPaymentBusy, setIsPaymentBusy] = useState(false);
@@ -312,6 +321,7 @@ export function OrderDetailScreen({
       !platformPaymentApi
     ) {
       setPayment(undefined);
+      setPaymentEscrowSummary(undefined);
       setPaymentNotice(undefined);
       setIsPaymentBusy(false);
       return;
@@ -319,11 +329,18 @@ export function OrderDetailScreen({
 
     let active = true;
     setPayment(undefined);
+    setPaymentEscrowSummary(undefined);
     setPaymentNotice(undefined);
     setIsPaymentBusy(true);
-    platformPaymentApi
-      .getLatestPayment(order.platformOrderId)
-      .then(latestPayment => {
+    Promise.all([
+      platformPaymentApi.getLatestPayment(order.platformOrderId),
+      platformPaymentApi.getOrderPaymentEscrowSummary
+        ? platformPaymentApi
+            .getOrderPaymentEscrowSummary(order.platformOrderId)
+            .catch(() => undefined)
+        : Promise.resolve(undefined),
+    ])
+      .then(([latestPayment, escrowSummary]) => {
         if (!active) {
           return;
         }
@@ -334,6 +351,7 @@ export function OrderDetailScreen({
           setPayment,
           setPaymentChannel,
         });
+        setPaymentEscrowSummary(escrowSummary);
       })
       .catch(error => {
         if (!active) {
@@ -391,15 +409,22 @@ export function OrderDetailScreen({
     setIsPaymentBusy(true);
     setPaymentNotice(undefined);
     try {
+      const [latestPayment, escrowSummary] = await Promise.all([
+        platformPaymentApi.getLatestPayment(order.platformOrderId),
+        platformPaymentApi.getOrderPaymentEscrowSummary
+          ? platformPaymentApi
+              .getOrderPaymentEscrowSummary(order.platformOrderId)
+              .catch(() => undefined)
+          : Promise.resolve(undefined),
+      ]);
       applyPaymentSnapshot({
         order,
-        latestPayment: await platformPaymentApi.getLatestPayment(
-          order.platformOrderId,
-        ),
+        latestPayment,
         onUpdateOrder,
         setPayment,
         setPaymentChannel,
       });
+      setPaymentEscrowSummary(escrowSummary);
     } catch {
       setPaymentNotice('支付状态刷新失败，请稍后重试。');
     } finally {
@@ -450,6 +475,17 @@ export function OrderDetailScreen({
         setPayment,
         setPaymentChannel,
       });
+      if (platformPaymentApi.getOrderPaymentEscrowSummary && order.platformOrderId) {
+        try {
+          setPaymentEscrowSummary(
+            await platformPaymentApi.getOrderPaymentEscrowSummary(
+              order.platformOrderId,
+            ),
+          );
+        } catch {
+          // Keep payment result even if summary refresh fails.
+        }
+      }
       if (
         (result.status === 'cancelled' ||
           result.status === 'sdk-cancelled') &&
@@ -880,6 +916,7 @@ export function OrderDetailScreen({
         <PaymentStatusCard
           orderPaymentStatus={order.paymentStatus ?? 'pending'}
           payment={payment}
+          escrowSummary={paymentEscrowSummary}
           orderPaymentChannel={order.paymentChannel}
           paymentSettledAtIso={order.paymentSettledAtIso}
           refundedAtIso={order.refundedAtIso}
