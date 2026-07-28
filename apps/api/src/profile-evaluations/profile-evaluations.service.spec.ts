@@ -433,6 +433,7 @@ describe('ProfileEvaluationsService', () => {
             submittedAtIso: '2026-07-09T10:00:00.000Z',
             moderationStatus: 'visible',
             moderationVersion: 0,
+            appealStatus: 'none',
           },
           {
             id: 'shipper-to-driver',
@@ -452,6 +453,7 @@ describe('ProfileEvaluationsService', () => {
             submittedAtIso: '2026-07-09T09:00:00.000Z',
             moderationStatus: 'visible',
             moderationVersion: 0,
+            appealStatus: 'none',
           },
         ],
         page: 1,
@@ -515,6 +517,7 @@ describe('ProfileEvaluationsService', () => {
       submittedAtIso: '2026-07-09T09:00:00.000Z',
       moderationStatus: 'visible',
       moderationVersion: 0,
+      appealStatus: 'none',
     });
   });
 
@@ -674,6 +677,171 @@ describe('ProfileEvaluationsService', () => {
     await expect(
       service.listAdminEvaluationModerationEvents(admin, 'evaluation-conflict'),
     ).resolves.toHaveLength(1);
+  });
+
+  it('lets an evaluation author appeal a hidden record and lets an admin accept it', async () => {
+    let now = new Date('2026-07-28T08:00:00.000Z');
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          events: [
+            createEvent({
+              id: 'evaluation-appealed',
+              actorUserId: 'shipper-1',
+              evaluationModeration: {
+                status: 'hidden',
+                version: 1,
+                reason: '包含疑似导流内容',
+                moderatedByAdminId: 'admin-1',
+                moderatedAtIso: '2026-07-28T07:00:00.000Z',
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(
+      repository,
+      undefined,
+      undefined,
+      () => now,
+    );
+    const shipper = {
+      id: 'shipper-1',
+      phone: '13800138000',
+      userType: 'shipper' as const,
+    };
+    const admin = {
+      id: 'admin-2',
+      phone: '13900139000',
+      userType: 'admin' as const,
+    };
+
+    await expect(service.listEvaluationAppealCases(shipper)).resolves.toMatchObject({
+      userId: 'shipper-1',
+      items: [
+        {
+          id: 'evaluation-appealed',
+          moderationStatus: 'hidden',
+          moderationVersion: 1,
+          appealStatus: 'none',
+        },
+      ],
+    });
+    const firstAppeal = await service.submitEvaluationAppeal(
+      shipper,
+      'evaluation-appealed',
+      {
+        reason: '评价内容来自真实运输经历，请重新复核。',
+        baseModerationVersion: 1,
+      },
+    );
+    await expect(
+      service.submitEvaluationAppeal(shipper, 'evaluation-appealed', {
+        reason: '评价内容来自真实运输经历，请重新复核。',
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toEqual(firstAppeal);
+    await expect(
+      service.listAdminEvaluationAudits({
+        page: 1,
+        pageSize: 20,
+        appealStatus: 'requested',
+      }),
+    ).resolves.toMatchObject({
+      total: 1,
+      items: [
+        {
+          id: 'evaluation-appealed',
+          appealStatus: 'requested',
+          latestAppeal: { id: firstAppeal.id, version: 1 },
+        },
+      ],
+    });
+    await expect(
+      service.moderateAdminEvaluation(admin, 'evaluation-appealed', {
+        status: 'visible',
+        reason: '试图绕过申诉裁定',
+        baseModerationVersion: 1,
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.EVALUATION_APPEAL_PENDING });
+
+    now = new Date('2026-07-28T08:30:00.000Z');
+    await expect(
+      service.resolveAdminEvaluationAppeal(
+        admin,
+        'evaluation-appealed',
+        firstAppeal.id,
+        {
+          decision: 'accepted',
+          reason: '复核后确认评价内容可以恢复展示',
+          baseAppealVersion: 1,
+          baseModerationVersion: 1,
+        },
+      ),
+    ).resolves.toMatchObject({
+      moderationStatus: 'visible',
+      moderationVersion: 2,
+      appealStatus: 'accepted',
+      latestAppeal: {
+        status: 'accepted',
+        version: 2,
+        resolvedByAdminId: 'admin-2',
+        resolvedAtIso: now.toISOString(),
+      },
+    });
+    await expect(service.listRecords('shipper-1')).resolves.toMatchObject({
+      items: [expect.objectContaining({ id: 'evaluation-appealed' })],
+    });
+    await expect(
+      service.listAdminEvaluationAppealEvents(admin, 'evaluation-appealed'),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        fromStatus: 'requested',
+        toStatus: 'accepted',
+        fromVersion: 1,
+        toVersion: 2,
+      }),
+      expect.objectContaining({
+        toStatus: 'requested',
+        fromVersion: 0,
+        toVersion: 1,
+      }),
+    ]);
+  });
+
+  it('does not reveal a hidden evaluation to a non-author appeal request', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          events: [
+            createEvent({
+              id: 'evaluation-owned-by-shipper-1',
+              actorUserId: 'shipper-1',
+              evaluationModeration: {
+                status: 'hidden',
+                version: 1,
+                reason: '待复核',
+                moderatedByAdminId: 'admin-1',
+                moderatedAtIso: '2026-07-28T07:00:00.000Z',
+              },
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(
+      service.submitEvaluationAppeal(
+        { id: 'shipper-2', phone: '13700137000', userType: 'shipper' },
+        'evaluation-owned-by-shipper-1',
+        {
+          reason: '尝试申诉不属于自己的评价记录。',
+          baseModerationVersion: 1,
+        },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.EVALUATION_AUDIT_NOT_FOUND });
   });
 
   it('rejects missing admin evaluation audit details with not found', async () => {

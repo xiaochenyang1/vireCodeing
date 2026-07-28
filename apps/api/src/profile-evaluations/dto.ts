@@ -45,6 +45,15 @@ export type AdminEvaluationDirection =
   | 'driver_to_shipper';
 
 export type AdminEvaluationModerationStatus = 'visible' | 'hidden';
+export type EvaluationAppealStatus =
+  | 'none'
+  | 'requested'
+  | 'accepted'
+  | 'rejected';
+export type EvaluationAppealDecision = Extract<
+  EvaluationAppealStatus,
+  'accepted' | 'rejected'
+>;
 
 export type AdminEvaluationModerationSnapshot = {
   status: AdminEvaluationModerationStatus;
@@ -72,11 +81,51 @@ export type AdminEvaluationModerationEventRecord = {
   createdAtIso: string;
 };
 
+export type EvaluationAppealSnapshot = {
+  id: string;
+  evaluationId: string;
+  appellantUserId: string;
+  status: Exclude<EvaluationAppealStatus, 'none'>;
+  version: number;
+  reason: string;
+  moderationVersion: number;
+  submittedAtIso: string;
+  resolutionReason?: string;
+  resolvedByAdminId?: string;
+  resolvedAtIso?: string;
+};
+
+export type EvaluationAppealEventRecord = {
+  id: string;
+  appealId: string;
+  evaluationId: string;
+  actorUserId: string;
+  fromStatus?: Exclude<EvaluationAppealStatus, 'none'>;
+  toStatus: Exclude<EvaluationAppealStatus, 'none'>;
+  reason: string;
+  fromVersion: number;
+  toVersion: number;
+  createdAtIso: string;
+};
+
+export type SubmitEvaluationAppealRequest = {
+  reason: string;
+  baseModerationVersion: number;
+};
+
+export type ResolveAdminEvaluationAppealRequest = {
+  decision: EvaluationAppealDecision;
+  reason: string;
+  baseAppealVersion: number;
+  baseModerationVersion: number;
+};
+
 export type AdminEvaluationAuditListQuery = {
   page: number;
   pageSize: number;
   direction?: AdminEvaluationDirection;
   moderationStatus?: AdminEvaluationModerationStatus;
+  appealStatus?: EvaluationAppealStatus;
   rating?: number;
   keyword?: string;
 };
@@ -102,6 +151,13 @@ export type AdminEvaluationAuditRecord = {
   moderationReason?: string;
   moderatedByAdminId?: string;
   moderatedAtIso?: string;
+  appealStatus: EvaluationAppealStatus;
+  latestAppeal?: EvaluationAppealSnapshot;
+};
+
+export type EvaluationAppealCaseListResult = {
+  userId: string;
+  items: AdminEvaluationAuditRecord[];
 };
 
 export type AdminEvaluationAuditListResult = {

@@ -1875,7 +1875,7 @@ paths:
   /admin/evaluations:
     get:
       summary: List admin evaluation audit records
-      description: Lists paginated evaluation audit records for admin review, ordered by latest submittedAt first. It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes the current moderation snapshot. Hidden evaluations remain available to admins but are excluded from shipper-facing sent and received evaluation snapshots. Appeal handling, credit scoring, blacklist and a dedicated evaluation table are still out of scope.
+      description: Lists paginated evaluation audit records for admin review, ordered by latest submittedAt first. It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes current moderation and latest appeal snapshots. Hidden evaluations remain available to admins but are excluded from shipper-facing sent and received evaluation snapshots.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - name: page
@@ -1915,6 +1915,12 @@ paths:
           schema:
             $ref: '#/components/schemas/AdminEvaluationModerationStatus'
           example: hidden
+        - name: appealStatus
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/EvaluationAppealStatus'
+          example: requested
         - name: keyword
           in: query
           required: false
@@ -2122,6 +2128,115 @@ paths:
                 message: 评价审计记录不存在
                 requestId: req_local
                 timestamp: '2026-07-27T10:00:00.000Z'
+  /profile/evaluations/appeals:
+    get:
+      summary: List current user evaluation appeal cases
+      description: Lists evaluations authored by the current shipper or driver that are hidden or have appeal history.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user's evaluation appeal cases
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluationAppealCaseListResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Admin accounts cannot submit evaluation appeals
+  /profile/evaluations/{evaluationId}/appeals:
+    post:
+      summary: Submit an evaluation appeal
+      description: Submits an appeal for a hidden evaluation authored by the current shipper or driver. Only one requested appeal may exist per evaluation.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitEvaluationAppealRequest'
+      responses:
+        '200':
+          description: Submitted or idempotently recovered appeal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluationAppealResponse'
+        '400': { description: Appeal payload is invalid }
+        '401': { description: Access token is invalid }
+        '403': { description: Current user did not author this evaluation }
+        '404': { description: Evaluation does not exist }
+        '409': { description: Evaluation state changed, is visible, or already has another requested appeal }
+  /admin/evaluations/{evaluationId}/appeal-events:
+    get:
+      summary: List evaluation appeal events
+      description: Returns append-only submission and decision events for one evaluation.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Evaluation appeal event history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluationAppealEventListResponse'
+        '401': { description: Access token is invalid }
+        '403': { $ref: '#/components/responses/AdminOnlyError' }
+        '404': { description: Evaluation does not exist }
+  /admin/evaluations/{evaluationId}/appeals/{appealId}:
+    put:
+      summary: Resolve an evaluation appeal
+      description: Accepts or rejects one requested appeal using both appeal and moderation versions. Accepting atomically restores evaluation visibility.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: evaluationId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: appealId
+          in: path
+          required: true
+          schema: { type: string }
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveAdminEvaluationAppealRequest'
+      responses:
+        '200':
+          description: Evaluation with resolved appeal snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEvaluationAuditResponse'
+        '400': { description: Appeal decision payload is invalid }
+        '401': { description: Access token is invalid }
+        '403': { $ref: '#/components/responses/AdminOnlyError' }
+        '404': { description: Evaluation or appeal does not exist }
+        '409': { description: Appeal or moderation version changed }
   /shipper/profile/coupons:
     get:
       summary: List current shipper coupon wallet
@@ -13042,9 +13157,30 @@ components:
       type: string
       enum: [visible, hidden]
       example: visible
+    EvaluationAppealStatus:
+      type: string
+      enum: [none, requested, accepted, rejected]
+      example: requested
+    EvaluationAppealSnapshot:
+      type: object
+      required: [id, evaluationId, appellantUserId, status, version, reason, moderationVersion, submittedAtIso]
+      properties:
+        id: { type: string }
+        evaluationId: { type: string }
+        appellantUserId: { type: string }
+        status:
+          type: string
+          enum: [requested, accepted, rejected]
+        version: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 6, maxLength: 500 }
+        moderationVersion: { type: integer, minimum: 1 }
+        submittedAtIso: { type: string, format: date-time }
+        resolutionReason: { type: string, minLength: 2, maxLength: 500 }
+        resolvedByAdminId: { type: string }
+        resolvedAtIso: { type: string, format: date-time }
     AdminEvaluationAuditRecord:
       type: object
-      required: [id, orderId, orderNo, direction, reviewerUserId, reviewerName, revieweeUserId, revieweeName, rating, tags, content, anonymous, photoCount, submittedAtIso, moderationStatus, moderationVersion]
+      required: [id, orderId, orderNo, direction, reviewerUserId, reviewerName, revieweeUserId, revieweeName, rating, tags, content, anonymous, photoCount, submittedAtIso, moderationStatus, moderationVersion, appealStatus]
       properties:
         id:
           type: string
@@ -13135,6 +13271,10 @@ components:
           type: string
           format: date-time
           example: '2026-07-27T10:00:00.000Z'
+        appealStatus:
+          $ref: '#/components/schemas/EvaluationAppealStatus'
+        latestAppeal:
+          $ref: '#/components/schemas/EvaluationAppealSnapshot'
     AdminEvaluationAuditListResult:
       type: object
       required: [items, page, pageSize, total]
@@ -13233,6 +13373,75 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/AdminEvaluationModerationEventRecord'
+    SubmitEvaluationAppealRequest:
+      type: object
+      required: [reason, baseModerationVersion]
+      properties:
+        reason: { type: string, minLength: 6, maxLength: 500 }
+        baseModerationVersion: { type: integer, minimum: 1 }
+    ResolveAdminEvaluationAppealRequest:
+      type: object
+      required: [decision, reason, baseAppealVersion, baseModerationVersion]
+      properties:
+        decision:
+          type: string
+          enum: [accepted, rejected]
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        baseAppealVersion: { type: integer, minimum: 1 }
+        baseModerationVersion: { type: integer, minimum: 1 }
+    EvaluationAppealEventRecord:
+      type: object
+      required: [id, appealId, evaluationId, actorUserId, toStatus, reason, fromVersion, toVersion, createdAtIso]
+      properties:
+        id: { type: string }
+        appealId: { type: string }
+        evaluationId: { type: string }
+        actorUserId: { type: string }
+        fromStatus:
+          type: string
+          enum: [requested, accepted, rejected]
+        toStatus:
+          type: string
+          enum: [requested, accepted, rejected]
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        fromVersion: { type: integer, minimum: 0 }
+        toVersion: { type: integer, minimum: 1 }
+        createdAtIso: { type: string, format: date-time }
+    EvaluationAppealResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/EvaluationAppealSnapshot'
+    EvaluationAppealCaseListResult:
+      type: object
+      required: [userId, items]
+      properties:
+        userId: { type: string }
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminEvaluationAuditRecord'
+    EvaluationAppealCaseListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/EvaluationAppealCaseListResult'
+    EvaluationAppealEventListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/EvaluationAppealEventRecord'
     AdminEvaluationAuditAttachmentRecord:
       allOf:
         - $ref: '#/components/schemas/FileUploadRecord'

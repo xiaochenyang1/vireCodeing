@@ -294,6 +294,7 @@ describe('AdminPermissionMatrixService', () => {
               '/admin/evaluations/{evaluationId}',
               '/admin/evaluations/{evaluationId}/attachments',
               '/admin/evaluations/{evaluationId}/moderation-events',
+              '/admin/evaluations/{evaluationId}/appeal-events',
             ]),
           }),
           expect.objectContaining({
@@ -301,7 +302,10 @@ describe('AdminPermissionMatrixService', () => {
             moduleKey: 'evaluation-audit',
             actions: ['write'],
             riskLevel: 'high',
-            apiPaths: ['/admin/evaluations/{evaluationId}/moderation'],
+            apiPaths: [
+              '/admin/evaluations/{evaluationId}/moderation',
+              '/admin/evaluations/{evaluationId}/appeals/{appealId}',
+            ],
           }),
           expect.objectContaining({
             key: 'finance_manage',

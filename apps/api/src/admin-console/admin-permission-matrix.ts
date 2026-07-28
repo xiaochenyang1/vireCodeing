@@ -393,16 +393,21 @@ const adminPermissionCapabilities: AdminPermissionCapabilityCatalogItem[] = [
       '/admin/evaluations/{evaluationId}',
       '/admin/evaluations/{evaluationId}/attachments',
       '/admin/evaluations/{evaluationId}/moderation-events',
+      '/admin/evaluations/{evaluationId}/appeal-events',
     ],
   },
   {
     key: 'evaluation_moderation_manage',
     title: '处置评价展示状态',
     moduleKey: 'evaluation-audit',
-    summary: '基于当前处置版本隐藏或恢复评价，并追加管理员审计记录。',
+    summary:
+      '基于当前版本隐藏或恢复评价、裁定评价申诉，并追加管理员审计记录。',
     actions: ['write'],
     riskLevel: 'high',
-    apiPaths: ['/admin/evaluations/{evaluationId}/moderation'],
+    apiPaths: [
+      '/admin/evaluations/{evaluationId}/moderation',
+      '/admin/evaluations/{evaluationId}/appeals/{appealId}',
+    ],
   },
   {
     key: 'finance_manage',

@@ -2,6 +2,7 @@ import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import {
   AdminProfileEvaluationsController,
+  EvaluationAppealsController,
   ProfileEvaluationsController,
 } from './profile-evaluations.controller';
 import type { ProfileEvaluationsService } from './profile-evaluations.service';
@@ -100,6 +101,64 @@ describe('ProfileEvaluationsController', () => {
         }),
       );
     expect(service.listReceivedRecords).toHaveBeenCalledWith('shipper-1');
+  });
+});
+
+describe('EvaluationAppealsController', () => {
+  it('lists author appeal cases and submits a normalized appeal', async () => {
+    const service = {
+      listEvaluationAppealCases: jest.fn().mockResolvedValue({
+        userId: 'driver-1',
+        items: [],
+      }),
+      submitEvaluationAppeal: jest.fn().mockResolvedValue({
+        id: 'appeal-1',
+        evaluationId: 'evaluation-1',
+        status: 'requested',
+        version: 1,
+      }),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new EvaluationAppealsController(service);
+    const request = createRequest('driver-1', 'driver');
+
+    await expect(controller.listAppealCases(request)).resolves.toMatchObject({
+      code: 'OK',
+      data: { userId: 'driver-1', items: [] },
+    });
+    await expect(
+      controller.submitAppeal(request, 'evaluation-1', {
+        reason: '  评价内容来自真实运输经历，请重新复核。  ',
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { id: 'appeal-1', status: 'requested' },
+    });
+    expect(service.listEvaluationAppealCases).toHaveBeenCalledWith({
+      id: 'driver-1',
+      phone: '13900139001',
+      userType: 'driver',
+    });
+    expect(service.submitEvaluationAppeal).toHaveBeenCalledWith(
+      { id: 'driver-1', phone: '13900139001', userType: 'driver' },
+      'evaluation-1',
+      {
+        reason: '评价内容来自真实运输经历，请重新复核。',
+        baseModerationVersion: 1,
+      },
+    );
+  });
+
+  it('rejects admin users before appeal service calls', async () => {
+    const service = {
+      listEvaluationAppealCases: jest.fn(),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new EvaluationAppealsController(service);
+
+    await expect(
+      controller.listAppealCases(createRequest('admin-1', 'admin')),
+    ).rejects.toMatchObject({ code: ApiErrorCode.AUTH_FORBIDDEN });
+    expect(service.listEvaluationAppealCases).not.toHaveBeenCalled();
   });
 });
 
@@ -298,6 +357,58 @@ describe('AdminProfileEvaluationsController', () => {
         status: 'hidden',
         reason: '包含违规联系方式',
         baseModerationVersion: 0,
+      },
+    );
+  });
+
+  it('lists appeal events and forwards normalized appeal decisions', async () => {
+    const service = {
+      listAdminEvaluationAppealEvents: jest.fn().mockResolvedValue([
+        {
+          id: 'appeal-event-1',
+          appealId: 'appeal-1',
+          evaluationId: 'audit-1',
+          toStatus: 'requested',
+          fromVersion: 0,
+          toVersion: 1,
+        },
+      ]),
+      resolveAdminEvaluationAppeal: jest.fn().mockResolvedValue({
+        id: 'audit-1',
+        moderationStatus: 'visible',
+        moderationVersion: 2,
+        appealStatus: 'accepted',
+      }),
+    } as unknown as ProfileEvaluationsService;
+    const controller = new AdminProfileEvaluationsController(service);
+    const request = createRequest('admin-1', 'admin');
+
+    await expect(
+      controller.listEvaluationAppealEvents(request, 'audit-1'),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: [expect.objectContaining({ id: 'appeal-event-1' })],
+    });
+    await expect(
+      controller.resolveEvaluationAppeal(request, 'audit-1', 'appeal-1', {
+        decision: 'accepted',
+        reason: '  复核后确认可以恢复展示  ',
+        baseAppealVersion: 1,
+        baseModerationVersion: 1,
+      }),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { appealStatus: 'accepted', moderationStatus: 'visible' },
+    });
+    expect(service.resolveAdminEvaluationAppeal).toHaveBeenCalledWith(
+      { id: 'admin-1', phone: '13900139001', userType: 'admin' },
+      'audit-1',
+      'appeal-1',
+      {
+        decision: 'accepted',
+        reason: '复核后确认可以恢复展示',
+        baseAppealVersion: 1,
+        baseModerationVersion: 1,
       },
     );
   });

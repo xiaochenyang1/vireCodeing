@@ -474,6 +474,7 @@ describe('BusinessErrorFilter', () => {
   });
 
   it.each([
+    ApiErrorCode.EVALUATION_APPEAL_NOT_FOUND,
     ApiErrorCode.FINANCE_RECORD_NOT_FOUND,
     ApiErrorCode.INVOICE_APPLICATION_NOT_FOUND,
     ApiErrorCode.SHIPPER_VERIFICATION_NOT_FOUND,
@@ -490,6 +491,10 @@ describe('BusinessErrorFilter', () => {
 
   it.each([
     ApiErrorCode.DRIVER_CERTIFICATION_CONFLICT,
+    ApiErrorCode.EVALUATION_APPEAL_ALREADY_REQUESTED,
+    ApiErrorCode.EVALUATION_APPEAL_CONFLICT,
+    ApiErrorCode.EVALUATION_APPEAL_NOT_ALLOWED,
+    ApiErrorCode.EVALUATION_APPEAL_PENDING,
     ApiErrorCode.EVALUATION_MODERATION_CONFLICT,
     ApiErrorCode.EXCEPTION_CASE_STATE_INVALID,
     ApiErrorCode.EXCEPTION_CASE_CONFLICT,

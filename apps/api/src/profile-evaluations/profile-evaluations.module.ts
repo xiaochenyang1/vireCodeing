@@ -11,6 +11,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AdminProfileEvaluationsController,
+  EvaluationAppealsController,
   ProfileEvaluationsController,
 } from './profile-evaluations.controller';
 import {
@@ -21,7 +22,11 @@ import { ProfileEvaluationsService } from './profile-evaluations.service';
 
 @Module({
   imports: [AuthModule, PrismaModule],
-  controllers: [ProfileEvaluationsController, AdminProfileEvaluationsController],
+  controllers: [
+    ProfileEvaluationsController,
+    EvaluationAppealsController,
+    AdminProfileEvaluationsController,
+  ],
   providers: [
     {
       provide: PrismaProfileEvaluationsRepository,

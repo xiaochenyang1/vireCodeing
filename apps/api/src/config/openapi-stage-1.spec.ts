@@ -1981,8 +1981,18 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('shipper_to_driver');
     expect(source).toContain('driver_to_shipper');
     expect(source).toContain(
-      'It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes the current moderation snapshot.',
+      'It is derived from immutable order evaluation_submitted and shipper_evaluation_submitted events and includes current moderation and latest appeal snapshots.',
     );
+    expect(source).toContain('/profile/evaluations/appeals:');
+    expect(source).toContain('/profile/evaluations/{evaluationId}/appeals:');
+    expect(source).toContain(
+      '/admin/evaluations/{evaluationId}/appeal-events:',
+    );
+    expect(source).toContain(
+      '/admin/evaluations/{evaluationId}/appeals/{appealId}:',
+    );
+    expect(source).toContain('ResolveAdminEvaluationAppealRequest');
+    expect(source).toContain('EvaluationAppealEventRecord');
     expect(source).toContain(
       "Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.",
     );

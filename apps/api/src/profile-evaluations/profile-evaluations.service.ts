@@ -14,7 +14,12 @@ import type {
   AdminEvaluationAuditRecord,
   AdminEvaluationModerationEventRecord,
   AdminEvaluationModerationSnapshot,
+  EvaluationAppealCaseListResult,
+  EvaluationAppealEventRecord,
+  EvaluationAppealSnapshot,
   ModerateAdminEvaluationRequest,
+  ResolveAdminEvaluationAppealRequest,
+  SubmitEvaluationAppealRequest,
   ShipperProfileEvaluationOrderEventRecord,
   ShipperProfileEvaluationOrderRecord,
   ShipperProfileEvaluationRecord,
@@ -70,9 +75,12 @@ export class ProfileEvaluationsService {
   async listAdminEvaluationAudits(
     query: AdminEvaluationAuditListQuery,
   ): Promise<AdminEvaluationAuditListResult> {
-    const allItems = (await this.repository.listAdminEvaluationOrders())
-      .flatMap(createAdminEvaluationAuditRecords)
-      .sort((left, right) =>
+    const baseItems = (await this.repository.listAdminEvaluationOrders()).flatMap(
+      createAdminEvaluationAuditRecords,
+    );
+    const allItems = (
+      await this.attachLatestEvaluationAppeals(baseItems)
+    ).sort((left, right) =>
         right.submittedAtIso.localeCompare(left.submittedAtIso),
       );
     const filteredItems = allItems.filter(item =>
@@ -86,6 +94,63 @@ export class ProfileEvaluationsService {
       pageSize: query.pageSize,
       total: filteredItems.length,
     };
+  }
+
+  async listEvaluationAppealCases(
+    currentUser: AuthenticatedUser,
+  ): Promise<EvaluationAppealCaseListResult> {
+    this.assertMobileUser(currentUser);
+    const baseItems = (
+      await this.repository.listAuthoredEvaluationOrders(currentUser.id)
+    )
+      .flatMap(createAdminEvaluationAuditRecords)
+      .filter(item => item.reviewerUserId === currentUser.id);
+    const items = (await this.attachLatestEvaluationAppeals(baseItems))
+      .filter(
+        item =>
+          item.moderationStatus === 'hidden' || item.appealStatus !== 'none',
+      )
+      .sort((left, right) =>
+        right.submittedAtIso.localeCompare(left.submittedAtIso),
+      );
+
+    return { userId: currentUser.id, items };
+  }
+
+  async submitEvaluationAppeal(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+    input: SubmitEvaluationAppealRequest,
+  ): Promise<EvaluationAppealSnapshot> {
+    this.assertMobileUser(currentUser);
+    const result = await this.repository.submitEvaluationAppeal({
+      ...input,
+      evaluationId,
+      appellantUserId: currentUser.id,
+      submittedAtIso: this.now().toISOString(),
+    });
+
+    switch (result.kind) {
+      case 'success':
+        return result.appeal;
+      case 'not-found':
+        throw evaluationAuditNotFoundError();
+      case 'not-allowed':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_NOT_ALLOWED,
+          '当前评价状态不允许申诉',
+        );
+      case 'conflict':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_CONFLICT,
+          '评价处置状态已更新，请刷新后重试',
+        );
+      case 'already-requested':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_ALREADY_REQUESTED,
+          '当前评价已有待处理申诉',
+        );
+    }
   }
 
   async getAdminEvaluationAudit(
@@ -152,6 +217,56 @@ export class ProfileEvaluationsService {
     return this.repository.listAdminEvaluationModerationEvents(evaluationId);
   }
 
+  async listAdminEvaluationAppealEvents(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+  ): Promise<EvaluationAppealEventRecord[]> {
+    this.assertAdmin(currentUser);
+    await this.requireAdminEvaluationAudit(evaluationId);
+
+    return this.repository.listEvaluationAppealEvents(evaluationId);
+  }
+
+  async resolveAdminEvaluationAppeal(
+    currentUser: AuthenticatedUser,
+    evaluationId: string,
+    appealId: string,
+    input: ResolveAdminEvaluationAppealRequest,
+  ): Promise<AdminEvaluationAuditRecord> {
+    this.assertAdmin(currentUser);
+    const evaluation = await this.requireAdminEvaluationAudit(evaluationId);
+    const result = await this.repository.resolveAdminEvaluationAppeal({
+      ...input,
+      evaluationId,
+      appealId,
+      adminUserId: currentUser.id,
+      resolvedAtIso: this.now().toISOString(),
+    });
+
+    switch (result.kind) {
+      case 'success':
+        return applyLatestEvaluationAppeal(
+          applyAdminEvaluationModeration(evaluation, result.moderation),
+          result.appeal,
+        );
+      case 'not-found':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_NOT_FOUND,
+          '评价申诉不存在',
+        );
+      case 'not-allowed':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_NOT_ALLOWED,
+          '当前评价申诉状态不允许裁定',
+        );
+      case 'conflict':
+        throw new BusinessError(
+          ApiErrorCode.EVALUATION_APPEAL_CONFLICT,
+          '评价或申诉状态已被其他管理员更新',
+        );
+    }
+  }
+
   async moderateAdminEvaluation(
     currentUser: AuthenticatedUser,
     evaluationId: string,
@@ -177,6 +292,13 @@ export class ProfileEvaluationsService {
       );
     }
 
+    if (result.kind === 'appeal-pending') {
+      throw new BusinessError(
+        ApiErrorCode.EVALUATION_APPEAL_PENDING,
+        '当前评价存在待处理申诉，请先完成申诉裁定',
+      );
+    }
+
     return applyAdminEvaluationModeration(evaluation, result.moderation);
   }
 
@@ -191,12 +313,38 @@ export class ProfileEvaluationsService {
       throw evaluationAuditNotFoundError();
     }
 
-    return evaluation;
+    const [withAppeal] = await this.attachLatestEvaluationAppeals([evaluation]);
+
+    return withAppeal;
+  }
+
+  private async attachLatestEvaluationAppeals(
+    items: AdminEvaluationAuditRecord[],
+  ) {
+    const appeals = await this.repository.listLatestEvaluationAppeals(
+      items.map(item => item.id),
+    );
+    const appealByEvaluationId = new Map(
+      appeals.map(appeal => [appeal.evaluationId, appeal]),
+    );
+
+    return items.map(item =>
+      applyLatestEvaluationAppeal(item, appealByEvaluationId.get(item.id)),
+    );
   }
 
   private assertAdmin(currentUser: AuthenticatedUser) {
     if (currentUser.userType !== 'admin') {
       throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不是管理员');
+    }
+  }
+
+  private assertMobileUser(currentUser: AuthenticatedUser) {
+    if (
+      currentUser.userType !== 'shipper' &&
+      currentUser.userType !== 'driver'
+    ) {
+      throw new BusinessError(ApiErrorCode.AUTH_FORBIDDEN, '当前账号不能申诉评价');
     }
   }
 
@@ -221,6 +369,10 @@ function matchesAdminEvaluationAuditQuery(
     query.moderationStatus &&
     item.moderationStatus !== query.moderationStatus
   ) {
+    return false;
+  }
+
+  if (query.appealStatus && item.appealStatus !== query.appealStatus) {
     return false;
   }
 
@@ -253,6 +405,9 @@ function buildAdminEvaluationAuditSearchText(item: AdminEvaluationAuditRecord) {
     item.direction,
     item.moderationStatus,
     item.moderationReason ?? '',
+    item.appealStatus,
+    item.latestAppeal?.reason ?? '',
+    item.latestAppeal?.resolutionReason ?? '',
     item.direction === 'shipper_to_driver'
       ? '货主评价司机 平台货主 平台司机'
       : '司机评价货主 平台司机 平台货主',
@@ -437,6 +592,7 @@ function createAdminEvaluationAuditRecord(
       photoCount,
       ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
       submittedAtIso: event.createdAtIso,
+      appealStatus: 'none',
       ...mapAdminEvaluationModeration(event.evaluationModeration),
     };
   }
@@ -470,6 +626,7 @@ function createAdminEvaluationAuditRecord(
     photoCount,
     ...(photoFileIds.length > 0 ? { photoFileIds } : {}),
     submittedAtIso: event.createdAtIso,
+    appealStatus: 'none',
     ...mapAdminEvaluationModeration(event.evaluationModeration),
   };
 }
@@ -512,6 +669,22 @@ function applyAdminEvaluationModeration(
     ...evaluation,
     ...mapAdminEvaluationModeration(moderation),
   };
+}
+
+function applyLatestEvaluationAppeal(
+  evaluation: AdminEvaluationAuditRecord,
+  appeal: EvaluationAppealSnapshot | undefined,
+): AdminEvaluationAuditRecord {
+  return appeal
+    ? {
+        ...evaluation,
+        appealStatus: appeal.status,
+        latestAppeal: appeal,
+      }
+    : {
+        ...evaluation,
+        appealStatus: 'none',
+      };
 }
 
 function isHiddenEvaluation(event: ShipperProfileEvaluationOrderEventRecord) {

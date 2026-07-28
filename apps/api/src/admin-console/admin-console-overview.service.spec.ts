@@ -277,7 +277,7 @@ describe('AdminConsoleOverviewService', () => {
             key: 'evaluation-audit',
             route: '/api/admin/evaluation-audit-console',
             summary:
-              '已经能审计货主/司机评价、查看图片附件，并以版本冲突保护执行单条隐藏 / 恢复和追溯处置历史，但还没申诉、批量处置和信用分联动。',
+              '已经能审计货主/司机评价、查看图片附件，并以版本冲突保护执行单条隐藏 / 恢复、用户申诉和管理员裁定，也能追溯处置与申诉历史，但还没批量处置和信用分联动。',
             metrics: expect.arrayContaining([
               expect.objectContaining({
                 label: '已隐藏',
@@ -287,7 +287,7 @@ describe('AdminConsoleOverviewService', () => {
                   '/api/admin/evaluation-audit-console?moderationStatus=hidden',
               }),
             ]),
-            pendingGaps: ['申诉处理', '批量处置', '信用分联动'],
+            pendingGaps: ['批量处置', '信用分联动'],
           }),
           expect.objectContaining({
             key: 'finance',

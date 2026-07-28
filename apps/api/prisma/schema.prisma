@@ -165,6 +165,9 @@ model User {
   adminCouponIssueIdempotencyRecords AdminCouponIssueIdempotencyRecord[] @relation("AdminCouponIssueIdempotencyActor")
   evaluationModerations       EvaluationModeration[]     @relation("EvaluationModerationAdmin")
   evaluationModerationActions EvaluationModerationAction[] @relation("EvaluationModerationActionAdmin")
+  submittedEvaluationAppeals  EvaluationAppeal[]         @relation("EvaluationAppealAppellant")
+  resolvedEvaluationAppeals   EvaluationAppeal[]         @relation("EvaluationAppealResolver")
+  evaluationAppealActions     EvaluationAppealAction[]   @relation("EvaluationAppealActionActor")
   reportedExceptionCases       OrderExceptionCase[]       @relation("ExceptionCaseReporter")
   exceptionCaseActions         OrderExceptionCaseAction[] @relation("ExceptionCaseAdminActions")
   driverLocationSnapshot       DriverLocationSnapshot?    @relation("DriverLocationSnapshot")
@@ -463,6 +466,7 @@ model OrderEvent {
   order             Order    @relation(fields: [orderId], references: [id])
   exceptionCase     OrderExceptionCase? @relation("ExceptionCaseSourceEvent")
   evaluationModeration EvaluationModeration? @relation("EvaluationModerationSourceEvent")
+  evaluationAppeals EvaluationAppeal[] @relation("EvaluationAppealSourceEvent")
 
   @@index([orderId, createdAt], name: "OrderEvent_order_created_idx")
 }
@@ -505,6 +509,55 @@ model EvaluationModerationAction {
   @@unique([evaluationEventId, toVersion], name: "EvaluationModerationAction_event_version_unique")
   @@index([evaluationEventId, createdAt], name: "EvaluationModerationAction_event_created_idx")
   @@index([adminUserId, createdAt], name: "EvaluationModerationAction_admin_created_idx")
+}
+
+enum EvaluationAppealStatus {
+  requested
+  accepted
+  rejected
+}
+
+model EvaluationAppeal {
+  id                  String                   @id @default(uuid())
+  evaluationEventId   String
+  appellantUserId     String
+  status              EvaluationAppealStatus @default(requested)
+  version             Int                      @default(1)
+  reason              String
+  moderationVersion   Int
+  submittedAt         DateTime                 @default(now())
+  resolutionReason    String?
+  resolvedByAdminId   String?
+  resolvedAt          DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  evaluationEvent     OrderEvent               @relation("EvaluationAppealSourceEvent", fields: [evaluationEventId], references: [id])
+  appellant           User                     @relation("EvaluationAppealAppellant", fields: [appellantUserId], references: [id])
+  resolvedByAdmin     User?                    @relation("EvaluationAppealResolver", fields: [resolvedByAdminId], references: [id])
+  actions             EvaluationAppealAction[]
+
+  @@index([evaluationEventId, submittedAt], name: "EvaluationAppeal_event_submitted_idx")
+  @@index([status, submittedAt], name: "EvaluationAppeal_status_submitted_idx")
+  @@index([appellantUserId, submittedAt], name: "EvaluationAppeal_appellant_submitted_idx")
+  @@index([resolvedByAdminId, resolvedAt], name: "EvaluationAppeal_resolver_resolved_idx")
+}
+
+model EvaluationAppealAction {
+  id            String                  @id @default(uuid())
+  appealId      String
+  actorUserId   String
+  fromStatus    EvaluationAppealStatus?
+  toStatus      EvaluationAppealStatus
+  reason        String
+  fromVersion   Int
+  toVersion     Int
+  createdAt     DateTime                @default(now())
+  appeal        EvaluationAppeal        @relation(fields: [appealId], references: [id])
+  actor         User                    @relation("EvaluationAppealActionActor", fields: [actorUserId], references: [id])
+
+  @@unique([appealId, toVersion], name: "EvaluationAppealAction_appeal_version_unique")
+  @@index([appealId, createdAt], name: "EvaluationAppealAction_appeal_created_idx")
+  @@index([actorUserId, createdAt], name: "EvaluationAppealAction_actor_created_idx")
 }
 
 model OrderIdempotencyRecord {

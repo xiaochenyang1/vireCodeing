@@ -1,7 +1,11 @@
 import type {
   AdminEvaluationModerationEventRecord,
   AdminEvaluationModerationSnapshot,
+  EvaluationAppealEventRecord,
+  EvaluationAppealSnapshot,
   ModerateAdminEvaluationRequest,
+  ResolveAdminEvaluationAppealRequest,
+  SubmitEvaluationAppealRequest,
   ShipperProfileEvaluationOrderRecord,
 } from './dto';
 
@@ -17,6 +21,42 @@ export type ModerateAdminEvaluationResult =
       moderation: AdminEvaluationModerationSnapshot;
     }
   | { kind: 'not-found' }
+  | { kind: 'conflict' }
+  | { kind: 'appeal-pending' };
+
+export type SubmitEvaluationAppealInput = SubmitEvaluationAppealRequest & {
+  evaluationId: string;
+  appellantUserId: string;
+  submittedAtIso: string;
+};
+
+export type SubmitEvaluationAppealResult =
+  | {
+      kind: 'success';
+      appeal: EvaluationAppealSnapshot;
+      replayed: boolean;
+    }
+  | { kind: 'not-found' }
+  | { kind: 'not-allowed' }
+  | { kind: 'conflict' }
+  | { kind: 'already-requested' };
+
+export type ResolveAdminEvaluationAppealInput =
+  ResolveAdminEvaluationAppealRequest & {
+    evaluationId: string;
+    appealId: string;
+    adminUserId: string;
+    resolvedAtIso: string;
+  };
+
+export type ResolveAdminEvaluationAppealResult =
+  | {
+      kind: 'success';
+      appeal: EvaluationAppealSnapshot;
+      moderation: AdminEvaluationModerationSnapshot;
+    }
+  | { kind: 'not-found' }
+  | { kind: 'not-allowed' }
   | { kind: 'conflict' };
 
 export interface ProfileEvaluationsRepository {
@@ -25,12 +65,27 @@ export interface ProfileEvaluationsRepository {
     shipperId: string,
   ): Promise<ShipperProfileEvaluationOrderRecord[]>;
   listAdminEvaluationOrders(): Promise<ShipperProfileEvaluationOrderRecord[]>;
+  listAuthoredEvaluationOrders(
+    actorUserId: string,
+  ): Promise<ShipperProfileEvaluationOrderRecord[]>;
   findAdminEvaluationOrderByEventId(
     evaluationId: string,
   ): Promise<ShipperProfileEvaluationOrderRecord | undefined>;
   listAdminEvaluationModerationEvents(
     evaluationId: string,
   ): Promise<AdminEvaluationModerationEventRecord[]>;
+  listLatestEvaluationAppeals(
+    evaluationIds: string[],
+  ): Promise<EvaluationAppealSnapshot[]>;
+  listEvaluationAppealEvents(
+    evaluationId: string,
+  ): Promise<EvaluationAppealEventRecord[]>;
+  submitEvaluationAppeal(
+    input: SubmitEvaluationAppealInput,
+  ): Promise<SubmitEvaluationAppealResult>;
+  resolveAdminEvaluationAppeal(
+    input: ResolveAdminEvaluationAppealInput,
+  ): Promise<ResolveAdminEvaluationAppealResult>;
   moderateAdminEvaluation(
     input: ModerateAdminEvaluationInput,
   ): Promise<ModerateAdminEvaluationResult>;
@@ -41,15 +96,21 @@ export class InMemoryProfileEvaluationsRepository
 {
   private readonly orders: ShipperProfileEvaluationOrderRecord[];
   private readonly moderationEvents: AdminEvaluationModerationEventRecord[];
+  private readonly appeals: EvaluationAppealSnapshot[];
+  private readonly appealEvents: EvaluationAppealEventRecord[];
 
   constructor(
     seed: {
       orders?: ShipperProfileEvaluationOrderRecord[];
       moderationEvents?: AdminEvaluationModerationEventRecord[];
+      appeals?: EvaluationAppealSnapshot[];
+      appealEvents?: EvaluationAppealEventRecord[];
     } = {},
   ) {
     this.orders = structuredClone(seed.orders ?? []);
     this.moderationEvents = structuredClone(seed.moderationEvents ?? []);
+    this.appeals = structuredClone(seed.appeals ?? []);
+    this.appealEvents = structuredClone(seed.appealEvents ?? []);
   }
 
   async listOrders(shipperId: string) {
@@ -76,6 +137,18 @@ export class InMemoryProfileEvaluationsRepository
     );
   }
 
+  async listAuthoredEvaluationOrders(actorUserId: string) {
+    return structuredClone(
+      this.orders.filter(order =>
+        order.events.some(
+          event =>
+            event.actorUserId === actorUserId &&
+            isEvaluationAuditEventType(event.eventType),
+        ),
+      ),
+    );
+  }
+
   async findAdminEvaluationOrderByEventId(evaluationId: string) {
     return this.orders.find(order =>
       order.events.some(
@@ -96,6 +169,185 @@ export class InMemoryProfileEvaluationsRepository
     );
   }
 
+  async listLatestEvaluationAppeals(evaluationIds: string[]) {
+    const evaluationIdSet = new Set(evaluationIds);
+    const latestByEvaluationId = new Map<string, EvaluationAppealSnapshot>();
+
+    for (const appeal of [...this.appeals].sort((left, right) =>
+      right.submittedAtIso.localeCompare(left.submittedAtIso),
+    )) {
+      if (
+        evaluationIdSet.has(appeal.evaluationId) &&
+        !latestByEvaluationId.has(appeal.evaluationId)
+      ) {
+        latestByEvaluationId.set(appeal.evaluationId, structuredClone(appeal));
+      }
+    }
+
+    return [...latestByEvaluationId.values()];
+  }
+
+  async listEvaluationAppealEvents(evaluationId: string) {
+    return structuredClone(
+      this.appealEvents
+        .filter(event => event.evaluationId === evaluationId)
+        .sort((left, right) =>
+          right.createdAtIso.localeCompare(left.createdAtIso),
+        ),
+    );
+  }
+
+  async submitEvaluationAppeal(input: SubmitEvaluationAppealInput) {
+    const evaluationEvent = this.orders
+      .flatMap(order => order.events)
+      .find(
+        event =>
+          event.id === input.evaluationId &&
+          event.actorUserId === input.appellantUserId &&
+          isEvaluationAuditEventType(event.eventType),
+      );
+
+    if (!evaluationEvent) {
+      return { kind: 'not-found' as const };
+    }
+
+    const moderation = normalizeEvaluationModeration(
+      evaluationEvent.evaluationModeration,
+    );
+    if (moderation.status !== 'hidden') {
+      return { kind: 'not-allowed' as const };
+    }
+    if (moderation.version !== input.baseModerationVersion) {
+      return { kind: 'conflict' as const };
+    }
+
+    const existing = this.appeals.find(
+      appeal =>
+        appeal.evaluationId === input.evaluationId &&
+        appeal.status === 'requested',
+    );
+    if (existing) {
+      return isSameEvaluationAppealRequest(existing, input)
+        ? {
+            kind: 'success' as const,
+            appeal: structuredClone(existing),
+            replayed: true,
+          }
+        : { kind: 'already-requested' as const };
+    }
+
+    const appeal: EvaluationAppealSnapshot = {
+      id: `evaluation-appeal-${this.appeals.length + 1}`,
+      evaluationId: input.evaluationId,
+      appellantUserId: input.appellantUserId,
+      status: 'requested',
+      version: 1,
+      reason: input.reason,
+      moderationVersion: input.baseModerationVersion,
+      submittedAtIso: input.submittedAtIso,
+    };
+    const action: EvaluationAppealEventRecord = {
+      id: `evaluation-appeal-action-${this.appealEvents.length + 1}`,
+      appealId: appeal.id,
+      evaluationId: input.evaluationId,
+      actorUserId: input.appellantUserId,
+      toStatus: 'requested',
+      reason: input.reason,
+      fromVersion: 0,
+      toVersion: 1,
+      createdAtIso: input.submittedAtIso,
+    };
+    this.appeals.push(appeal);
+    this.appealEvents.push(action);
+
+    return {
+      kind: 'success' as const,
+      appeal: structuredClone(appeal),
+      replayed: false,
+    };
+  }
+
+  async resolveAdminEvaluationAppeal(
+    input: ResolveAdminEvaluationAppealInput,
+  ) {
+    const appeal = this.appeals.find(
+      item =>
+        item.id === input.appealId &&
+        item.evaluationId === input.evaluationId,
+    );
+    const evaluationEvent = this.orders
+      .flatMap(order => order.events)
+      .find(event => event.id === input.evaluationId);
+
+    if (!appeal || !evaluationEvent) {
+      return { kind: 'not-found' as const };
+    }
+    if (appeal.status !== 'requested') {
+      return { kind: 'not-allowed' as const };
+    }
+
+    const currentModeration = normalizeEvaluationModeration(
+      evaluationEvent.evaluationModeration,
+    );
+    if (
+      appeal.version !== input.baseAppealVersion ||
+      currentModeration.version !== input.baseModerationVersion
+    ) {
+      return { kind: 'conflict' as const };
+    }
+    if (currentModeration.status !== 'hidden') {
+      return { kind: 'not-allowed' as const };
+    }
+
+    appeal.status = input.decision;
+    appeal.version += 1;
+    appeal.resolutionReason = input.reason;
+    appeal.resolvedByAdminId = input.adminUserId;
+    appeal.resolvedAtIso = input.resolvedAtIso;
+
+    let nextModeration = currentModeration;
+    if (input.decision === 'accepted') {
+      nextModeration = {
+        status: 'visible',
+        version: currentModeration.version + 1,
+        reason: input.reason,
+        moderatedByAdminId: input.adminUserId,
+        moderatedAtIso: input.resolvedAtIso,
+      };
+      evaluationEvent.evaluationModeration = structuredClone(nextModeration);
+      this.moderationEvents.push({
+        id: `evaluation-moderation-action-${this.moderationEvents.length + 1}`,
+        evaluationId: input.evaluationId,
+        adminUserId: input.adminUserId,
+        fromStatus: 'hidden',
+        toStatus: 'visible',
+        reason: input.reason,
+        fromVersion: currentModeration.version,
+        toVersion: nextModeration.version,
+        createdAtIso: input.resolvedAtIso,
+      });
+    }
+
+    this.appealEvents.push({
+      id: `evaluation-appeal-action-${this.appealEvents.length + 1}`,
+      appealId: appeal.id,
+      evaluationId: appeal.evaluationId,
+      actorUserId: input.adminUserId,
+      fromStatus: 'requested',
+      toStatus: input.decision,
+      reason: input.reason,
+      fromVersion: input.baseAppealVersion,
+      toVersion: appeal.version,
+      createdAtIso: input.resolvedAtIso,
+    });
+
+    return {
+      kind: 'success' as const,
+      appeal: structuredClone(appeal),
+      moderation: structuredClone(nextModeration),
+    };
+  }
+
   async moderateAdminEvaluation(input: ModerateAdminEvaluationInput) {
     const order = this.orders.find(candidate =>
       candidate.events.some(
@@ -110,6 +362,16 @@ export class InMemoryProfileEvaluationsRepository
 
     if (!evaluationEvent) {
       return { kind: 'not-found' as const };
+    }
+
+    if (
+      this.appeals.some(
+        appeal =>
+          appeal.evaluationId === input.evaluationId &&
+          appeal.status === 'requested',
+      )
+    ) {
+      return { kind: 'appeal-pending' as const };
     }
 
     const currentModeration = normalizeEvaluationModeration(
@@ -169,6 +431,45 @@ export type PrismaEvaluationModerationActionRecord = {
   fromVersion: number;
   toVersion: number;
   createdAt: Date;
+};
+
+export type PrismaEvaluationAppealRecord = {
+  id: string;
+  evaluationEventId: string;
+  appellantUserId: string;
+  status: string;
+  version: number;
+  reason: string;
+  moderationVersion: number;
+  submittedAt: Date;
+  resolutionReason: string | null;
+  resolvedByAdminId: string | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type PrismaEvaluationAppealActionRecord = {
+  id: string;
+  appealId: string;
+  actorUserId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string;
+  fromVersion: number;
+  toVersion: number;
+  createdAt: Date;
+};
+
+export type PrismaEvaluationAppealActionWithEvaluationRecord =
+  PrismaEvaluationAppealActionRecord & {
+    appeal: { evaluationEventId: string };
+  };
+
+type PrismaEvaluationAppealSourceRecord = {
+  id: string;
+  actorUserId: string;
+  evaluationModeration: PrismaEvaluationModerationRecord | null;
 };
 
 export type PrismaProfileEvaluationOrderRecord = {
@@ -251,9 +552,14 @@ export type PrismaProfileEvaluationsClient = {
       where: {
         id: string;
         eventType: { in: string[] };
+        actorUserId?: string;
       };
-      select: { id: true };
-    }): Promise<{ id: string } | null>;
+      select: {
+        id: true;
+        actorUserId: true;
+        evaluationModeration: { select: EvaluationModerationSelect };
+      };
+    }): Promise<PrismaEvaluationAppealSourceRecord | null>;
   };
   evaluationModeration: {
     findUnique(args: {
@@ -270,7 +576,11 @@ export type PrismaProfileEvaluationsClient = {
       };
     }): Promise<PrismaEvaluationModerationRecord>;
     updateMany(args: {
-      where: { evaluationEventId: string; version: number };
+      where: {
+        evaluationEventId: string;
+        version: number;
+        status?: 'hidden' | 'visible';
+      };
       data: {
         status: 'visible' | 'hidden';
         version: number;
@@ -298,6 +608,67 @@ export type PrismaProfileEvaluationsClient = {
       };
     }): Promise<PrismaEvaluationModerationActionRecord>;
   };
+  evaluationAppeal: {
+    findMany(args: {
+      where: { evaluationEventId: { in: string[] } };
+      orderBy: { submittedAt: 'desc' };
+    }): Promise<PrismaEvaluationAppealRecord[]>;
+    findFirst(args: {
+      where: {
+        evaluationEventId: string;
+        status: 'requested';
+      };
+      orderBy?: { submittedAt: 'desc' };
+    }): Promise<PrismaEvaluationAppealRecord | null>;
+    findUnique(args: {
+      where: { id: string };
+    }): Promise<PrismaEvaluationAppealRecord | null>;
+    create(args: {
+      data: {
+        evaluationEventId: string;
+        appellantUserId: string;
+        status: 'requested';
+        version: number;
+        reason: string;
+        moderationVersion: number;
+        submittedAt: Date;
+      };
+    }): Promise<PrismaEvaluationAppealRecord>;
+    updateMany(args: {
+      where: {
+        id: string;
+        evaluationEventId: string;
+        status: 'requested';
+        version: number;
+      };
+      data: {
+        status: 'accepted' | 'rejected';
+        version: number;
+        resolutionReason: string;
+        resolvedByAdminId: string;
+        resolvedAt: Date;
+      };
+    }): Promise<{ count: number }>;
+  };
+  evaluationAppealAction: {
+    findMany(args: {
+      where: { appeal: { evaluationEventId: string } };
+      include: { appeal: { select: { evaluationEventId: true } } };
+      orderBy: { createdAt: 'desc' };
+    }): Promise<PrismaEvaluationAppealActionWithEvaluationRecord[]>;
+    create(args: {
+      data: {
+        appealId: string;
+        actorUserId: string;
+        fromStatus?: 'requested';
+        toStatus: 'requested' | 'accepted' | 'rejected';
+        reason: string;
+        fromVersion: number;
+        toVersion: number;
+        createdAt: Date;
+      };
+    }): Promise<PrismaEvaluationAppealActionRecord>;
+  };
 };
 
 type EvaluationModerationSelect = {
@@ -309,6 +680,12 @@ type EvaluationModerationSelect = {
   moderatedAt: true;
   createdAt: true;
   updatedAt: true;
+};
+
+type EvaluationAppealSourceSelect = {
+  id: true;
+  actorUserId: true;
+  evaluationModeration: { select: EvaluationModerationSelect };
 };
 
 export class PrismaProfileEvaluationsRepository
@@ -332,6 +709,47 @@ export class PrismaProfileEvaluationsRepository
       where: {
         events: {
           some: {
+            eventType: {
+              in: ['evaluation_submitted', 'shipper_evaluation_submitted'],
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        shipperId: true,
+        orderNo: true,
+        events: {
+          select: {
+            id: true,
+            actorUserId: true,
+            eventType: true,
+            noteText: true,
+            attachmentFileIds: true,
+            createdAt: true,
+            evaluationModeration: {
+              select: createEvaluationModerationSelect(),
+            },
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    return orders.map(mapPrismaProfileEvaluationOrder);
+  }
+
+  async listAuthoredEvaluationOrders(actorUserId: string) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        events: {
+          some: {
+            actorUserId,
             eventType: {
               in: ['evaluation_submitted', 'shipper_evaluation_submitted'],
             },
@@ -417,6 +835,272 @@ export class PrismaProfileEvaluationsRepository
     return events.map(mapPrismaEvaluationModerationAction);
   }
 
+  async listLatestEvaluationAppeals(evaluationIds: string[]) {
+    if (evaluationIds.length === 0) {
+      return [];
+    }
+
+    const appeals = await this.prisma.evaluationAppeal.findMany({
+      where: { evaluationEventId: { in: evaluationIds } },
+      orderBy: { submittedAt: 'desc' },
+    });
+    const latestByEvaluationId = new Map<string, EvaluationAppealSnapshot>();
+
+    for (const appeal of appeals) {
+      if (!latestByEvaluationId.has(appeal.evaluationEventId)) {
+        latestByEvaluationId.set(
+          appeal.evaluationEventId,
+          mapPrismaEvaluationAppeal(appeal),
+        );
+      }
+    }
+
+    return [...latestByEvaluationId.values()];
+  }
+
+  async listEvaluationAppealEvents(evaluationId: string) {
+    const events = await this.prisma.evaluationAppealAction.findMany({
+      where: { appeal: { evaluationEventId: evaluationId } },
+      include: { appeal: { select: { evaluationEventId: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return events.map(mapPrismaEvaluationAppealAction);
+  }
+
+  async submitEvaluationAppeal(input: SubmitEvaluationAppealInput) {
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const evaluationEvent = await transaction.orderEvent.findFirst({
+          where: {
+            id: input.evaluationId,
+            actorUserId: input.appellantUserId,
+            eventType: {
+              in: ['evaluation_submitted', 'shipper_evaluation_submitted'],
+            },
+          },
+          select: createEvaluationAppealSourceSelect(),
+        });
+
+        if (!evaluationEvent) {
+          return { kind: 'not-found' as const };
+        }
+
+        const moderation = evaluationEvent.evaluationModeration
+          ? mapPrismaEvaluationModeration(
+              evaluationEvent.evaluationModeration,
+            )
+          : normalizeEvaluationModeration(undefined);
+        if (moderation.status !== 'hidden') {
+          return { kind: 'not-allowed' as const };
+        }
+        if (moderation.version !== input.baseModerationVersion) {
+          return { kind: 'conflict' as const };
+        }
+
+        const existing = await transaction.evaluationAppeal.findFirst({
+          where: {
+            evaluationEventId: input.evaluationId,
+            status: 'requested',
+          },
+          orderBy: { submittedAt: 'desc' },
+        });
+        if (existing) {
+          return isSameEvaluationAppealRequest(existing, input)
+            ? {
+                kind: 'success' as const,
+                appeal: mapPrismaEvaluationAppeal(existing),
+                replayed: true,
+              }
+            : { kind: 'already-requested' as const };
+        }
+
+        const submittedAt = new Date(input.submittedAtIso);
+        const created = await transaction.evaluationAppeal.create({
+          data: {
+            evaluationEventId: input.evaluationId,
+            appellantUserId: input.appellantUserId,
+            status: 'requested',
+            version: 1,
+            reason: input.reason,
+            moderationVersion: input.baseModerationVersion,
+            submittedAt,
+          },
+        });
+        await transaction.evaluationAppealAction.create({
+          data: {
+            appealId: created.id,
+            actorUserId: input.appellantUserId,
+            toStatus: 'requested',
+            reason: input.reason,
+            fromVersion: 0,
+            toVersion: 1,
+            createdAt: submittedAt,
+          },
+        });
+
+        return {
+          kind: 'success' as const,
+          appeal: mapPrismaEvaluationAppeal(created),
+          replayed: false,
+        };
+      });
+    } catch (error) {
+      if (!isEvaluationAppealOpenConflict(error)) {
+        throw error;
+      }
+
+      const existing = await this.prisma.evaluationAppeal.findFirst({
+        where: {
+          evaluationEventId: input.evaluationId,
+          status: 'requested',
+        },
+        orderBy: { submittedAt: 'desc' },
+      });
+
+      return existing && isSameEvaluationAppealRequest(existing, input)
+        ? {
+            kind: 'success' as const,
+            appeal: mapPrismaEvaluationAppeal(existing),
+            replayed: true,
+          }
+        : { kind: 'already-requested' as const };
+    }
+  }
+
+  async resolveAdminEvaluationAppeal(
+    input: ResolveAdminEvaluationAppealInput,
+  ) {
+    try {
+      return await this.prisma.$transaction(async transaction => {
+        const appeal = await transaction.evaluationAppeal.findUnique({
+          where: { id: input.appealId },
+        });
+        if (!appeal || appeal.evaluationEventId !== input.evaluationId) {
+          return { kind: 'not-found' as const };
+        }
+        if (appeal.status !== 'requested') {
+          return { kind: 'not-allowed' as const };
+        }
+
+        const moderationRecord =
+          await transaction.evaluationModeration.findUnique({
+            where: { evaluationEventId: input.evaluationId },
+          });
+        if (!moderationRecord) {
+          return { kind: 'not-allowed' as const };
+        }
+        const currentModeration =
+          mapPrismaEvaluationModeration(moderationRecord);
+        if (
+          appeal.version !== input.baseAppealVersion ||
+          currentModeration.version !== input.baseModerationVersion
+        ) {
+          return { kind: 'conflict' as const };
+        }
+        if (currentModeration.status !== 'hidden') {
+          return { kind: 'not-allowed' as const };
+        }
+
+        const resolvedAt = new Date(input.resolvedAtIso);
+        const nextAppealVersion = appeal.version + 1;
+        const appealTransition = await transaction.evaluationAppeal.updateMany({
+          where: {
+            id: input.appealId,
+            evaluationEventId: input.evaluationId,
+            status: 'requested',
+            version: appeal.version,
+          },
+          data: {
+            status: input.decision,
+            version: nextAppealVersion,
+            resolutionReason: input.reason,
+            resolvedByAdminId: input.adminUserId,
+            resolvedAt,
+          },
+        });
+        if (appealTransition.count !== 1) {
+          throw new EvaluationAppealTransactionAbort('conflict');
+        }
+
+        let nextModeration = currentModeration;
+        if (input.decision === 'accepted') {
+          const nextModerationVersion = currentModeration.version + 1;
+          const moderationTransition =
+            await transaction.evaluationModeration.updateMany({
+              where: {
+                evaluationEventId: input.evaluationId,
+                status: 'hidden',
+                version: currentModeration.version,
+              },
+              data: {
+                status: 'visible',
+                version: nextModerationVersion,
+                reason: input.reason,
+                moderatedByAdminId: input.adminUserId,
+                moderatedAt: resolvedAt,
+              },
+            });
+          if (moderationTransition.count !== 1) {
+            throw new EvaluationAppealTransactionAbort('conflict');
+          }
+
+          nextModeration = {
+            status: 'visible',
+            version: nextModerationVersion,
+            reason: input.reason,
+            moderatedByAdminId: input.adminUserId,
+            moderatedAtIso: input.resolvedAtIso,
+          };
+          await transaction.evaluationModerationAction.create({
+            data: {
+              evaluationEventId: input.evaluationId,
+              adminUserId: input.adminUserId,
+              fromStatus: 'hidden',
+              toStatus: 'visible',
+              reason: input.reason,
+              fromVersion: currentModeration.version,
+              toVersion: nextModerationVersion,
+              createdAt: resolvedAt,
+            },
+          });
+        }
+
+        await transaction.evaluationAppealAction.create({
+          data: {
+            appealId: input.appealId,
+            actorUserId: input.adminUserId,
+            fromStatus: 'requested',
+            toStatus: input.decision,
+            reason: input.reason,
+            fromVersion: appeal.version,
+            toVersion: nextAppealVersion,
+            createdAt: resolvedAt,
+          },
+        });
+
+        return {
+          kind: 'success' as const,
+          appeal: {
+            ...mapPrismaEvaluationAppeal(appeal),
+            status: input.decision,
+            version: nextAppealVersion,
+            resolutionReason: input.reason,
+            resolvedByAdminId: input.adminUserId,
+            resolvedAtIso: input.resolvedAtIso,
+          },
+          moderation: nextModeration,
+        };
+      });
+    } catch (error) {
+      if (error instanceof EvaluationAppealTransactionAbort) {
+        return { kind: error.kind };
+      }
+
+      throw error;
+    }
+  }
+
   async moderateAdminEvaluation(input: ModerateAdminEvaluationInput) {
     try {
       return await this.prisma.$transaction(async transaction => {
@@ -427,11 +1111,21 @@ export class PrismaProfileEvaluationsRepository
               in: ['evaluation_submitted', 'shipper_evaluation_submitted'],
             },
           },
-          select: { id: true },
+          select: createEvaluationAppealSourceSelect(),
         });
 
         if (!evaluationEvent) {
           return { kind: 'not-found' as const };
+        }
+
+        const pendingAppeal = await transaction.evaluationAppeal.findFirst({
+          where: {
+            evaluationEventId: input.evaluationId,
+            status: 'requested',
+          },
+        });
+        if (pendingAppeal) {
+          return { kind: 'appeal-pending' as const };
         }
 
         const existing = await transaction.evaluationModeration.findUnique({
@@ -598,6 +1292,16 @@ function createEvaluationModerationSelect(): EvaluationModerationSelect {
   };
 }
 
+function createEvaluationAppealSourceSelect(): EvaluationAppealSourceSelect {
+  return {
+    id: true,
+    actorUserId: true,
+    evaluationModeration: {
+      select: createEvaluationModerationSelect(),
+    },
+  };
+}
+
 function normalizeEvaluationModeration(
   moderation: AdminEvaluationModerationSnapshot | undefined,
 ): AdminEvaluationModerationSnapshot {
@@ -637,12 +1341,87 @@ function mapPrismaEvaluationModerationAction(
   };
 }
 
+function mapPrismaEvaluationAppeal(
+  appeal: PrismaEvaluationAppealRecord,
+): EvaluationAppealSnapshot {
+  return {
+    id: appeal.id,
+    evaluationId: appeal.evaluationEventId,
+    appellantUserId: appeal.appellantUserId,
+    status: normalizeEvaluationAppealStatus(appeal.status),
+    version: appeal.version,
+    reason: appeal.reason,
+    moderationVersion: appeal.moderationVersion,
+    submittedAtIso: appeal.submittedAt.toISOString(),
+    ...(appeal.resolutionReason
+      ? { resolutionReason: appeal.resolutionReason }
+      : {}),
+    ...(appeal.resolvedByAdminId
+      ? { resolvedByAdminId: appeal.resolvedByAdminId }
+      : {}),
+    ...(appeal.resolvedAt
+      ? { resolvedAtIso: appeal.resolvedAt.toISOString() }
+      : {}),
+  };
+}
+
+function mapPrismaEvaluationAppealAction(
+  event: PrismaEvaluationAppealActionWithEvaluationRecord,
+): EvaluationAppealEventRecord {
+  return {
+    id: event.id,
+    appealId: event.appealId,
+    evaluationId: event.appeal.evaluationEventId,
+    actorUserId: event.actorUserId,
+    ...(event.fromStatus
+      ? { fromStatus: normalizeEvaluationAppealStatus(event.fromStatus) }
+      : {}),
+    toStatus: normalizeEvaluationAppealStatus(event.toStatus),
+    reason: event.reason,
+    fromVersion: event.fromVersion,
+    toVersion: event.toVersion,
+    createdAtIso: event.createdAt.toISOString(),
+  };
+}
+
 function normalizeEvaluationModerationStatus(status: string) {
   if (status === 'visible' || status === 'hidden') {
     return status;
   }
 
   throw new Error(`Unsupported evaluation moderation status: ${status}`);
+}
+
+function normalizeEvaluationAppealStatus(status: string) {
+  if (
+    status === 'requested' ||
+    status === 'accepted' ||
+    status === 'rejected'
+  ) {
+    return status;
+  }
+
+  throw new Error(`Unsupported evaluation appeal status: ${status}`);
+}
+
+function isSameEvaluationAppealRequest(
+  appeal: Pick<
+    EvaluationAppealSnapshot | PrismaEvaluationAppealRecord,
+    'appellantUserId' | 'reason' | 'moderationVersion'
+  >,
+  input: SubmitEvaluationAppealInput,
+) {
+  return (
+    appeal.appellantUserId === input.appellantUserId &&
+    appeal.reason === input.reason &&
+    appeal.moderationVersion === input.baseModerationVersion
+  );
+}
+
+class EvaluationAppealTransactionAbort extends Error {
+  constructor(readonly kind: 'conflict') {
+    super(kind);
+  }
 }
 
 function isPrismaErrorCode(error: unknown, code: string) {
@@ -672,6 +1451,31 @@ function isEvaluationModerationFirstWriteConflict(error: unknown) {
     return (
       target === 'EvaluationModeration_pkey' || target === 'evaluationEventId'
     );
+  }
+
+  return (
+    Array.isArray(target) &&
+    target.length === 1 &&
+    target[0] === 'evaluationEventId'
+  );
+}
+
+function isEvaluationAppealOpenConflict(error: unknown) {
+  if (!isPrismaErrorCode(error, 'P2002')) {
+    return false;
+  }
+
+  const meta =
+    typeof error === 'object' && error !== null && 'meta' in error
+      ? (error as { meta?: unknown }).meta
+      : undefined;
+  const target =
+    typeof meta === 'object' && meta !== null && 'target' in meta
+      ? (meta as { target?: unknown }).target
+      : undefined;
+
+  if (typeof target === 'string') {
+    return target === 'EvaluationAppeal_open_event_unique';
   }
 
   return (
