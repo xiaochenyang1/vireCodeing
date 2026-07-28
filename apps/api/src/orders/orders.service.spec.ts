@@ -2123,6 +2123,139 @@ describe('OrdersService', () => {
     ).toBe(true);
   });
 
+  it('queues a partial refund outbox when approving an online escrowed price decrease', async () => {
+    const nowIso = '2026-07-28T10:00:00.000Z';
+    const repository = new InMemoryOrdersRepository(() => new Date(nowIso));
+    const service = new OrdersService(repository);
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+
+    const orderRef = (
+      repository as unknown as {
+        orders: Array<{
+          id: string;
+          orderNo: string;
+          paymentMethod: string;
+          paymentStatus: string;
+          priceCents?: number;
+          payablePriceCents?: number;
+        }>;
+      }
+    ).orders[0];
+    orderRef.paymentMethod = 'online';
+    orderRef.paymentStatus = 'escrowed';
+    orderRef.priceCents = 76000;
+    orderRef.payablePriceCents = 76000;
+
+    const financialStore = (
+      repository as unknown as {
+        financialStore: {
+          upsertPaymentOrder: (payment: Record<string, unknown>) => void;
+          listRefunds: () => Array<{
+            amountCents: number;
+            reason: string;
+            status: string;
+          }>;
+          listOutboxEvents: () => Array<{
+            eventType: string;
+            status: string;
+          }>;
+          listFinancialAuditLogs: () => Array<{
+            action: string;
+            entityId: string;
+          }>;
+          listPaymentOrders: () => Array<{
+            status: string;
+            amountCents: number;
+          }>;
+        };
+      }
+    ).financialStore;
+
+    financialStore.upsertPaymentOrder({
+      id: 'payment-escrow-1',
+      paymentNo: 'PAY-escrow-1',
+      orderId: orderRef.id,
+      orderNo: orderRef.orderNo,
+      shipperId: 'shipper-1',
+      channel: 'wechat',
+      amountCents: 76000,
+      status: 'escrowed',
+      idempotencyKey: 'pay-key-1',
+      requestFingerprint: 'pay-fp-1',
+      expiresAtIso: '2026-07-28T11:00:00.000Z',
+      paidAtIso: nowIso,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+    });
+
+    await service.submitOrderChangeRequest('shipper-1', orderRef.id, {
+      description: '卸货地址变更并下调运费',
+    });
+
+    const reviewed = await service.reviewOrderChangeRequest(
+      'admin-1',
+      orderRef.id,
+      {
+        decision: 'approved',
+        reviewResultText: '确认下调运费',
+        adjustedPayablePriceCents: 70000,
+      },
+    );
+
+    expect(reviewed.payablePriceCents).toBe(70000);
+    expect(reviewed.paymentStatus).toBe('escrowed');
+    const reviewNote = JSON.parse(
+      reviewed.events.find(
+        event => event.eventType === 'change_request_approved',
+      )?.noteText ?? '{}',
+    );
+    expect(reviewNote.fundDisposition).toMatchObject({
+      kind: 'online_partial_refund_queued',
+      deltaCents: -6000,
+      requiresManualFollowUp: false,
+      refundNo: expect.stringContaining('RF-PAY-escrow-1-P6000'),
+    });
+    expect(financialStore.listRefunds()).toEqual([
+      expect.objectContaining({
+        amountCents: 6000,
+        status: 'pending',
+        reason: expect.stringContaining('change_request_price_decrease'),
+      }),
+    ]);
+    expect(financialStore.listOutboxEvents()).toEqual([
+      expect.objectContaining({
+        eventType: 'refund.requested',
+        status: 'pending',
+      }),
+    ]);
+    expect(financialStore.listPaymentOrders()[0]).toMatchObject({
+      status: 'escrowed',
+      amountCents: 76000,
+    });
+    expect(
+      financialStore
+        .listFinancialAuditLogs()
+        .some(
+          item =>
+            item.action === 'order_change_request_fund_disposition' &&
+            item.entityId === orderRef.id,
+        ),
+    ).toBe(true);
+  });
+
   it('pushes order-linked notifications when admin reviews a change request', async () => {
     const repository = new InMemoryOrdersRepository(() => now);
     const filesRepository = new InMemoryFilesRepository(() => now);

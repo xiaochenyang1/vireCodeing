@@ -1458,7 +1458,53 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     }
 
     const nowIso = this.now().toISOString();
-    const reviewNoteText = createOrderChangeReviewNote(order, input);
+    let fundDispositionOverride:
+      | import('./dto').OrderChangeRequestFundDisposition
+      | undefined;
+    const preliminaryPayload = createOrderChangeReviewPayload(order, input);
+    if (
+      input.decision === 'approved' &&
+      preliminaryPayload.fundDisposition?.kind ===
+        'online_partial_refund_pending_manual' &&
+      preliminaryPayload.fundDisposition.deltaCents < 0
+    ) {
+      const payment = this.financialStore.findLatestPaymentByOrderId(orderId);
+      if (
+        payment &&
+        payment.status === 'escrowed' &&
+        order.paymentMethod === 'online' &&
+        order.paymentStatus === 'escrowed'
+      ) {
+        const refundAmountCents = -preliminaryPayload.fundDisposition.deltaCents;
+        if (
+          refundAmountCents > 0 &&
+          refundAmountCents < payment.amountCents
+        ) {
+          const refund = this.financialStore.createRefundForPayment(
+            payment,
+            `change_request_price_decrease:${orderId}:${latestRequest.requestedAtIso}`,
+            this.now(),
+            refundAmountCents,
+          );
+          const outboxEvent = this.financialStore.createRefundOutboxEvent(
+            refund,
+            this.now(),
+          );
+          fundDispositionOverride =
+            createQueuedOrderChangePartialRefundDisposition(
+              preliminaryPayload.fundDisposition.deltaCents,
+              refund,
+              outboxEvent.id,
+            );
+        }
+      }
+    }
+
+    const reviewNoteText = createOrderChangeReviewNote(
+      order,
+      input,
+      fundDispositionOverride,
+    );
     const reviewPayload = parseOrderChangeReviewNote(reviewNoteText);
     order.updatedAtIso = nowIso;
     if (
@@ -1481,7 +1527,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     if (
       input.decision === 'approved' &&
       reviewPayload.fundDisposition &&
-      reviewPayload.fundDisposition.requiresManualFollowUp
+      (reviewPayload.fundDisposition.requiresManualFollowUp ||
+        reviewPayload.fundDisposition.kind === 'online_partial_refund_queued')
     ) {
       this.financialStore.createFinancialAuditLog({
         id: randomUUID(),
@@ -1495,6 +1542,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
           adjustedPayablePriceCents: input.adjustedPayablePriceCents ?? null,
           fundDispositionKind: reviewPayload.fundDisposition.kind,
           deltaCents: reviewPayload.fundDisposition.deltaCents,
+          refundId: reviewPayload.fundDisposition.refundId ?? null,
         }),
         requestId: `order-change-review:${orderId}:${nowIso}`,
         reason: reviewPayload.fundDisposition.summaryText,
@@ -3864,6 +3912,7 @@ type PrismaOrdersTransactionClient = {
   };
   refund: {
     create(args: unknown): Promise<unknown>;
+    findUnique(args: unknown): Promise<unknown>;
   };
   financialOutboxEvent: {
     create(args: unknown): Promise<unknown>;
@@ -5748,7 +5797,89 @@ export class PrismaOrdersRepository implements OrdersRepository {
         );
       }
 
-      const reviewNoteText = createOrderChangeReviewNote(currentOrder, input);
+      let fundDispositionOverride:
+        | import('./dto').OrderChangeRequestFundDisposition
+        | undefined;
+      const preliminaryPayload = createOrderChangeReviewPayload(
+        currentOrder,
+        input,
+      );
+      if (
+        input.decision === 'approved' &&
+        preliminaryPayload.fundDisposition?.kind ===
+          'online_partial_refund_pending_manual' &&
+        preliminaryPayload.fundDisposition.deltaCents < 0
+      ) {
+        const payment = await transaction.paymentOrder.findFirst({
+          where: { orderId },
+          orderBy: { createdAt: 'desc' },
+        });
+        const refundAmountCents =
+          -preliminaryPayload.fundDisposition.deltaCents;
+        if (
+          payment &&
+          payment.status === 'escrowed' &&
+          currentOrder.paymentMethod === 'online' &&
+          currentOrder.paymentStatus === 'escrowed' &&
+          refundAmountCents > 0 &&
+          refundAmountCents < payment.amountCents
+        ) {
+          const existingRefund = await transaction.refund.findUnique({
+            where: { paymentOrderId: payment.id },
+          });
+          if (!existingRefund) {
+            const refundId = randomUUID();
+            const refundNo = `RF-${payment.paymentNo}-P${refundAmountCents}`;
+            const outboxEventId = randomUUID();
+            await transaction.refund.create({
+              data: {
+                id: refundId,
+                refundNo,
+                paymentOrderId: payment.id,
+                orderId,
+                shipperId: currentOrder.shipperId,
+                channel: payment.channel,
+                amountCents: refundAmountCents,
+                reason: `change_request_price_decrease:${orderId}:${latestRequest.requestedAtIso}`,
+                status: 'pending',
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
+              },
+            });
+            await transaction.financialOutboxEvent.create({
+              data: {
+                id: outboxEventId,
+                eventType: 'refund.requested',
+                aggregateType: 'refund',
+                aggregateId: refundId,
+                refundId,
+                payload: {
+                  refundId,
+                  paymentOrderId: payment.id,
+                },
+                status: 'pending',
+                attemptCount: 0,
+                maxAttempts: 10,
+                availableAt: updatedAt,
+                createdAt: updatedAt,
+                updatedAt: updatedAt,
+              },
+            });
+            fundDispositionOverride =
+              createQueuedOrderChangePartialRefundDisposition(
+                preliminaryPayload.fundDisposition.deltaCents,
+                { id: refundId, refundNo },
+                outboxEventId,
+              );
+          }
+        }
+      }
+
+      const reviewNoteText = createOrderChangeReviewNote(
+        currentOrder,
+        input,
+        fundDispositionOverride,
+      );
       const reviewPayload = parseOrderChangeReviewNote(reviewNoteText);
 
       await transaction.orderEvent.create({
@@ -5767,7 +5898,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
       if (
         input.decision === 'approved' &&
-        reviewPayload.fundDisposition?.requiresManualFollowUp
+        reviewPayload.fundDisposition &&
+        (reviewPayload.fundDisposition.requiresManualFollowUp ||
+          reviewPayload.fundDisposition.kind ===
+            'online_partial_refund_queued')
       ) {
         await transaction.financialAuditLog.create({
           data: {
@@ -5783,6 +5917,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 input.adjustedPayablePriceCents ?? null,
               fundDispositionKind: reviewPayload.fundDisposition.kind,
               deltaCents: reviewPayload.fundDisposition.deltaCents,
+              refundId: reviewPayload.fundDisposition.refundId ?? null,
             }),
             requestId: `order-change-review:${orderId}:${updatedAt.toISOString()}`,
             reason: reviewPayload.fundDisposition.summaryText,
@@ -6746,14 +6881,20 @@ function createShipperBonusAddedNote(
 function createOrderChangeReviewNote(
   order: ShipperOrderRecord,
   input: ReviewShipperOrderChangeRequest,
+  fundDispositionOverride?: import('./dto').OrderChangeRequestFundDisposition,
 ) {
-  const reviewPayload = createOrderChangeReviewPayload(order, input);
+  const reviewPayload = createOrderChangeReviewPayload(
+    order,
+    input,
+    fundDispositionOverride,
+  );
   return JSON.stringify(reviewPayload);
 }
 
 function createOrderChangeReviewPayload(
   order: ShipperOrderRecord,
   input: ReviewShipperOrderChangeRequest,
+  fundDispositionOverride?: import('./dto').OrderChangeRequestFundDisposition,
 ): Required<Pick<OrderChangeRequestReviewSnapshot, 'reviewResultText'>> &
   Omit<OrderChangeRequestReviewSnapshot, 'reviewResultText'> {
   const defaultText =
@@ -6769,13 +6910,14 @@ function createOrderChangeReviewPayload(
   const adjustedPayablePriceCents =
     input.decision === 'approved' ? input.adjustedPayablePriceCents : undefined;
   const fundDisposition =
-    input.decision === 'approved' && adjustedPayablePriceCents !== undefined
+    fundDispositionOverride ??
+    (input.decision === 'approved' && adjustedPayablePriceCents !== undefined
       ? createOrderChangeFundDisposition(
           order,
           previousPayablePriceCents,
           adjustedPayablePriceCents,
         )
-      : undefined;
+      : undefined);
   const costImpactText =
     input.costImpactText?.trim() ||
     (adjustedPayablePriceCents !== undefined &&
@@ -6868,6 +7010,22 @@ function createOrderChangeFundDisposition(
     deltaCents,
     summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；本片只记录待部分退款，不自动发起渠道退款。`,
     requiresManualFollowUp: true,
+  };
+}
+
+function createQueuedOrderChangePartialRefundDisposition(
+  deltaCents: number,
+  refund: { id: string; refundNo: string },
+  outboxEventId: string,
+): import('./dto').OrderChangeRequestFundDisposition {
+  return {
+    kind: 'online_partial_refund_queued',
+    deltaCents,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；已创建部分退款 ${refund.refundNo} 并进入 outbox，主托管单保持 escrowed。`,
+    requiresManualFollowUp: false,
+    refundId: refund.id,
+    refundNo: refund.refundNo,
+    outboxEventId,
   };
 }
 
@@ -7008,12 +7166,16 @@ function parseOrderChangeFundDisposition(
     deltaCents?: unknown;
     summaryText?: unknown;
     requiresManualFollowUp?: unknown;
+    refundId?: unknown;
+    refundNo?: unknown;
+    outboxEventId?: unknown;
   };
   const kind = payload.kind;
   const allowedKinds = new Set([
     'none',
     'cod_price_snapshot_only',
     'online_topup_pending_manual',
+    'online_partial_refund_queued',
     'online_partial_refund_pending_manual',
     'online_price_unchanged',
     'online_not_escrowed',
@@ -7032,11 +7194,27 @@ function parseOrderChangeFundDisposition(
     return undefined;
   }
 
+  const refundId =
+    typeof payload.refundId === 'string' && payload.refundId.trim()
+      ? payload.refundId.trim()
+      : undefined;
+  const refundNo =
+    typeof payload.refundNo === 'string' && payload.refundNo.trim()
+      ? payload.refundNo.trim()
+      : undefined;
+  const outboxEventId =
+    typeof payload.outboxEventId === 'string' && payload.outboxEventId.trim()
+      ? payload.outboxEventId.trim()
+      : undefined;
+
   return {
     kind: kind as import('./dto').OrderChangeRequestFundDispositionKind,
     deltaCents: payload.deltaCents,
     summaryText: payload.summaryText.trim(),
     requiresManualFollowUp: payload.requiresManualFollowUp,
+    ...(refundId ? { refundId } : {}),
+    ...(refundNo ? { refundNo } : {}),
+    ...(outboxEventId ? { outboxEventId } : {}),
   };
 }
 

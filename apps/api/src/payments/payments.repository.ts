@@ -91,7 +91,10 @@ export type AppliedRefundCallbackResult = {
   replayed: boolean;
   refund: RefundRecord;
   payment: PaymentOrderRecord;
-  orderPaymentStatus: 'refunded';
+  orderPaymentStatus: Extract<
+    OrderPaymentStatus,
+    'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
+  >;
   financialTransaction: FinancialTransactionRecord;
 };
 
@@ -102,7 +105,10 @@ export type ApplyRefundCallbackResult =
       replayed: boolean;
       refund: RefundRecord;
       payment: PaymentOrderRecord;
-      orderPaymentStatus: 'refund_failed';
+      orderPaymentStatus: Extract<
+        OrderPaymentStatus,
+        'refund_failed' | 'escrowed' | 'refund_pending'
+      >;
     }
   | { kind: 'event-conflict' }
   | { kind: 'refund-conflict' }
@@ -597,13 +603,14 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       payment.orderId !== refund.orderId ||
       payment.shipperId !== refund.shipperId ||
       payment.channel !== refund.channel ||
-      payment.amountCents !== refund.amountCents ||
+      refund.amountCents > payment.amountCents ||
       order.id !== payment.orderId ||
       order.shipperId !== refund.shipperId
     ) {
       return { kind: 'refund-conflict' };
     }
 
+    const isPartialRefund = refund.amountCents < payment.amountCents;
     const existingTransaction = this.financialTransactions.find(
       transaction =>
         transaction.type === 'online_refund' &&
@@ -616,10 +623,16 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
         (refund.status !== 'pending' &&
           refund.status !== 'processing' &&
           refund.status !== 'failed') ||
-        (payment.status !== 'refund_pending' &&
+        (!isPartialRefund &&
+          payment.status !== 'refund_pending' &&
           payment.status !== 'refund_failed') ||
-        (order.paymentStatus !== 'refund_pending' &&
-          order.paymentStatus !== 'refund_failed')
+        (!isPartialRefund &&
+          order.paymentStatus !== 'refund_pending' &&
+          order.paymentStatus !== 'refund_failed') ||
+        (isPartialRefund &&
+          payment.status !== 'escrowed' &&
+          payment.status !== 'refund_pending' &&
+          payment.status !== 'refund_failed')
       ) {
         return { kind: 'refund-conflict' };
       }
@@ -631,17 +644,26 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       refund.failureMessage = '退款渠道返回失败';
       refund.failedAtIso = input.callback.occurredAtIso;
       refund.updatedAtIso = updatedAtIso;
-      payment.status = 'refund_failed';
-      payment.failureCode = 'provider_refund_failed';
-      payment.failureMessage = '退款渠道返回失败';
-      payment.updatedAtIso = updatedAtIso;
-      order.paymentStatus = 'refund_failed';
+      if (!isPartialRefund) {
+        payment.status = 'refund_failed';
+        payment.failureCode = 'provider_refund_failed';
+        payment.failureMessage = '退款渠道返回失败';
+        payment.updatedAtIso = updatedAtIso;
+        order.paymentStatus = 'refund_failed';
+      } else {
+        payment.updatedAtIso = updatedAtIso;
+      }
       const result: ApplyRefundCallbackResult = {
         kind: 'failed',
         replayed: false,
         refund: structuredClone(refund),
         payment: clonePayment(payment),
-        orderPaymentStatus: 'refund_failed',
+        orderPaymentStatus: isPartialRefund
+          ? (order.paymentStatus as Extract<
+              OrderPaymentStatus,
+              'escrowed' | 'refund_pending' | 'refund_failed'
+            >)
+          : 'refund_failed',
       };
       this.recordInMemoryRefundCallback(
         callbackKey,
@@ -654,9 +676,12 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     if (existingTransaction) {
       if (
         refund.status !== 'succeeded' ||
-        payment.status !== 'refunded' ||
-        order.paymentStatus !== 'refunded' ||
-        refund.financialTransactionId !== existingTransaction.id
+        refund.financialTransactionId !== existingTransaction.id ||
+        (!isPartialRefund &&
+          (payment.status !== 'refunded' || order.paymentStatus !== 'refunded')) ||
+        (isPartialRefund &&
+          payment.status !== 'escrowed' &&
+          payment.status !== 'refunded')
       ) {
         return { kind: 'refund-conflict' };
       }
@@ -666,7 +691,12 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
         replayed: true,
         refund: structuredClone(refund),
         payment: clonePayment(payment),
-        orderPaymentStatus: 'refunded',
+        orderPaymentStatus: isPartialRefund
+          ? (order.paymentStatus as Extract<
+              OrderPaymentStatus,
+              'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
+            >)
+          : 'refunded',
         financialTransaction: cloneFinancialTransaction(existingTransaction),
       };
       this.recordInMemoryRefundCallback(
@@ -682,10 +712,16 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       (refund.status !== 'pending' &&
         refund.status !== 'processing' &&
         refund.status !== 'failed') ||
-      (payment.status !== 'refund_pending' &&
+      (!isPartialRefund &&
+        payment.status !== 'refund_pending' &&
         payment.status !== 'refund_failed') ||
-      (order.paymentStatus !== 'refund_pending' &&
-        order.paymentStatus !== 'refund_failed')
+      (!isPartialRefund &&
+        order.paymentStatus !== 'refund_pending' &&
+        order.paymentStatus !== 'refund_failed') ||
+      (isPartialRefund &&
+        payment.status !== 'escrowed' &&
+        payment.status !== 'refund_pending' &&
+        payment.status !== 'refund_failed')
     ) {
       return { kind: 'refund-conflict' };
     }
@@ -728,16 +764,20 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
     refund.updatedAtIso = createdAtIso;
     delete refund.failureCode;
     delete refund.failureMessage;
-    payment.status = 'refunded';
-    payment.refundedAtIso = input.callback.occurredAtIso;
-    payment.updatedAtIso = createdAtIso;
-    delete payment.failureCode;
-    delete payment.failureMessage;
-    order.paymentStatus = 'refunded';
-    this.restoreInMemoryRefundCouponIfNeeded(
-      order,
-      input.callback.occurredAtIso,
-    );
+    if (!isPartialRefund) {
+      payment.status = 'refunded';
+      payment.refundedAtIso = input.callback.occurredAtIso;
+      payment.updatedAtIso = createdAtIso;
+      delete payment.failureCode;
+      delete payment.failureMessage;
+      order.paymentStatus = 'refunded';
+      this.restoreInMemoryRefundCouponIfNeeded(
+        order,
+        input.callback.occurredAtIso,
+      );
+    } else {
+      payment.updatedAtIso = createdAtIso;
+    }
     for (const event of this.outboxEvents) {
       if (
         event.refundId === refund.id &&
@@ -757,7 +797,12 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       replayed: false,
       refund: structuredClone(refund),
       payment: clonePayment(payment),
-      orderPaymentStatus: 'refunded',
+      orderPaymentStatus: isPartialRefund
+        ? (order.paymentStatus as Extract<
+            OrderPaymentStatus,
+            'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
+          >)
+        : 'refunded',
       financialTransaction: cloneFinancialTransaction(financialTransaction),
     };
     this.recordInMemoryRefundCallback(callbackKey, input.callback, result);
@@ -1775,25 +1820,36 @@ RETURNING outbox.*
         },
       });
 
+      if (!payment) {
+        return { kind: 'refund-conflict' };
+      }
+
+      const isPartialRefund = refund.amountCents < payment.amountCents;
+
       if (
         input.callback.amountCents !== refund.amountCents ||
         (refund.providerRefundNo !== null &&
           refund.providerRefundNo !== input.callback.providerRefundNo) ||
         otherProviderRefund ||
-        !payment ||
         payment.orderId !== refund.orderId ||
         payment.shipperId !== refund.shipperId ||
         payment.channel !== refund.channel ||
-        payment.amountCents !== refund.amountCents ||
+        refund.amountCents > payment.amountCents ||
         payment.order.id !== refund.orderId ||
         payment.order.shipperId !== refund.shipperId ||
         (refund.status !== 'pending' &&
           refund.status !== 'processing' &&
           refund.status !== 'failed') ||
-        (payment.status !== 'refund_pending' &&
+        (!isPartialRefund &&
+          payment.status !== 'refund_pending' &&
           payment.status !== 'refund_failed') ||
-        (payment.order.paymentStatus !== 'refund_pending' &&
-          payment.order.paymentStatus !== 'refund_failed')
+        (!isPartialRefund &&
+          payment.order.paymentStatus !== 'refund_pending' &&
+          payment.order.paymentStatus !== 'refund_failed') ||
+        (isPartialRefund &&
+          payment.status !== 'escrowed' &&
+          payment.status !== 'refund_pending' &&
+          payment.status !== 'refund_failed')
       ) {
         return { kind: 'refund-conflict' };
       }
@@ -1826,30 +1882,51 @@ RETURNING outbox.*
             updatedAt: this.now(),
           },
         });
-        const failedPayment = await transaction.paymentOrder.update({
-          where: { id: payment.id },
-          data: {
-            status: 'refund_failed',
-            failureCode: 'provider_refund_failed',
-            failureMessage: '退款渠道返回失败',
-            updatedAt: this.now(),
-          },
-          include: paymentOrderInclude,
-        });
-        await transaction.order.update({
-          where: { id: refund.orderId },
-          data: { paymentStatus: 'refund_failed' },
-        });
-        await transaction.orderEvent.create({
-          data: {
-            orderId: refund.orderId,
-            actorUserId: 'system:payment',
-            eventType: 'refund_failed',
-            noteText: '在线退款失败，等待重试或人工处理',
-            attachmentFileIds: [],
-            createdAt: occurredAt,
-          },
-        });
+        let failedPayment = payment;
+        if (!isPartialRefund) {
+          failedPayment = await transaction.paymentOrder.update({
+            where: { id: payment.id },
+            data: {
+              status: 'refund_failed',
+              failureCode: 'provider_refund_failed',
+              failureMessage: '退款渠道返回失败',
+              updatedAt: this.now(),
+            },
+            include: paymentOrderInclude,
+          });
+          await transaction.order.update({
+            where: { id: refund.orderId },
+            data: { paymentStatus: 'refund_failed' },
+          });
+          await transaction.orderEvent.create({
+            data: {
+              orderId: refund.orderId,
+              actorUserId: 'system:payment',
+              eventType: 'refund_failed',
+              noteText: '在线退款失败，等待重试或人工处理',
+              attachmentFileIds: [],
+              createdAt: occurredAt,
+            },
+          });
+        } else {
+          failedPayment = await transaction.paymentOrder.update({
+            where: { id: payment.id },
+            data: {
+              updatedAt: this.now(),
+            },
+            include: paymentOrderInclude,
+          });
+          await transaction.orderEvent.create({
+            data: {
+              orderId: refund.orderId,
+              actorUserId: 'system:payment',
+              eventType: 'refund_failed',
+              noteText: '改单差额部分退款失败，托管主单保持原状态，等待重试或人工处理',
+              attachmentFileIds: [],
+              createdAt: occurredAt,
+            },
+          });
+        }
         await transaction.financialOutboxEvent.updateMany({
           where: {
             refundId: refund.id,
@@ -1872,7 +1949,9 @@ RETURNING outbox.*
             eventType: 'refund',
             refundId: refund.id,
             rawPayloadHash: input.callback.rawPayloadHash,
-            processingResult: 'refund_failed',
+            processingResult: isPartialRefund
+              ? 'partial_refund_failed'
+              : 'refund_failed',
             occurredAt,
             processedAt: this.now(),
           },
@@ -1883,7 +1962,12 @@ RETURNING outbox.*
           replayed: false,
           refund: mapPrismaRefund(failedRefund),
           payment: mapPrismaPaymentOrder(failedPayment),
-          orderPaymentStatus: 'refund_failed',
+          orderPaymentStatus: isPartialRefund
+            ? (payment.order.paymentStatus as Extract<
+                OrderPaymentStatus,
+                'escrowed' | 'refund_pending' | 'refund_failed'
+              >)
+            : 'refund_failed',
         };
       }
 
@@ -1933,38 +2017,59 @@ RETURNING outbox.*
           updatedAt: this.now(),
         },
       });
-      const updatedPayment = await transaction.paymentOrder.update({
-        where: { id: payment.id },
-        data: {
-          status: 'refunded',
-          failureCode: null,
-          failureMessage: null,
-          updatedAt: this.now(),
-        },
-        include: paymentOrderInclude,
-      });
-      await transaction.order.update({
-        where: { id: refund.orderId },
-        data: {
-          paymentStatus: 'refunded',
-          refundedAt: occurredAt,
-        },
-      });
-      await this.restorePrismaRefundCouponIfNeeded(
-        transaction,
-        payment.order,
-        occurredAt,
-      );
-      await transaction.orderEvent.create({
-        data: {
-          orderId: refund.orderId,
-          actorUserId: 'system:payment',
-          eventType: 'refund_succeeded',
-          noteText: '在线退款已确认到账',
-          attachmentFileIds: [],
-          createdAt: occurredAt,
-        },
-      });
+      let updatedPayment = payment;
+      if (!isPartialRefund) {
+        updatedPayment = await transaction.paymentOrder.update({
+          where: { id: payment.id },
+          data: {
+            status: 'refunded',
+            failureCode: null,
+            failureMessage: null,
+            updatedAt: this.now(),
+          },
+          include: paymentOrderInclude,
+        });
+        await transaction.order.update({
+          where: { id: refund.orderId },
+          data: {
+            paymentStatus: 'refunded',
+            refundedAt: occurredAt,
+          },
+        });
+        await this.restorePrismaRefundCouponIfNeeded(
+          transaction,
+          payment.order,
+          occurredAt,
+        );
+        await transaction.orderEvent.create({
+          data: {
+            orderId: refund.orderId,
+            actorUserId: 'system:payment',
+            eventType: 'refund_succeeded',
+            noteText: '在线退款已确认到账',
+            attachmentFileIds: [],
+            createdAt: occurredAt,
+          },
+        });
+      } else {
+        updatedPayment = await transaction.paymentOrder.update({
+          where: { id: payment.id },
+          data: {
+            updatedAt: this.now(),
+          },
+          include: paymentOrderInclude,
+        });
+        await transaction.orderEvent.create({
+          data: {
+            orderId: refund.orderId,
+            actorUserId: 'system:payment',
+            eventType: 'refund_succeeded',
+            noteText: `改单差额部分退款已确认到账 ${refund.amountCents} 分，托管主单保持 escrowed`,
+            attachmentFileIds: [],
+            createdAt: occurredAt,
+          },
+        });
+      }
       await transaction.financialOutboxEvent.updateMany({
         where: {
           refundId: refund.id,
@@ -1987,7 +2092,9 @@ RETURNING outbox.*
           eventType: 'refund',
           refundId: refund.id,
           rawPayloadHash: input.callback.rawPayloadHash,
-          processingResult: 'refund_succeeded',
+          processingResult: isPartialRefund
+            ? 'partial_refund_succeeded'
+            : 'refund_succeeded',
           occurredAt,
           processedAt: this.now(),
         },
@@ -1998,7 +2105,12 @@ RETURNING outbox.*
         replayed: false,
         refund: mapPrismaRefund(updatedRefund),
         payment: mapPrismaPaymentOrder(updatedPayment),
-        orderPaymentStatus: 'refunded',
+        orderPaymentStatus: isPartialRefund
+          ? (payment.order.paymentStatus as Extract<
+              OrderPaymentStatus,
+              'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
+            >)
+          : 'refunded',
         financialTransaction: mapPrismaFinancialTransaction(
           financialTransaction,
         ),

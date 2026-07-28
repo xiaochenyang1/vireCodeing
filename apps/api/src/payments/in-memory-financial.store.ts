@@ -70,6 +70,16 @@ export class InMemoryFinancialStore {
     return structuredClone(this.paymentOrders);
   }
 
+  upsertPaymentOrder(payment: PaymentOrderRecord) {
+    const index = this.paymentOrders.findIndex(item => item.id === payment.id);
+    if (index >= 0) {
+      this.paymentOrders[index] = structuredClone(payment);
+    } else {
+      this.paymentOrders.push(structuredClone(payment));
+    }
+    return structuredClone(payment);
+  }
+
   findPaymentOrderById(paymentId: string) {
     const payment = this.paymentOrders.find(item => item.id === paymentId);
     return payment ? structuredClone(payment) : undefined;
@@ -124,10 +134,21 @@ export class InMemoryFinancialStore {
       return structuredClone(existing);
     }
 
+    if (
+      !Number.isInteger(amountCents) ||
+      amountCents <= 0 ||
+      amountCents > payment.amountCents
+    ) {
+      throw new Error('refund amountCents must be within payment amount');
+    }
+
     const nowIso = now.toISOString();
     const refund: RefundRecord = {
       id: this.createId(),
-      refundNo: `RF-${payment.paymentNo}`,
+      refundNo:
+        amountCents === payment.amountCents
+          ? `RF-${payment.paymentNo}`
+          : `RF-${payment.paymentNo}-P${amountCents}`,
       paymentOrderId: payment.id,
       orderId: payment.orderId,
       shipperId: payment.shipperId,

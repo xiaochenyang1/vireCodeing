@@ -103,6 +103,7 @@ export type OrderChangeRequestFundDispositionKind =
   | 'none'
   | 'cod_price_snapshot_only'
   | 'online_topup_pending_manual'
+  | 'online_partial_refund_queued'
   | 'online_partial_refund_pending_manual'
   | 'online_price_unchanged'
   | 'online_not_escrowed';
@@ -112,6 +113,9 @@ export type OrderChangeRequestFundDisposition = {
   deltaCents: number;
   summaryText: string;
   requiresManualFollowUp: boolean;
+  refundId?: string;
+  refundNo?: string;
+  outboxEventId?: string;
 };
 
 export type OrderChangeRequestReviewSnapshot = {
