@@ -146,6 +146,8 @@ type ParsedPlatformChangeRequestReviewEvent = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
 };
 
 function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
@@ -318,6 +320,12 @@ function createModificationRequestFromPlatformEvents(
     reviewResultText:
       parsedReview.reviewResultText ||
       (approved ? '平台客服已通过修改申请' : '平台客服已驳回修改申请'),
+    ...(parsedReview.adjustedPayablePriceCents !== undefined
+      ? { adjustedPayablePriceCents: parsedReview.adjustedPayablePriceCents }
+      : {}),
+    ...(parsedReview.previousPayablePriceCents !== undefined
+      ? { previousPayablePriceCents: parsedReview.previousPayablePriceCents }
+      : {}),
   };
 }
 
@@ -766,6 +774,8 @@ function parsePlatformChangeRequestReviewEvent(
       costImpactText?: unknown;
       refundText?: unknown;
       driverNoticeText?: unknown;
+      adjustedPayablePriceCents?: unknown;
+      previousPayablePriceCents?: unknown;
     };
 
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -786,12 +796,28 @@ function parsePlatformChangeRequestReviewEvent(
       typeof payload.driverNoticeText === 'string'
         ? payload.driverNoticeText.trim()
         : '';
+    const adjustedPayablePriceCents =
+      typeof payload.adjustedPayablePriceCents === 'number' &&
+      Number.isInteger(payload.adjustedPayablePriceCents)
+        ? payload.adjustedPayablePriceCents
+        : undefined;
+    const previousPayablePriceCents =
+      typeof payload.previousPayablePriceCents === 'number' &&
+      Number.isInteger(payload.previousPayablePriceCents)
+        ? payload.previousPayablePriceCents
+        : undefined;
 
     return {
       ...(reviewResultText ? { reviewResultText } : {}),
       ...(costImpactText ? { costImpactText } : {}),
       ...(refundText ? { refundText } : {}),
       ...(driverNoticeText ? { driverNoticeText } : {}),
+      ...(adjustedPayablePriceCents !== undefined
+        ? { adjustedPayablePriceCents }
+        : {}),
+      ...(previousPayablePriceCents !== undefined
+        ? { previousPayablePriceCents }
+        : {}),
     };
   } catch {
     return { reviewResultText: noteText.trim() || undefined };

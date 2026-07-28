@@ -430,35 +430,54 @@ export const submitShipperOrderChangeRequestSchema = z.object({
   description: z.string().trim().min(1, '修改说明不能为空').max(200),
 });
 
-export const reviewShipperOrderChangeRequestSchema = z.object({
-  decision: z.enum(['approved', 'rejected'], {
-    error: '审核结论只能是 approved 或 rejected',
-  }),
-  reviewResultText: z
-    .string()
-    .trim()
-    .max(200, '审核说明最多 200 字')
-    .optional()
-    .transform(value => (value === '' ? undefined : value)),
-  costImpactText: z
-    .string()
-    .trim()
-    .max(200, '费用影响最多 200 字')
-    .optional()
-    .transform(value => (value === '' ? undefined : value)),
-  refundText: z
-    .string()
-    .trim()
-    .max(200, '退款状态最多 200 字')
-    .optional()
-    .transform(value => (value === '' ? undefined : value)),
-  driverNoticeText: z
-    .string()
-    .trim()
-    .max(200, '司机通知最多 200 字')
-    .optional()
-    .transform(value => (value === '' ? undefined : value)),
-});
+export const reviewShipperOrderChangeRequestSchema = z
+  .object({
+    decision: z.enum(['approved', 'rejected'], {
+      error: '审核结论只能是 approved 或 rejected',
+    }),
+    reviewResultText: z
+      .string()
+      .trim()
+      .max(200, '审核说明最多 200 字')
+      .optional()
+      .transform(value => (value === '' ? undefined : value)),
+    costImpactText: z
+      .string()
+      .trim()
+      .max(200, '费用影响最多 200 字')
+      .optional()
+      .transform(value => (value === '' ? undefined : value)),
+    refundText: z
+      .string()
+      .trim()
+      .max(200, '退款状态最多 200 字')
+      .optional()
+      .transform(value => (value === '' ? undefined : value)),
+    driverNoticeText: z
+      .string()
+      .trim()
+      .max(200, '司机通知最多 200 字')
+      .optional()
+      .transform(value => (value === '' ? undefined : value)),
+    adjustedPayablePriceCents: z
+      .number({ message: '调整后应付金额不合法' })
+      .int('调整后应付金额必须是整数分')
+      .min(100, '调整后应付金额至少 1 元')
+      .max(10_000_000, '调整后应付金额最多 100000 元')
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.decision === 'rejected' &&
+      value.adjustedPayablePriceCents !== undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['adjustedPayablePriceCents'],
+        message: '驳回修改申请时不能调整订单金额',
+      });
+    }
+  });
 
 const listAdminOrderChangeRequestsQuerySchema = z.object({
   status: z

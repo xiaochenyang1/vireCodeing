@@ -4439,6 +4439,130 @@ export function DriverHomeScreen({
           <Text style={styles.detailMeta}>
             卸货：{selectedOrder.deliveryContact} {selectedOrder.deliveryPhone}
           </Text>
+          {(() => {
+            const changeRequestEvent = [...(selectedOrder.events ?? [])]
+              .filter(event => event.eventType === 'change_requested')
+              .sort((left, right) =>
+                right.createdAtIso.localeCompare(left.createdAtIso),
+              )[0];
+            if (!changeRequestEvent) {
+              return null;
+            }
+            const reviewEvent = [...(selectedOrder.events ?? [])]
+              .filter(
+                event =>
+                  (event.eventType === 'change_request_approved' ||
+                    event.eventType === 'change_request_rejected') &&
+                  event.createdAtIso >= changeRequestEvent.createdAtIso,
+              )
+              .sort((left, right) =>
+                right.createdAtIso.localeCompare(left.createdAtIso),
+              )[0];
+            let reviewSnapshot:
+              | {
+                  reviewResultText?: string;
+                  costImpactText?: string;
+                  driverNoticeText?: string;
+                  adjustedPayablePriceCents?: number;
+                  previousPayablePriceCents?: number;
+                }
+              | undefined;
+            if (reviewEvent?.noteText) {
+              try {
+                const parsed = JSON.parse(reviewEvent.noteText) as Record<
+                  string,
+                  unknown
+                >;
+                if (
+                  parsed &&
+                  typeof parsed === 'object' &&
+                  !Array.isArray(parsed)
+                ) {
+                  reviewSnapshot = {
+                    reviewResultText:
+                      typeof parsed.reviewResultText === 'string'
+                        ? parsed.reviewResultText
+                        : undefined,
+                    costImpactText:
+                      typeof parsed.costImpactText === 'string'
+                        ? parsed.costImpactText
+                        : undefined,
+                    driverNoticeText:
+                      typeof parsed.driverNoticeText === 'string'
+                        ? parsed.driverNoticeText
+                        : undefined,
+                    adjustedPayablePriceCents:
+                      typeof parsed.adjustedPayablePriceCents === 'number'
+                        ? parsed.adjustedPayablePriceCents
+                        : undefined,
+                    previousPayablePriceCents:
+                      typeof parsed.previousPayablePriceCents === 'number'
+                        ? parsed.previousPayablePriceCents
+                        : undefined,
+                  };
+                }
+              } catch {
+                reviewSnapshot = {
+                  reviewResultText: reviewEvent.noteText,
+                };
+              }
+            }
+
+            return (
+              <View style={styles.detailInlineGroup}>
+                <Text style={styles.draftSectionTitle}>修改申请</Text>
+                <Text
+                  testID={`driver-change-request-description-${selectedOrder.orderNo}`}
+                  style={styles.detailMeta}
+                >
+                  {changeRequestEvent.noteText || '货主已提交修改申请'}
+                </Text>
+                <Text style={styles.detailMeta}>
+                  {reviewEvent
+                    ? reviewEvent.eventType === 'change_request_approved'
+                      ? '状态：客服已通过'
+                      : '状态：客服已驳回'
+                    : '状态：待客服确认'}
+                </Text>
+                {reviewSnapshot?.reviewResultText ? (
+                  <Text style={styles.detailMeta}>
+                    审核结果：{reviewSnapshot.reviewResultText}
+                  </Text>
+                ) : null}
+                {reviewSnapshot?.costImpactText ? (
+                  <Text style={styles.detailMeta}>
+                    费用影响：{reviewSnapshot.costImpactText}
+                  </Text>
+                ) : null}
+                {reviewSnapshot?.driverNoticeText ? (
+                  <Text style={styles.detailMeta}>
+                    司机通知：{reviewSnapshot.driverNoticeText}
+                  </Text>
+                ) : null}
+                {reviewSnapshot?.adjustedPayablePriceCents !== undefined ? (
+                  <Text
+                    testID={`driver-change-request-adjusted-price-${selectedOrder.orderNo}`}
+                    style={styles.detailMeta}
+                  >
+                    {`审核改价：${
+                      reviewSnapshot.previousPayablePriceCents !== undefined
+                        ? `￥${(reviewSnapshot.previousPayablePriceCents / 100).toFixed(2)} → `
+                        : ''
+                    }￥${(reviewSnapshot.adjustedPayablePriceCents / 100).toFixed(2)}`}
+                  </Text>
+                ) : null}
+                {typeof selectedOrder.payablePriceCents === 'number' ||
+                typeof selectedOrder.priceCents === 'number' ? (
+                  <Text style={styles.detailMeta}>
+                    {`当前订单金额：￥${(
+                      ((selectedOrder.payablePriceCents ??
+                        selectedOrder.priceCents) as number) / 100
+                    ).toFixed(2)}`}
+                  </Text>
+                ) : null}
+              </View>
+            );
+          })()}
           {navigationTargets.length > 0 ? (
             <View style={styles.detailInlineGroup}>
               <Text style={styles.draftSectionTitle}>导航与位置</Text>

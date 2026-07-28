@@ -155,7 +155,12 @@ export function renderOrderChangeRequestAdminConsole() {
             司机通知快照
             <textarea id="driverNoticeText" placeholder="可选，例如：已电话通知司机按新地址执行"></textarea>
           </label>
+          <label>
+            调整后应付金额（元，可选）
+            <input id="adjustedPayablePriceYuan" type="number" min="1" max="100000" step="0.01" placeholder="例如 790，留空表示只记审核不改价" />
+          </label>
         </div>
+        <p class="muted">填写调整后应付金额并通过审核时，会把订单 price/payable 同步改成该金额；在线托管补差/退款本片仍不自动执行。</p>
         <div class="review-row" style="margin-top:10px;">
           <button type="button" id="approveButton" disabled>通过申请</button>
           <button type="button" id="rejectButton" class="danger" disabled>驳回申请</button>
@@ -251,6 +256,11 @@ export function renderOrderChangeRequestAdminConsole() {
 
     function buildReviewSnapshotBlocks(item) {
       return [
+        item.currentPayablePriceCents !== undefined
+          ? '<div><strong>当前应付</strong><div class="muted">' +
+            escapeHtml(formatYuanFromCents(item.currentPayablePriceCents)) +
+            '</div></div>'
+          : '',
         item.costImpactText
           ? '<div><strong>费用影响</strong><div class="muted">' + escapeHtml(item.costImpactText) + '</div></div>'
           : '',
@@ -260,7 +270,37 @@ export function renderOrderChangeRequestAdminConsole() {
         item.driverNoticeText
           ? '<div><strong>司机通知</strong><div class="muted">' + escapeHtml(item.driverNoticeText) + '</div></div>'
           : '',
+        item.adjustedPayablePriceCents !== undefined
+          ? '<div><strong>审核改价</strong><div class="muted">' +
+            escapeHtml(
+              (item.previousPayablePriceCents !== undefined
+                ? formatYuanFromCents(item.previousPayablePriceCents) + ' → '
+                : '') + formatYuanFromCents(item.adjustedPayablePriceCents),
+            ) +
+            '</div></div>'
+          : '',
       ].join('');
+    }
+
+    function formatYuanFromCents(cents) {
+      const amount = Number(cents || 0) / 100;
+      return '￥' + amount.toFixed(2);
+    }
+
+    function parseAdjustedPayablePriceCents() {
+      const raw = document.getElementById('adjustedPayablePriceYuan').value.trim();
+      if (!raw) {
+        return undefined;
+      }
+      const yuan = Number(raw);
+      if (!Number.isFinite(yuan)) {
+        throw new Error('调整后应付金额格式不正确');
+      }
+      const cents = Math.round(yuan * 100);
+      if (!Number.isInteger(cents) || cents < 100 || cents > 10_000_000) {
+        throw new Error('调整后应付金额需在 1 到 100000 元之间');
+      }
+      return cents;
     }
 
     function fillReviewForm(item) {
@@ -268,6 +308,12 @@ export function renderOrderChangeRequestAdminConsole() {
       setInputValue('costImpactText', item?.costImpactText || '');
       setInputValue('refundText', item?.refundText || '');
       setInputValue('driverNoticeText', item?.driverNoticeText || '');
+      setInputValue(
+        'adjustedPayablePriceYuan',
+        item?.adjustedPayablePriceCents !== undefined
+          ? String(Number(item.adjustedPayablePriceCents) / 100)
+          : '',
+      );
     }
 
     async function apiGet(url) {
@@ -616,12 +662,26 @@ export function renderOrderChangeRequestAdminConsole() {
       const costImpactText = document.getElementById('costImpactText').value.trim();
       const refundText = document.getElementById('refundText').value.trim();
       const driverNoticeText = document.getElementById('driverNoticeText').value.trim();
+      let adjustedPayablePriceCents;
+      try {
+        adjustedPayablePriceCents = parseAdjustedPayablePriceCents();
+      } catch (error) {
+        setText('reviewStatus', error.message || '调整后应付金额不合法');
+        return;
+      }
+      if (decision === 'rejected' && adjustedPayablePriceCents !== undefined) {
+        setText('reviewStatus', '驳回修改申请时不能调整订单金额');
+        return;
+      }
       const body = {
         decision,
         ...(reviewResultText ? { reviewResultText } : {}),
         ...(costImpactText ? { costImpactText } : {}),
         ...(refundText ? { refundText } : {}),
         ...(driverNoticeText ? { driverNoticeText } : {}),
+        ...(adjustedPayablePriceCents !== undefined
+          ? { adjustedPayablePriceCents }
+          : {}),
       };
       let shouldRefresh = false;
       reviewMutationPending = true;
@@ -645,9 +705,20 @@ export function renderOrderChangeRequestAdminConsole() {
           ...(costImpactText ? { costImpactText } : {}),
           ...(refundText ? { refundText } : {}),
           ...(driverNoticeText ? { driverNoticeText } : {}),
+          ...(adjustedPayablePriceCents !== undefined
+            ? {
+                adjustedPayablePriceCents,
+                currentPayablePriceCents: adjustedPayablePriceCents,
+              }
+            : {}),
         };
         renderDetail();
-        setText('reviewStatus', '审核成功：' + decision);
+        setText(
+          'reviewStatus',
+          adjustedPayablePriceCents !== undefined
+            ? '审核成功：' + decision + '，已同步订单应付金额'
+            : '审核成功：' + decision,
+        );
         shouldRefresh = true;
       } catch (error) {
         if (

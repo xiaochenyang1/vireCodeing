@@ -160,6 +160,18 @@ export function ModificationRequestRecordCard({
           {`审核结果：${modificationRequest.reviewResultText}`}
         </Text>
       ) : null}
+      {modificationRequest.adjustedPayablePriceCents !== undefined ? (
+        <Text
+          style={styles.detailMeta}
+          testID="modification-request-adjusted-price"
+        >
+          {`审核改价：${
+            modificationRequest.previousPayablePriceCents !== undefined
+              ? `￥${(modificationRequest.previousPayablePriceCents / 100).toFixed(2)} → `
+              : ''
+          }￥${(modificationRequest.adjustedPayablePriceCents / 100).toFixed(2)}`}
+        </Text>
+      ) : null}
       {canReviewLocally && modificationRequest.statusText === '待客服确认' ? (
         <>
           <Pressable

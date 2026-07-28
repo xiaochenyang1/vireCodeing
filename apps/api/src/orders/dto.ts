@@ -104,6 +104,12 @@ export type OrderChangeRequestReviewSnapshot = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  /**
+   * Optional final payable amount after an approved change request.
+   * First-slice: updates order payable/price cents only; does not move escrow/refunds.
+   */
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
 };
 
 export type ReviewShipperOrderChangeRequest = OrderChangeRequestReviewSnapshot & {
@@ -126,10 +132,13 @@ export type AdminOrderChangeRequestRecord = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
   requestedAtIso: string;
   reviewedAtIso?: string;
   assignedDriverId?: string;
   orderStatus: ShipperOrderStatus;
+  currentPayablePriceCents?: number;
 };
 
 export type ListAdminOrderChangeRequestsResult = {
@@ -158,6 +167,8 @@ export type AdminOrderChangeRequestReviewEvent = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
   createdAtIso: string;
 };
 

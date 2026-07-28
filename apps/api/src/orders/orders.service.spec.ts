@@ -2024,11 +2024,67 @@ describe('OrdersService', () => {
       items: [
         expect.objectContaining({
           orderId: order.id,
-          reviewResultText: '已确认顺延卸货时间',
-          costImpactText:
-            '当前订单金额 760.00 元，暂不自动改价；如需调整运费请线下补收或人工处理。',
-          refundText: '货到付款订单无需在线退款。',
-          driverNoticeText: '已生成司机通知，按审核后的修改结果继续执行。',
+          status: 'approved',
+          currentPayablePriceCents: 76000,
+        }),
+      ],
+    });
+  });
+
+  it('applies approved adjusted payable price to the order snapshot without moving funds', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+    await service.submitOrderChangeRequest('shipper-1', order.id, {
+      description: '请把卸货地址改到南山门店二期并上调运费',
+    });
+
+    const reviewed = await service.reviewOrderChangeRequest('admin-1', order.id, {
+      decision: 'approved',
+      reviewResultText: '已确认改址并改价',
+      adjustedPayablePriceCents: 79000,
+    });
+    const reviewEvent = reviewed.events.find(
+      event => event.eventType === 'change_request_approved',
+    );
+
+    expect(reviewed.priceCents).toBe(79000);
+    expect(reviewed.payablePriceCents).toBe(79000);
+    expect(JSON.parse(reviewEvent?.noteText ?? '{}')).toEqual({
+      reviewResultText: '已确认改址并改价',
+      costImpactText:
+        '订单应付金额由 760.00 元 调整为 790.00 元，需补收 30.00 元。',
+      refundText: '货到付款订单已同步改价，无需在线退款。',
+      driverNoticeText: '已生成司机通知，按审核后的修改结果继续执行。',
+      adjustedPayablePriceCents: 79000,
+      previousPayablePriceCents: 76000,
+    });
+
+    await expect(
+      service.listAdminOrderChangeRequests('admin-1', {
+        status: 'approved',
+        page: 1,
+        pageSize: 20,
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          orderId: order.id,
+          adjustedPayablePriceCents: 79000,
+          previousPayablePriceCents: 76000,
+          currentPayablePriceCents: 79000,
         }),
       ],
     });

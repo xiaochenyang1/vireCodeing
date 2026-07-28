@@ -232,6 +232,8 @@ export type RecentOrder = {
     refundText?: string;
     driverNoticeText?: string;
     reviewResultText?: string;
+    adjustedPayablePriceCents?: number;
+    previousPayablePriceCents?: number;
   };
   cancellation?: {
     reasonText: string;

@@ -463,6 +463,8 @@ export type PlatformOrderChangeRequestReviewSnapshot = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
 };
 
 export type PlatformListAdminOrderChangeRequestsQuery = {
@@ -481,6 +483,9 @@ export type PlatformAdminOrderChangeRequestRecord = {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
+  currentPayablePriceCents?: number;
   requestedAtIso: string;
   reviewedAtIso?: string;
   assignedDriverId?: string;
@@ -2934,6 +2939,32 @@ function normalizeAdminOrderChangeRequestReviewRequest(
     'Platform admin order change request driverNoticeText is invalid',
     'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
   );
+  const adjustedPayablePriceCentsInput = (
+    request as PlatformReviewAdminOrderChangeRequest
+  ).adjustedPayablePriceCents;
+  let adjustedPayablePriceCents: number | undefined;
+  if (adjustedPayablePriceCentsInput !== undefined) {
+    if (
+      typeof adjustedPayablePriceCentsInput !== 'number' ||
+      !Number.isInteger(adjustedPayablePriceCentsInput) ||
+      adjustedPayablePriceCentsInput < 100 ||
+      adjustedPayablePriceCentsInput > 10_000_000
+    ) {
+      throw new PlatformApiError(
+        'Platform admin order change request adjustedPayablePriceCents is invalid',
+        'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+        0,
+      );
+    }
+    if (request.decision === 'rejected') {
+      throw new PlatformApiError(
+        'Platform admin order change request cannot adjust price when rejected',
+        'PLATFORM_ADMIN_ORDER_CHANGE_REQUEST_INVALID',
+        0,
+      );
+    }
+    adjustedPayablePriceCents = adjustedPayablePriceCentsInput;
+  }
 
   return {
     decision: request.decision,
@@ -2941,6 +2972,9 @@ function normalizeAdminOrderChangeRequestReviewRequest(
     ...(costImpactText ? { costImpactText } : {}),
     ...(refundText ? { refundText } : {}),
     ...(driverNoticeText ? { driverNoticeText } : {}),
+    ...(adjustedPayablePriceCents !== undefined
+      ? { adjustedPayablePriceCents }
+      : {}),
   };
 }
 

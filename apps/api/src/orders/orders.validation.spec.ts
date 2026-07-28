@@ -514,6 +514,7 @@ describe('orders validation', () => {
         costImpactText: ' 运费上调 30 元，待补收差额 ',
         refundText: ' 无需退款 ',
         driverNoticeText: ' 已电话通知司机按新地址执行 ',
+        adjustedPayablePriceCents: 79000,
       }),
     ).toEqual({
       decision: 'approved',
@@ -521,7 +522,17 @@ describe('orders validation', () => {
       costImpactText: '运费上调 30 元，待补收差额',
       refundText: '无需退款',
       driverNoticeText: '已电话通知司机按新地址执行',
+      adjustedPayablePriceCents: 79000,
     });
+  });
+
+  it('rejects adjusted payable price when the change request is rejected', () => {
+    expect(() =>
+      parseReviewShipperOrderChangeRequest({
+        decision: 'rejected',
+        adjustedPayablePriceCents: 79000,
+      }),
+    ).toThrow('驳回修改申请时不能调整订单金额');
   });
 
   it('rejects an overlong order change request cost impact snapshot', () => {

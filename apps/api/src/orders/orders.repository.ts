@@ -1459,6 +1459,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
     const nowIso = this.now().toISOString();
     order.updatedAtIso = nowIso;
+    const reviewNoteText = createOrderChangeReviewNote(order, input);
+    if (
+      input.decision === 'approved' &&
+      input.adjustedPayablePriceCents !== undefined
+    ) {
+      applyOrderChangePriceAdjustment(order, input.adjustedPayablePriceCents);
+    }
     order.events.push({
       id: `event-${this.orders.length}-${order.events.length + 1}`,
       actorUserId,
@@ -1466,7 +1473,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         input.decision === 'approved'
           ? 'change_request_approved'
           : 'change_request_rejected',
-      noteText: createOrderChangeReviewNote(order, input),
+      noteText: reviewNoteText,
       createdAtIso: nowIso,
     });
 
@@ -5676,12 +5683,24 @@ export class PrismaOrdersRepository implements OrdersRepository {
       const updatedAt = new Date(
         createNextUpdatedAtIso(current.updatedAt.toISOString(), this.now()),
       );
+      const claimData: {
+        updatedAt: Date;
+        priceCents?: number;
+        payablePriceCents?: number;
+      } = { updatedAt };
+      if (
+        input.decision === 'approved' &&
+        input.adjustedPayablePriceCents !== undefined
+      ) {
+        claimData.priceCents = input.adjustedPayablePriceCents;
+        claimData.payablePriceCents = input.adjustedPayablePriceCents;
+      }
       const claim = await transaction.order.updateMany({
         where: {
           id: orderId,
           updatedAt: current.updatedAt,
         },
-        data: { updatedAt },
+        data: claimData,
       });
 
       if (claim.count !== 1) {
@@ -6663,8 +6682,28 @@ function createOrderChangeReviewPayload(
     order,
     input.decision,
   );
-  const costImpactText = input.costImpactText?.trim() || automaticSnapshot.costImpactText;
-  const refundText = input.refundText?.trim() || automaticSnapshot.refundText;
+  const previousPayablePriceCents = resolveOrderSettlementAmountCents(order);
+  const adjustedPayablePriceCents =
+    input.decision === 'approved' ? input.adjustedPayablePriceCents : undefined;
+  const costImpactText =
+    input.costImpactText?.trim() ||
+    (adjustedPayablePriceCents !== undefined &&
+    previousPayablePriceCents !== undefined
+      ? createAdjustedOrderChangeCostImpactText(
+          previousPayablePriceCents,
+          adjustedPayablePriceCents,
+          order,
+        )
+      : automaticSnapshot.costImpactText);
+  const refundText =
+    input.refundText?.trim() ||
+    (adjustedPayablePriceCents !== undefined
+      ? createAdjustedOrderChangeRefundText(
+          previousPayablePriceCents,
+          adjustedPayablePriceCents,
+          order,
+        )
+      : automaticSnapshot.refundText);
   const driverNoticeText =
     input.driverNoticeText?.trim() || automaticSnapshot.driverNoticeText;
 
@@ -6673,7 +6712,65 @@ function createOrderChangeReviewPayload(
     ...(costImpactText ? { costImpactText } : {}),
     ...(refundText ? { refundText } : {}),
     ...(driverNoticeText ? { driverNoticeText } : {}),
+    ...(adjustedPayablePriceCents !== undefined
+      ? { adjustedPayablePriceCents }
+      : {}),
+    ...(adjustedPayablePriceCents !== undefined &&
+    previousPayablePriceCents !== undefined
+      ? { previousPayablePriceCents }
+      : {}),
   };
+}
+
+function applyOrderChangePriceAdjustment(
+  order: ShipperOrderRecord,
+  adjustedPayablePriceCents: number,
+) {
+  order.priceCents = adjustedPayablePriceCents;
+  order.payablePriceCents = adjustedPayablePriceCents;
+}
+
+function createAdjustedOrderChangeCostImpactText(
+  previousPayablePriceCents: number,
+  adjustedPayablePriceCents: number,
+  order: ShipperOrderRecord,
+) {
+  const deltaCents = adjustedPayablePriceCents - previousPayablePriceCents;
+  const previousText = formatOrderAmountCents(previousPayablePriceCents);
+  const adjustedText = formatOrderAmountCents(adjustedPayablePriceCents);
+
+  if (deltaCents === 0) {
+    return `订单应付金额保持 ${adjustedText}，本次审核确认不改价。`;
+  }
+
+  if (deltaCents > 0) {
+    return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，需补收 ${formatOrderAmountCents(deltaCents)}${
+      order.paymentMethod === 'online' ? '；托管资金本片不自动补差' : ''
+    }。`;
+  }
+
+  return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，应退 ${formatOrderAmountCents(-deltaCents)}${
+    order.paymentMethod === 'online' ? '；托管资金本片不自动退款' : ''
+  }。`;
+}
+
+function createAdjustedOrderChangeRefundText(
+  previousPayablePriceCents: number | undefined,
+  adjustedPayablePriceCents: number,
+  order: ShipperOrderRecord,
+) {
+  if (order.paymentMethod !== 'online') {
+    return '货到付款订单已同步改价，无需在线退款。';
+  }
+
+  if (
+    previousPayablePriceCents === undefined ||
+    adjustedPayablePriceCents >= previousPayablePriceCents
+  ) {
+    return '在线支付订单已同步改价快照；补差/退款资金仍需人工或后续资金链路处理。';
+  }
+
+  return '在线支付订单应付金额已下调并写入订单快照；差额退款本片不自动执行，需人工跟进。';
 }
 
 function parseOrderChangeReviewNote(
@@ -6691,6 +6788,8 @@ function parseOrderChangeReviewNote(
       costImpactText?: unknown;
       refundText?: unknown;
       driverNoticeText?: unknown;
+      adjustedPayablePriceCents?: unknown;
+      previousPayablePriceCents?: unknown;
     };
 
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -6713,12 +6812,28 @@ function parseOrderChangeReviewNote(
       typeof payload.driverNoticeText === 'string'
         ? payload.driverNoticeText.trim()
         : '';
+    const adjustedPayablePriceCents =
+      typeof payload.adjustedPayablePriceCents === 'number' &&
+      Number.isInteger(payload.adjustedPayablePriceCents)
+        ? payload.adjustedPayablePriceCents
+        : undefined;
+    const previousPayablePriceCents =
+      typeof payload.previousPayablePriceCents === 'number' &&
+      Number.isInteger(payload.previousPayablePriceCents)
+        ? payload.previousPayablePriceCents
+        : undefined;
 
     return {
       ...(reviewResultText ? { reviewResultText } : {}),
       ...(costImpactText ? { costImpactText } : {}),
       ...(refundText ? { refundText } : {}),
       ...(driverNoticeText ? { driverNoticeText } : {}),
+      ...(adjustedPayablePriceCents !== undefined
+        ? { adjustedPayablePriceCents }
+        : {}),
+      ...(previousPayablePriceCents !== undefined
+        ? { previousPayablePriceCents }
+        : {}),
     };
   } catch {
     return {
@@ -6868,6 +6983,18 @@ function listAdminOrderChangeRequestReviewEventsFromOrder(
         ...(parsedReviewNote.driverNoticeText
           ? { driverNoticeText: parsedReviewNote.driverNoticeText }
           : {}),
+        ...(parsedReviewNote.adjustedPayablePriceCents !== undefined
+          ? {
+              adjustedPayablePriceCents:
+                parsedReviewNote.adjustedPayablePriceCents,
+            }
+          : {}),
+        ...(parsedReviewNote.previousPayablePriceCents !== undefined
+          ? {
+              previousPayablePriceCents:
+                parsedReviewNote.previousPayablePriceCents,
+            }
+          : {}),
         createdAtIso: event.createdAtIso,
       };
     });
@@ -6880,6 +7007,8 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   costImpactText?: string;
   refundText?: string;
   driverNoticeText?: string;
+  adjustedPayablePriceCents?: number;
+  previousPayablePriceCents?: number;
   requestedAtIso: string;
   reviewedAtIso?: string;
 } | null {
@@ -6927,6 +7056,18 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
     ...(parsedReviewNote.driverNoticeText
       ? { driverNoticeText: parsedReviewNote.driverNoticeText }
       : {}),
+    ...(parsedReviewNote.adjustedPayablePriceCents !== undefined
+      ? {
+          adjustedPayablePriceCents:
+            parsedReviewNote.adjustedPayablePriceCents,
+        }
+      : {}),
+    ...(parsedReviewNote.previousPayablePriceCents !== undefined
+      ? {
+          previousPayablePriceCents:
+            parsedReviewNote.previousPayablePriceCents,
+        }
+      : {}),
     requestedAtIso: requestEvent.createdAtIso,
     reviewedAtIso: reviewEvent.createdAtIso,
   };
@@ -6939,6 +7080,8 @@ function createAdminOrderChangeRequestRecord(
   if (!changeRequest) {
     return null;
   }
+
+  const currentPayablePriceCents = resolveOrderSettlementAmountCents(order);
 
   return {
     orderId: order.id,
@@ -6956,6 +7099,16 @@ function createAdminOrderChangeRequestRecord(
     ...(changeRequest.driverNoticeText
       ? { driverNoticeText: changeRequest.driverNoticeText }
       : {}),
+    ...(changeRequest.adjustedPayablePriceCents !== undefined
+      ? {
+          adjustedPayablePriceCents: changeRequest.adjustedPayablePriceCents,
+        }
+      : {}),
+    ...(changeRequest.previousPayablePriceCents !== undefined
+      ? {
+          previousPayablePriceCents: changeRequest.previousPayablePriceCents,
+        }
+      : {}),
     requestedAtIso: changeRequest.requestedAtIso,
     ...(changeRequest.reviewedAtIso
       ? { reviewedAtIso: changeRequest.reviewedAtIso }
@@ -6964,6 +7117,9 @@ function createAdminOrderChangeRequestRecord(
       ? { assignedDriverId: order.assignedDriverId }
       : {}),
     orderStatus: order.status,
+    ...(currentPayablePriceCents !== undefined
+      ? { currentPayablePriceCents }
+      : {}),
   };
 }
 
