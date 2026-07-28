@@ -279,6 +279,14 @@ export function renderOrderChangeRequestAdminConsole() {
             ) +
             '</div></div>'
           : '',
+        item.fundDisposition && item.fundDisposition.summaryText
+          ? '<div><strong>资金处置</strong><div class="muted">' +
+            escapeHtml(item.fundDisposition.summaryText) +
+            (item.fundDisposition.requiresManualFollowUp
+              ? '（需人工跟进）'
+              : '') +
+            '</div></div>'
+          : '',
       ].join('');
     }
 

@@ -458,6 +458,19 @@ export type PlatformAdminOrderChangeRequestStatus =
   | 'approved'
   | 'rejected';
 
+export type PlatformOrderChangeRequestFundDisposition = {
+  kind:
+    | 'none'
+    | 'cod_price_snapshot_only'
+    | 'online_topup_pending_manual'
+    | 'online_partial_refund_pending_manual'
+    | 'online_price_unchanged'
+    | 'online_not_escrowed';
+  deltaCents: number;
+  summaryText: string;
+  requiresManualFollowUp: boolean;
+};
+
 export type PlatformOrderChangeRequestReviewSnapshot = {
   reviewResultText?: string;
   costImpactText?: string;
@@ -465,6 +478,7 @@ export type PlatformOrderChangeRequestReviewSnapshot = {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: PlatformOrderChangeRequestFundDisposition;
 };
 
 export type PlatformListAdminOrderChangeRequestsQuery = {
@@ -485,6 +499,7 @@ export type PlatformAdminOrderChangeRequestRecord = {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: PlatformOrderChangeRequestFundDisposition;
   currentPayablePriceCents?: number;
   requestedAtIso: string;
   reviewedAtIso?: string;

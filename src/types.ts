@@ -234,6 +234,7 @@ export type RecentOrder = {
     reviewResultText?: string;
     adjustedPayablePriceCents?: number;
     previousPayablePriceCents?: number;
+    fundDispositionSummaryText?: string;
   };
   cancellation?: {
     reasonText: string;

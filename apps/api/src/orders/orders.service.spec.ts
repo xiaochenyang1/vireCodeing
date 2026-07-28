@@ -2066,10 +2066,18 @@ describe('OrdersService', () => {
       reviewResultText: '已确认改址并改价',
       costImpactText:
         '订单应付金额由 760.00 元 调整为 790.00 元，需补收 30.00 元。',
-      refundText: '货到付款订单已同步改价，无需在线退款。',
+      refundText:
+        '货到付款订单金额快照已上调 30.00 元，线下补收/退差。',
       driverNoticeText: '已生成司机通知，按审核后的修改结果继续执行。',
       adjustedPayablePriceCents: 79000,
       previousPayablePriceCents: 76000,
+      fundDisposition: {
+        kind: 'cod_price_snapshot_only',
+        deltaCents: 3000,
+        summaryText:
+          '货到付款订单金额快照已上调 30.00 元，线下补收/退差。',
+        requiresManualFollowUp: true,
+      },
     });
 
     await expect(
@@ -2085,9 +2093,34 @@ describe('OrdersService', () => {
           adjustedPayablePriceCents: 79000,
           previousPayablePriceCents: 76000,
           currentPayablePriceCents: 79000,
+          fundDisposition: expect.objectContaining({
+            kind: 'cod_price_snapshot_only',
+            deltaCents: 3000,
+            requiresManualFollowUp: true,
+          }),
         }),
       ],
     });
+
+    const financialStore = (
+      repository as unknown as {
+        financialStore: {
+          listFinancialAuditLogs: () => Array<{
+            action: string;
+            entityId: string;
+          }>;
+        };
+      }
+    ).financialStore;
+    expect(
+      financialStore
+        .listFinancialAuditLogs()
+        .some(
+          (item: { action: string; entityId: string }) =>
+            item.action === 'order_change_request_fund_disposition' &&
+            item.entityId === order.id,
+        ),
+    ).toBe(true);
   });
 
   it('pushes order-linked notifications when admin reviews a change request', async () => {

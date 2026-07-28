@@ -172,6 +172,14 @@ export function ModificationRequestRecordCard({
           }￥${(modificationRequest.adjustedPayablePriceCents / 100).toFixed(2)}`}
         </Text>
       ) : null}
+      {modificationRequest.fundDispositionSummaryText ? (
+        <Text
+          style={styles.detailMeta}
+          testID="modification-request-fund-disposition"
+        >
+          {`资金处置：${modificationRequest.fundDispositionSummaryText}`}
+        </Text>
+      ) : null}
       {canReviewLocally && modificationRequest.statusText === '待客服确认' ? (
         <>
           <Pressable

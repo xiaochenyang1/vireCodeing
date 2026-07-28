@@ -148,6 +148,7 @@ type ParsedPlatformChangeRequestReviewEvent = {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDispositionSummaryText?: string;
 };
 
 function createDriverQuotesFromPlatformEvents(order: PlatformShipperOrder) {
@@ -325,6 +326,9 @@ function createModificationRequestFromPlatformEvents(
       : {}),
     ...(parsedReview.previousPayablePriceCents !== undefined
       ? { previousPayablePriceCents: parsedReview.previousPayablePriceCents }
+      : {}),
+    ...(parsedReview.fundDispositionSummaryText
+      ? { fundDispositionSummaryText: parsedReview.fundDispositionSummaryText }
       : {}),
   };
 }
@@ -776,6 +780,7 @@ function parsePlatformChangeRequestReviewEvent(
       driverNoticeText?: unknown;
       adjustedPayablePriceCents?: unknown;
       previousPayablePriceCents?: unknown;
+      fundDisposition?: unknown;
     };
 
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -806,6 +811,16 @@ function parsePlatformChangeRequestReviewEvent(
       Number.isInteger(payload.previousPayablePriceCents)
         ? payload.previousPayablePriceCents
         : undefined;
+    const fundDispositionSummaryText =
+      payload.fundDisposition &&
+      typeof payload.fundDisposition === 'object' &&
+      !Array.isArray(payload.fundDisposition) &&
+      typeof (payload.fundDisposition as { summaryText?: unknown }).summaryText ===
+        'string'
+        ? (
+            payload.fundDisposition as { summaryText: string }
+          ).summaryText.trim()
+        : '';
 
     return {
       ...(reviewResultText ? { reviewResultText } : {}),
@@ -817,6 +832,9 @@ function parsePlatformChangeRequestReviewEvent(
         : {}),
       ...(previousPayablePriceCents !== undefined
         ? { previousPayablePriceCents }
+        : {}),
+      ...(fundDispositionSummaryText
+        ? { fundDispositionSummaryText }
         : {}),
     };
   } catch {

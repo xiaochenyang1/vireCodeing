@@ -99,6 +99,21 @@ export type SubmitShipperOrderChangeRequest = {
   description: string;
 };
 
+export type OrderChangeRequestFundDispositionKind =
+  | 'none'
+  | 'cod_price_snapshot_only'
+  | 'online_topup_pending_manual'
+  | 'online_partial_refund_pending_manual'
+  | 'online_price_unchanged'
+  | 'online_not_escrowed';
+
+export type OrderChangeRequestFundDisposition = {
+  kind: OrderChangeRequestFundDispositionKind;
+  deltaCents: number;
+  summaryText: string;
+  requiresManualFollowUp: boolean;
+};
+
 export type OrderChangeRequestReviewSnapshot = {
   reviewResultText?: string;
   costImpactText?: string;
@@ -110,6 +125,7 @@ export type OrderChangeRequestReviewSnapshot = {
    */
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: OrderChangeRequestFundDisposition;
 };
 
 export type ReviewShipperOrderChangeRequest = OrderChangeRequestReviewSnapshot & {
@@ -134,6 +150,7 @@ export type AdminOrderChangeRequestRecord = {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: OrderChangeRequestFundDisposition;
   requestedAtIso: string;
   reviewedAtIso?: string;
   assignedDriverId?: string;
@@ -169,6 +186,7 @@ export type AdminOrderChangeRequestReviewEvent = {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: OrderChangeRequestFundDisposition;
   createdAtIso: string;
 };
 

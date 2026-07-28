@@ -1458,8 +1458,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     }
 
     const nowIso = this.now().toISOString();
-    order.updatedAtIso = nowIso;
     const reviewNoteText = createOrderChangeReviewNote(order, input);
+    const reviewPayload = parseOrderChangeReviewNote(reviewNoteText);
+    order.updatedAtIso = nowIso;
     if (
       input.decision === 'approved' &&
       input.adjustedPayablePriceCents !== undefined
@@ -1476,6 +1477,43 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       noteText: reviewNoteText,
       createdAtIso: nowIso,
     });
+
+    if (
+      input.decision === 'approved' &&
+      reviewPayload.fundDisposition &&
+      reviewPayload.fundDisposition.requiresManualFollowUp
+    ) {
+      this.financialStore.createFinancialAuditLog({
+        id: randomUUID(),
+        actorAdminId: actorUserId,
+        action: 'order_change_request_fund_disposition',
+        entityType: 'order',
+        entityId: orderId,
+        idempotencyKey: `order-change-fund:${orderId}:${latestRequest.requestedAtIso}`,
+        requestFingerprint: JSON.stringify({
+          decision: input.decision,
+          adjustedPayablePriceCents: input.adjustedPayablePriceCents ?? null,
+          fundDispositionKind: reviewPayload.fundDisposition.kind,
+          deltaCents: reviewPayload.fundDisposition.deltaCents,
+        }),
+        requestId: `order-change-review:${orderId}:${nowIso}`,
+        reason: reviewPayload.fundDisposition.summaryText,
+        beforeState: {
+          previousPayablePriceCents:
+            reviewPayload.previousPayablePriceCents ?? null,
+          paymentMethod: order.paymentMethod,
+          paymentStatus: order.paymentStatus,
+        },
+        afterState: {
+          adjustedPayablePriceCents:
+            reviewPayload.adjustedPayablePriceCents ?? null,
+          fundDisposition: reviewPayload.fundDisposition,
+          currentPayablePriceCents:
+            order.payablePriceCents ?? order.priceCents ?? null,
+        },
+        createdAtIso: nowIso,
+      });
+    }
 
     return order;
   }
@@ -5710,6 +5748,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
         );
       }
 
+      const reviewNoteText = createOrderChangeReviewNote(currentOrder, input);
+      const reviewPayload = parseOrderChangeReviewNote(reviewNoteText);
+
       await transaction.orderEvent.create({
         data: {
           orderId,
@@ -5718,11 +5759,53 @@ export class PrismaOrdersRepository implements OrdersRepository {
             input.decision === 'approved'
               ? 'change_request_approved'
               : 'change_request_rejected',
-          noteText: createOrderChangeReviewNote(currentOrder, input),
+          noteText: reviewNoteText,
           attachmentFileIds: [],
           createdAt: updatedAt,
         },
       });
+
+      if (
+        input.decision === 'approved' &&
+        reviewPayload.fundDisposition?.requiresManualFollowUp
+      ) {
+        await transaction.financialAuditLog.create({
+          data: {
+            id: randomUUID(),
+            actorAdminId: actorUserId,
+            action: 'order_change_request_fund_disposition',
+            entityType: 'order',
+            entityId: orderId,
+            idempotencyKey: `order-change-fund:${orderId}:${latestRequest.requestedAtIso}`,
+            requestFingerprint: JSON.stringify({
+              decision: input.decision,
+              adjustedPayablePriceCents:
+                input.adjustedPayablePriceCents ?? null,
+              fundDispositionKind: reviewPayload.fundDisposition.kind,
+              deltaCents: reviewPayload.fundDisposition.deltaCents,
+            }),
+            requestId: `order-change-review:${orderId}:${updatedAt.toISOString()}`,
+            reason: reviewPayload.fundDisposition.summaryText,
+            beforeState: {
+              previousPayablePriceCents:
+                reviewPayload.previousPayablePriceCents ?? null,
+              paymentMethod: currentOrder.paymentMethod,
+              paymentStatus: currentOrder.paymentStatus,
+            },
+            afterState: {
+              adjustedPayablePriceCents:
+                reviewPayload.adjustedPayablePriceCents ?? null,
+              fundDisposition: reviewPayload.fundDisposition,
+              currentPayablePriceCents:
+                input.adjustedPayablePriceCents ??
+                currentOrder.payablePriceCents ??
+                currentOrder.priceCents ??
+                null,
+            },
+            createdAt: updatedAt,
+          },
+        });
+      }
 
       const order = await transaction.order.findUnique({
         where: { id: orderId },
@@ -6685,6 +6768,14 @@ function createOrderChangeReviewPayload(
   const previousPayablePriceCents = resolveOrderSettlementAmountCents(order);
   const adjustedPayablePriceCents =
     input.decision === 'approved' ? input.adjustedPayablePriceCents : undefined;
+  const fundDisposition =
+    input.decision === 'approved' && adjustedPayablePriceCents !== undefined
+      ? createOrderChangeFundDisposition(
+          order,
+          previousPayablePriceCents,
+          adjustedPayablePriceCents,
+        )
+      : undefined;
   const costImpactText =
     input.costImpactText?.trim() ||
     (adjustedPayablePriceCents !== undefined &&
@@ -6697,13 +6788,15 @@ function createOrderChangeReviewPayload(
       : automaticSnapshot.costImpactText);
   const refundText =
     input.refundText?.trim() ||
-    (adjustedPayablePriceCents !== undefined
-      ? createAdjustedOrderChangeRefundText(
-          previousPayablePriceCents,
-          adjustedPayablePriceCents,
-          order,
-        )
-      : automaticSnapshot.refundText);
+    (fundDisposition
+      ? fundDisposition.summaryText
+      : adjustedPayablePriceCents !== undefined
+        ? createAdjustedOrderChangeRefundText(
+            previousPayablePriceCents,
+            adjustedPayablePriceCents,
+            order,
+          )
+        : automaticSnapshot.refundText);
   const driverNoticeText =
     input.driverNoticeText?.trim() || automaticSnapshot.driverNoticeText;
 
@@ -6719,6 +6812,62 @@ function createOrderChangeReviewPayload(
     previousPayablePriceCents !== undefined
       ? { previousPayablePriceCents }
       : {}),
+    ...(fundDisposition ? { fundDisposition } : {}),
+  };
+}
+
+function createOrderChangeFundDisposition(
+  order: ShipperOrderRecord,
+  previousPayablePriceCents: number | undefined,
+  adjustedPayablePriceCents: number,
+): import('./dto').OrderChangeRequestFundDisposition {
+  const previous = previousPayablePriceCents ?? adjustedPayablePriceCents;
+  const deltaCents = adjustedPayablePriceCents - previous;
+
+  if (order.paymentMethod !== 'online') {
+    return {
+      kind: 'cod_price_snapshot_only',
+      deltaCents,
+      summaryText:
+        deltaCents === 0
+          ? '货到付款订单金额快照已确认，无需在线资金处理。'
+          : `货到付款订单金额快照已${deltaCents > 0 ? '上调' : '下调'} ${formatOrderAmountCents(Math.abs(deltaCents))}，线下补收/退差。`,
+      requiresManualFollowUp: deltaCents !== 0,
+    };
+  }
+
+  if (order.paymentStatus !== 'escrowed') {
+    return {
+      kind: 'online_not_escrowed',
+      deltaCents,
+      summaryText: `在线订单当前支付状态为 ${order.paymentStatus}，已同步金额快照；资金差额需人工复核后再处理。`,
+      requiresManualFollowUp: true,
+    };
+  }
+
+  if (deltaCents === 0) {
+    return {
+      kind: 'online_price_unchanged',
+      deltaCents: 0,
+      summaryText: '在线托管订单金额未变化，无需补差或退款。',
+      requiresManualFollowUp: false,
+    };
+  }
+
+  if (deltaCents > 0) {
+    return {
+      kind: 'online_topup_pending_manual',
+      deltaCents,
+      summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；本片只记录待补差，不自动创建补款支付单。`,
+      requiresManualFollowUp: true,
+    };
+  }
+
+  return {
+    kind: 'online_partial_refund_pending_manual',
+    deltaCents,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；本片只记录待部分退款，不自动发起渠道退款。`,
+    requiresManualFollowUp: true,
   };
 }
 
@@ -6790,6 +6939,7 @@ function parseOrderChangeReviewNote(
       driverNoticeText?: unknown;
       adjustedPayablePriceCents?: unknown;
       previousPayablePriceCents?: unknown;
+      fundDisposition?: unknown;
     };
 
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -6822,6 +6972,9 @@ function parseOrderChangeReviewNote(
       Number.isInteger(payload.previousPayablePriceCents)
         ? payload.previousPayablePriceCents
         : undefined;
+    const fundDisposition = parseOrderChangeFundDisposition(
+      payload.fundDisposition,
+    );
 
     return {
       ...(reviewResultText ? { reviewResultText } : {}),
@@ -6834,12 +6987,57 @@ function parseOrderChangeReviewNote(
       ...(previousPayablePriceCents !== undefined
         ? { previousPayablePriceCents }
         : {}),
+      ...(fundDisposition ? { fundDisposition } : {}),
     };
   } catch {
     return {
       reviewResultText: trimmedNoteText,
     };
   }
+}
+
+function parseOrderChangeFundDisposition(
+  value: unknown,
+): import('./dto').OrderChangeRequestFundDisposition | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const payload = value as {
+    kind?: unknown;
+    deltaCents?: unknown;
+    summaryText?: unknown;
+    requiresManualFollowUp?: unknown;
+  };
+  const kind = payload.kind;
+  const allowedKinds = new Set([
+    'none',
+    'cod_price_snapshot_only',
+    'online_topup_pending_manual',
+    'online_partial_refund_pending_manual',
+    'online_price_unchanged',
+    'online_not_escrowed',
+  ]);
+
+  if (typeof kind !== 'string' || !allowedKinds.has(kind)) {
+    return undefined;
+  }
+  if (
+    typeof payload.deltaCents !== 'number' ||
+    !Number.isInteger(payload.deltaCents) ||
+    typeof payload.summaryText !== 'string' ||
+    !payload.summaryText.trim() ||
+    typeof payload.requiresManualFollowUp !== 'boolean'
+  ) {
+    return undefined;
+  }
+
+  return {
+    kind: kind as import('./dto').OrderChangeRequestFundDispositionKind,
+    deltaCents: payload.deltaCents,
+    summaryText: payload.summaryText.trim(),
+    requiresManualFollowUp: payload.requiresManualFollowUp,
+  };
 }
 
 function createAutomaticOrderChangeReviewSnapshot(
@@ -6995,6 +7193,9 @@ function listAdminOrderChangeRequestReviewEventsFromOrder(
                 parsedReviewNote.previousPayablePriceCents,
             }
           : {}),
+        ...(parsedReviewNote.fundDisposition
+          ? { fundDisposition: parsedReviewNote.fundDisposition }
+          : {}),
         createdAtIso: event.createdAtIso,
       };
     });
@@ -7009,6 +7210,7 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
   driverNoticeText?: string;
   adjustedPayablePriceCents?: number;
   previousPayablePriceCents?: number;
+  fundDisposition?: import('./dto').OrderChangeRequestFundDisposition;
   requestedAtIso: string;
   reviewedAtIso?: string;
 } | null {
@@ -7068,6 +7270,9 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
             parsedReviewNote.previousPayablePriceCents,
         }
       : {}),
+    ...(parsedReviewNote.fundDisposition
+      ? { fundDisposition: parsedReviewNote.fundDisposition }
+      : {}),
     requestedAtIso: requestEvent.createdAtIso,
     reviewedAtIso: reviewEvent.createdAtIso,
   };
@@ -7108,6 +7313,9 @@ function createAdminOrderChangeRequestRecord(
       ? {
           previousPayablePriceCents: changeRequest.previousPayablePriceCents,
         }
+      : {}),
+    ...(changeRequest.fundDisposition
+      ? { fundDisposition: changeRequest.fundDisposition }
       : {}),
     requestedAtIso: changeRequest.requestedAtIso,
     ...(changeRequest.reviewedAtIso
