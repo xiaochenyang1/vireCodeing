@@ -45,9 +45,9 @@ function createSpendingRecord(
   }
 
   const occurredAtIso =
+    order.refund?.updatedAtIso ??
     order.refund?.succeededAtIso ??
     order.refund?.failedAtIso ??
-    order.refund?.updatedAtIso ??
     order.settlement?.settledAtIso ??
     order.payment?.paidAtIso ??
     order.payment?.createdAtIso;
@@ -76,7 +76,9 @@ function createSpendingRecord(
     ...(order.refund
       ? {
           refundStatus: order.refund.status,
-          refundAmountCents: order.refund.amountCents,
+          ...(order.refund.amountCents > 0
+            ? { refundAmountCents: order.refund.amountCents }
+            : {}),
           ...(order.refund.succeededAtIso
             ? { refundedAtIso: order.refund.succeededAtIso }
             : {}),
@@ -101,29 +103,20 @@ function createSpendingSummary(
 ): ShipperSpendingSummary {
   return items.reduce<ShipperSpendingSummary>(
     (summary, item) => {
-      if (item.paymentStatus === 'settled') {
-        return {
-          ...summary,
-          completedTotalCents: summary.completedTotalCents + item.amountCents,
-        };
-      }
-
-      if (item.paymentStatus === 'escrowed') {
-        return {
-          ...summary,
-          activeTotalCents: summary.activeTotalCents + item.amountCents,
-        };
-      }
-
-      if (item.refundStatus === 'succeeded') {
-        return {
-          ...summary,
-          refundTotalCents:
-            summary.refundTotalCents + (item.refundAmountCents ?? 0),
-        };
-      }
-
-      return summary;
+      const netAmountCents = Math.max(
+        0,
+        item.amountCents - (item.refundAmountCents ?? 0),
+      );
+      return {
+        completedTotalCents:
+          summary.completedTotalCents +
+          (item.paymentStatus === 'settled' ? netAmountCents : 0),
+        activeTotalCents:
+          summary.activeTotalCents +
+          (item.paymentStatus === 'escrowed' ? netAmountCents : 0),
+        refundTotalCents:
+          summary.refundTotalCents + (item.refundAmountCents ?? 0),
+      };
     },
     {
       completedTotalCents: 0,

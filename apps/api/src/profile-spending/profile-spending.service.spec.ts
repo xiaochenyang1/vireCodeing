@@ -21,6 +21,26 @@ describe('ProfileSpendingService', () => {
           },
         }),
         createFinancialRecord({
+          id: 'order-partially-refunded',
+          orderNo: 'HY202607150006',
+          status: 'loading',
+          paymentMethod: 'online',
+          paymentStatus: 'escrowed',
+          payment: {
+            channel: 'wechat',
+            amountCents: 73000,
+            status: 'escrowed',
+            paidAtIso: '2026-07-15T05:00:00.000Z',
+            createdAtIso: '2026-07-15T04:55:00.000Z',
+          },
+          refund: {
+            amountCents: 12000,
+            status: 'pending',
+            succeededAtIso: '2026-07-15T05:30:00.000Z',
+            updatedAtIso: '2026-07-15T05:40:00.000Z',
+          },
+        }),
+        createFinancialRecord({
           id: 'order-escrowed',
           orderNo: 'HY202607150002',
           status: 'loading',
@@ -79,8 +99,8 @@ describe('ProfileSpendingService', () => {
       shipperId: 'shipper-1',
       summary: {
         completedTotalCents: 31000,
-        activeTotalCents: 52000,
-        refundTotalCents: 26000,
+        activeTotalCents: 113000,
+        refundTotalCents: 38000,
       },
       items: [
         expect.objectContaining({
@@ -105,6 +125,15 @@ describe('ProfileSpendingService', () => {
           paymentChannel: 'alipay',
           refundStatus: 'succeeded',
           refundedAtIso: '2026-07-15T06:00:00.000Z',
+        }),
+        expect.objectContaining({
+          orderId: 'order-partially-refunded',
+          amountCents: 73000,
+          paymentStatus: 'escrowed',
+          refundStatus: 'pending',
+          refundAmountCents: 12000,
+          refundedAtIso: '2026-07-15T05:30:00.000Z',
+          occurredAtIso: '2026-07-15T05:40:00.000Z',
         }),
       ],
     });

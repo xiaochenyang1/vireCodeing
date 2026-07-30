@@ -108,7 +108,6 @@ export type PrismaProfileSpendingClient = {
             updatedAt: true;
           };
           orderBy: { createdAt: 'desc' };
-          take: 1;
         };
       };
       orderBy: { updatedAt: 'desc' };
@@ -168,7 +167,6 @@ export class PrismaProfileSpendingRepository
             updatedAt: true,
           },
           orderBy: { createdAt: 'desc' },
-          take: 1,
         },
       },
       orderBy: { updatedAt: 'desc' },
@@ -188,7 +186,21 @@ function mapPrismaSpendingOrder(
     location => location.type === 'delivery',
   );
   const payment = order.paymentOrders[0];
-  const refund = order.refunds[0];
+  const latestRefund = order.refunds[0];
+  const succeededRefunds = order.refunds.filter(
+    refund => refund.status === 'succeeded',
+  );
+  const succeededRefundAmountCents = succeededRefunds.reduce(
+    (total, refund) => total + refund.amountCents,
+    0,
+  );
+  const latestSucceededRefund = succeededRefunds.reduce<
+    PrismaProfileSpendingOrderRecord['refunds'][number] | undefined
+  >(
+    (latest, refund) =>
+      !latest || refund.updatedAt > latest.updatedAt ? refund : latest,
+    undefined,
+  );
 
   return {
     id: order.id,
@@ -229,18 +241,21 @@ function mapPrismaSpendingOrder(
           },
         }
       : {}),
-    ...(refund
+    ...(latestRefund
       ? {
           refund: {
-            amountCents: refund.amountCents,
-            status: refund.status,
-            ...(refund.succeededAt
-              ? { succeededAtIso: refund.succeededAt.toISOString() }
+            amountCents: succeededRefundAmountCents,
+            status: latestRefund.status,
+            ...(latestSucceededRefund?.succeededAt
+              ? {
+                  succeededAtIso:
+                    latestSucceededRefund.succeededAt.toISOString(),
+                }
               : {}),
-            ...(refund.failedAt
-              ? { failedAtIso: refund.failedAt.toISOString() }
+            ...(latestRefund.failedAt
+              ? { failedAtIso: latestRefund.failedAt.toISOString() }
               : {}),
-            updatedAtIso: refund.updatedAt.toISOString(),
+            updatedAtIso: latestRefund.updatedAt.toISOString(),
           },
         }
       : {}),
