@@ -727,8 +727,7 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       if (
         refund.status !== 'succeeded' ||
         refund.financialTransactionId !== existingTransaction.id ||
-        (!isPartialRefund &&
-          (payment.status !== 'refunded' || order.paymentStatus !== 'refunded')) ||
+        (!isPartialRefund && payment.status !== 'refunded') ||
         (isPartialRefund &&
           payment.status !== 'escrowed' &&
           payment.status !== 'refunded')
@@ -746,7 +745,10 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
               OrderPaymentStatus,
               'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
             >)
-          : 'refunded',
+          : (order.paymentStatus as Extract<
+              OrderPaymentStatus,
+              'refunded' | 'refund_pending' | 'refund_failed'
+            >),
         financialTransaction: cloneFinancialTransaction(existingTransaction),
       };
       this.recordInMemoryRefundCallback(
@@ -820,11 +822,26 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       payment.updatedAtIso = createdAtIso;
       delete payment.failureCode;
       delete payment.failureMessage;
-      order.paymentStatus = 'refunded';
-      this.restoreInMemoryRefundCouponIfNeeded(
-        order,
-        input.callback.occurredAtIso,
+      const siblingClosingRefund = this.refunds.find(
+        item =>
+          item.id !== refund.id &&
+          item.orderId === refund.orderId &&
+          isOrderClosingRefund(item.reason) &&
+          (item.status === 'pending' ||
+            item.status === 'processing' ||
+            item.status === 'failed'),
       );
+      order.paymentStatus = siblingClosingRefund
+        ? siblingClosingRefund.status === 'failed'
+          ? 'refund_failed'
+          : 'refund_pending'
+        : 'refunded';
+      if (!siblingClosingRefund) {
+        this.restoreInMemoryRefundCouponIfNeeded(
+          order,
+          input.callback.occurredAtIso,
+        );
+      }
     } else {
       payment.updatedAtIso = createdAtIso;
     }
@@ -852,7 +869,10 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
             OrderPaymentStatus,
             'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
           >)
-        : 'refunded',
+        : (order.paymentStatus as Extract<
+            OrderPaymentStatus,
+            'refunded' | 'refund_pending' | 'refund_failed'
+          >),
       financialTransaction: cloneFinancialTransaction(financialTransaction),
     };
     this.recordInMemoryRefundCallback(callbackKey, input.callback, result);
@@ -2214,6 +2234,10 @@ RETURNING outbox.*
         },
       });
       let updatedPayment = payment;
+      let closingOrderPaymentStatus: Extract<
+        OrderPaymentStatus,
+        'refunded' | 'refund_pending' | 'refund_failed'
+      > = 'refunded';
       if (!isPartialRefund) {
         updatedPayment = await transaction.paymentOrder.update({
           where: { id: payment.id },
@@ -2225,18 +2249,37 @@ RETURNING outbox.*
           },
           include: paymentOrderInclude,
         });
-        await transaction.order.update({
-          where: { id: refund.orderId },
-          data: {
-            paymentStatus: 'refunded',
-            refundedAt: occurredAt,
+        const siblingClosingRefund = await transaction.refund.findFirst({
+          where: {
+            id: { not: refund.id },
+            orderId: refund.orderId,
+            status: { in: ['pending', 'processing', 'failed'] },
+            OR: [
+              { reason: 'order_cancelled' },
+              { reason: { startsWith: 'order_cancelled_with_penalty_' } },
+              { reason: 'late_payment_after_order_cancelled' },
+            ],
           },
         });
-        await this.restorePrismaRefundCouponIfNeeded(
-          transaction,
-          payment.order,
-          occurredAt,
-        );
+        closingOrderPaymentStatus = siblingClosingRefund
+          ? siblingClosingRefund.status === 'failed'
+            ? 'refund_failed'
+            : 'refund_pending'
+          : 'refunded';
+        if (!siblingClosingRefund) {
+          await transaction.order.update({
+            where: { id: refund.orderId },
+            data: {
+              paymentStatus: 'refunded',
+              refundedAt: occurredAt,
+            },
+          });
+          await this.restorePrismaRefundCouponIfNeeded(
+            transaction,
+            payment.order,
+            occurredAt,
+          );
+        }
         await transaction.orderEvent.create({
           data: {
             orderId: refund.orderId,
@@ -2306,7 +2349,7 @@ RETURNING outbox.*
               OrderPaymentStatus,
               'refunded' | 'escrowed' | 'refund_pending' | 'refund_failed'
             >)
-          : 'refunded',
+          : closingOrderPaymentStatus,
         financialTransaction: mapPrismaFinancialTransaction(
           financialTransaction,
         ),
@@ -3072,6 +3115,14 @@ function isOrderChangePartialRefund(reason: string) {
   return (
     reason === 'change_request_price_decrease' ||
     reason.startsWith('change_request_price_decrease:')
+  );
+}
+
+function isOrderClosingRefund(reason: string) {
+  return (
+    reason === 'order_cancelled' ||
+    reason.startsWith('order_cancelled_with_penalty_') ||
+    reason === 'late_payment_after_order_cancelled'
   );
 }
 

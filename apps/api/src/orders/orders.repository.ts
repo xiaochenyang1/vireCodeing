@@ -2209,10 +2209,12 @@ function applyInMemoryOrderFinancialMutation(
     return;
   }
 
-  const payment = financialStore.findLatestPaymentByOrderId(currentOrder.id);
+  const payments = financialStore.listPaymentsByOrderId(currentOrder.id);
+  const payment = payments.at(-1);
 
   if (nextPaymentStatus === 'refund_pending') {
-    if (!payment || payment.status !== 'escrowed') {
+    const escrowedPayments = payments.filter(item => item.status === 'escrowed');
+    if (escrowedPayments.length === 0) {
       throw new BusinessError(
         ApiErrorCode.REFUND_NOT_AVAILABLE,
         '已托管订单缺少可退款支付单',
@@ -2220,35 +2222,47 @@ function applyInMemoryOrderFinancialMutation(
     }
 
     const penalty = resolveCancellationPenaltyForOrder(currentOrder);
-    assertCancellationRefundAvailable(
-      payment.amountCents,
-      financialStore.sumSucceededRefundsByPaymentId(payment.id),
-      penalty.refundableCents,
-      Boolean(financialStore.findOpenRefundByPaymentId(payment.id)),
+    const drafts = createCancellationRefundDrafts(
+      escrowedPayments.map(escrowedPayment => ({
+        payment: escrowedPayment,
+        succeededRefundedCents:
+          financialStore.sumSucceededRefundsByPaymentId(escrowedPayment.id),
+        hasOpenRefund: Boolean(
+          financialStore.findOpenRefundByPaymentId(escrowedPayment.id),
+        ),
+      })),
+      penalty.feeCents,
     );
 
-    const refundPendingPayment = financialStore.updatePaymentOrder(
-      payment.id,
-      {
-        status: 'refund_pending',
+    for (const activePayment of payments.filter(
+      item => item.status === 'pending' || item.status === 'processing',
+    )) {
+      financialStore.updatePaymentOrder(activePayment.id, {
+        status: 'cancelled',
+        cancelledAtIso: now.toISOString(),
         updatedAtIso: now.toISOString(),
-      },
-    );
-
-    if (!refundPendingPayment) {
-      throw new BusinessError(
-        ApiErrorCode.REFUND_NOT_AVAILABLE,
-        '退款支付单状态更新失败',
-      );
+      });
     }
 
-    const refund = financialStore.createRefundForPayment(
-      refundPendingPayment,
-      createCancellationRefundReason(penalty.feeCents),
-      now,
-      penalty.refundableCents,
-    );
-    financialStore.createRefundOutboxEvent(refund, now);
+    for (const draft of drafts) {
+      const refundPendingPayment = financialStore.updatePaymentOrder(
+        draft.payment.id,
+        { status: 'refund_pending', updatedAtIso: now.toISOString() },
+      );
+      if (!refundPendingPayment) {
+        throw new BusinessError(
+          ApiErrorCode.REFUND_NOT_AVAILABLE,
+          '退款支付单状态更新失败',
+        );
+      }
+      const refund = financialStore.createRefundForPayment(
+        refundPendingPayment,
+        createCancellationRefundReason(draft.feeCents),
+        now,
+        draft.refundAmountCents,
+      );
+      financialStore.createRefundOutboxEvent(refund, now);
+    }
     return;
   }
 
@@ -3247,87 +3261,114 @@ async function applyPrismaOrderFinancialMutation(
     return { paymentStatus };
   }
 
-  const payment = await transaction.paymentOrder.findFirst({
+  const payments = await transaction.paymentOrder.findMany({
     where: { orderId: currentOrder.id },
     orderBy: { createdAt: 'desc' },
   });
+  const payment = payments[0];
 
   if (paymentStatus === 'refund_pending') {
-    if (!payment || payment.status !== 'escrowed') {
+    const escrowedPayments = payments.filter(item => item.status === 'escrowed');
+    if (escrowedPayments.length === 0) {
       throw new BusinessError(
         ApiErrorCode.REFUND_NOT_AVAILABLE,
         '已托管订单缺少可退款支付单',
       );
     }
 
-    const existingOpenRefund = await transaction.refund.findFirst({
-      where: {
-        paymentOrderId: payment.id,
-        status: { in: ['pending', 'processing'] },
-      },
-    });
-    const succeededRefunds = await transaction.refund.findMany({
-      where: { paymentOrderId: payment.id, status: 'succeeded' },
-    });
-    const succeededRefundedCents = (
-      succeededRefunds as Array<{ amountCents: number }>
-    ).reduce((total, refund) => total + refund.amountCents, 0);
     const penalty = resolveCancellationPenaltyForOrder(currentOrder);
-    assertCancellationRefundAvailable(
-      payment.amountCents,
-      succeededRefundedCents,
-      penalty.refundableCents,
-      Boolean(existingOpenRefund),
+    const refundFacts = await Promise.all(
+      escrowedPayments.map(async escrowedPayment => {
+        const [existingOpenRefund, succeededRefunds] = await Promise.all([
+          transaction.refund.findFirst({
+            where: {
+              paymentOrderId: escrowedPayment.id,
+              status: { in: ['pending', 'processing'] },
+            },
+          }),
+          transaction.refund.findMany({
+            where: {
+              paymentOrderId: escrowedPayment.id,
+              status: 'succeeded',
+            },
+          }),
+        ]);
+        return {
+          payment: escrowedPayment,
+          succeededRefundedCents: (
+            succeededRefunds as Array<{ amountCents: number }>
+          ).reduce((total, refund) => total + refund.amountCents, 0),
+          hasOpenRefund: Boolean(existingOpenRefund),
+        };
+      }),
+    );
+    const drafts = createCancellationRefundDrafts(
+      refundFacts,
+      penalty.feeCents,
     );
 
-    const paymentUpdate = await transaction.paymentOrder.updateMany({
-      where: { id: payment.id, status: 'escrowed' },
-      data: { status: 'refund_pending', updatedAt: now },
-    });
-
-    if (paymentUpdate.count !== 1) {
-      throw new BusinessError(
-        ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
-        '支付单资金状态已变化',
-      );
+    for (const activePayment of payments.filter(
+      item => item.status === 'pending' || item.status === 'processing',
+    )) {
+      const cancelled = await transaction.paymentOrder.updateMany({
+        where: { id: activePayment.id, status: activePayment.status },
+        data: { status: 'cancelled', cancelledAt: now, updatedAt: now },
+      });
+      if (cancelled.count !== 1) {
+        throw new BusinessError(
+          ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+          '补差支付单资金状态已变化',
+        );
+      }
     }
 
-    const refundId = randomUUID();
-    const refundNo = `RF-${payment.paymentNo}`;
-    await transaction.refund.create({
-      data: {
-        id: refundId,
-        refundNo,
-        paymentOrderId: payment.id,
-        orderId: currentOrder.id,
-        shipperId: currentOrder.shipperId,
-        channel: payment.channel,
-        amountCents: penalty.refundableCents,
-        reason: createCancellationRefundReason(penalty.feeCents),
-        status: 'pending',
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-    await transaction.financialOutboxEvent.create({
-      data: {
-        id: randomUUID(),
-        eventType: 'refund.requested',
-        aggregateType: 'refund',
-        aggregateId: refundId,
-        refundId,
-        payload: {
-          refundId,
-          paymentOrderId: payment.id,
+    for (const draft of drafts) {
+      const paymentUpdate = await transaction.paymentOrder.updateMany({
+        where: { id: draft.payment.id, status: 'escrowed' },
+        data: { status: 'refund_pending', updatedAt: now },
+      });
+      if (paymentUpdate.count !== 1) {
+        throw new BusinessError(
+          ApiErrorCode.PAYMENT_CALLBACK_CONFLICT,
+          '支付单资金状态已变化',
+        );
+      }
+      const refundId = randomUUID();
+      await transaction.refund.create({
+        data: {
+          id: refundId,
+          refundNo: `RF-${draft.payment.paymentNo}`,
+          paymentOrderId: draft.payment.id,
+          orderId: currentOrder.id,
+          shipperId: currentOrder.shipperId,
+          channel: draft.payment.channel,
+          amountCents: draft.refundAmountCents,
+          reason: createCancellationRefundReason(draft.feeCents),
+          status: 'pending',
+          createdAt: now,
+          updatedAt: now,
         },
-        status: 'pending',
-        attemptCount: 0,
-        maxAttempts: 10,
-        availableAt: now,
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
+      });
+      await transaction.financialOutboxEvent.create({
+        data: {
+          id: randomUUID(),
+          eventType: 'refund.requested',
+          aggregateType: 'refund',
+          aggregateId: refundId,
+          refundId,
+          payload: {
+            refundId,
+            paymentOrderId: draft.payment.id,
+          },
+          status: 'pending',
+          attemptCount: 0,
+          maxAttempts: 10,
+          availableAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    }
     return { paymentStatus };
   }
 
@@ -3982,6 +4023,7 @@ type PrismaOrdersTransactionClient = {
   };
   paymentOrder: {
     findFirst(args: unknown): Promise<PrismaOrderPaymentRecord | null>;
+    findMany(args: unknown): Promise<PrismaOrderPaymentRecord[]>;
     create(args: unknown): Promise<PrismaOrderPaymentRecord>;
     updateMany(args: unknown): Promise<{ count: number }>;
   };
@@ -6952,6 +6994,66 @@ function assertCancellationRefundAvailable(
       '取消订单应退金额超过支付单剩余本金',
     );
   }
+}
+
+function createCancellationRefundDrafts<
+  TPayment extends Pick<PaymentOrderRecord, 'id' | 'amountCents'>,
+>(
+  facts: Array<{
+    payment: TPayment;
+    succeededRefundedCents: number;
+    hasOpenRefund: boolean;
+  }>,
+  totalFeeCents: number,
+) {
+  const withRemaining = facts.map(fact => {
+    assertCancellationRefundAvailable(
+      fact.payment.amountCents,
+      fact.succeededRefundedCents,
+      1,
+      fact.hasOpenRefund,
+    );
+    return {
+      ...fact,
+      remainingCents:
+        fact.payment.amountCents - fact.succeededRefundedCents,
+    };
+  });
+  const totalRemainingCents = withRemaining.reduce(
+    (total, fact) => total + fact.remainingCents,
+    0,
+  );
+  if (
+    !Number.isSafeInteger(totalFeeCents) ||
+    totalFeeCents < 0 ||
+    totalFeeCents >= totalRemainingCents
+  ) {
+    throw new BusinessError(
+      ApiErrorCode.REFUND_NOT_AVAILABLE,
+      '取消订单违约金超过支付单剩余本金',
+    );
+  }
+
+  const allocatedFees = withRemaining.map(fact =>
+    Math.floor(
+      (fact.remainingCents * totalFeeCents) / totalRemainingCents,
+    ),
+  );
+  let unallocatedFeeCents =
+    totalFeeCents - allocatedFees.reduce((total, fee) => total + fee, 0);
+  for (let index = 0; unallocatedFeeCents > 0; index += 1) {
+    const targetIndex = index % allocatedFees.length;
+    if (allocatedFees[targetIndex] < withRemaining[targetIndex].remainingCents) {
+      allocatedFees[targetIndex] += 1;
+      unallocatedFeeCents -= 1;
+    }
+  }
+
+  return withRemaining.map((fact, index) => ({
+    payment: fact.payment,
+    feeCents: allocatedFees[index],
+    refundAmountCents: fact.remainingCents - allocatedFees[index],
+  }));
 }
 
 function createCancellationRefundReason(feeCents: number) {

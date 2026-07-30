@@ -295,6 +295,71 @@ describe('order financial readiness integration', () => {
     expect(financialStore.listRefunds()).toHaveLength(1);
   });
 
+  it('cancels an unpaid top-up and queues refunds for every escrowed payment', async () => {
+    const financialStore = new InMemoryFinancialStore({
+      paymentOrders: [
+        createPaymentRecord({
+          id: 'payment-main',
+          paymentNo: 'PAY-main',
+          status: 'escrowed',
+          createdAtIso: '2026-07-15T07:00:00.000Z',
+        }),
+        createPaymentRecord({
+          id: 'payment-topup-paid',
+          paymentNo: 'PAY-topup-paid',
+          amountCents: 6000,
+          status: 'escrowed',
+          createdAtIso: '2026-07-15T07:30:00.000Z',
+        }),
+        createPaymentRecord({
+          id: 'payment-topup-pending',
+          paymentNo: 'PAY-topup-pending',
+          amountCents: 3000,
+          status: 'pending',
+          createdAtIso: '2026-07-15T07:45:00.000Z',
+        }),
+      ],
+    });
+    const repository = new InMemoryOrdersRepository(
+      () => NOW,
+      undefined,
+      financialStore,
+    );
+    const service = new OrdersService(repository);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput({ paymentMethod: 'online', priceCents: 82000 }),
+    );
+    order.status = 'loading';
+    order.paymentStatus = 'escrowed';
+
+    await service.cancelOrder('shipper-1', order.id, 'cancel-multi-payment-key', {
+      reasonText: '计划变更',
+      baseUpdatedAtIso: order.updatedAtIso,
+    });
+
+    expect(financialStore.listRefunds()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          paymentOrderId: 'payment-main',
+          amountCents: 68400,
+          reason: 'order_cancelled_with_penalty_7600',
+          status: 'pending',
+        }),
+        expect.objectContaining({
+          paymentOrderId: 'payment-topup-paid',
+          amountCents: 5400,
+          reason: 'order_cancelled_with_penalty_600',
+          status: 'pending',
+        }),
+      ]),
+    );
+    expect(financialStore.listOutboxEvents()).toHaveLength(2);
+    expect(
+      financialStore.findPaymentOrderById('payment-topup-pending'),
+    ).toMatchObject({ status: 'cancelled' });
+  });
+
   it('cancels COD without creating payment, refund or outbox facts', async () => {
     const financialStore = new InMemoryFinancialStore();
     const repository = new InMemoryOrdersRepository(
@@ -571,9 +636,9 @@ describe('Prisma order cancellation financial transaction', () => {
       updatedAt: new Date('2026-07-15T08:00:00.001Z'),
     });
     const harness = createPrismaMutationHarness(current, updated);
-    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+    harness.transaction.paymentOrder.findMany.mockResolvedValue([
       createPrismaPaymentRecord({ status: 'escrowed' }),
-    );
+    ]);
 
     const result = await harness.repository.executeIdempotentOrderMutation(
       createCancelMutationInput(current),
@@ -644,9 +709,9 @@ describe('Prisma order cancellation financial transaction', () => {
       updatedAt: new Date('2026-07-15T08:00:00.001Z'),
     });
     const harness = createPrismaMutationHarness(current, updated);
-    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+    harness.transaction.paymentOrder.findMany.mockResolvedValue([
       createPrismaPaymentRecord({ status: 'escrowed' }),
-    );
+    ]);
     harness.transaction.refund.findMany.mockResolvedValue([
       { amountCents: 12000, status: 'succeeded' },
     ]);
@@ -671,9 +736,9 @@ describe('Prisma order cancellation financial transaction', () => {
       paymentStatus: 'refund_pending',
     });
     const harness = createPrismaMutationHarness(current, updated);
-    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+    harness.transaction.paymentOrder.findMany.mockResolvedValue([
       createPrismaPaymentRecord({ status: 'escrowed' }),
-    );
+    ]);
     harness.transaction.refund.findFirst.mockResolvedValue({
       id: 'refund-open',
       status: 'pending',
@@ -686,6 +751,57 @@ describe('Prisma order cancellation financial transaction', () => {
     ).rejects.toMatchObject({ code: ApiErrorCode.REFUND_NOT_AVAILABLE });
     expect(harness.transaction.paymentOrder.updateMany).not.toHaveBeenCalled();
     expect(harness.transaction.refund.create).not.toHaveBeenCalled();
+  });
+
+  it('queues one cancellation refund per escrowed payment and cancels pending top-ups', async () => {
+    const current = createPrismaOrderRecord({
+      paymentMethod: 'online',
+      paymentStatus: 'escrowed',
+      priceCents: 82000,
+      payablePriceCents: 82000,
+    });
+    const updated = createPrismaOrderRecord({
+      status: 'cancelled',
+      paymentMethod: 'online',
+      paymentStatus: 'refund_pending',
+      priceCents: 82000,
+      payablePriceCents: 82000,
+      updatedAt: new Date('2026-07-15T08:00:00.001Z'),
+    });
+    const harness = createPrismaMutationHarness(current, updated);
+    harness.transaction.paymentOrder.findMany.mockResolvedValue([
+      createPrismaPaymentRecord({
+        id: 'payment-topup-pending',
+        paymentNo: 'PAY-topup-pending',
+        amountCents: 3000,
+        status: 'pending',
+      }),
+      createPrismaPaymentRecord({
+        id: 'payment-topup-paid',
+        paymentNo: 'PAY-topup-paid',
+        amountCents: 6000,
+        status: 'escrowed',
+      }),
+      createPrismaPaymentRecord({
+        id: 'payment-main',
+        paymentNo: 'PAY-main',
+        amountCents: 76000,
+        status: 'escrowed',
+      }),
+    ]);
+
+    await harness.repository.executeIdempotentOrderMutation(
+      createCancelMutationInput(current),
+    );
+
+    expect(harness.transaction.refund.create).toHaveBeenCalledTimes(2);
+    expect(harness.transaction.financialOutboxEvent.create).toHaveBeenCalledTimes(
+      2,
+    );
+    expect(harness.transaction.paymentOrder.updateMany).toHaveBeenCalledWith({
+      where: { id: 'payment-topup-pending', status: 'pending' },
+      data: { status: 'cancelled', cancelledAt: NOW, updatedAt: NOW },
+    });
   });
 
   it('does not finish the idempotency snapshot when refund outbox creation fails', async () => {
@@ -701,9 +817,9 @@ describe('Prisma order cancellation financial transaction', () => {
     });
     const harness = createPrismaMutationHarness(current, updated);
     const outboxError = new Error('outbox write failed');
-    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+    harness.transaction.paymentOrder.findMany.mockResolvedValue([
       createPrismaPaymentRecord({ status: 'escrowed' }),
-    );
+    ]);
     harness.transaction.financialOutboxEvent.create.mockRejectedValueOnce(
       outboxError,
     );
@@ -1063,6 +1179,7 @@ function createPrismaMutationHarness(
     orderExceptionCaseAction: { create: jest.fn() },
     paymentOrder: {
       findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     refund: {

@@ -94,6 +94,13 @@ export class InMemoryFinancialStore {
     return payment ? structuredClone(payment) : undefined;
   }
 
+  listPaymentsByOrderId(orderId: string) {
+    return this.paymentOrders
+      .filter(item => item.orderId === orderId)
+      .sort((left, right) => left.createdAtIso.localeCompare(right.createdAtIso))
+      .map(item => structuredClone(item));
+  }
+
   updatePaymentOrder(
     paymentId: string,
     patch: Partial<PaymentOrderRecord>,

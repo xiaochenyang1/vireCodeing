@@ -361,6 +361,80 @@ describe('InMemoryPaymentsRepository', () => {
     });
   });
 
+  it('keeps the order refund pending until every payment refund succeeds', async () => {
+    const repository = new InMemoryPaymentsRepository({
+      now: () => NOW,
+      createId: createSequentialId(),
+      orders: [
+        createSourceOrder({
+          status: 'cancelled',
+          paymentStatus: 'refund_pending',
+        }),
+      ],
+      paymentOrders: [
+        createPaymentRecord({
+          id: 'payment-main',
+          paymentNo: 'PAY-main',
+          status: 'refund_pending',
+        }),
+        createPaymentRecord({
+          id: 'payment-topup',
+          paymentNo: 'PAY-topup',
+          amountCents: 6000,
+          status: 'refund_pending',
+        }),
+      ],
+      refunds: [
+        createRefundRecord({
+          id: 'refund-main',
+          refundNo: 'RF-PAY-main',
+          paymentOrderId: 'payment-main',
+          status: 'pending',
+          providerRefundNo: undefined,
+        }),
+        createRefundRecord({
+          id: 'refund-topup',
+          refundNo: 'RF-PAY-topup',
+          paymentOrderId: 'payment-topup',
+          amountCents: 6000,
+          status: 'pending',
+          providerRefundNo: undefined,
+        }),
+      ],
+    });
+
+    const first = await repository.applyVerifiedRefundCallback({
+      channel: 'sandbox',
+      callback: {
+        ...createSuccessfulRefundCallback(),
+        eventId: 'refund-event-main',
+        refundNo: 'RF-PAY-main',
+        providerRefundNo: 'provider-refund-main',
+      },
+    });
+    const second = await repository.applyVerifiedRefundCallback({
+      channel: 'sandbox',
+      callback: {
+        ...createSuccessfulRefundCallback(),
+        eventId: 'refund-event-topup',
+        refundNo: 'RF-PAY-topup',
+        providerRefundNo: 'provider-refund-topup',
+        amountCents: 6000,
+      },
+    });
+
+    expect(first).toMatchObject({
+      kind: 'applied',
+      payment: { id: 'payment-main', status: 'refunded' },
+      orderPaymentStatus: 'refund_pending',
+    });
+    expect(second).toMatchObject({
+      kind: 'applied',
+      payment: { id: 'payment-topup', status: 'refunded' },
+      orderPaymentStatus: 'refunded',
+    });
+  });
+
   it('restores a replacement usable coupon when a refunded order had already redeemed one', async () => {
     const couponStore = new InMemoryProfileCouponsStore({
       coupons: [
@@ -764,7 +838,15 @@ describe('PrismaPaymentsRepository', () => {
       },
       refund: {
         findUnique: jest.fn().mockResolvedValue(refund),
-        findFirst: jest.fn().mockResolvedValue(null),
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({
+            id: 'refund-sibling',
+            orderId: 'order-1',
+            reason: 'order_cancelled_with_penalty_3000',
+            status: 'pending',
+          }),
         update: jest.fn().mockResolvedValue(succeededRefund),
       },
       paymentOrder: {
@@ -813,11 +895,13 @@ describe('PrismaPaymentsRepository', () => {
         status: 'refunded',
         refundedAtIso: '2026-07-15T08:02:00.000Z',
       },
+      orderPaymentStatus: 'refund_pending',
       financialTransaction: {
         id: 'refund-transaction-1',
         type: 'online_refund',
       },
     });
+    expect(transaction.order.update).not.toHaveBeenCalled();
     expect(transaction.financialTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         type: 'online_refund',
