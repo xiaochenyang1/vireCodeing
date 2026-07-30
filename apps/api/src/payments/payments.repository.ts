@@ -660,7 +660,7 @@ export class InMemoryPaymentsRepository implements PaymentsRepository {
       return { kind: 'refund-conflict' };
     }
 
-    const isPartialRefund = refund.amountCents < payment.amountCents;
+    const isPartialRefund = isOrderChangePartialRefund(refund.reason);
     const existingTransaction = this.financialTransactions.find(
       transaction =>
         transaction.type === 'online_refund' &&
@@ -2020,7 +2020,7 @@ RETURNING outbox.*
         return { kind: 'refund-conflict' };
       }
 
-      const isPartialRefund = refund.amountCents < payment.amountCents;
+      const isPartialRefund = isOrderChangePartialRefund(refund.reason);
 
       if (
         input.callback.amountCents !== refund.amountCents ||
@@ -3066,6 +3066,13 @@ function mapPrismaRefund(refund: PrismaRefundRecord): RefundRecord {
     createdAtIso: refund.createdAt.toISOString(),
     updatedAtIso: refund.updatedAt.toISOString(),
   };
+}
+
+function isOrderChangePartialRefund(reason: string) {
+  return (
+    reason === 'change_request_price_decrease' ||
+    reason.startsWith('change_request_price_decrease:')
+  );
 }
 
 function mapPrismaOutboxEvent(

@@ -337,6 +337,30 @@ describe('InMemoryPaymentsRepository', () => {
     });
   });
 
+  it('closes a cancelled order when a penalty makes its refund smaller than the payment', async () => {
+    const repository = createRefundCallbackRepository({
+      refundOverrides: {
+        amountCents: 70000,
+        reason: 'order_cancelled_with_penalty_3000',
+      },
+    });
+
+    const result = await repository.applyVerifiedRefundCallback({
+      channel: 'sandbox',
+      callback: {
+        ...createSuccessfulRefundCallback(),
+        amountCents: 70000,
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: 'applied',
+      orderPaymentStatus: 'refunded',
+      refund: { amountCents: 70000, status: 'succeeded' },
+      payment: { amountCents: 73000, status: 'refunded' },
+    });
+  });
+
   it('restores a replacement usable coupon when a refunded order had already redeemed one', async () => {
     const couponStore = new InMemoryProfileCouponsStore({
       coupons: [
@@ -701,7 +725,7 @@ describe('PrismaPaymentsRepository', () => {
     expect(transaction.orderEvent.create).toHaveBeenCalledTimes(1);
   });
 
-  it('persists a successful refund callback and balanced ledger in one transaction', async () => {
+  it('persists a penalty-adjusted cancellation refund as an order-closing refund', async () => {
     const payment = createPrismaPaymentRecord({
       status: 'refund_pending',
       order: {
@@ -719,8 +743,13 @@ describe('PrismaPaymentsRepository', () => {
         refundedAt: new Date('2026-07-15T08:02:00.000Z'),
       },
     });
-    const refund = createPrismaRefundRecord();
+    const refund = createPrismaRefundRecord({
+      amountCents: 70000,
+      reason: 'order_cancelled_with_penalty_3000',
+    });
     const succeededRefund = createPrismaRefundRecord({
+      amountCents: 70000,
+      reason: 'order_cancelled_with_penalty_3000',
       status: 'succeeded',
       providerRefundNo: 'sandbox-refund-1',
       succeededAt: new Date('2026-07-15T08:02:00.000Z'),
@@ -770,7 +799,10 @@ describe('PrismaPaymentsRepository', () => {
 
     const result = await repository.applyVerifiedRefundCallback({
       channel: 'sandbox',
-      callback: createSuccessfulRefundCallback(),
+      callback: {
+        ...createSuccessfulRefundCallback(),
+        amountCents: 70000,
+      },
     });
 
     expect(result).toMatchObject({
@@ -792,20 +824,20 @@ describe('PrismaPaymentsRepository', () => {
         referenceId: 'refund-1',
         orderId: 'order-1',
         paymentOrderId: 'payment-1',
-        amountCents: 73000,
+        amountCents: 70000,
         entries: {
           create: [
             expect.objectContaining({
               sequence: 0,
               accountType: 'platform_escrow',
               direction: 'debit',
-              amountCents: 73000,
+              amountCents: 70000,
             }),
             expect.objectContaining({
               sequence: 1,
               accountType: 'gateway_clearing',
               direction: 'credit',
-              amountCents: 73000,
+              amountCents: 70000,
             }),
           ],
         },
