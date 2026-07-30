@@ -126,14 +126,6 @@ export class InMemoryFinancialStore {
     now: Date,
     amountCents = payment.amountCents,
   ) {
-    const existing = this.refunds.find(
-      item => item.paymentOrderId === payment.id,
-    );
-
-    if (existing) {
-      return structuredClone(existing);
-    }
-
     if (
       !Number.isInteger(amountCents) ||
       amountCents <= 0 ||
@@ -142,13 +134,38 @@ export class InMemoryFinancialStore {
       throw new Error('refund amountCents must be within payment amount');
     }
 
+    const openRefund = this.refunds.find(
+      item =>
+        item.paymentOrderId === payment.id &&
+        (item.status === 'pending' || item.status === 'processing'),
+    );
+    if (openRefund) {
+      if (
+        openRefund.amountCents === amountCents &&
+        openRefund.reason === reason
+      ) {
+        return structuredClone(openRefund);
+      }
+      throw new Error('payment already has an open refund');
+    }
+
+    const succeededRefundedCents = this.refunds
+      .filter(
+        item =>
+          item.paymentOrderId === payment.id && item.status === 'succeeded',
+      )
+      .reduce((total, item) => total + item.amountCents, 0);
+    if (succeededRefundedCents + amountCents > payment.amountCents) {
+      throw new Error('refund amount exceeds remaining payment principal');
+    }
+
     const nowIso = now.toISOString();
     const refund: RefundRecord = {
       id: this.createId(),
       refundNo:
-        amountCents === payment.amountCents
+        amountCents === payment.amountCents && succeededRefundedCents === 0
           ? `RF-${payment.paymentNo}`
-          : `RF-${payment.paymentNo}-P${amountCents}`,
+          : `RF-${payment.paymentNo}-P${amountCents}-${this.refunds.length + 1}`,
       paymentOrderId: payment.id,
       orderId: payment.orderId,
       shipperId: payment.shipperId,

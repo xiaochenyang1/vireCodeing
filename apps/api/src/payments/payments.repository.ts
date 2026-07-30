@@ -1242,12 +1242,12 @@ type PrismaPaymentOrderRecord = {
   createdAt: Date;
   updatedAt: Date;
   order: PrismaPaymentSourceOrderRecord;
-  refund?: {
+  refunds?: Array<{
     id: string;
     amountCents: number;
     status: string;
     succeededAt: Date | null;
-  } | null;
+  }>;
 };
 
 type PrismaPaymentSourceOrderRecord = {
@@ -1364,6 +1364,7 @@ type PrismaPaymentsTransactionClient = {
   refund: {
     findUnique(args: unknown): Promise<PrismaRefundRecord | null>;
     findFirst(args: unknown): Promise<PrismaRefundRecord | null>;
+    findMany(args: unknown): Promise<PrismaRefundRecord[]>;
     create(args: unknown): Promise<PrismaRefundRecord>;
     update(args: unknown): Promise<PrismaRefundRecord>;
   };
@@ -1406,7 +1407,7 @@ const paymentOrderInclude = {
       refundedAt: true,
     },
   },
-  refund: {
+  refunds: {
     select: {
       id: true,
       amountCents: true,
@@ -2799,8 +2800,12 @@ RETURNING outbox.*
     };
 
     if (orderPaymentStatus === 'refund_pending') {
-      const refund = await transaction.refund.findUnique({
-        where: { paymentOrderId: payment.id },
+      const refund = await transaction.refund.findFirst({
+        where: {
+          paymentOrderId: payment.id,
+          status: { in: ['pending', 'processing', 'failed', 'succeeded'] },
+        },
+        orderBy: { createdAt: 'desc' },
       });
 
       if (!refund) {
@@ -2958,10 +2963,9 @@ function mapPrismaPaymentOrder(
   payment: PrismaPaymentOrderRecord,
 ): PaymentOrderRecord {
   const clientPayload = parseClientPayload(payment.clientPayload);
-  const refundedAmountCents =
-    payment.refund && payment.refund.status === 'succeeded'
-      ? payment.refund.amountCents
-      : 0;
+  const refundedAmountCents = (payment.refunds ?? [])
+    .filter(refund => refund.status === 'succeeded')
+    .reduce((total, refund) => total + refund.amountCents, 0);
   const netAmountCents = Math.max(0, payment.amountCents - refundedAmountCents);
 
   return {

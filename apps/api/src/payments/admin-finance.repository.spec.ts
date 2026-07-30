@@ -58,6 +58,15 @@ describe('PrismaAdminFinanceRepository', () => {
       orderBy: { createdAt: 'desc' },
       skip: 20,
       take: 20,
+      include: {
+        refunds: {
+          select: {
+            id: true,
+            amountCents: true,
+            status: true,
+          },
+        },
+      },
     });
     expect(prisma.paymentOrder.count).toHaveBeenCalledWith({
       where: { status: 'escrowed', orderId: 'order-1' },

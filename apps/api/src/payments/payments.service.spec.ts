@@ -302,6 +302,97 @@ describe('PaymentsService', () => {
     });
   });
 
+  it('allows a second partial refund after the first succeeded on the same payment', async () => {
+    const repository = new InMemoryPaymentsRepository({
+      now: () => NOW,
+      createId: () => 'repository-id-multi-refund',
+      orders: [
+        createSourceOrder({
+          status: 'loading',
+          paymentStatus: 'escrowed',
+          payablePriceCents: 61000,
+        }),
+      ],
+      paymentOrders: [
+        {
+          id: 'payment-main-multi',
+          paymentNo: 'PAY-main-multi',
+          orderId: 'order-1',
+          orderNo: 'HY202607150001',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 73000,
+          status: 'escrowed',
+          idempotencyKey: 'main-payment-key-multi',
+          requestFingerprint: 'main-fp-multi',
+          expiresAtIso: '2026-07-15T08:15:00.000Z',
+          paidAtIso: '2026-07-15T07:50:00.000Z',
+          createdAtIso: '2026-07-15T07:40:00.000Z',
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+      refunds: [
+        {
+          id: 'refund-partial-first',
+          refundNo: 'RF-PAY-main-multi-P6000-1',
+          paymentOrderId: 'payment-main-multi',
+          orderId: 'order-1',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 6000,
+          reason: 'change_request_price_decrease:first',
+          status: 'succeeded',
+          createdAtIso: NOW.toISOString(),
+          updatedAtIso: NOW.toISOString(),
+        },
+        {
+          id: 'refund-partial-second',
+          refundNo: 'RF-PAY-main-multi-P6000-2',
+          paymentOrderId: 'payment-main-multi',
+          orderId: 'order-1',
+          shipperId: 'shipper-1',
+          channel: 'sandbox',
+          amountCents: 6000,
+          reason: 'change_request_price_decrease:second',
+          status: 'pending',
+          createdAtIso: NOW.toISOString(),
+          updatedAtIso: NOW.toISOString(),
+        },
+      ],
+    });
+    const service = new PaymentsService(repository, () => createProvider(), {
+      now: () => NOW,
+    });
+
+    const result = await service.applyVerifiedRefundCallback('sandbox', {
+      eventId: 'partial-refund-event-2',
+      refundNo: 'RF-PAY-main-multi-P6000-2',
+      providerRefundNo: 'sandbox-partial-refund-2',
+      amountCents: 6000,
+      status: 'succeeded',
+      occurredAtIso: '2026-07-15T08:25:00.000Z',
+      rawPayloadHash: 'partial-refund-payload-hash-2',
+    });
+
+    expect(result).toMatchObject({
+      kind: 'applied',
+      payment: {
+        id: 'payment-main-multi',
+        status: 'escrowed',
+        amountCents: 73000,
+        refundedAmountCents: 12000,
+        netAmountCents: 61000,
+      },
+      orderPaymentStatus: 'escrowed',
+    });
+    await expect(
+      repository.findPaymentOrderForShipper('shipper-1', 'payment-main-multi'),
+    ).resolves.toMatchObject({
+      refundedAmountCents: 12000,
+      netAmountCents: 61000,
+    });
+  });
+
   it('summarizes main escrow, top-up, and partial refunds for an order', async () => {
     const repository = new InMemoryPaymentsRepository({
       now: () => NOW,

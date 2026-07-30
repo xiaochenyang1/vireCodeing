@@ -1475,27 +1475,29 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         order.paymentMethod === 'online' &&
         order.paymentStatus === 'escrowed'
       ) {
-        const refundAmountCents = -preliminaryPayload.fundDisposition.deltaCents;
-        if (
-          refundAmountCents > 0 &&
-          refundAmountCents < payment.amountCents
-        ) {
-          const refund = this.financialStore.createRefundForPayment(
-            payment,
-            `change_request_price_decrease:${orderId}:${latestRequest.requestedAtIso}`,
-            this.now(),
-            refundAmountCents,
-          );
-          const outboxEvent = this.financialStore.createRefundOutboxEvent(
-            refund,
-            this.now(),
-          );
-          fundDispositionOverride =
-            createQueuedOrderChangePartialRefundDisposition(
-              preliminaryPayload.fundDisposition.deltaCents,
-              refund,
-              outboxEvent.id,
+        const refundAmount = -preliminaryPayload.fundDisposition.deltaCents;
+        try {
+          if (refundAmount > 0) {
+            const refund = this.financialStore.createRefundForPayment(
+              payment,
+              `change_request_price_decrease:${orderId}:${latestRequest.requestedAtIso}`,
+              this.now(),
+              refundAmount,
             );
+            const outboxEvent = this.financialStore.createRefundOutboxEvent(
+              refund,
+              this.now(),
+            );
+            fundDispositionOverride =
+              createQueuedOrderChangePartialRefundDisposition(
+                preliminaryPayload.fundDisposition.deltaCents,
+                refund,
+                outboxEvent.id,
+              );
+          }
+        } catch {
+          // Keep pending_manual disposition when remaining principal is insufficient
+          // or another open refund already exists.
         }
       }
     } else if (
@@ -3960,6 +3962,8 @@ type PrismaOrdersTransactionClient = {
   refund: {
     create(args: unknown): Promise<unknown>;
     findUnique(args: unknown): Promise<unknown>;
+    findFirst(args: unknown): Promise<unknown>;
+    findMany(args: unknown): Promise<unknown[]>;
   };
   financialOutboxEvent: {
     create(args: unknown): Promise<unknown>;
@@ -5868,15 +5872,31 @@ export class PrismaOrdersRepository implements OrdersRepository {
           payment.status === 'escrowed' &&
           currentOrder.paymentMethod === 'online' &&
           currentOrder.paymentStatus === 'escrowed' &&
-          refundAmountCents > 0 &&
-          refundAmountCents < payment.amountCents
+          refundAmountCents > 0
         ) {
-          const existingRefund = await transaction.refund.findUnique({
-            where: { paymentOrderId: payment.id },
+          const existingOpenRefund = await transaction.refund.findFirst({
+            where: {
+              paymentOrderId: payment.id,
+              status: { in: ['pending', 'processing'] },
+            },
           });
-          if (!existingRefund) {
+          const succeededRefunds = await transaction.refund.findMany({
+            where: {
+              paymentOrderId: payment.id,
+              status: 'succeeded',
+            },
+          });
+          const succeededRefundedCents = (
+            succeededRefunds as Array<{ amountCents: number }>
+          ).reduce((total, item) => total + item.amountCents, 0);
+          const remainingCents = payment.amountCents - succeededRefundedCents;
+          if (
+            !existingOpenRefund &&
+            refundAmountCents > 0 &&
+            refundAmountCents <= remainingCents
+          ) {
             const refundId = randomUUID();
-            const refundNo = `RF-${payment.paymentNo}-P${refundAmountCents}`;
+            const refundNo = `RF-${payment.paymentNo}-P${refundAmountCents}-${randomUUID().slice(0, 8)}`;
             const outboxEventId = randomUUID();
             await transaction.refund.create({
               data: {

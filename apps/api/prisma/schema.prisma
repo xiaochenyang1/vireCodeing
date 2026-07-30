@@ -923,7 +923,7 @@ model PaymentOrder {
   order                 Order              @relation(fields: [orderId], references: [id])
   shipper               User               @relation(fields: [shipperId], references: [id])
   callbackEvents        PaymentCallbackEvent[]
-  refund                Refund?
+  refunds               Refund[]
   settlement            Settlement?
   financialTransactions FinancialTransaction[]
 
@@ -956,7 +956,7 @@ model PaymentCallbackEvent {
 model Refund {
   id                     String               @id @default(uuid())
   refundNo               String               @unique
-  paymentOrderId         String               @unique
+  paymentOrderId         String
   orderId                String
   shipperId              String
   channel                PaymentChannel
@@ -980,6 +980,8 @@ model Refund {
   financialTransaction   FinancialTransaction? @relation(fields: [financialTransactionId], references: [id])
 
   @@unique([channel, providerRefundNo], name: "Refund_channel_provider_refund_no_unique")
+  @@index([paymentOrderId, createdAt], name: "Refund_payment_created_idx")
+  @@index([paymentOrderId, status, createdAt], name: "Refund_payment_status_created_idx")
   @@index([orderId, createdAt], name: "Refund_order_created_idx")
   @@index([shipperId, status, createdAt], name: "Refund_shipper_status_created_idx")
 }

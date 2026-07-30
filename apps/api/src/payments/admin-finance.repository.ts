@@ -135,11 +135,11 @@ type PrismaAdminPaymentRecord = {
   cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  refund?: {
+  refunds?: Array<{
     id: string;
     amountCents: number;
     status: string;
-  } | null;
+  }>;
 };
 
 type PrismaAdminRefundRecord = {
@@ -461,7 +461,7 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
         skip: getSkip(query),
         take: query.pageSize,
         include: {
-          refund: {
+          refunds: {
             select: {
               id: true,
               amountCents: true,
@@ -479,7 +479,7 @@ export class PrismaAdminFinanceRepository implements AdminFinanceRepository {
     const payment = await this.prisma.paymentOrder.findUnique({
       where: { id: paymentId },
       include: {
-        refund: {
+        refunds: {
           select: {
             id: true,
             amountCents: true,
@@ -894,10 +894,9 @@ function createAuditWhere(input: RetryRefundInput) {
 }
 
 function mapAdminPayment(record: PrismaAdminPaymentRecord) {
-  const refundedAmountCents =
-    record.refund && record.refund.status === 'succeeded'
-      ? record.refund.amountCents
-      : 0;
+  const refundedAmountCents = (record.refunds ?? [])
+    .filter(refund => refund.status === 'succeeded')
+    .reduce((total, refund) => total + refund.amountCents, 0);
   const netAmountCents = Math.max(0, record.amountCents - refundedAmountCents);
 
   return {

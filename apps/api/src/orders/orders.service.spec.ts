@@ -2381,6 +2381,140 @@ describe('OrdersService', () => {
     ).toBe(true);
   });
 
+  it('queues a second partial refund after the first succeeded on the same escrow payment', async () => {
+    const nowIso = '2026-07-28T10:00:00.000Z';
+    let currentNow = new Date(nowIso);
+    const repository = new InMemoryOrdersRepository(() => currentNow);
+    const service = new OrdersService(repository);
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+
+    const orderRef = (
+      repository as unknown as {
+        orders: Array<{
+          id: string;
+          orderNo: string;
+          paymentMethod: string;
+          paymentStatus: string;
+          priceCents?: number;
+          payablePriceCents?: number;
+        }>;
+      }
+    ).orders[0];
+    orderRef.paymentMethod = 'online';
+    orderRef.paymentStatus = 'escrowed';
+    orderRef.priceCents = 76000;
+    orderRef.payablePriceCents = 76000;
+
+    const financialStore = (
+      repository as unknown as {
+        financialStore: {
+          upsertPaymentOrder: (payment: Record<string, unknown>) => void;
+          listRefunds: () => Array<{
+            id: string;
+            amountCents: number;
+            reason: string;
+            status: string;
+          }>;
+          listOutboxEvents: () => Array<{ eventType: string; status: string }>;
+        };
+      }
+    ).financialStore;
+
+    financialStore.upsertPaymentOrder({
+      id: 'payment-escrow-multi',
+      paymentNo: 'PAY-escrow-multi',
+      orderId: orderRef.id,
+      orderNo: orderRef.orderNo,
+      shipperId: 'shipper-1',
+      channel: 'wechat',
+      amountCents: 76000,
+      status: 'escrowed',
+      idempotencyKey: 'pay-key-multi',
+      requestFingerprint: 'pay-fp-multi',
+      expiresAtIso: '2026-07-28T11:00:00.000Z',
+      paidAtIso: nowIso,
+      createdAtIso: nowIso,
+      updatedAtIso: nowIso,
+    });
+
+    await service.submitOrderChangeRequest('shipper-1', orderRef.id, {
+      description: '第一次下调运费',
+    });
+    const first = await service.reviewOrderChangeRequest('admin-1', orderRef.id, {
+      decision: 'approved',
+      reviewResultText: '第一次降价',
+      adjustedPayablePriceCents: 70000,
+    });
+    expect(first.payablePriceCents).toBe(70000);
+    expect(financialStore.listRefunds()).toHaveLength(1);
+
+    // Simulate first refund success so another open refund can be created.
+    const firstRefund = financialStore.listRefunds()[0];
+    const privateStore = repository as unknown as {
+      financialStore: {
+        refunds: Array<{
+          id: string;
+          status: string;
+          amountCents: number;
+          reason: string;
+        }>;
+        outboxEvents: Array<{ status: string; refundId?: string }>;
+      };
+    };
+    privateStore.financialStore.refunds = privateStore.financialStore.refunds.map(
+      refund =>
+        refund.id === firstRefund.id
+          ? { ...refund, status: 'succeeded' }
+          : refund,
+    );
+    privateStore.financialStore.outboxEvents =
+      privateStore.financialStore.outboxEvents.map(event => ({
+        ...event,
+        status: 'completed',
+      }));
+
+    orderRef.priceCents = 70000;
+    orderRef.payablePriceCents = 70000;
+    currentNow = new Date('2026-07-28T10:01:00.000Z');
+    await service.submitOrderChangeRequest('shipper-1', orderRef.id, {
+      description: '第二次下调运费',
+    });
+    const second = await service.reviewOrderChangeRequest(
+      'admin-1',
+      orderRef.id,
+      {
+        decision: 'approved',
+        reviewResultText: '第二次降价',
+        adjustedPayablePriceCents: 64000,
+      },
+    );
+
+    expect(second.payablePriceCents).toBe(64000);
+    expect(financialStore.listRefunds()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ amountCents: 6000, status: 'succeeded' }),
+        expect.objectContaining({ amountCents: 6000, status: 'pending' }),
+      ]),
+    );
+    expect(financialStore.listRefunds()).toHaveLength(2);
+    expect(
+      financialStore.listOutboxEvents().filter(item => item.status === 'pending'),
+    ).toHaveLength(1);
+  });
+
   it('pushes order-linked notifications when admin reviews a change request', async () => {
     const repository = new InMemoryOrdersRepository(() => now);
     const filesRepository = new InMemoryFilesRepository(() => now);
