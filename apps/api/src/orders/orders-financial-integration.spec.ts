@@ -1,6 +1,6 @@
 import { ApiErrorCode } from '../common/errors';
 import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
-import type { PaymentOrderRecord } from '../payments/dto';
+import type { PaymentOrderRecord, RefundRecord } from '../payments/dto';
 import { sumSignedLedgerEntries } from '../payments/payment-domain';
 import type { CreateShipperOrderRequest } from './dto';
 import {
@@ -223,6 +223,76 @@ describe('order financial readiness integration', () => {
         },
       }),
     ]);
+  });
+
+  it('refunds only the remaining principal when cancelling after successful partial refunds', async () => {
+    const financialStore = new InMemoryFinancialStore({
+      paymentOrders: [
+        createPaymentRecord({
+          status: 'escrowed',
+          providerTradeNo: 'sandbox-trade-1',
+        }),
+      ],
+      refunds: [createRefundRecord({ amountCents: 12000, status: 'succeeded' })],
+    });
+    const repository = new InMemoryOrdersRepository(
+      () => NOW,
+      undefined,
+      financialStore,
+    );
+    const service = new OrdersService(repository);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput({ paymentMethod: 'online', priceCents: 64000 }),
+    );
+    order.paymentStatus = 'escrowed';
+
+    await service.cancelOrder('shipper-1', order.id, 'cancel-after-partial-key', {
+      reasonText: '计划变更',
+      baseUpdatedAtIso: order.updatedAtIso,
+    });
+
+    expect(financialStore.listRefunds()).toEqual([
+      expect.objectContaining({ amountCents: 12000, status: 'succeeded' }),
+      expect.objectContaining({ amountCents: 64000, status: 'pending' }),
+    ]);
+    expect(financialStore.findRefundByOrderId(order.id)).toMatchObject({
+      amountCents: 64000,
+      status: 'pending',
+    });
+  });
+
+  it('rejects cancellation while a partial refund is still processing', async () => {
+    const financialStore = new InMemoryFinancialStore({
+      paymentOrders: [createPaymentRecord({ status: 'escrowed' })],
+      refunds: [createRefundRecord({ amountCents: 6000, status: 'pending' })],
+    });
+    const repository = new InMemoryOrdersRepository(
+      () => NOW,
+      undefined,
+      financialStore,
+    );
+    const service = new OrdersService(repository);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput({ paymentMethod: 'online', priceCents: 70000 }),
+    );
+    order.paymentStatus = 'escrowed';
+
+    await expect(
+      service.cancelOrder('shipper-1', order.id, 'cancel-open-refund-key', {
+        reasonText: '计划变更',
+        baseUpdatedAtIso: order.updatedAtIso,
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.REFUND_NOT_AVAILABLE });
+    await expect(repository.findOrderById(order.id)).resolves.toMatchObject({
+      status: 'waiting',
+      paymentStatus: 'escrowed',
+    });
+    expect(financialStore.findPaymentOrderById('payment-1')).toMatchObject({
+      status: 'escrowed',
+    });
+    expect(financialStore.listRefunds()).toHaveLength(1);
   });
 
   it('cancels COD without creating payment, refund or outbox facts', async () => {
@@ -558,6 +628,66 @@ describe('Prisma order cancellation financial transaction', () => {
     );
   });
 
+  it('subtracts succeeded partial refunds before queuing cancellation refund', async () => {
+    const current = createPrismaOrderRecord({
+      paymentMethod: 'online',
+      paymentStatus: 'escrowed',
+      priceCents: 64000,
+      payablePriceCents: 64000,
+    });
+    const updated = createPrismaOrderRecord({
+      status: 'cancelled',
+      paymentMethod: 'online',
+      paymentStatus: 'refund_pending',
+      priceCents: 64000,
+      payablePriceCents: 64000,
+      updatedAt: new Date('2026-07-15T08:00:00.001Z'),
+    });
+    const harness = createPrismaMutationHarness(current, updated);
+    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+      createPrismaPaymentRecord({ status: 'escrowed' }),
+    );
+    harness.transaction.refund.findMany.mockResolvedValue([
+      { amountCents: 12000, status: 'succeeded' },
+    ]);
+
+    await harness.repository.executeIdempotentOrderMutation(
+      createCancelMutationInput(current),
+    );
+
+    expect(harness.transaction.refund.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ amountCents: 64000, status: 'pending' }),
+    });
+  });
+
+  it('rejects cancellation before changing payment state when a refund is open', async () => {
+    const current = createPrismaOrderRecord({
+      paymentMethod: 'online',
+      paymentStatus: 'escrowed',
+    });
+    const updated = createPrismaOrderRecord({
+      status: 'cancelled',
+      paymentMethod: 'online',
+      paymentStatus: 'refund_pending',
+    });
+    const harness = createPrismaMutationHarness(current, updated);
+    harness.transaction.paymentOrder.findFirst.mockResolvedValue(
+      createPrismaPaymentRecord({ status: 'escrowed' }),
+    );
+    harness.transaction.refund.findFirst.mockResolvedValue({
+      id: 'refund-open',
+      status: 'pending',
+    });
+
+    await expect(
+      harness.repository.executeIdempotentOrderMutation(
+        createCancelMutationInput(current),
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.REFUND_NOT_AVAILABLE });
+    expect(harness.transaction.paymentOrder.updateMany).not.toHaveBeenCalled();
+    expect(harness.transaction.refund.create).not.toHaveBeenCalled();
+  });
+
   it('does not finish the idempotency snapshot when refund outbox creation fails', async () => {
     const current = createPrismaOrderRecord({
       paymentMethod: 'online',
@@ -781,6 +911,25 @@ function createPaymentRecord(
   };
 }
 
+function createRefundRecord(
+  overrides: Partial<RefundRecord> = {},
+): RefundRecord {
+  return {
+    id: 'refund-1',
+    refundNo: 'RF-PAY-1-P12000-1',
+    paymentOrderId: 'payment-1',
+    orderId: 'order-1',
+    shipperId: 'shipper-1',
+    channel: 'sandbox',
+    amountCents: 12000,
+    reason: 'change_request_price_decrease:order-1:first',
+    status: 'succeeded',
+    createdAtIso: '2026-07-15T07:58:00.000Z',
+    updatedAtIso: '2026-07-15T07:59:00.000Z',
+    ...overrides,
+  };
+}
+
 function createPrismaPaymentRecord(
   overrides: Partial<Record<string, unknown>> = {},
 ) {
@@ -917,6 +1066,8 @@ function createPrismaMutationHarness(
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     refund: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation(({ data }) => ({
         ...data,
         createdAt: NOW,

@@ -116,8 +116,29 @@ export class InMemoryFinancialStore {
   }
 
   findRefundByOrderId(orderId: string) {
-    const refund = this.refunds.find(item => item.orderId === orderId);
+    const refund = [...this.refunds]
+      .reverse()
+      .find(item => item.orderId === orderId);
     return refund ? structuredClone(refund) : undefined;
+  }
+
+  findOpenRefundByPaymentId(paymentOrderId: string) {
+    const refund = this.refunds.find(
+      item =>
+        item.paymentOrderId === paymentOrderId &&
+        (item.status === 'pending' || item.status === 'processing'),
+    );
+    return refund ? structuredClone(refund) : undefined;
+  }
+
+  sumSucceededRefundsByPaymentId(paymentOrderId: string) {
+    return this.refunds
+      .filter(
+        item =>
+          item.paymentOrderId === paymentOrderId &&
+          item.status === 'succeeded',
+      )
+      .reduce((total, item) => total + item.amountCents, 0);
   }
 
   createRefundForPayment(
@@ -134,11 +155,7 @@ export class InMemoryFinancialStore {
       throw new Error('refund amountCents must be within payment amount');
     }
 
-    const openRefund = this.refunds.find(
-      item =>
-        item.paymentOrderId === payment.id &&
-        (item.status === 'pending' || item.status === 'processing'),
-    );
+    const openRefund = this.findOpenRefundByPaymentId(payment.id);
     if (openRefund) {
       if (
         openRefund.amountCents === amountCents &&
@@ -149,12 +166,9 @@ export class InMemoryFinancialStore {
       throw new Error('payment already has an open refund');
     }
 
-    const succeededRefundedCents = this.refunds
-      .filter(
-        item =>
-          item.paymentOrderId === payment.id && item.status === 'succeeded',
-      )
-      .reduce((total, item) => total + item.amountCents, 0);
+    const succeededRefundedCents = this.sumSucceededRefundsByPaymentId(
+      payment.id,
+    );
     if (succeededRefundedCents + amountCents > payment.amountCents) {
       throw new Error('refund amount exceeds remaining payment principal');
     }

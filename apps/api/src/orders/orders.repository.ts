@@ -2219,6 +2219,14 @@ function applyInMemoryOrderFinancialMutation(
       );
     }
 
+    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
+    assertCancellationRefundAvailable(
+      payment.amountCents,
+      financialStore.sumSucceededRefundsByPaymentId(payment.id),
+      penalty.refundableCents,
+      Boolean(financialStore.findOpenRefundByPaymentId(payment.id)),
+    );
+
     const refundPendingPayment = financialStore.updatePaymentOrder(
       payment.id,
       {
@@ -2234,7 +2242,6 @@ function applyInMemoryOrderFinancialMutation(
       );
     }
 
-    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
     const refund = financialStore.createRefundForPayment(
       refundPendingPayment,
       createCancellationRefundReason(penalty.feeCents),
@@ -3253,6 +3260,26 @@ async function applyPrismaOrderFinancialMutation(
       );
     }
 
+    const existingOpenRefund = await transaction.refund.findFirst({
+      where: {
+        paymentOrderId: payment.id,
+        status: { in: ['pending', 'processing'] },
+      },
+    });
+    const succeededRefunds = await transaction.refund.findMany({
+      where: { paymentOrderId: payment.id, status: 'succeeded' },
+    });
+    const succeededRefundedCents = (
+      succeededRefunds as Array<{ amountCents: number }>
+    ).reduce((total, refund) => total + refund.amountCents, 0);
+    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
+    assertCancellationRefundAvailable(
+      payment.amountCents,
+      succeededRefundedCents,
+      penalty.refundableCents,
+      Boolean(existingOpenRefund),
+    );
+
     const paymentUpdate = await transaction.paymentOrder.updateMany({
       where: { id: payment.id, status: 'escrowed' },
       data: { status: 'refund_pending', updatedAt: now },
@@ -3265,7 +3292,6 @@ async function applyPrismaOrderFinancialMutation(
       );
     }
 
-    const penalty = resolveCancellationPenaltyForOrder(currentOrder);
     const refundId = randomUUID();
     const refundNo = `RF-${payment.paymentNo}`;
     await transaction.refund.create({
@@ -6899,6 +6925,33 @@ function resolveCancellationPenaltyForOrder(order: ShipperOrderRecord) {
     orderStatus: order.status,
     orderAmountCents,
   });
+}
+
+function assertCancellationRefundAvailable(
+  paymentAmountCents: number,
+  succeededRefundedCents: number,
+  requestedRefundCents: number,
+  hasOpenRefund: boolean,
+) {
+  if (hasOpenRefund) {
+    throw new BusinessError(
+      ApiErrorCode.REFUND_NOT_AVAILABLE,
+      '当前支付单已有退款处理中，请等待处理完成后再取消订单',
+    );
+  }
+
+  const remainingCents = paymentAmountCents - succeededRefundedCents;
+  if (
+    !Number.isSafeInteger(remainingCents) ||
+    remainingCents < 0 ||
+    requestedRefundCents <= 0 ||
+    requestedRefundCents > remainingCents
+  ) {
+    throw new BusinessError(
+      ApiErrorCode.REFUND_NOT_AVAILABLE,
+      '取消订单应退金额超过支付单剩余本金',
+    );
+  }
 }
 
 function createCancellationRefundReason(feeCents: number) {
