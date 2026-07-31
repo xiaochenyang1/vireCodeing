@@ -18,6 +18,7 @@ import {
   getImagePreviewCounterText,
   getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
+  resolveImagePreviewRotation,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
 } from '../utils/imagePreview';
@@ -43,6 +44,13 @@ function getImagePreviewEntryRefreshSourceId(entry: ImagePreviewEntry) {
         entry.access,
       )
     : undefined;
+}
+
+function getImagePreviewEntryRotationId(entry: ImagePreviewEntry) {
+  return (
+    getImagePreviewEntryRefreshSourceId(entry) ??
+    JSON.stringify([entry.key, entry.publicUrl])
+  );
 }
 
 export function ImageCredentialCard({
@@ -79,6 +87,10 @@ export function ImageCredentialCard({
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [activePreviewKey, setActivePreviewKey] = useState<string>();
   const [previewPageWidth, setPreviewPageWidth] = useState(0);
+  const [previewMediaWidth, setPreviewMediaWidth] = useState(0);
+  const [previewRotations, setPreviewRotations] = useState<
+    Record<string, number>
+  >({});
   const [previewLoadStates, setPreviewLoadStates] = useState<
     Record<string, ImagePreviewLoadState>
   >({});
@@ -147,6 +159,12 @@ export function ImageCredentialCard({
   const counterText = getImagePreviewCounterText(previewIndex, previewTotal);
   const canGoPrevious = canGoToPreviousImagePreview(previewIndex, previewTotal);
   const canGoNext = canGoToNextImagePreview(previewIndex, previewTotal);
+  const activePreviewRotationId = activeBasePreviewEntry
+    ? getImagePreviewEntryRotationId(activeBasePreviewEntry)
+    : undefined;
+  const activePreviewRotation = activePreviewRotationId
+    ? previewRotations[activePreviewRotationId] ?? 0
+    : 0;
 
   useEffect(() => {
     if (
@@ -251,6 +269,25 @@ export function ImageCredentialCard({
     setIsPreviewVisible(true);
   };
 
+  const closePreview = () => {
+    setIsPreviewVisible(false);
+    setPreviewRotations({});
+  };
+
+  const rotateActivePreview = (step: -90 | 90) => {
+    if (!activePreviewRotationId) {
+      return;
+    }
+
+    setPreviewRotations(current => ({
+      ...current,
+      [activePreviewRotationId]: resolveImagePreviewRotation(
+        current[activePreviewRotationId] ?? 0,
+        step,
+      ),
+    }));
+  };
+
   const setPreviewLoadState = (
     sourceId: string,
     state: ImagePreviewLoadState | undefined,
@@ -348,6 +385,28 @@ export function ImageCredentialCard({
     setActivePreviewKey(previewEntries[nextIndex]?.key);
   };
 
+  const getPreviewModalImageStyle = (
+    entry: (typeof previewEntries)[number],
+    pageWidth: number,
+  ) => {
+    const baseEntry =
+      basePreviewEntries.find(item => item.key === entry.key) ?? entry;
+    const rotation =
+      previewRotations[getImagePreviewEntryRotationId(baseEntry)] ?? 0;
+    const isSideways = rotation === 90 || rotation === 270;
+
+    return [
+      cardStyles.previewModalImage,
+      {
+        height: isSideways && pageWidth > 0 ? pageWidth : previewImageHeight,
+        transform: [{ rotate: `${rotation}deg` }],
+      },
+      pageWidth > 0
+        ? { width: isSideways ? previewImageHeight : pageWidth }
+        : null,
+    ];
+  };
+
   return (
     <View style={styles.driverInfoCard}>
       <View style={cardStyles.previewRow}>
@@ -377,7 +436,7 @@ export function ImageCredentialCard({
                   visible
                   transparent
                   animationType="fade"
-                  onRequestClose={() => setIsPreviewVisible(false)}
+                  onRequestClose={closePreview}
                 >
                   <View
                     testID={resolvedPreviewModalTestID}
@@ -397,7 +456,7 @@ export function ImageCredentialCard({
                           accessibilityRole="button"
                           accessibilityLabel="关闭图片预览"
                           style={cardStyles.previewModalCloseButton}
-                          onPress={() => setIsPreviewVisible(false)}
+                          onPress={closePreview}
                         >
                           <Text style={cardStyles.previewModalCloseText}>
                             ×
@@ -405,6 +464,12 @@ export function ImageCredentialCard({
                         </Pressable>
                       </View>
                       <View
+                        testID={
+                          imageTestID ? `${imageTestID}-media` : undefined
+                        }
+                        onLayout={event =>
+                          setPreviewMediaWidth(event.nativeEvent.layout.width)
+                        }
                         style={[
                           cardStyles.previewModalMediaFrame,
                           { height: previewImageHeight },
@@ -439,57 +504,83 @@ export function ImageCredentialCard({
                             }}
                             style={cardStyles.previewModalPager}
                           >
-                            {previewEntries.map((entry, index) => (
-                              <Image
-                                key={getPreviewImageRenderKey(entry)}
-                                testID={
-                                  imageTestID
-                                    ? `${imageTestID}-page-${index + 1}`
-                                    : undefined
-                                }
-                                source={{ uri: entry.publicUrl }}
-                                resizeMode="contain"
-                                onError={() => handlePreviewImageError(entry)}
-                                onLoad={() => handlePreviewImageLoad(entry)}
-                                style={[
-                                  cardStyles.previewModalImage,
-                                  { height: previewImageHeight },
-                                  previewPageWidth > 0
-                                    ? { width: previewPageWidth }
-                                    : null,
-                                ]}
-                              />
-                            ))}
+                            {previewEntries.map((entry, index) => {
+                              const pageWidth =
+                                previewPageWidth || previewMediaWidth;
+
+                              return (
+                                <View
+                                  key={getPreviewImageRenderKey(entry)}
+                                  style={[
+                                    cardStyles.previewModalPage,
+                                    { height: previewImageHeight },
+                                    pageWidth > 0 ? { width: pageWidth } : null,
+                                  ]}
+                                >
+                                  <Image
+                                    testID={
+                                      imageTestID
+                                        ? `${imageTestID}-page-${index + 1}`
+                                        : undefined
+                                    }
+                                    source={{ uri: entry.publicUrl }}
+                                    resizeMode="contain"
+                                    onError={() =>
+                                      handlePreviewImageError(entry)
+                                    }
+                                    onLoad={() => handlePreviewImageLoad(entry)}
+                                    style={getPreviewModalImageStyle(
+                                      entry,
+                                      pageWidth,
+                                    )}
+                                  />
+                                </View>
+                              );
+                            })}
                           </ScrollView>
                         ) : (
-                          <Image
-                            key={
-                              activePreviewEntry
-                                ? getPreviewImageRenderKey(activePreviewEntry)
-                                : currentPreviewKey
-                            }
-                            testID={
-                              imageTestID
-                                ? `${imageTestID}-single-preview`
-                                : undefined
-                            }
-                            source={{
-                              uri:
-                                activePreviewEntry?.publicUrl ??
-                                currentPreviewUrl,
-                            }}
-                            resizeMode="contain"
-                            onError={() =>
-                              handlePreviewImageError(activePreviewEntry)
-                            }
-                            onLoad={() =>
-                              handlePreviewImageLoad(activePreviewEntry)
-                            }
+                          <View
                             style={[
-                              cardStyles.previewModalImage,
+                              cardStyles.previewModalPage,
                               { height: previewImageHeight },
                             ]}
-                          />
+                          >
+                            <Image
+                              key={
+                                activePreviewEntry
+                                  ? getPreviewImageRenderKey(activePreviewEntry)
+                                  : currentPreviewKey
+                              }
+                              testID={
+                                imageTestID
+                                  ? `${imageTestID}-single-preview`
+                                  : undefined
+                              }
+                              source={{
+                                uri:
+                                  activePreviewEntry?.publicUrl ??
+                                  currentPreviewUrl,
+                              }}
+                              resizeMode="contain"
+                              onError={() =>
+                                handlePreviewImageError(activePreviewEntry)
+                              }
+                              onLoad={() =>
+                                handlePreviewImageLoad(activePreviewEntry)
+                              }
+                              style={
+                                activePreviewEntry
+                                  ? getPreviewModalImageStyle(
+                                      activePreviewEntry,
+                                      previewMediaWidth,
+                                    )
+                                  : [
+                                      cardStyles.previewModalImage,
+                                      { height: previewImageHeight },
+                                    ]
+                              }
+                            />
+                          </View>
                         )}
                         {activePreviewLoadState ? (
                           <View
@@ -535,56 +626,101 @@ export function ImageCredentialCard({
                           </View>
                         ) : null}
                       </View>
-                      {previewTotal > 1 ? (
-                        <View style={cardStyles.previewModalPagerRow}>
-                          <Pressable
-                            testID={
-                              imageTestID
-                                ? `${imageTestID}-previous`
-                                : undefined
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel="上一张图片"
-                            disabled={!canGoPrevious}
-                            style={[
-                              cardStyles.previewModalStepButton,
-                              !canGoPrevious &&
-                                cardStyles.previewModalStepButtonDisabled,
-                            ]}
-                            onPress={() => stepPreview(-1)}
-                          >
-                            <Text style={cardStyles.previewModalStepText}>
-                              ‹
+                      <View style={cardStyles.previewModalControlsRow}>
+                        <Pressable
+                          testID={
+                            imageTestID
+                              ? `${imageTestID}-rotate-left`
+                              : undefined
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel="向左旋转图片"
+                          style={cardStyles.previewModalStepButton}
+                          onPress={() => rotateActivePreview(-90)}
+                        >
+                          <Text style={cardStyles.previewModalRotateText}>
+                            ↶
+                          </Text>
+                        </Pressable>
+                        {previewTotal > 1 ? (
+                          <>
+                            <Pressable
+                              testID={
+                                imageTestID
+                                  ? `${imageTestID}-previous`
+                                  : undefined
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel="上一张图片"
+                              disabled={!canGoPrevious}
+                              style={[
+                                cardStyles.previewModalStepButton,
+                                !canGoPrevious &&
+                                  cardStyles.previewModalStepButtonDisabled,
+                              ]}
+                              onPress={() => stepPreview(-1)}
+                            >
+                              <Text style={cardStyles.previewModalStepText}>
+                                ‹
+                              </Text>
+                            </Pressable>
+                            <Text
+                              testID={
+                                imageTestID
+                                  ? `${imageTestID}-counter`
+                                  : undefined
+                              }
+                              style={cardStyles.previewModalCounterText}
+                            >
+                              {counterText}
                             </Text>
-                          </Pressable>
+                            <Pressable
+                              testID={
+                                imageTestID ? `${imageTestID}-next` : undefined
+                              }
+                              accessibilityRole="button"
+                              accessibilityLabel="下一张图片"
+                              disabled={!canGoNext}
+                              style={[
+                                cardStyles.previewModalStepButton,
+                                !canGoNext &&
+                                  cardStyles.previewModalStepButtonDisabled,
+                              ]}
+                              onPress={() => stepPreview(1)}
+                            >
+                              <Text style={cardStyles.previewModalStepText}>
+                                ›
+                              </Text>
+                            </Pressable>
+                          </>
+                        ) : (
                           <Text
                             testID={
-                              imageTestID ? `${imageTestID}-counter` : undefined
+                              imageTestID
+                                ? `${imageTestID}-rotation`
+                                : undefined
                             }
                             style={cardStyles.previewModalCounterText}
                           >
-                            {counterText}
+                            {activePreviewRotation}°
                           </Text>
-                          <Pressable
-                            testID={
-                              imageTestID ? `${imageTestID}-next` : undefined
-                            }
-                            accessibilityRole="button"
-                            accessibilityLabel="下一张图片"
-                            disabled={!canGoNext}
-                            style={[
-                              cardStyles.previewModalStepButton,
-                              !canGoNext &&
-                                cardStyles.previewModalStepButtonDisabled,
-                            ]}
-                            onPress={() => stepPreview(1)}
-                          >
-                            <Text style={cardStyles.previewModalStepText}>
-                              ›
-                            </Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
+                        )}
+                        <Pressable
+                          testID={
+                            imageTestID
+                              ? `${imageTestID}-rotate-right`
+                              : undefined
+                          }
+                          accessibilityRole="button"
+                          accessibilityLabel="向右旋转图片"
+                          style={cardStyles.previewModalStepButton}
+                          onPress={() => rotateActivePreview(90)}
+                        >
+                          <Text style={cardStyles.previewModalRotateText}>
+                            ↷
+                          </Text>
+                        </Pressable>
+                      </View>
                     </View>
                   </View>
                 </Modal>
@@ -700,6 +836,13 @@ const cardStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
+  previewModalPage: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: colors.surfaceMuted,
+  },
   previewModalMediaFrame: {
     width: '100%',
     overflow: 'hidden',
@@ -711,11 +854,11 @@ const cardStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
-  previewModalPagerRow: {
+  previewModalControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
   previewModalStepButton: {
     width: 40,
@@ -734,6 +877,12 @@ const cardStyles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 28,
     lineHeight: 30,
+    fontWeight: '700',
+  },
+  previewModalRotateText: {
+    color: colors.textSecondary,
+    fontSize: 24,
+    lineHeight: 26,
     fontWeight: '700',
   },
   previewModalCounterText: {

@@ -6,6 +6,7 @@ import {
   getImagePreviewCounterText,
   getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
+  resolveImagePreviewRotation,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
 } from '../src/utils/imagePreview';
@@ -105,6 +106,13 @@ describe('imagePreview utils', () => {
     expect(resolveImagePreviewStep(2, 3, 1)).toBe(2);
     expect(resolveImagePreviewStep(5, 3, 1)).toBe(2);
     expect(resolveImagePreviewStep(0, 0, 1)).toBe(0);
+  });
+
+  it('normalizes quarter-turn image rotations', () => {
+    expect(resolveImagePreviewRotation(0, 90)).toBe(90);
+    expect(resolveImagePreviewRotation(270, 90)).toBe(0);
+    expect(resolveImagePreviewRotation(0, -90)).toBe(270);
+    expect(resolveImagePreviewRotation(Number.NaN, -90)).toBe(270);
   });
 
   it('clamps out-of-range and non-finite indexes', () => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, ScrollView, Text } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
 import { ImageCredentialCard } from '../src/components/ImageCredentialCard';
@@ -214,6 +214,100 @@ describe('ImageCredentialCard preview carousel', () => {
     expect(
       findByTestID(renderer, 'exception-proof-image-2-counter').props.children,
     ).toBe('2 / 3');
+  });
+
+  it('rotates each carousel image independently without changing its page bounds', async () => {
+    const renderer = await renderGroupedCard();
+    await openPreview(renderer);
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-pager').props.onLayout({
+        nativeEvent: { layout: { width: 300 } },
+      });
+      findByTestID(
+        renderer,
+        'exception-proof-image-2-rotate-right',
+      ).props.onPress();
+    });
+
+    expect(
+      StyleSheet.flatten(
+        findByTestID(renderer, 'exception-proof-image-2-page-2').props.style,
+      ),
+    ).toMatchObject({
+      width: 320,
+      height: 300,
+      transform: [{ rotate: '90deg' }],
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-next').props.onPress();
+    });
+
+    expect(
+      StyleSheet.flatten(
+        findByTestID(renderer, 'exception-proof-image-2-page-3').props.style,
+      ).transform,
+    ).toEqual([{ rotate: '0deg' }]);
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(
+        renderer,
+        'exception-proof-image-2-rotate-left',
+      ).props.onPress();
+      findByTestID(
+        renderer,
+        'exception-proof-image-2-previous',
+      ).props.onPress();
+    });
+
+    expect(
+      StyleSheet.flatten(
+        findByTestID(renderer, 'exception-proof-image-2-page-2').props.style,
+      ).transform,
+    ).toEqual([{ rotate: '90deg' }]);
+  });
+
+  it('resets single-image rotation when the modal session closes', async () => {
+    const renderer = await renderGroupedCard({
+      previewGroup: undefined,
+      previewKey: undefined,
+    });
+    await openPreview(renderer);
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-media').props.onLayout({
+        nativeEvent: { layout: { width: 300 } },
+      });
+      findByTestID(
+        renderer,
+        'exception-proof-image-2-rotate-left',
+      ).props.onPress();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-rotation').props.children,
+    ).toEqual([270, '°']);
+    expect(
+      StyleSheet.flatten(
+        findByTestID(renderer, 'exception-proof-image-2-single-preview').props
+          .style,
+      ).transform,
+    ).toEqual([{ rotate: '270deg' }]);
+    expect(
+      StyleSheet.flatten(
+        findByTestID(renderer, 'exception-proof-image-2-single-preview').props
+          .style,
+      ),
+    ).toMatchObject({ width: 320, height: 300 });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-close').props.onPress();
+    });
+    await openPreview(renderer);
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-rotation').props.children,
+    ).toEqual([0, '°']);
   });
 
   it('disables the step buttons at both ends of the group', async () => {

@@ -133,6 +133,17 @@ export function resolveImagePreviewStep(
   return clampPreviewIndex(safeIndex + step, total);
 }
 
+export function resolveImagePreviewRotation(
+  currentRotation: number,
+  step: -90 | 90,
+): number {
+  const normalizedRotation = Number.isFinite(currentRotation)
+    ? currentRotation
+    : 0;
+
+  return (normalizedRotation + step + 360) % 360;
+}
+
 export function clampPreviewIndex(index: number, total: number): number {
   if (total <= 0) {
     return 0;
