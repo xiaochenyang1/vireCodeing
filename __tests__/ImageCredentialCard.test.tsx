@@ -489,7 +489,10 @@ describe('ImageCredentialCard preview carousel', () => {
     ).toHaveLength(0);
 
     await ReactTestRenderer.act(async () => {
-      findByTestID(renderer, 'exception-proof-image-2-previous').props.onPress();
+      findByTestID(
+        renderer,
+        'exception-proof-image-2-previous',
+      ).props.onPress();
     });
 
     expect(
@@ -583,7 +586,9 @@ describe('ImageCredentialCard preview carousel', () => {
     );
 
     await ReactTestRenderer.act(async () => {
-      renderer = ReactTestRenderer.create(renderCard('https://cdn/older-b.jpg'));
+      renderer = ReactTestRenderer.create(
+        renderCard('https://cdn/older-b.jpg'),
+      );
     });
     await ReactTestRenderer.act(async () => {
       findByTestID(renderer, 'exception-proof-image-2').props.onError();
@@ -812,9 +817,9 @@ describe('ImageCredentialCard preview carousel', () => {
     ).toHaveLength(0);
   });
 
-  it('renews again after a cached signed url expires while the provider stays mounted', async () => {
+  it('proactively renews and reschedules signed urls while the card stays mounted', async () => {
     const initialNow = Date.parse('2026-07-31T08:00:00.000Z');
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(initialNow);
+    jest.useFakeTimers({ now: initialNow });
     const refreshPreviewUrl = jest
       .fn()
       .mockResolvedValueOnce({
@@ -824,28 +829,27 @@ describe('ImageCredentialCard preview carousel', () => {
       .mockResolvedValueOnce({
         url: 'https://cdn/b-renewed-2.jpg',
         expiresAtIso: '2026-07-31T08:03:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        url: 'https://cdn/b-renewed-3.jpg',
+        expiresAtIso: '2026-07-31T08:05:00.000Z',
       });
     let renderer!: ReactTestRenderer.ReactTestRenderer;
-
-    const renderCard = (visible: boolean) => (
-      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
-        {visible ? (
-          <ImageCredentialCard
-            title="异常凭证 2：b.jpg"
-            publicUrl="https://cdn/b.jpg"
-            placeholderLabel="异常图片"
-            metaLines={['来源：平台文件对象（已上传）']}
-            imageTestID="expiring-preview"
-            previewKey="file-2"
-            previewFileId="file-2"
-          />
-        ) : null}
-      </ImagePreviewRefreshProvider>
-    );
-
     try {
       await ReactTestRenderer.act(async () => {
-        renderer = ReactTestRenderer.create(renderCard(true));
+        renderer = ReactTestRenderer.create(
+          <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+            <ImageCredentialCard
+              title="异常凭证 2：b.jpg"
+              publicUrl="https://cdn/b.jpg"
+              placeholderLabel="异常图片"
+              metaLines={['来源：平台文件对象（已上传）']}
+              imageTestID="expiring-preview"
+              previewKey="file-2"
+              previewFileId="file-2"
+            />
+          </ImagePreviewRefreshProvider>,
+        );
       });
       await ReactTestRenderer.act(async () => {
         findByTestID(renderer, 'expiring-preview').props.onError();
@@ -857,19 +861,7 @@ describe('ImageCredentialCard preview carousel', () => {
       });
 
       await ReactTestRenderer.act(async () => {
-        renderer.update(renderCard(false));
-      });
-      nowSpy.mockReturnValue(Date.parse('2026-07-31T08:02:00.000Z'));
-      await ReactTestRenderer.act(async () => {
-        renderer.update(renderCard(true));
-      });
-
-      expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
-        uri: 'https://cdn/b.jpg',
-      });
-
-      await ReactTestRenderer.act(async () => {
-        findByTestID(renderer, 'expiring-preview').props.onError();
+        jest.advanceTimersByTime(55_000);
         await Promise.resolve();
       });
 
@@ -877,8 +869,203 @@ describe('ImageCredentialCard preview carousel', () => {
       expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
         uri: 'https://cdn/b-renewed-2.jpg',
       });
+
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(120_000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(3);
+      expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
+        uri: 'https://cdn/b-renewed-3.jpg',
+      });
     } finally {
-      nowSpy.mockRestore();
+      renderer?.unmount();
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not schedule proactive renewal without a signed url expiration', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-07-31T08:00:00.000Z') });
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValue('https://cdn/stable-renewed.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+            <ImageCredentialCard
+              title="稳定预览"
+              publicUrl="https://cdn/stable.jpg"
+              placeholderLabel="凭证"
+              metaLines={[]}
+              imageTestID="stable-preview"
+              previewFileId="file-stable"
+            />
+          </ImagePreviewRefreshProvider>,
+        );
+      });
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'stable-preview').props.onError();
+        await Promise.resolve();
+      });
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(60 * 60 * 1000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    } finally {
+      renderer?.unmount();
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels proactive renewal when the card unmounts', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-07-31T08:00:00.000Z') });
+    const refreshPreviewUrl = jest.fn().mockResolvedValue({
+      url: 'https://cdn/expiring-renewed.jpg',
+      expiresAtIso: '2026-07-31T08:01:00.000Z',
+    });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+            <ImageCredentialCard
+              title="短期预览"
+              publicUrl="https://cdn/expiring.jpg"
+              placeholderLabel="凭证"
+              metaLines={[]}
+              imageTestID="unmounted-preview"
+              previewFileId="file-expiring"
+            />
+          </ImagePreviewRefreshProvider>,
+        );
+      });
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'unmounted-preview').props.onError();
+        await Promise.resolve();
+      });
+      await ReactTestRenderer.act(async () => {
+        renderer.unmount();
+      });
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(55_000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels a scheduled renewal when the preview identity changes', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-07-31T08:00:00.000Z') });
+    const refreshPreviewUrl = jest.fn().mockResolvedValue({
+      url: 'https://cdn/old-renewed.jpg',
+      expiresAtIso: '2026-07-31T08:01:00.000Z',
+    });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    const renderCard = (oldIdentity: boolean) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        <ImageCredentialCard
+          title="身份变化预览"
+          publicUrl={
+            oldIdentity ? 'https://cdn/old.jpg' : 'https://cdn/new.jpg'
+          }
+          placeholderLabel="凭证"
+          metaLines={[]}
+          imageTestID="identity-preview"
+          previewFileId={oldIdentity ? 'file-old' : 'file-new'}
+          previewAccess={{
+            kind: 'order',
+            orderId: oldIdentity ? 'order-old' : 'order-new',
+          }}
+        />
+      </ImagePreviewRefreshProvider>
+    );
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(renderCard(true));
+      });
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'identity-preview').props.onError();
+        await Promise.resolve();
+      });
+      await ReactTestRenderer.act(async () => {
+        renderer.update(renderCard(false));
+      });
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(55_000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    } finally {
+      renderer?.unmount();
+      jest.useRealTimers();
+    }
+  });
+
+  it('shares one proactive renewal across sibling cards', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-07-31T08:00:00.000Z') });
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValueOnce({
+        url: 'https://cdn/shared-renewed-1.jpg',
+        expiresAtIso: '2026-07-31T08:01:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        url: 'https://cdn/shared-renewed-2.jpg',
+        expiresAtIso: '2026-07-31T08:03:00.000Z',
+      });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+            <ImageCredentialCard
+              title="共享预览 A"
+              publicUrl="https://cdn/shared.jpg"
+              placeholderLabel="凭证"
+              metaLines={[]}
+              imageTestID="proactive-sibling-a"
+              previewFileId="file-shared"
+            />
+            <ImageCredentialCard
+              title="共享预览 B"
+              publicUrl="https://cdn/shared.jpg"
+              placeholderLabel="凭证"
+              metaLines={[]}
+              imageTestID="proactive-sibling-b"
+              previewFileId="file-shared"
+            />
+          </ImagePreviewRefreshProvider>,
+        );
+      });
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'proactive-sibling-a').props.onError();
+        await Promise.resolve();
+      });
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(55_000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+      expect(
+        findByTestID(renderer, 'proactive-sibling-b').props.source,
+      ).toEqual({ uri: 'https://cdn/shared-renewed-2.jpg' });
+    } finally {
+      renderer?.unmount();
+      jest.useRealTimers();
     }
   });
 

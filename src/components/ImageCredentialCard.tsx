@@ -33,6 +33,7 @@ import {
 } from './ImagePreviewRefreshProvider';
 
 type ImagePreviewLoadState = 'refreshing' | 'failed';
+const maxImagePreviewRefreshTimeoutMs = 2_147_483_647;
 
 function getImagePreviewEntryRefreshSourceId(entry: ImagePreviewEntry) {
   return entry.fileId
@@ -43,7 +44,6 @@ function getImagePreviewEntryRefreshSourceId(entry: ImagePreviewEntry) {
       )
     : undefined;
 }
-
 
 export function ImageCredentialCard({
   title,
@@ -83,6 +83,7 @@ export function ImageCredentialCard({
     Record<string, ImagePreviewLoadState>
   >({});
   const previewScrollViewRef = useRef<ScrollView>(null);
+  const proactiveRefreshAttemptIdsRef = useRef(new Set<string>());
   const resolvedPreviewTriggerTestID =
     previewTriggerTestID ??
     (imageTestID ? `${imageTestID}-trigger` : undefined);
@@ -167,6 +168,78 @@ export function ImageCredentialCard({
       animated: false,
     });
   }, [isPreviewVisible, previewIndex, previewPageWidth, previewTotal]);
+
+  useEffect(() => {
+    const controller = previewRefreshController;
+
+    if (!controller?.available) {
+      return;
+    }
+
+    const timeouts = new Set<ReturnType<typeof setTimeout>>();
+    const activeAttemptIds = new Set<string>();
+
+    basePreviewEntries.forEach(entry => {
+      const sourceId = getImagePreviewEntryRefreshSourceId(entry);
+      const record = sourceId ? controller.records[sourceId] : undefined;
+
+      if (
+        !sourceId ||
+        !entry.fileId ||
+        !record?.refreshedUrl ||
+        record.proactiveRefreshAtMs === undefined
+      ) {
+        return;
+      }
+
+      const attemptId = JSON.stringify([
+        sourceId,
+        record.revision,
+        record.proactiveRefreshAtMs,
+      ]);
+      activeAttemptIds.add(attemptId);
+
+      if (proactiveRefreshAttemptIdsRef.current.has(attemptId)) {
+        return;
+      }
+
+      const scheduleRefresh = () => {
+        const remainingMs = record.proactiveRefreshAtMs! - Date.now();
+        const timeout = setTimeout(() => {
+          timeouts.delete(timeout);
+
+          if (Date.now() < record.proactiveRefreshAtMs!) {
+            scheduleRefresh();
+            return;
+          }
+
+          proactiveRefreshAttemptIdsRef.current.add(attemptId);
+          controller
+            .refresh({
+              fileId: entry.fileId!,
+              sourceUrl: entry.publicUrl,
+              automatic: true,
+              access: entry.access,
+            })
+            .catch(() => undefined);
+        }, Math.min(Math.max(remainingMs, 0), maxImagePreviewRefreshTimeoutMs));
+
+        timeouts.add(timeout);
+      };
+
+      scheduleRefresh();
+    });
+
+    proactiveRefreshAttemptIdsRef.current.forEach(attemptId => {
+      if (!activeAttemptIds.has(attemptId)) {
+        proactiveRefreshAttemptIdsRef.current.delete(attemptId);
+      }
+    });
+
+    return () => {
+      timeouts.forEach(timeout => clearTimeout(timeout));
+    };
+  }, [basePreviewEntries, previewRefreshController]);
 
   const openPreview = () => {
     const startIndex = resolveImagePreviewStartIndex(previewEntries, {
@@ -261,9 +334,10 @@ export function ImageCredentialCard({
     const baseEntry =
       basePreviewEntries.find(item => item.key === entry.key) ?? entry;
     const sourceId = getImagePreviewEntryRefreshSourceId(baseEntry);
-    const revision = getUsableImagePreviewRefreshRecord(
-      sourceId ? previewRefreshController?.records[sourceId] : undefined,
-    )?.revision ?? 0;
+    const revision =
+      getUsableImagePreviewRefreshRecord(
+        sourceId ? previewRefreshController?.records[sourceId] : undefined,
+      )?.revision ?? 0;
 
     return `${entry.key}-${sourceId ?? baseEntry.publicUrl}-${revision}`;
   };

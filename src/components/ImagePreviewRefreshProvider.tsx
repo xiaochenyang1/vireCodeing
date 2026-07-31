@@ -21,6 +21,7 @@ type ImagePreviewUrlRefresher = (
 export type ImagePreviewRefreshRecord = {
   automaticAttempted: boolean;
   cacheExpiresAtMs: number;
+  proactiveRefreshAtMs?: number;
   refreshedUrl?: string;
   revision: number;
 };
@@ -91,9 +92,7 @@ export function ImagePreviewRefreshProvider({
   const refresherRef = useRef(refreshPreviewUrl);
   const previousRefresherRef = useRef(refreshPreviewUrl);
   const generationRef = useRef(0);
-  const inFlightRef = useRef(
-    new Map<string, ImagePreviewRefreshInFlight>(),
-  );
+  const inFlightRef = useRef(new Map<string, ImagePreviewRefreshInFlight>());
   refresherRef.current = refreshPreviewUrl;
 
   const commitRecord = useCallback(
@@ -200,6 +199,7 @@ export function ImagePreviewRefreshProvider({
               Boolean(current?.automaticAttempted) || request.automatic,
             ...current,
             cacheExpiresAtMs: refreshed.cacheExpiresAtMs,
+            proactiveRefreshAtMs: refreshed.proactiveRefreshAtMs,
             refreshedUrl: refreshed.url,
             revision: (current?.revision ?? 0) + 1,
           }));
@@ -215,8 +215,7 @@ export function ImagePreviewRefreshProvider({
             return {
               ...usableCurrent,
               automaticAttempted:
-                Boolean(usableCurrent?.automaticAttempted) ||
-                request.automatic,
+                Boolean(usableCurrent?.automaticAttempted) || request.automatic,
               cacheExpiresAtMs:
                 usableCurrent?.cacheExpiresAtMs ??
                 Date.now() + failedImagePreviewRefreshTtlMs,
@@ -263,7 +262,7 @@ function normalizeImagePreviewUrlRefreshResult(
 
   return {
     url,
-    cacheExpiresAtMs: resolveImagePreviewRefreshCacheExpiry(
+    ...resolveImagePreviewRefreshCacheExpiry(
       typeof result === 'string' ? undefined : result.expiresAtIso,
     ),
   };
@@ -274,12 +273,22 @@ function resolveImagePreviewRefreshCacheExpiry(expiresAtIso?: string) {
   const expiresAtMs = expiresAtIso ? Date.parse(expiresAtIso) : Number.NaN;
 
   if (!expiresAtIso) {
-    return now + fallbackImagePreviewRefreshTtlMs;
+    return {
+      cacheExpiresAtMs: now + fallbackImagePreviewRefreshTtlMs,
+    };
   }
 
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
-    return now + 1000;
+    return { cacheExpiresAtMs: now + 1000 };
   }
 
-  return Math.max(now + 1000, expiresAtMs - imagePreviewRefreshExpirySkewMs);
+  const refreshAtMs = Math.max(
+    now + 1000,
+    expiresAtMs - imagePreviewRefreshExpirySkewMs,
+  );
+
+  return {
+    cacheExpiresAtMs: refreshAtMs,
+    proactiveRefreshAtMs: refreshAtMs,
+  };
 }
