@@ -106,6 +106,43 @@ describe('platform order attachments', () => {
     ]);
   });
 
+  it('hydrates platform order refs through the participant preview endpoint', async () => {
+    const getFileMetadata = jest.fn();
+    const getOrderAttachmentPreview = jest.fn().mockResolvedValue({
+      fileId: 'file-driver-receipt',
+      previewUrl: 'https://cdn.example.com/file-driver-receipt.png?fresh=1',
+      previewExpiresAtIso: '2026-07-31T08:10:00.000Z',
+    });
+
+    const hydratedOrder = await hydrateRecentOrderAttachmentRefs(
+      createRecentOrder({
+        exceptionReport: {
+          typeLabel: '货损',
+          description: '司机上传的异常凭证',
+          photoCount: 1,
+          photoFiles: [
+            {
+              fileId: 'file-driver-receipt',
+              fileName: '司机异常图片 1',
+              purpose: 'exception',
+              status: 'uploaded',
+            },
+          ],
+        },
+      }),
+      { getFileMetadata, getOrderAttachmentPreview },
+    );
+
+    expect(getOrderAttachmentPreview).toHaveBeenCalledWith(
+      'order-platform-1',
+      'file-driver-receipt',
+    );
+    expect(getFileMetadata).not.toHaveBeenCalled();
+    expect(hydratedOrder.exceptionReport?.photoFiles?.[0].publicUrl).toBe(
+      'https://cdn.example.com/file-driver-receipt.png?fresh=1',
+    );
+  });
+
   it('merges hydrated platform attachment metadata back into local runtime snapshots', () => {
     const localOrder = createRecentOrder({
       bonusText: '已加价 20 元',

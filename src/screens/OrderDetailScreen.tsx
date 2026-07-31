@@ -141,6 +141,7 @@ export function OrderDetailScreen({
       | 'confirmUploaded'
       | 'confirmLocalUploadTarget'
       | 'getFileMetadata'
+      | 'getOrderAttachmentPreview'
     >
   >;
   platformOrderApi?: Pick<
@@ -935,6 +936,7 @@ export function OrderDetailScreen({
       ) : null}
 
       <ExceptionCaseProgressPanel
+        orderId={order.platformOrderId}
         cases={exceptionCases}
         isLoading={isLoadingExceptionCases}
         notice={exceptionCaseNotice}
@@ -1062,6 +1064,7 @@ export function OrderDetailScreen({
       {order.exceptionReport ? (
         <ExceptionRecordCard
           orderId={order.id}
+          previewOrderId={order.platformOrderId}
           exceptionReport={order.exceptionReport}
           onResolve={resolveExceptionReport}
         />
@@ -1081,10 +1084,16 @@ export function OrderDetailScreen({
       ) : null}
 
       {order.evaluation ? (
-        <EvaluationRecordCard evaluation={order.evaluation} />
+        <EvaluationRecordCard
+          evaluation={order.evaluation}
+          previewOrderId={order.platformOrderId}
+        />
       ) : null}
       {order.shipperEvaluation ? (
-        <ShipperEvaluationRecordCard shipperEvaluation={order.shipperEvaluation} />
+        <ShipperEvaluationRecordCard
+          shipperEvaluation={order.shipperEvaluation}
+          previewOrderId={order.platformOrderId}
+        />
       ) : null}
 
       {localNotice ? (

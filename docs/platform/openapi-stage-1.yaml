@@ -3190,6 +3190,49 @@ paths:
                     message: 当前订单状态不允许修改
                     requestId: req_local
                     timestamp: '2026-07-01T08:10:00.000Z'
+  /orders/{orderId}/attachments/{fileId}/preview:
+    get:
+      summary: Renew an order attachment preview URL
+      description: Returns a newly signed short-lived preview URL when the current user is the order's shipper, assigned driver, or an admin and the uploaded file is referenced by the order cargo or event attachments. Non-participants receive ORDER_NOT_FOUND; unrelated or missing file ids receive FILE_NOT_FOUND.
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Newly signed order attachment preview URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderAttachmentPreviewResponse'
+        '401':
+          description: Access token is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Order is inaccessible or the file is not an attachment of the order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Attachment upload is not complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /shipper/orders/{orderId}/cancel:
     post:
       summary: Cancel current shipper order
@@ -8471,6 +8514,29 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/FileUploadRecord'
+    OrderAttachmentPreview:
+      type: object
+      required: [fileId, previewUrl, previewExpiresAtIso]
+      properties:
+        fileId:
+          type: string
+          example: file_01J1Z7P7V2QM9B3V8M3G1N6K8S
+        previewUrl:
+          type: string
+          description: Newly signed short-lived preview URL for an authorized order participant.
+          example: /api/files/preview-contents/driver-1/receipt/file-1.png?expiresAtIso=2026-07-31T08%3A10%3A00.000Z&signature=valid
+        previewExpiresAtIso:
+          type: string
+          format: date-time
+          example: '2026-07-31T08:10:00.000Z'
+    OrderAttachmentPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/OrderAttachmentPreview'
     FileMaintenanceListItem:
       allOf:
         - $ref: '#/components/schemas/FileUploadRecord'

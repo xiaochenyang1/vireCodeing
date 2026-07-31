@@ -473,8 +473,10 @@ function App({
   const platformFilePreviewRefresher = useMemo(
     () =>
       platformFileApi
-        ? (fileId: string) =>
-            refreshPlatformFilePreviewUrl(platformFileApi, fileId)
+        ? (
+            fileId: string,
+            access?: import('./src/utils/imagePreview').ImagePreviewAccess,
+          ) => refreshPlatformFilePreviewUrl(platformFileApi, fileId, access)
         : undefined,
     [platformFileApi],
   );

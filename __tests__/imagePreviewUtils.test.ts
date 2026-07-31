@@ -23,6 +23,25 @@ describe('imagePreview utils', () => {
     expect(entries[0].publicUrl).toBe('https://cdn/a.jpg');
   });
 
+  it('keeps order access context on preview entries', () => {
+    expect(
+      buildImagePreviewGroup([
+        {
+          key: 'file-1',
+          title: '订单附件',
+          publicUrl: 'https://cdn/file-1.jpg',
+          fileId: 'file-1',
+          access: { kind: 'order', orderId: 'order-1' },
+        },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        fileId: 'file-1',
+        access: { kind: 'order', orderId: 'order-1' },
+      }),
+    ]);
+  });
+
   it('returns an empty group for missing or empty input', () => {
     expect(buildImagePreviewGroup(undefined)).toEqual([]);
     expect(buildImagePreviewGroup([])).toEqual([]);

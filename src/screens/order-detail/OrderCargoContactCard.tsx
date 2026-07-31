@@ -24,12 +24,16 @@ export function OrderCargoContactCard({
     order,
     supportsPlatformPaymentFlow,
   );
+  const cargoPhotoPreviewAccess = order.platformOrderId
+    ? { kind: 'order' as const, orderId: order.platformOrderId }
+    : undefined;
   const cargoPhotoPreviewGroup = (order.cargoPhotoFiles ?? []).map(
     (file, index) => ({
       key: file.fileId,
       title: `货物图片凭证 ${index + 1}：${file.fileName}`,
       publicUrl: file.publicUrl,
       fileId: file.fileId,
+      access: cargoPhotoPreviewAccess,
     }),
   );
 
@@ -141,6 +145,7 @@ export function OrderCargoContactCard({
                 previewGroup={cargoPhotoPreviewGroup}
                 previewKey={file.fileId}
                 previewFileId={file.fileId}
+                previewAccess={cargoPhotoPreviewAccess}
               />
             ))}
           </>

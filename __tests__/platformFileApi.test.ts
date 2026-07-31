@@ -239,6 +239,47 @@ describe('platform file api', () => {
     expect(getFileMetadata).toHaveBeenCalledWith('file-1');
   });
 
+  it('renews an order attachment through the participant preview endpoint', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          fileId: 'file-1',
+          previewUrl:
+            '/api/files/preview-contents/driver-1/receipt/file-1.jpg?signature=fresh',
+          previewExpiresAtIso: '2026-07-31T08:10:00.000Z',
+        },
+        requestId: 'req-order-preview',
+        timestamp: '2026-07-31T08:00:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      refreshPlatformFilePreviewUrl(api, 'file-1', {
+        kind: 'order',
+        orderId: ' order-1 ',
+      }),
+    ).resolves.toEqual({
+      url: 'http://localhost:3000/api/files/preview-contents/driver-1/receipt/file-1.jpg?signature=fresh',
+      expiresAtIso: '2026-07-31T08:10:00.000Z',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/orders/order-1/attachments/file-1/preview',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+      }),
+    );
+  });
+
   it('falls back to a stable public url when refreshed preview metadata is blank', async () => {
     const getFileMetadata = jest.fn().mockResolvedValue({
       id: 'file-1',

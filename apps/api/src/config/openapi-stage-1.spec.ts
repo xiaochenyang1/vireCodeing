@@ -59,6 +59,22 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('bearerFormat: JWT');
   });
 
+  it('documents participant-scoped order attachment preview renewal', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expectPathBlockToContain(
+      source,
+      '/orders/{orderId}/attachments/{fileId}/preview',
+      'Renew an order attachment preview URL',
+    );
+    expectPathBlockToContain(
+      source,
+      '/orders/{orderId}/attachments/{fileId}/preview',
+      "$ref: '#/components/schemas/OrderAttachmentPreviewResponse'",
+    );
+    expect(source).toContain('Non-participants receive ORDER_NOT_FOUND');
+  });
+
   it('documents push device token management endpoints for the current user', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

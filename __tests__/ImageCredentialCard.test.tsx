@@ -405,6 +405,39 @@ describe('ImageCredentialCard preview carousel', () => {
     ).toHaveLength(0);
   });
 
+  it('passes order access context when renewing a participant attachment', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValue('https://cdn/order-file-renewed.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="司机回单"
+            publicUrl="https://cdn/order-file.jpg"
+            placeholderLabel="回单"
+            metaLines={['来源：订单附件']}
+            imageTestID="order-participant-attachment"
+            previewKey="file-order-1"
+            previewFileId="file-order-1"
+            previewAccess={{ kind: 'order', orderId: 'order-1' }}
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'order-participant-attachment').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledWith('file-order-1', {
+      kind: 'order',
+      orderId: 'order-1',
+    });
+  });
+
   it('keeps preview load failures scoped to their carousel entry', async () => {
     const refreshPreviewUrl = jest.fn().mockRejectedValue(new Error('expired'));
     let renderer!: ReactTestRenderer.ReactTestRenderer;

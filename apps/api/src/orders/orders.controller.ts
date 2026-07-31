@@ -308,6 +308,34 @@ export class OrdersController {
   }
 }
 
+@Controller('orders')
+@UseGuards(AccessTokenGuard)
+@ApiTags('订单附件 (Order Attachments)')
+export class OrderAttachmentPreviewsController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Get(':orderId/attachments/:fileId/preview')
+  @ApiOperation({
+    summary: '续签订单附件预览地址',
+    description:
+      '货主、已分配司机或管理员在文件确属该订单时获取新的短期预览地址',
+  })
+  async getOrderAttachmentPreview(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return ok(
+      await this.ordersService.getOrderAttachmentPreview(
+        getCurrentUser(request),
+        orderId,
+        fileId,
+      ),
+      getRequestId(request),
+    );
+  }
+}
+
 @Controller('admin/orders')
 @UseGuards(AccessTokenGuard, AdminOnlyGuard)
 @ApiTags('管理员订单 (Admin Orders)')

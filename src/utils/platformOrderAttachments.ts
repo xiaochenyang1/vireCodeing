@@ -2,7 +2,10 @@ import type { createPlatformFileApi } from '../services/platformFileApi';
 import type { FileAttachmentRef, RecentOrder } from '../types';
 
 type PlatformOrderFileMetadataApi = Partial<
-  Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>
+  Pick<
+    ReturnType<typeof createPlatformFileApi>,
+    'getFileMetadata' | 'getOrderAttachmentPreview'
+  >
 >;
 
 function normalizeAttachmentFileId(fileId: string | undefined) {
@@ -128,16 +131,26 @@ function mergeShipperEvaluation(
 async function hydrateFileAttachmentRefs(
   fileRefs: FileAttachmentRef[] | undefined,
   platformFileApi?: PlatformOrderFileMetadataApi,
+  orderId?: string,
 ) {
-  if (!fileRefs?.length || !platformFileApi?.getFileMetadata) {
+  const getOrderAttachmentPreview =
+    orderId && platformFileApi?.getOrderAttachmentPreview
+      ? platformFileApi.getOrderAttachmentPreview
+      : undefined;
+  const getFileMetadata = platformFileApi?.getFileMetadata;
+
+  if (!fileRefs?.length || (!getOrderAttachmentPreview && !getFileMetadata)) {
     return fileRefs;
   }
 
-  const { getFileMetadata } = platformFileApi;
-
   const metadataCache = new Map<
     string,
-    ReturnType<NonNullable<PlatformOrderFileMetadataApi['getFileMetadata']>>
+    Promise<{
+      id?: string;
+      status?: FileAttachmentRef['status'];
+      objectKey?: string;
+      publicUrl?: string;
+    }>
   >();
 
   return Promise.all(
@@ -151,7 +164,11 @@ async function hydrateFileAttachmentRefs(
       let metadataPromise = metadataCache.get(fileId);
 
       if (!metadataPromise) {
-        metadataPromise = getFileMetadata(fileId);
+        metadataPromise = getOrderAttachmentPreview
+          ? getOrderAttachmentPreview(orderId!, fileId).then(preview => ({
+              publicUrl: preview.previewUrl,
+            }))
+          : getFileMetadata!(fileId);
         metadataCache.set(fileId, metadataPromise);
       }
 
@@ -160,8 +177,8 @@ async function hydrateFileAttachmentRefs(
 
         return {
           ...fileRef,
-          fileId: metadata.id,
-          status: metadata.status,
+          ...(metadata.id ? { fileId: metadata.id } : {}),
+          ...(metadata.status ? { status: metadata.status } : {}),
           ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
           ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
         };
@@ -183,10 +200,26 @@ export async function hydrateRecentOrderAttachmentRefs(
     shipperEvaluationPhotoFiles,
   ] =
     await Promise.all([
-      hydrateFileAttachmentRefs(order.cargoPhotoFiles, platformFileApi),
-      hydrateFileAttachmentRefs(order.exceptionReport?.photoFiles, platformFileApi),
-      hydrateFileAttachmentRefs(order.evaluation?.photoFiles, platformFileApi),
-      hydrateFileAttachmentRefs(order.shipperEvaluation?.photoFiles, platformFileApi),
+      hydrateFileAttachmentRefs(
+        order.cargoPhotoFiles,
+        platformFileApi,
+        order.platformOrderId,
+      ),
+      hydrateFileAttachmentRefs(
+        order.exceptionReport?.photoFiles,
+        platformFileApi,
+        order.platformOrderId,
+      ),
+      hydrateFileAttachmentRefs(
+        order.evaluation?.photoFiles,
+        platformFileApi,
+        order.platformOrderId,
+      ),
+      hydrateFileAttachmentRefs(
+        order.shipperEvaluation?.photoFiles,
+        platformFileApi,
+        order.platformOrderId,
+      ),
     ]);
 
   return {

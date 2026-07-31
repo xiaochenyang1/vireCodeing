@@ -20,11 +20,13 @@ function renderAttachmentCards({
   placeholderLabel,
   files,
   testIDPrefix,
+  previewOrderId,
 }: {
   title: string;
   placeholderLabel: string;
   files: FileAttachmentRef[] | undefined;
   testIDPrefix: string;
+  previewOrderId?: string;
 }) {
   if (!files?.length) {
     return null;
@@ -35,6 +37,11 @@ function renderAttachmentCards({
     title: `${title}：${file.fileName}`,
     publicUrl: file.publicUrl,
     fileId: file.fileId,
+    ...(previewOrderId
+      ? {
+          access: { kind: 'order' as const, orderId: previewOrderId },
+        }
+      : {}),
   }));
 
   return (
@@ -60,6 +67,11 @@ function renderAttachmentCards({
           previewGroup={previewGroup}
           previewKey={`${file.fileId || file.fileName}-${index}`}
           previewFileId={file.fileId}
+          previewAccess={
+            previewOrderId
+              ? { kind: 'order', orderId: previewOrderId }
+              : undefined
+          }
         />
       ))}
     </View>
@@ -68,10 +80,12 @@ function renderAttachmentCards({
 
 export function ExceptionRecordCard({
   orderId,
+  previewOrderId,
   exceptionReport,
   onResolve,
 }: {
   orderId: string;
+  previewOrderId?: string;
   exceptionReport: NonNullable<RecentOrder['exceptionReport']>;
   onResolve: () => void;
 }) {
@@ -105,6 +119,7 @@ export function ExceptionRecordCard({
         placeholderLabel: '异常图片',
         files: exceptionReport.photoFiles,
         testIDPrefix: 'order-exception-record-photo',
+        previewOrderId,
       })}
       {exceptionReport.statusText !== '已处理' ? (
         <Pressable
@@ -287,8 +302,10 @@ export function CancellationRecordCard({
 
 export function EvaluationRecordCard({
   evaluation,
+  previewOrderId,
 }: {
   evaluation: NonNullable<RecentOrder['evaluation']>;
+  previewOrderId?: string;
 }) {
   const photoCount =
     evaluation.photoCount ?? evaluation.photoFiles?.length ?? 0;
@@ -315,6 +332,7 @@ export function EvaluationRecordCard({
         placeholderLabel: '评价图片',
         files: evaluation.photoFiles,
         testIDPrefix: 'order-evaluation-record-photo',
+        previewOrderId,
       })}
       <Text style={styles.detailMeta}>{evaluation.content}</Text>
     </View>
@@ -323,8 +341,10 @@ export function EvaluationRecordCard({
 
 export function ShipperEvaluationRecordCard({
   shipperEvaluation,
+  previewOrderId,
 }: {
   shipperEvaluation: NonNullable<RecentOrder['shipperEvaluation']>;
+  previewOrderId?: string;
 }) {
   const photoCount =
     shipperEvaluation.photoCount ?? shipperEvaluation.photoFiles?.length ?? 0;
@@ -361,6 +381,7 @@ export function ShipperEvaluationRecordCard({
           placeholderLabel: '司机评价图片',
           files: shipperEvaluation.photoFiles,
           testIDPrefix: 'order-shipper-evaluation-record-photo',
+          previewOrderId,
         })}
         <Text style={styles.detailMeta}>{shipperEvaluation.content}</Text>
       </View>

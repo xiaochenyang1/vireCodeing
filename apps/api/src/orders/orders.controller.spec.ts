@@ -1,6 +1,7 @@
 import type { OrdersService } from './orders.service';
 import {
   AdminOrdersController,
+  OrderAttachmentPreviewsController,
   OrdersController,
 } from './orders.controller';
 import type { AuthenticatedRequest } from '../auth/access-token.guard';
@@ -95,6 +96,34 @@ describe('OrdersController', () => {
       'shipper-1',
       idempotencyKey,
       body,
+    );
+  });
+
+  it('gets an order attachment preview for the authenticated participant', async () => {
+    const service = {
+      getOrderAttachmentPreview: jest.fn().mockResolvedValue({
+        fileId: 'file-1',
+        previewUrl: '/api/files/preview-contents/file-1?signature=fresh',
+        previewExpiresAtIso: '2026-07-31T08:10:00.000Z',
+      }),
+    } as unknown as OrdersService;
+    const controller = new OrderAttachmentPreviewsController(service);
+    const request = createRequest('driver-1', 'driver');
+
+    await expect(
+      controller.getOrderAttachmentPreview(request, 'order-1', 'file-1'),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: {
+        fileId: 'file-1',
+        previewUrl: expect.stringContaining('signature=fresh'),
+      },
+      requestId: 'req_order_test',
+    });
+    expect(service.getOrderAttachmentPreview).toHaveBeenCalledWith(
+      request.currentUser,
+      'order-1',
+      'file-1',
     );
   });
 

@@ -1,5 +1,6 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import type { FilePurpose, FileUploadRecord } from '../files/dto';
+import type { AuthenticatedUser } from '../auth/dto';
 import {
   LocalFilePreviewUrlSigner,
   type FilePreviewUrlSigner,
@@ -28,6 +29,7 @@ import type {
   ListAdminOrderChangeRequestsQuery,
   ListShipperOrdersQuery,
   ListShipperOrdersResult,
+  OrderAttachmentPreview,
   ReportShipperOrderExceptionRequest,
   AdminOrderChangeRequestReviewEvent,
   ReviewShipperOrderChangeRequest,
@@ -243,6 +245,51 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  async getOrderAttachmentPreview(
+    currentUser: AuthenticatedUser,
+    orderId: string,
+    fileId: string,
+  ): Promise<OrderAttachmentPreview> {
+    const order = await this.repository.findOrderById(orderId);
+    const canAccessOrder =
+      currentUser.userType === 'admin' ||
+      (currentUser.userType === 'shipper' &&
+        order?.shipperId === currentUser.id) ||
+      (currentUser.userType === 'driver' &&
+        order?.assignedDriverId === currentUser.id);
+
+    if (!order || !canAccessOrder) {
+      throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
+    }
+
+    const attachmentFileIds = normalizeAttachmentFileIds([
+      ...(order.cargoPhotoFileIds ?? []),
+      ...order.events.flatMap(event => event.attachmentFileIds ?? []),
+    ]);
+
+    if (!attachmentFileIds.includes(fileId) || !this.filesRepository) {
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '订单附件不存在');
+    }
+
+    const file = await this.filesRepository.findFileById(fileId);
+
+    if (!file) {
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '订单附件不存在');
+    }
+
+    if (file.status !== 'uploaded') {
+      throw new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '订单附件尚未上传完成',
+      );
+    }
+
+    return {
+      fileId: file.id,
+      ...this.previewUrlSigner.signPreviewUrl(file),
+    };
   }
 
   async cancelAdminOrder(

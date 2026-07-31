@@ -512,6 +512,82 @@ describe('OrdersService', () => {
     });
   });
 
+  it('renews an order attachment preview for the shipper and assigned driver', async () => {
+    const { filesRepository, repository, service } = createService();
+    const cargoFile = await createUploadedFile(filesRepository, 'shipper-1', {
+      purpose: 'cargo',
+      fileName: 'cargo-1.png',
+      contentType: 'image/png',
+    });
+    const order = await repository.seedOrderForTest('shipper-1', {
+      ...createInput('宝安区福永物流园'),
+      cargoPhotoFileIds: [cargoFile.id],
+    });
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '马上联系货主',
+    });
+
+    await expect(
+      service.getOrderAttachmentPreview(
+        { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+        order.id,
+        cargoFile.id,
+      ),
+    ).resolves.toMatchObject({
+      fileId: cargoFile.id,
+      previewUrl: expect.stringContaining('/api/files/preview-contents/'),
+      previewExpiresAtIso: expect.any(String),
+    });
+    await expect(
+      service.getOrderAttachmentPreview(
+        { id: 'driver-1', phone: '13900139002', userType: 'driver' },
+        order.id,
+        cargoFile.id,
+      ),
+    ).resolves.toMatchObject({ fileId: cargoFile.id });
+  });
+
+  it('does not expose order attachments to non-participants or unrelated file ids', async () => {
+    const { filesRepository, repository, service } = createService();
+    const cargoFile = await createUploadedFile(filesRepository, 'shipper-1', {
+      purpose: 'cargo',
+      fileName: 'cargo-1.png',
+      contentType: 'image/png',
+    });
+    const unrelatedFile = await createUploadedFile(
+      filesRepository,
+      'shipper-1',
+      {
+        purpose: 'cargo',
+        fileName: 'unrelated.png',
+        contentType: 'image/png',
+      },
+    );
+    const order = await repository.seedOrderForTest('shipper-1', {
+      ...createInput('宝安区福永物流园'),
+      cargoPhotoFileIds: [cargoFile.id],
+    });
+
+    await expect(
+      service.getOrderAttachmentPreview(
+        { id: 'driver-2', phone: '13900139003', userType: 'driver' },
+        order.id,
+        cargoFile.id,
+      ),
+    ).rejects.toEqual(
+      new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在'),
+    );
+    await expect(
+      service.getOrderAttachmentPreview(
+        { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+        order.id,
+        unrelatedFile.id,
+      ),
+    ).rejects.toEqual(
+      new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '订单附件不存在'),
+    );
+  });
+
   it('keeps missing file ids visible in admin order attachment audit', async () => {
     const { repository, service } = createService();
     const order = await repository.seedOrderForTest('shipper-1', {

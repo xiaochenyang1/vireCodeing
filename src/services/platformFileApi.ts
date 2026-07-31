@@ -4,6 +4,7 @@ import {
   platformPost,
   type PlatformApiConfig,
 } from './platformApiClient';
+import type { ImagePreviewAccess } from '../utils/imagePreview';
 
 export type PlatformFilePurpose =
   | 'avatar'
@@ -41,6 +42,12 @@ export type PlatformFileUploadRecord = {
   previewExpiresAtIso?: string;
   status: PlatformFileStatus;
   createdAtIso: string;
+};
+
+export type PlatformOrderAttachmentPreview = {
+  fileId: string;
+  previewUrl: string;
+  previewExpiresAtIso: string;
 };
 
 export type PlatformFileUploadIntent = PlatformFileUploadRecord & {
@@ -216,6 +223,24 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
           }
         : file;
     },
+    async getOrderAttachmentPreview(orderId: string, fileId: string) {
+      const normalizedOrderId = normalizeOrderAttachmentOrderId(orderId);
+      const normalizedFileId = normalizeFileId(fileId);
+      const preview = await platformGet<PlatformOrderAttachmentPreview>(
+        config,
+        `/orders/${encodeURIComponent(
+          normalizedOrderId,
+        )}/attachments/${encodeURIComponent(normalizedFileId)}/preview`,
+      );
+
+      return {
+        ...preview,
+        previewUrl: resolvePlatformFilePreviewUrl(
+          preview.previewUrl.trim(),
+          config.baseUrl,
+        ),
+      };
+    },
     async confirmLocalUploadTarget(uploadUrl: string) {
       const uploadPath = normalizeLocalUploadTargetPath(
         uploadUrl,
@@ -298,11 +323,30 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
 }
 
 export async function refreshPlatformFilePreviewUrl(
-  api: Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>,
+  api: Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'> &
+    Partial<
+      Pick<
+        ReturnType<typeof createPlatformFileApi>,
+        'getOrderAttachmentPreview'
+      >
+    >,
   fileId: string,
+  access?: ImagePreviewAccess,
 ) {
-  const file = await api.getFileMetadata(fileId);
-  const previewUrl = file.previewUrl?.trim() || file.publicUrl?.trim();
+  if (access && !api.getOrderAttachmentPreview) {
+    throw new PlatformApiError(
+      'Platform order attachment preview API is unavailable',
+      'ORDER_ATTACHMENT_PREVIEW_UNAVAILABLE',
+      0,
+    );
+  }
+
+  const file = access
+    ? await api.getOrderAttachmentPreview!(access.orderId, fileId)
+    : await api.getFileMetadata(fileId);
+  const previewUrl =
+    file.previewUrl?.trim() ||
+    ('publicUrl' in file ? file.publicUrl?.trim() : undefined);
 
   if (!previewUrl) {
     throw new PlatformApiError(
@@ -602,6 +646,18 @@ function normalizeFileId(value: unknown) {
   }
 
   return normalizedValue;
+}
+
+function normalizeOrderAttachmentOrderId(value: unknown) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new PlatformApiError(
+      'Order id is invalid',
+      'PLATFORM_ORDER_ID_INVALID',
+      0,
+    );
+  }
+
+  return value.trim();
 }
 
 function normalizePreviewObjectKey(value: unknown) {

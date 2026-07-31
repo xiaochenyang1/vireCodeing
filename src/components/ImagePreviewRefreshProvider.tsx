@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { ImagePreviewAccess } from '../utils/imagePreview';
 
 type ImagePreviewUrlRefreshResult = {
   url: string;
@@ -15,6 +16,7 @@ type ImagePreviewUrlRefreshResult = {
 };
 type ImagePreviewUrlRefresher = (
   fileId: string,
+  access?: ImagePreviewAccess,
 ) => Promise<string | ImagePreviewUrlRefreshResult>;
 export type ImagePreviewRefreshRecord = {
   automaticAttempted: boolean;
@@ -27,6 +29,7 @@ type ImagePreviewRefreshRequest = {
   fileId: string;
   sourceUrl: string;
   automatic: boolean;
+  access?: ImagePreviewAccess;
 };
 type ImagePreviewRefreshController = {
   available: boolean;
@@ -52,8 +55,14 @@ const ImagePreviewRefreshContext = createContext<
 export function createImagePreviewRefreshSourceId(
   fileId: string,
   sourceUrl: string,
+  access?: ImagePreviewAccess,
 ) {
-  return JSON.stringify([fileId, sourceUrl]);
+  return JSON.stringify([
+    fileId,
+    sourceUrl,
+    access?.kind ?? '',
+    access?.orderId ?? '',
+  ]);
 }
 
 export function getUsableImagePreviewRefreshRecord(
@@ -135,6 +144,7 @@ export function ImagePreviewRefreshProvider({
       const sourceId = createImagePreviewRefreshSourceId(
         request.fileId,
         request.sourceUrl,
+        request.access,
       );
       const currentInFlight = inFlightRef.current.get(sourceId);
 
@@ -175,7 +185,9 @@ export function ImagePreviewRefreshProvider({
           }
 
           const refreshed = normalizeImagePreviewUrlRefreshResult(
-            await refresher(request.fileId),
+            request.access
+              ? await refresher(request.fileId, request.access)
+              : await refresher(request.fileId),
           );
 
           if (requestGeneration !== generationRef.current) {

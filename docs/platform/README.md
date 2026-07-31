@@ -186,6 +186,12 @@ S3 兼容上传完成回调第一片已补：`POST /files/storage-callbacks/s3-c
 
 当前仓库已经有可执行的 PostgreSQL 验收入口、阶段 1 种子数据、认证冒烟检查、订单冒烟检查、司机认证冒烟检查、订单变更双连接竞争 smoke、订单/优惠券原子性 smoke、财务账本 smoke、本地 PostgreSQL Compose 文件、测试库隔离策略和 `db:postgres:doctor` 诊断入口；`.env.example` 已给出 `DATABASE_URL` 与 `TEST_DATABASE_URL` 示例，API 环境配置会要求 `DATABASE_URL` 使用 `postgresql://` 连接串。真实连接是否通过取决于本机或 CI 是否提供可用 PostgreSQL 和对应环境变量，Docker 只是可选的本地启动方式。
 
+## 订单附件预览授权
+
+- `GET /files/{fileId}` 继续只允许文件 owner 和 admin 读取。
+- `GET /orders/{orderId}/attachments/{fileId}/preview` 为订单货主、已分配司机和 admin 续签已上传的订单附件；服务端同时校验订单参与关系和订单附件引用关系。
+- 移动端订单附件首次水合及图片失败重试均使用订单授权入口，签名 URL 不会因放宽通用文件读取而跨账号泄露。
+
 ## 目录规划
 
 - `apps/api`：NestJS 后端服务。

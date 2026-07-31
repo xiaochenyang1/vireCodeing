@@ -15,6 +15,7 @@ import { MapsModule } from '../maps/maps.module';
 import { MapsService } from '../maps/maps.service';
 import {
   AdminOrdersController,
+  OrderAttachmentPreviewsController,
   OrdersController,
 } from './orders.controller';
 import {
@@ -26,7 +27,11 @@ import { OrdersService } from './orders.service';
 
 @Module({
   imports: [AuthModule, PrismaModule, NotificationsModule, MapsModule],
-  controllers: [OrdersController, AdminOrdersController],
+  controllers: [
+    OrdersController,
+    OrderAttachmentPreviewsController,
+    AdminOrdersController,
+  ],
   providers: [
     {
       provide: PrismaOrdersRepository,

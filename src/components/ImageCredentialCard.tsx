@@ -22,6 +22,7 @@ import {
   resolveImagePreviewStep,
 } from '../utils/imagePreview';
 import type {
+  ImagePreviewAccess,
   ImagePreviewEntry,
   ImagePreviewItem,
 } from '../utils/imagePreview';
@@ -35,7 +36,11 @@ type ImagePreviewLoadState = 'refreshing' | 'failed';
 
 function getImagePreviewEntryRefreshSourceId(entry: ImagePreviewEntry) {
   return entry.fileId
-    ? createImagePreviewRefreshSourceId(entry.fileId, entry.publicUrl)
+    ? createImagePreviewRefreshSourceId(
+        entry.fileId,
+        entry.publicUrl,
+        entry.access,
+      )
     : undefined;
 }
 
@@ -53,6 +58,7 @@ export function ImageCredentialCard({
   previewGroup,
   previewKey,
   previewFileId,
+  previewAccess,
 }: {
   title: string;
   publicUrl?: string;
@@ -66,6 +72,7 @@ export function ImageCredentialCard({
   previewGroup?: ImagePreviewItem[];
   previewKey?: string;
   previewFileId?: string;
+  previewAccess?: ImagePreviewAccess;
 }) {
   const { height: windowHeight } = useWindowDimensions();
   const previewRefreshController = useImagePreviewRefresh();
@@ -92,8 +99,16 @@ export function ImageCredentialCard({
         title,
         publicUrl,
         fileId: previewFileId,
+        access: previewAccess,
       }),
-    [currentPreviewKey, previewFileId, previewGroup, publicUrl, title],
+    [
+      currentPreviewKey,
+      previewAccess,
+      previewFileId,
+      previewGroup,
+      publicUrl,
+      title,
+    ],
   );
   const previewEntries = useMemo(
     () =>
@@ -204,6 +219,7 @@ export function ImageCredentialCard({
       fileId: entry.fileId,
       sourceUrl: entry.publicUrl,
       automatic,
+      access: entry.access,
     });
 
     setPreviewLoadState(

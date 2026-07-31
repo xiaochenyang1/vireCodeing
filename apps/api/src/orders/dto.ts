@@ -373,6 +373,12 @@ export type AdminOrderAttachmentFileRecord = FileUploadRecord & {
   previewExpiresAtIso?: string;
 };
 
+export type OrderAttachmentPreview = {
+  fileId: string;
+  previewUrl: string;
+  previewExpiresAtIso: string;
+};
+
 export type AdminOrderAttachmentFileGroup = {
   fileIds: string[];
   files: AdminOrderAttachmentFileRecord[];

@@ -156,7 +156,9 @@ type DriverPlatformFileApi = Pick<
   Partial<
     Pick<
       ReturnType<typeof createPlatformFileApi>,
-      'confirmLocalUploadTarget' | 'getFileMetadata'
+      | 'confirmLocalUploadTarget'
+      | 'getFileMetadata'
+      | 'getOrderAttachmentPreview'
     >
   >;
 type PlatformMapsApi = Pick<
@@ -4753,6 +4755,7 @@ export function DriverHomeScreen({
             </View>
           ) : null}
           <ExceptionCaseProgressPanel
+            orderId={selectedOrder.id}
             cases={sortedExceptionCases}
             isLoading={isLoadingExceptionCases}
             notice={exceptionCaseNotice}

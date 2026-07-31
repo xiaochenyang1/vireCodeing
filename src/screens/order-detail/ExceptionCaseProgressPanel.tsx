@@ -20,7 +20,10 @@ import {
 } from '../../utils/orderExceptionCases';
 
 type ExceptionCasePlatformFileApi = Partial<
-  Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>
+  Pick<
+    ReturnType<typeof createPlatformFileApi>,
+    'getFileMetadata' | 'getOrderAttachmentPreview'
+  >
 >;
 
 function getAttachmentStatusText(status: FileAttachmentRef['status']) {
@@ -49,10 +52,16 @@ function createFallbackExceptionCaseAttachment(
 async function hydrateExceptionCaseAttachments(
   cases: PlatformOrderExceptionCase[],
   platformFileApi?: ExceptionCasePlatformFileApi,
+  orderId?: string,
 ) {
   const metadataCache = new Map<
     string,
-    ReturnType<NonNullable<ExceptionCasePlatformFileApi['getFileMetadata']>>
+    Promise<{
+      id?: string;
+      status?: FileAttachmentRef['status'];
+      objectKey?: string;
+      publicUrl?: string;
+    }>
   >();
   const entries = await Promise.all(
     cases.map(async exceptionCase => {
@@ -66,14 +75,24 @@ async function hydrateExceptionCaseAttachments(
 
       const attachments = await Promise.all(
         normalizedFileIds.map(async (fileId, index) => {
-          if (!platformFileApi?.getFileMetadata) {
+          const getOrderAttachmentPreview =
+            orderId && platformFileApi?.getOrderAttachmentPreview
+              ? platformFileApi.getOrderAttachmentPreview
+              : undefined;
+          const getFileMetadata = platformFileApi?.getFileMetadata;
+
+          if (!getOrderAttachmentPreview && !getFileMetadata) {
             return createFallbackExceptionCaseAttachment(fileId, index);
           }
 
           let metadataPromise = metadataCache.get(fileId);
 
           if (!metadataPromise) {
-            metadataPromise = platformFileApi.getFileMetadata(fileId);
+            metadataPromise = getOrderAttachmentPreview
+              ? getOrderAttachmentPreview(orderId!, fileId).then(preview => ({
+                  publicUrl: preview.previewUrl,
+                }))
+              : getFileMetadata!(fileId);
             metadataCache.set(fileId, metadataPromise);
           }
 
@@ -81,10 +100,10 @@ async function hydrateExceptionCaseAttachments(
             const metadata = await metadataPromise;
 
             return {
-              fileId: metadata.id,
+              fileId: metadata.id ?? fileId,
               fileName: `异常工单凭证 ${index + 1}`,
               purpose: 'exception' as const,
-              status: metadata.status,
+              status: metadata.status ?? 'uploaded',
               ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
               ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
             };
@@ -111,6 +130,7 @@ async function hydrateExceptionCaseAttachments(
 }
 
 export function ExceptionCaseProgressPanel({
+  orderId,
   cases,
   isLoading,
   notice,
@@ -120,6 +140,7 @@ export function ExceptionCaseProgressPanel({
   onSubmitAppeal,
   platformFileApi,
 }: {
+  orderId?: string;
   cases: PlatformOrderExceptionCase[];
   isLoading: boolean;
   notice?: string;
@@ -136,7 +157,7 @@ export function ExceptionCaseProgressPanel({
   useEffect(() => {
     let active = true;
 
-    hydrateExceptionCaseAttachments(cases, platformFileApi)
+    hydrateExceptionCaseAttachments(cases, platformFileApi, orderId)
       .then(hydratedAttachments => {
         if (active) {
           setAttachmentMap(hydratedAttachments);
@@ -151,7 +172,7 @@ export function ExceptionCaseProgressPanel({
     return () => {
       active = false;
     };
-  }, [cases, platformFileApi]);
+  }, [cases, orderId, platformFileApi]);
 
   const sortedCases = sortOrderExceptionCases(cases);
 
@@ -237,10 +258,21 @@ export function ExceptionCaseProgressPanel({
                         title: `异常工单凭证：${groupAttachment.fileName}`,
                         publicUrl: groupAttachment.publicUrl,
                         fileId: groupAttachment.fileId,
+                        ...(orderId
+                          ? {
+                              access: {
+                                kind: 'order' as const,
+                                orderId,
+                              },
+                            }
+                          : {}),
                       }),
                     )}
                     previewKey={`${exceptionCase.id}-${attachment.fileId}-${index}`}
                     previewFileId={attachment.fileId}
+                    previewAccess={
+                      orderId ? { kind: 'order', orderId } : undefined
+                    }
                   />
                 ))}
               </View>

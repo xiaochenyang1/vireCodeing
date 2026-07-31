@@ -818,7 +818,7 @@ describe('OrderDetailScreen exception case progress', () => {
     );
   });
 
-  it('renders exception case attachment previews from platform file metadata', async () => {
+  it('renders exception case attachments from the participant preview endpoint', async () => {
     const order = {
       ...orderListOrders[0],
       platformOrderId: 'order-platform-case-attachments',
@@ -849,14 +849,11 @@ describe('OrderDetailScreen exception case progress', () => {
       appealExceptionCase: jest.fn(),
     };
     const platformFileApi = {
-      getFileMetadata: jest.fn().mockResolvedValue({
-        id: 'file-case-attachment-1',
-        ownerUserId: 'driver-1',
-        purpose: 'exception' as const,
-        objectKey: 'driver-1/exception/file-case-attachment-1.png',
-        publicUrl: 'https://cdn.example.com/file-case-attachment-1.png',
-        status: 'uploaded' as const,
-        createdAtIso: '2026-07-12T08:00:00.000Z',
+      getFileMetadata: jest.fn(),
+      getOrderAttachmentPreview: jest.fn().mockResolvedValue({
+        fileId: 'file-case-attachment-1',
+        previewUrl: 'https://cdn.example.com/file-case-attachment-1.png',
+        previewExpiresAtIso: '2026-07-12T08:10:00.000Z',
       }),
     };
 
@@ -866,9 +863,11 @@ describe('OrderDetailScreen exception case progress', () => {
       platformFileApi,
     });
 
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+    expect(platformFileApi.getOrderAttachmentPreview).toHaveBeenCalledWith(
+      'order-platform-case-attachments',
       'file-case-attachment-1',
     );
+    expect(platformFileApi.getFileMetadata).not.toHaveBeenCalled();
     expect(getRenderedText(renderer)).toMatch(/附件凭证\s+1\s+张/);
     expect(getRenderedText(renderer)).toContain(
       '异常工单凭证：异常工单凭证 1',

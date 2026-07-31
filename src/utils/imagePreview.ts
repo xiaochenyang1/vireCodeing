@@ -11,6 +11,12 @@ export type ImagePreviewItem = {
   title: string;
   publicUrl?: string;
   fileId?: string;
+  access?: ImagePreviewAccess;
+};
+
+export type ImagePreviewAccess = {
+  kind: 'order';
+  orderId: string;
 };
 
 export type ImagePreviewEntry = {
@@ -18,6 +24,7 @@ export type ImagePreviewEntry = {
   title: string;
   publicUrl: string;
   fileId?: string;
+  access?: ImagePreviewAccess;
 };
 
 /**
@@ -61,6 +68,7 @@ export function buildImagePreviewGroup(
       title: item.title,
       publicUrl: item.publicUrl,
       ...(item.fileId ? { fileId: item.fileId } : {}),
+      ...(item.access ? { access: item.access } : {}),
     });
 
     return entries;
