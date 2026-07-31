@@ -225,10 +225,26 @@ export function EvaluationRecords({
                         }`,
                         publicUrl: groupFile.publicUrl,
                         fileId: groupFile.fileId,
+                        ...(item.platformOrderId
+                          ? {
+                              access: {
+                                kind: 'order' as const,
+                                orderId: item.platformOrderId,
+                              },
+                            }
+                          : {}),
                       }),
                     )}
                     previewKey={`${item.id}-${file.fileId}-${index}`}
                     previewFileId={file.fileId}
+                    previewAccess={
+                      item.platformOrderId
+                        ? {
+                            kind: 'order',
+                            orderId: item.platformOrderId,
+                          }
+                        : undefined
+                    }
                   />
                 ))}
               </View>

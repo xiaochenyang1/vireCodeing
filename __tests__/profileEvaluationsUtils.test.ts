@@ -8,6 +8,7 @@ import {
   createEvaluationRecords,
   filterEvaluationRecords,
   getEvaluationAppealStatusText,
+  hydrateProfileEvaluationRecords,
   mergeEvaluationAppealCases,
   type ProfileEvaluationRecordItem,
 } from '../src/utils/profileEvaluations';
@@ -57,13 +58,12 @@ test('filters profile evaluation records by high and lower rating levels', () =>
     'four',
     'three',
   ]);
-  expect(filterEvaluationRecords(records, 'high').map(item => item.id)).toEqual([
-    'five',
-  ]);
-  expect(filterEvaluationRecords(records, 'lower').map(item => item.id)).toEqual([
-    'four',
-    'three',
-  ]);
+  expect(filterEvaluationRecords(records, 'high').map(item => item.id)).toEqual(
+    ['five'],
+  );
+  expect(
+    filterEvaluationRecords(records, 'lower').map(item => item.id),
+  ).toEqual(['four', 'three']);
 });
 
 test('creates local profile evaluation records from evaluated orders before mock records', () => {
@@ -155,8 +155,7 @@ test('includes local driver-to-shipper evaluations in profile records', () => {
             fileName: '司机评价图片凭证 1',
             purpose: 'evaluation',
             status: 'uploaded',
-            publicUrl:
-              'https://cdn.example.com/file-shipper-evaluation-1.png',
+            publicUrl: 'https://cdn.example.com/file-shipper-evaluation-1.png',
           },
         ],
       },
@@ -180,8 +179,7 @@ test('includes local driver-to-shipper evaluations in profile records', () => {
         fileName: '司机评价图片凭证 1',
         purpose: 'evaluation',
         status: 'uploaded',
-        publicUrl:
-          'https://cdn.example.com/file-shipper-evaluation-1.png',
+        publicUrl: 'https://cdn.example.com/file-shipper-evaluation-1.png',
       },
     ],
   });
@@ -270,6 +268,7 @@ test('sorts local profile evaluation records from platform snapshot by submitted
       driverReplyText: '',
       driverReplyTimeText: '',
       direction: 'shipper_to_driver',
+      platformOrderId: 'order-platform-1',
       platformEvaluationId: 'evaluation-platform-1',
       photoFiles: [
         {
@@ -297,6 +296,7 @@ test('sorts local profile evaluation records from platform snapshot by submitted
       driverReplyText: '感谢反馈',
       driverReplyTimeText: '2026-07-09 16:30',
       direction: 'shipper_to_driver',
+      platformOrderId: 'order-platform-2',
       platformEvaluationId: 'evaluation-platform-anonymous',
     },
   ]);
@@ -346,6 +346,7 @@ test('sorts local received evaluation records from platform snapshot by submitte
       driverReplyText: '',
       driverReplyTimeText: '',
       direction: 'driver_to_shipper',
+      platformOrderId: 'order-platform-1',
       photoFiles: [
         {
           fileId: 'file-received-1',
@@ -366,8 +367,110 @@ test('sorts local received evaluation records from platform snapshot by submitte
       driverReplyText: '',
       driverReplyTimeText: '',
       direction: 'driver_to_shipper',
+      platformOrderId: 'order-platform-2',
     },
   ]);
+});
+
+test('hydrates received evaluation attachments through order participant access', async () => {
+  const getOrderAttachmentPreview = jest.fn().mockResolvedValue({
+    fileId: 'file-received-1',
+    previewUrl: 'https://cdn.example.com/received-preview.jpg',
+    previewExpiresAtIso: '2026-07-31T09:00:00.000Z',
+  });
+  const getFileMetadata = jest.fn();
+  const records = createLocalReceivedEvaluationRecordsFromPlatformSnapshot({
+    shipperId: 'shipper-1',
+    items: [
+      {
+        id: 'received-platform-1',
+        orderId: 'order-platform-1',
+        orderNo: 'HY202607090003',
+        driverName: '平台司机 driver-1',
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主配合很好',
+        anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-received-1'],
+        submittedAtIso: '2026-07-09T10:00:00.000Z',
+      },
+    ],
+  });
+
+  const hydrated = await hydrateProfileEvaluationRecords(
+    [
+      records[0],
+      {
+        ...records[0],
+        id: 'received-platform-copy',
+        photoFiles: records[0].photoFiles?.map(file => ({
+          ...file,
+          fileName: '同文件的另一处展示名',
+        })),
+      },
+    ],
+    {
+      getOrderAttachmentPreview,
+      getFileMetadata,
+    },
+  );
+
+  expect(getOrderAttachmentPreview).toHaveBeenCalledWith(
+    'order-platform-1',
+    'file-received-1',
+  );
+  expect(getOrderAttachmentPreview).toHaveBeenCalledTimes(1);
+  expect(getFileMetadata).not.toHaveBeenCalled();
+  expect(hydrated[0].photoFiles?.[0]).toMatchObject({
+    fileId: 'file-received-1',
+    status: 'uploaded',
+    publicUrl: 'https://cdn.example.com/received-preview.jpg',
+  });
+  expect(hydrated[1].photoFiles?.[0].fileName).toBe('同文件的另一处展示名');
+});
+
+test('falls back to owner metadata when order attachment hydration fails', async () => {
+  const getOrderAttachmentPreview = jest
+    .fn()
+    .mockRejectedValue(new Error('legacy order reference missing'));
+  const getFileMetadata = jest.fn().mockResolvedValue({
+    id: 'file-authored-1',
+    ownerUserId: 'shipper-1',
+    purpose: 'evaluation',
+    objectKey: 'shipper-1/evaluation/file-authored-1.jpg',
+    status: 'uploaded',
+    publicUrl: 'https://cdn.example.com/authored-preview.jpg',
+    createdAtIso: '2026-07-31T08:00:00.000Z',
+  });
+  const records = createLocalEvaluationRecordsFromPlatformSnapshot({
+    shipperId: 'shipper-1',
+    items: [
+      {
+        id: 'authored-platform-1',
+        orderId: 'order-platform-1',
+        orderNo: 'HY202607090003',
+        driverName: '平台司机 driver-1',
+        rating: 5,
+        tags: ['准时送达'],
+        content: '服务很好',
+        anonymous: false,
+        photoCount: 1,
+        photoFileIds: ['file-authored-1'],
+        submittedAtIso: '2026-07-09T10:00:00.000Z',
+      },
+    ],
+  });
+
+  const hydrated = await hydrateProfileEvaluationRecords(records, {
+    getOrderAttachmentPreview,
+    getFileMetadata,
+  });
+
+  expect(getFileMetadata).toHaveBeenCalledWith('file-authored-1');
+  expect(hydrated[0].photoFiles?.[0].publicUrl).toBe(
+    'https://cdn.example.com/authored-preview.jpg',
+  );
 });
 
 test('merges platform sent and received evaluation records by submitted time', () => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
+import { ImageCredentialCard } from '../src/components/ImageCredentialCard';
 import { orderListOrders } from '../src/data/mockData';
 import { ProfileCenterScreen } from '../src/screens/ProfileCenterScreen';
 import { clearAuthSession, saveAuthSession } from '../src/utils/authSession';
@@ -43,6 +44,7 @@ function createPlatformFileApiMock(overrides: Record<string, unknown> = {}) {
     confirmUploaded: jest.fn(),
     confirmLocalUploadTarget: jest.fn(),
     getFileMetadata: jest.fn(),
+    getOrderAttachmentPreview: jest.fn(),
     ...overrides,
   } as React.ComponentProps<typeof ProfileCenterScreen>['platformFileApi'] &
     Record<string, jest.Mock>;
@@ -654,7 +656,7 @@ describe('ProfileCenterScreen verification sync guards', () => {
     });
   });
 
-  it('hydrates platform evaluation files with metadata so profile previews can render', async () => {
+  it('hydrates platform evaluation files through order participant access', async () => {
     saveAuthSession(1000, {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
@@ -700,17 +702,13 @@ describe('ProfileCenterScreen verification sync guards', () => {
       }),
     });
     const platformFileApi = createPlatformFileApiMock({
-      getFileMetadata: jest
+      getOrderAttachmentPreview: jest
         .fn()
-        .mockImplementation((fileId: string) =>
+        .mockImplementation((orderId: string, fileId: string) =>
           Promise.resolve({
-            id: fileId,
-            ownerUserId: 'shipper-1',
-            purpose: 'evaluation',
-            objectKey: `shipper-1/evaluation/${fileId}.png`,
-            status: 'uploaded',
-            publicUrl: `https://cdn.example.com/${fileId}.png`,
-            createdAtIso: '2026-07-22T08:04:00.000Z',
+            fileId,
+            previewUrl: `https://cdn.example.com/${orderId}/${fileId}.png`,
+            previewExpiresAtIso: '2026-07-22T08:40:00.000Z',
           }),
         ),
     });
@@ -722,20 +720,23 @@ describe('ProfileCenterScreen verification sync guards', () => {
 
     await openProfileSection(renderer, 'evaluations');
 
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledTimes(2);
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+    expect(platformFileApi.getOrderAttachmentPreview).toHaveBeenCalledTimes(2);
+    expect(platformFileApi.getOrderAttachmentPreview).toHaveBeenCalledWith(
+      'order-platform-1',
       'file-platform-evaluation-1',
     );
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+    expect(platformFileApi.getOrderAttachmentPreview).toHaveBeenCalledWith(
+      'order-platform-2',
       'file-platform-received-1',
     );
+    expect(platformFileApi.getFileMetadata).not.toHaveBeenCalled();
     expect(
       renderer.root.findByProps({
         testID:
           'profile-evaluation-photo-image-evaluation-platform-evaluation-platform-1-1',
       }).props.source,
     ).toEqual({
-      uri: 'https://cdn.example.com/file-platform-evaluation-1.png',
+      uri: 'https://cdn.example.com/order-platform-1/file-platform-evaluation-1.png',
     });
     expect(
       renderer.root.findByProps({
@@ -743,7 +744,22 @@ describe('ProfileCenterScreen verification sync guards', () => {
           'profile-evaluation-photo-image-received-evaluation-platform-received-platform-1-1',
       }).props.source,
     ).toEqual({
-      uri: 'https://cdn.example.com/file-platform-received-1.png',
+      uri: 'https://cdn.example.com/order-platform-2/file-platform-received-1.png',
+    });
+    const evaluationCards = renderer.root.findAllByType(ImageCredentialCard);
+    const receivedCard = evaluationCards.find(
+      card =>
+        card.props.imageTestID ===
+        'profile-evaluation-photo-image-received-evaluation-platform-received-platform-1-1',
+    );
+
+    expect(receivedCard?.props.previewAccess).toEqual({
+      kind: 'order',
+      orderId: 'order-platform-2',
+    });
+    expect(receivedCard?.props.previewGroup[0].access).toEqual({
+      kind: 'order',
+      orderId: 'order-platform-2',
     });
   });
 

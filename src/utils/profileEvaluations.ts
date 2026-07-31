@@ -25,6 +25,7 @@ export type ProfileEvaluationRecordItem = {
   driverReplyTimeText: string;
   direction: ProfileEvaluationDirection;
   photoFiles?: FileAttachmentRef[];
+  platformOrderId?: string;
   platformEvaluationId?: string;
   moderationStatus?: PlatformAdminEvaluationAuditRecord['moderationStatus'];
   moderationVersion?: number;
@@ -34,8 +35,16 @@ export type ProfileEvaluationRecordItem = {
 };
 
 type ProfileEvaluationFileMetadataApi = Partial<
-  Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>
+  Pick<
+    ReturnType<typeof createPlatformFileApi>,
+    'getFileMetadata' | 'getOrderAttachmentPreview'
+  >
 >;
+type ProfileEvaluationAttachmentHydration = Pick<
+  FileAttachmentRef,
+  'fileId' | 'status'
+> &
+  Partial<Pick<FileAttachmentRef, 'objectKey' | 'publicUrl'>>;
 
 export type EvaluationFilter = 'all' | 'high' | 'lower';
 
@@ -98,6 +107,9 @@ export function createEvaluationRecords(
             driverReplyText: '',
             driverReplyTimeText: '',
             direction: 'shipper_to_driver',
+            ...(order.platformOrderId
+              ? { platformOrderId: order.platformOrderId }
+              : {}),
             ...(order.evaluation.photoFiles?.length
               ? { photoFiles: order.evaluation.photoFiles }
               : {}),
@@ -130,6 +142,9 @@ export function createEvaluationRecords(
             driverReplyText: '',
             driverReplyTimeText: '',
             direction: 'driver_to_shipper',
+            ...(order.platformOrderId
+              ? { platformOrderId: order.platformOrderId }
+              : {}),
             ...(order.shipperEvaluation.photoFiles?.length
               ? { photoFiles: order.shipperEvaluation.photoFiles }
               : {}),
@@ -277,13 +292,16 @@ export async function hydrateProfileEvaluationRecords(
   records: ProfileEvaluationRecordItem[],
   platformFileApi?: ProfileEvaluationFileMetadataApi,
 ) {
-  if (!platformFileApi?.getFileMetadata) {
+  if (
+    !platformFileApi?.getFileMetadata &&
+    !platformFileApi?.getOrderAttachmentPreview
+  ) {
     return records;
   }
 
   const metadataCache = new Map<
     string,
-    ReturnType<NonNullable<ProfileEvaluationFileMetadataApi['getFileMetadata']>>
+    Promise<ProfileEvaluationAttachmentHydration | undefined>
   >();
 
   return Promise.all(
@@ -292,6 +310,7 @@ export async function hydrateProfileEvaluationRecords(
         record.photoFiles,
         platformFileApi,
         metadataCache,
+        record.platformOrderId,
       );
 
       return photoFiles?.length
@@ -365,6 +384,7 @@ function createPlatformEvaluationRecord(
       ? formatIsoMinute(item.driverReplyAtIso)
       : '',
     direction: 'shipper_to_driver',
+    platformOrderId: item.orderId,
     platformEvaluationId: item.id,
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
@@ -408,6 +428,7 @@ function createEvaluationAppealCaseRecord(
       driverReplyText: '',
       driverReplyTimeText: '',
       direction: appealCase.direction,
+      platformOrderId: appealCase.orderId,
       platformEvaluationId: appealCase.id,
       ...(createProfileEvaluationAttachmentRefs(
         appealCase.photoFileIds,
@@ -444,6 +465,7 @@ function createPlatformReceivedEvaluationRecord(
     driverReplyText: '',
     driverReplyTimeText: '',
     direction: 'driver_to_shipper',
+    platformOrderId: item.orderId,
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
   };
 }
@@ -472,14 +494,13 @@ async function hydrateProfileEvaluationAttachmentRefs(
   platformFileApi: ProfileEvaluationFileMetadataApi,
   metadataCache: Map<
     string,
-    ReturnType<NonNullable<ProfileEvaluationFileMetadataApi['getFileMetadata']>>
+    Promise<ProfileEvaluationAttachmentHydration | undefined>
   >,
+  platformOrderId?: string,
 ) {
-  if (!fileRefs?.length || !platformFileApi.getFileMetadata) {
+  if (!fileRefs?.length) {
     return fileRefs;
   }
-
-  const { getFileMetadata } = platformFileApi;
 
   return Promise.all(
     fileRefs.map(async fileRef => {
@@ -489,26 +510,61 @@ async function hydrateProfileEvaluationAttachmentRefs(
         return fileRef;
       }
 
-      let metadataPromise = metadataCache.get(fileId);
+      const cacheKey = JSON.stringify([platformOrderId ?? '', fileId]);
+      let metadataPromise = metadataCache.get(cacheKey);
 
       if (!metadataPromise) {
-        metadataPromise = getFileMetadata(fileId);
-        metadataCache.set(fileId, metadataPromise);
+        metadataPromise = hydrateProfileEvaluationAttachmentRef(
+          fileId,
+          platformFileApi,
+          platformOrderId,
+        );
+        metadataCache.set(cacheKey, metadataPromise);
       }
 
-      try {
-        const metadata = await metadataPromise;
+      const metadata = await metadataPromise;
 
-        return {
-          ...fileRef,
-          fileId: metadata.id,
-          status: metadata.status,
-          ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
-          ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
-        };
-      } catch {
-        return fileRef;
-      }
+      return metadata ? { ...fileRef, ...metadata } : fileRef;
     }),
   );
+}
+
+async function hydrateProfileEvaluationAttachmentRef(
+  fileId: string,
+  platformFileApi: ProfileEvaluationFileMetadataApi,
+  platformOrderId?: string,
+): Promise<ProfileEvaluationAttachmentHydration | undefined> {
+  if (platformOrderId && platformFileApi.getOrderAttachmentPreview) {
+    try {
+      const preview = await platformFileApi.getOrderAttachmentPreview(
+        platformOrderId,
+        fileId,
+      );
+
+      return {
+        fileId: preview.fileId,
+        status: 'uploaded',
+        publicUrl: preview.previewUrl,
+      };
+    } catch {
+      // Authored legacy evaluations may still be recoverable through ownership.
+    }
+  }
+
+  if (!platformFileApi.getFileMetadata) {
+    return undefined;
+  }
+
+  try {
+    const metadata = await platformFileApi.getFileMetadata(fileId);
+
+    return {
+      fileId: metadata.id,
+      status: metadata.status,
+      ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
+      ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
