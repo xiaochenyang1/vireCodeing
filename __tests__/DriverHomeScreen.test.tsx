@@ -1421,6 +1421,11 @@ describe('DriverHomeScreen certification uploads', () => {
     );
     expect(
       renderer.root.findByProps({
+        testID: `driver-received-evaluation-text-${order.orderNo}`,
+      }).props.children,
+    ).toBe('服务准时，凭证完整。');
+    expect(
+      renderer.root.findByProps({
         testID: 'driver-received-evaluation-preview-image-1',
       }).props.source,
     ).toEqual({

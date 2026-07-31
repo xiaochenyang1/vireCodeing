@@ -1175,6 +1175,14 @@ export function hasDriverEvaluationSubmitted(order: PlatformShipperOrder) {
   );
 }
 
+export function getLatestDriverReceivedEvaluation(order: PlatformShipperOrder) {
+  return (order.events ?? [])
+    .filter(event => event.eventType === 'evaluation_submitted')
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
+}
+
 export function getLatestDriverEvaluationReply(order: PlatformShipperOrder) {
   return (order.events ?? [])
     .filter(event => event.eventType === 'evaluation_replied')

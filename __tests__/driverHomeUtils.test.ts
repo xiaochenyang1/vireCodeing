@@ -32,6 +32,7 @@ import {
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
   getLatestDriverException,
+  getLatestDriverReceivedEvaluation,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
   isDriverBankCardNumberValid,
@@ -965,14 +966,18 @@ test('formats acceptance vehicle types with fallback to raw id', () => {
 test('reads order events for evaluation state and latest reply', () => {
   const evaluated = order({
     events: [
-      { id: 'e1', eventType: 'evaluation_submitted', createdAtIso: '2026-07-10T00:00:00.000Z' },
+      { id: 'e1', eventType: 'evaluation_submitted', noteText: '较早评价', createdAtIso: '2026-07-10T00:00:00.000Z' },
       { id: 'e2', eventType: 'evaluation_replied', noteText: '早', createdAtIso: '2026-07-10T01:00:00.000Z' },
       { id: 'e3', eventType: 'evaluation_replied', noteText: '晚', createdAtIso: '2026-07-10T02:00:00.000Z' },
+      { id: 'e4', eventType: 'evaluation_submitted', noteText: '最新评价', createdAtIso: '2026-07-10T03:00:00.000Z' },
     ],
   } as never);
 
   expect(hasDriverEvaluationSubmitted(evaluated)).toBe(true);
   expect(hasDriverEvaluationSubmitted(order())).toBe(false);
+  expect(getLatestDriverReceivedEvaluation(evaluated)?.noteText).toBe(
+    '最新评价',
+  );
   expect(getLatestDriverEvaluationReply(evaluated)?.noteText).toBe('晚');
 });
 

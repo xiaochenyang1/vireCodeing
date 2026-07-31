@@ -123,6 +123,7 @@ import {
   getDriverWithdrawalStatusText,
   getLatestDriverEvaluationReply,
   getLatestDriverException,
+  getLatestDriverReceivedEvaluation,
   getLatestDriverShipperEvaluation,
   getNextDriverStatus,
   hasDriverEvaluationSubmitted,
@@ -561,11 +562,7 @@ function buildDriverReceivedEvaluationAttachments(
   order: PlatformShipperOrder,
   platformFileApi?: DriverPlatformFileApi,
 ) {
-  const latestEvaluationEvent = (order.events ?? [])
-    .filter(event => event.eventType === 'evaluation_submitted')
-    .sort((left, right) =>
-      right.createdAtIso.localeCompare(left.createdAtIso),
-    )[0];
+  const latestEvaluationEvent = getLatestDriverReceivedEvaluation(order);
 
   return hydrateDriverOrderParticipantFileRefs(
     order,
@@ -2983,6 +2980,9 @@ export function DriverHomeScreen({
   const latestEvaluationReply = selectedOrder
     ? getLatestDriverEvaluationReply(selectedOrder)
     : undefined;
+  const latestReceivedEvaluation = selectedOrder
+    ? getLatestDriverReceivedEvaluation(selectedOrder)
+    : undefined;
   const latestShipperEvaluation = selectedOrder
     ? getLatestDriverShipperEvaluation(selectedOrder)
     : undefined;
@@ -5075,6 +5075,17 @@ export function DriverHomeScreen({
           ) : null}
           {hasDriverEvaluationSubmitted(selectedOrder) ? (
             <>
+              {latestReceivedEvaluation?.noteText ? (
+                <>
+                  <Text style={styles.draftSectionTitle}>货主评价</Text>
+                  <Text
+                    testID={`driver-received-evaluation-text-${selectedOrder.orderNo}`}
+                    style={styles.detailMeta}
+                  >
+                    {latestReceivedEvaluation.noteText}
+                  </Text>
+                </>
+              ) : null}
               {latestEvaluationReply?.noteText ? (
                 <Text style={styles.detailMeta}>
                   司机回复：{latestEvaluationReply.noteText}
