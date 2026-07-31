@@ -60,6 +60,20 @@ describe('Profile verification preview cards', () => {
     ).toEqual({ uri: 'https://cdn.example.com/file-back.png' });
     expect(getRenderedText(renderer)).toContain('身份证凭证清单');
     expect(getRenderedText(renderer)).toContain('已生成预览地址。');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'identity-verification-front-preview-image-trigger',
+        })
+        .props.onPress();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'identity-verification-front-preview-image-counter',
+      }).props.children,
+    ).toBe('1 / 2');
   });
 
   it('renders identity credential placeholders when only local placeholders exist', async () => {
@@ -92,7 +106,7 @@ describe('Profile verification preview cards', () => {
     expect(getRenderedText(renderer)).toContain('来源：本地图片凭证占位');
   });
 
-  it('renders enterprise credential preview image when platform public url exists', async () => {
+  it('renders and groups enterprise credential preview images', async () => {
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       renderer = ReactTestRenderer.create(
@@ -103,7 +117,7 @@ describe('Profile verification preview cards', () => {
             legalName: '张先生',
             legalId: '440300199001011234',
             enterprisePhone: '13900139088',
-            licensePhotoCount: 1,
+            licensePhotoCount: 2,
             licenseFiles: [
               {
                 fileId: 'file-license',
@@ -111,6 +125,13 @@ describe('Profile verification preview cards', () => {
                 purpose: 'identity',
                 status: 'uploaded',
                 publicUrl: 'https://cdn.example.com/file-license.png',
+              },
+              {
+                fileId: 'file-license-back',
+                fileName: '营业执照附页.png',
+                purpose: 'identity',
+                status: 'uploaded',
+                publicUrl: 'https://cdn.example.com/file-license-back.png',
               },
             ],
           }}
@@ -122,11 +143,25 @@ describe('Profile verification preview cards', () => {
 
     expect(
       renderer.root.findByProps({
-        testID: 'enterprise-verification-license-preview-image',
+        testID: 'enterprise-verification-license-preview-image-1',
       }).props.source,
     ).toEqual({ uri: 'https://cdn.example.com/file-license.png' });
     expect(getRenderedText(renderer)).toContain('营业执照凭证清单');
     expect(getRenderedText(renderer)).toContain('已生成预览地址。');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'enterprise-verification-license-preview-image-1-trigger',
+        })
+        .props.onPress();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: 'enterprise-verification-license-preview-image-1-counter',
+      }).props.children,
+    ).toBe('1 / 2');
   });
 
   it('renders enterprise credential placeholder when only a local placeholder exists', async () => {

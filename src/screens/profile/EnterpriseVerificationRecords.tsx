@@ -202,7 +202,7 @@ export function EnterpriseVerificationRecords({
       } catch (error) {
         const syncFailureNotice =
           error instanceof PlatformApiError &&
-            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+          error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '企业认证提交需要重新登录后再同步。'
             : '企业认证资料提交失败，已保留本地资料，请稍后重试。';
         onSubmit(result.request, {
@@ -219,10 +219,8 @@ export function EnterpriseVerificationRecords({
   };
 
   const rejectVerification = () => {
-    const {
-      reason,
-      noticeText: rejectionNoticeText,
-    } = getEnterpriseVerificationRejectionNotice();
+    const { reason, noticeText: rejectionNoticeText } =
+      getEnterpriseVerificationRejectionNotice();
     onReject(reason);
     setActionNotice(rejectionNoticeText);
   };
@@ -239,7 +237,9 @@ export function EnterpriseVerificationRecords({
     const result = await pickLicensePhotoAndUpload();
 
     if (result.status === 'uploaded') {
-      setLicenseFiles([mapPlatformFileToVerificationRef(result.file, fileName)]);
+      setLicenseFiles([
+        mapPlatformFileToVerificationRef(result.file, fileName),
+      ]);
       setLicensePhotoCount(1);
       setActionNotice('营业执照凭证已关联平台文件对象。');
       return;
@@ -284,8 +284,8 @@ export function EnterpriseVerificationRecords({
               {isApproved
                 ? '企业认证已通过'
                 : isRejected
-                  ? '企业认证认证失败'
-                  : '企业认证审核中'}
+                ? '企业认证认证失败'
+                : '企业认证审核中'}
             </Text>
             <Text style={styles.routeAction}>
               {isApproved ? '已认证' : isRejected ? '认证失败' : '审核中'}
@@ -295,7 +295,9 @@ export function EnterpriseVerificationRecords({
           <Text style={styles.routeMeta}>
             {`统一社会信用代码：${verification.creditCode}`}
           </Text>
-          <Text style={styles.routeMeta}>{`法人：${verification.legalName}`}</Text>
+          <Text
+            style={styles.routeMeta}
+          >{`法人：${verification.legalName}`}</Text>
           <Text style={styles.routeMeta}>
             {`企业联系电话：${verification.enterprisePhone}`}
           </Text>
@@ -316,7 +318,9 @@ export function EnterpriseVerificationRecords({
           ) : (
             <Text style={styles.detailMeta}>预计 1 个工作日内完成审核</Text>
           )}
-          {!platformProfileApi && !verification.rejectionReason && !isApproved ? (
+          {!platformProfileApi &&
+          !verification.rejectionReason &&
+          !isApproved ? (
             <Pressable
               testID="enterprise-verification-reject"
               style={styles.detailSecondaryButton}
@@ -385,25 +389,39 @@ export function EnterpriseVerificationRecords({
           <View>
             <Text style={styles.draftSectionTitle}>营业执照凭证清单</Text>
             {licenseFiles.length > 0 ? (
-              licenseFiles.slice(0, licensePhotoCount).map(file => (
-                <ImageCredentialCard
-                  key={file.fileId}
-                  title={`营业执照凭证：${file.fileName}`}
-                  publicUrl={file.publicUrl}
-                  placeholderLabel="营业执照"
-                  metaLines={[
-                    `来源：平台文件对象（${getVerificationFileStatusText(file.status)}）`,
-                    `文件 ID：${file.fileId}`,
-                    ...(file.publicUrl
-                      ? ['已生成预览地址。']
-                      : file.objectKey
+              licenseFiles
+                .slice(0, licensePhotoCount)
+                .map((file, index, files) => (
+                  <ImageCredentialCard
+                    key={file.fileId}
+                    title={`营业执照凭证：${file.fileName}`}
+                    publicUrl={file.publicUrl}
+                    placeholderLabel="营业执照"
+                    metaLines={[
+                      `来源：平台文件对象（${getVerificationFileStatusText(
+                        file.status,
+                      )}）`,
+                      `文件 ID：${file.fileId}`,
+                      ...(file.publicUrl
+                        ? ['已生成预览地址。']
+                        : file.objectKey
                         ? ['已写入平台对象存储。']
                         : []),
-                  ]}
-                  imageTestID="enterprise-verification-license-preview-image"
-                  placeholderTestID="enterprise-verification-license-preview-placeholder"
-                />
-              ))
+                    ]}
+                    imageTestID={`enterprise-verification-license-preview-image-${
+                      index + 1
+                    }`}
+                    placeholderTestID={`enterprise-verification-license-preview-placeholder-${
+                      index + 1
+                    }`}
+                    previewGroup={files.map(groupFile => ({
+                      key: groupFile.fileId,
+                      title: `营业执照凭证：${groupFile.fileName}`,
+                      publicUrl: groupFile.publicUrl,
+                    }))}
+                    previewKey={file.fileId}
+                  />
+                ))
             ) : (
               <ImageCredentialCard
                 title="营业执照凭证：本地已保存"

@@ -145,16 +145,26 @@ export function CargoSection({
               publicUrl={file.publicUrl}
               placeholderLabel="货物图片"
               metaLines={[
-                `来源：平台文件对象（${getCargoPhotoFileStatusText(file.status)}）`,
+                `来源：平台文件对象（${getCargoPhotoFileStatusText(
+                  file.status,
+                )}）`,
                 `文件 ID：${file.fileId}`,
                 ...(file.publicUrl
                   ? ['已生成预览地址。']
                   : file.objectKey
-                    ? ['已写入平台对象存储。']
-                    : []),
+                  ? ['已写入平台对象存储。']
+                  : []),
               ]}
               imageTestID={`draft-cargo-photo-preview-image-${index + 1}`}
-              placeholderTestID={`draft-cargo-photo-preview-placeholder-${index + 1}`}
+              placeholderTestID={`draft-cargo-photo-preview-placeholder-${
+                index + 1
+              }`}
+              previewGroup={uploadedCargoPhotoFiles.map(groupFile => ({
+                key: groupFile.fileId,
+                title: `货物图片凭证：${groupFile.fileName}`,
+                publicUrl: groupFile.publicUrl,
+              }))}
+              previewKey={file.fileId}
             />
           ))}
           {localPlaceholderIndexes.map(voucherIndex => (

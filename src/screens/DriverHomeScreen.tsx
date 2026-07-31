@@ -203,7 +203,11 @@ const driverOrderHallFilterOptions: Array<{
   testID: string;
 }> = [
   { id: 'all', label: '全部', testID: 'driver-order-hall-filter-all' },
-  { id: 'nearby', label: '10 公里内', testID: 'driver-order-hall-filter-nearby' },
+  {
+    id: 'nearby',
+    label: '10 公里内',
+    testID: 'driver-order-hall-filter-nearby',
+  },
   { id: 'bonus', label: '有赏金', testID: 'driver-order-hall-filter-bonus' },
   {
     id: 'negotiable',
@@ -236,7 +240,9 @@ function getDriverLocationMetaText(
     return sourceText;
   }
 
-  return `${sourceText} · 上报时间：${formatDriverIncomeTime(snapshot.recordedAtIso)}`;
+  return `${sourceText} · 上报时间：${formatDriverIncomeTime(
+    snapshot.recordedAtIso,
+  )}`;
 }
 
 function useDriverPngUpload(
@@ -479,8 +485,10 @@ async function buildDriverCertificationAttachments(
   const entries = await Promise.all(
     driverCertificationAttachmentFieldNames.map(async fieldName => {
       const fileId =
-        getDriverCertificationSnapshotFileId(certification, fieldName)?.trim() ??
-        '';
+        getDriverCertificationSnapshotFileId(
+          certification,
+          fieldName,
+        )?.trim() ?? '';
 
       if (!fileId) {
         return undefined;
@@ -581,20 +589,22 @@ async function buildDriverLatestExceptionAttachments(
 ) {
   const latestExceptionEvent = (order.events ?? [])
     .filter(event => event.eventType === 'driver_exception_reported')
-    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
-  const normalizedEventAttachmentFileIds = (latestExceptionEvent?.attachmentFileIds ??
-    [])
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
+  const normalizedEventAttachmentFileIds = (
+    latestExceptionEvent?.attachmentFileIds ?? []
+  )
     .map(fileId => fileId.trim())
     .filter(Boolean);
   const matchingExceptionCase =
     normalizedEventAttachmentFileIds.length > 0 || !latestExceptionEvent?.id
       ? undefined
-      : sortOrderExceptionCases(exceptionCases)
-          .find(
-            exceptionCase =>
-              exceptionCase.sourceEventId === latestExceptionEvent.id &&
-              exceptionCase.attachmentFileIds.some(fileId => fileId.trim()),
-          );
+      : sortOrderExceptionCases(exceptionCases).find(
+          exceptionCase =>
+            exceptionCase.sourceEventId === latestExceptionEvent.id &&
+            exceptionCase.attachmentFileIds.some(fileId => fileId.trim()),
+        );
   const fallbackAttachmentFileIds =
     normalizedEventAttachmentFileIds.length > 0
       ? latestExceptionEvent?.attachmentFileIds
@@ -624,7 +634,9 @@ async function buildDriverLatestShipperEvaluationAttachments(
 ) {
   const latestShipperEvaluationEvent = (order.events ?? [])
     .filter(event => event.eventType === 'shipper_evaluation_submitted')
-    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
 
   return hydrateDriverUploadedFileRefs(
     latestShipperEvaluationEvent?.attachmentFileIds,
@@ -645,8 +657,10 @@ function mergeDriverCertificationAttachments(
   return driverCertificationAttachmentFieldNames.reduce<DriverCertificationAttachmentMap>(
     (result, fieldName) => {
       const fileId =
-        getDriverCertificationSnapshotFileId(certification, fieldName)?.trim() ??
-        '';
+        getDriverCertificationSnapshotFileId(
+          certification,
+          fieldName,
+        )?.trim() ?? '';
 
       if (!fileId) {
         return result;
@@ -669,7 +683,6 @@ function mergeDriverCertificationAttachments(
   );
 }
 
-
 export function DriverHomeScreen({
   platformDriverOrderApi,
   platformDriverCertificationApi,
@@ -686,21 +699,21 @@ export function DriverHomeScreen({
   onLogout: () => void;
 }) {
   const resolvedDriverAccountId = driverAccountId.trim() || 'local-driver';
-  const [orderHallOrders, setOrderHallOrders] = useState<PlatformShipperOrder[]>(
-    [],
-  );
+  const [orderHallOrders, setOrderHallOrders] = useState<
+    PlatformShipperOrder[]
+  >([]);
   const [orderHallSearchKeyword, setOrderHallSearchKeyword] = useState('');
   const [activeOrderHallFilter, setActiveOrderHallFilter] =
     useState<DriverOrderHallLocalFilter>('all');
   const [myOrders, setMyOrders] = useState<PlatformShipperOrder[]>([]);
   const [myOrdersSearchKeyword, setMyOrdersSearchKeyword] = useState('');
-  const [activeMyOrdersFilter, setActiveMyOrdersFilter] = useState<string>('all');
+  const [activeMyOrdersFilter, setActiveMyOrdersFilter] =
+    useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<PlatformShipperOrder>();
   const [exceptionCases, setExceptionCases] = useState<
     PlatformOrderExceptionCase[]
   >([]);
-  const [isLoadingExceptionCases, setIsLoadingExceptionCases] =
-    useState(false);
+  const [isLoadingExceptionCases, setIsLoadingExceptionCases] = useState(false);
   const [exceptionCaseNotice, setExceptionCaseNotice] = useState<string>();
   const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
   const [appealingCaseId, setAppealingCaseId] = useState<string>();
@@ -715,9 +728,9 @@ export function DriverHomeScreen({
     useState<PlatformDriverCertificationSnapshot>();
   const [incomeOverview, setIncomeOverview] =
     useState<PlatformDriverIncomeOverview>();
-  const [withdrawals, setWithdrawals] = useState<PlatformDriverWithdrawalRecord[]>(
-    [],
-  );
+  const [withdrawals, setWithdrawals] = useState<
+    PlatformDriverWithdrawalRecord[]
+  >([]);
   const [acceptanceSettings, setAcceptanceSettings] =
     useState<PlatformDriverAcceptanceSettings>();
   const [acceptanceSettingsForm, setAcceptanceSettingsForm] =
@@ -725,14 +738,18 @@ export function DriverHomeScreen({
   const [withdrawalForm, setWithdrawalForm] =
     useState<DriverWithdrawalFormState>(emptyWithdrawalForm);
   const withdrawalIdempotencyKeyRef = useRef<string | undefined>(undefined);
-  const [bankCards, setBankCards] = useState<PlatformDriverBankCardRecord[]>([]);
+  const [bankCards, setBankCards] = useState<PlatformDriverBankCardRecord[]>(
+    [],
+  );
   const [bankCardForm, setBankCardForm] = useState<DriverBankCardFormState>({
     bankAccountName: '',
     bankName: '',
     bankAccountNo: '',
     isDefault: false,
   });
-  const [editingBankCardId, setEditingBankCardId] = useState<string | undefined>();
+  const [editingBankCardId, setEditingBankCardId] = useState<
+    string | undefined
+  >();
   const [showBankCardForm, setShowBankCardForm] = useState(false);
   const [certificationForm, setCertificationForm] =
     useState<DriverCertificationFormState>(emptyCertificationForm);
@@ -744,8 +761,10 @@ export function DriverHomeScreen({
     useState<DriverReportedExceptionAttachmentState>({});
   const [shipperEvaluationAttachments, setShipperEvaluationAttachments] =
     useState<DriverShipperEvaluationAttachmentState>({});
-  const [reportedShipperEvaluationAttachments, setReportedShipperEvaluationAttachments] =
-    useState<DriverShipperEvaluationAttachmentState>({});
+  const [
+    reportedShipperEvaluationAttachments,
+    setReportedShipperEvaluationAttachments,
+  ] = useState<DriverShipperEvaluationAttachmentState>({});
   const [executionReceiptAttachments, setExecutionReceiptAttachments] =
     useState<DriverExecutionReceiptAttachmentState>({});
   const [executionProofs, setExecutionProofs] =
@@ -760,9 +779,8 @@ export function DriverHomeScreen({
   const [exceptionForms, setExceptionForms] = useState<
     Record<string, DriverExceptionFormState>
   >({});
-  const [evaluationReplyQueue, setEvaluationReplyQueue] = useState<
-    DriverEvaluationReplyQueue
-  >({});
+  const [evaluationReplyQueue, setEvaluationReplyQueue] =
+    useState<DriverEvaluationReplyQueue>({});
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
@@ -772,15 +790,18 @@ export function DriverHomeScreen({
     ? (exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm).photoFileIds
         .length
     : 0;
-  const selectedExceptionProofFileName = `异常凭证-${selectedExceptionProofUploadCount + 1}.png`;
+  const selectedExceptionProofFileName = `异常凭证-${
+    selectedExceptionProofUploadCount + 1
+  }.png`;
   const selectedShipperEvaluationProofUploadCount = selectedOrder
     ? (
         shipperEvaluationForms[selectedOrder.orderNo] ??
         emptyShipperEvaluationForm
       ).photoFileIds.length
     : 0;
-  const selectedShipperEvaluationProofFileName =
-    `评价货主凭证-${selectedShipperEvaluationProofUploadCount + 1}.png`;
+  const selectedShipperEvaluationProofFileName = `评价货主凭证-${
+    selectedShipperEvaluationProofUploadCount + 1
+  }.png`;
   const identityFrontUpload = useDriverPngUpload(
     platformFileApi,
     'identity',
@@ -874,8 +895,9 @@ export function DriverHomeScreen({
   };
 
   const refreshOrderHall = (
-    settingsOverride: PlatformDriverAcceptanceSettings | undefined =
-      acceptanceSettings,
+    settingsOverride:
+      | PlatformDriverAcceptanceSettings
+      | undefined = acceptanceSettings,
   ) => {
     if (!platformDriverOrderApi) {
       setOrderHallOrders([]);
@@ -1045,7 +1067,9 @@ export function DriverHomeScreen({
       .listWithdrawals({ page: 1, pageSize: 5 })
       .then(result => {
         setWithdrawals(
-          sortDriverWithdrawals(Array.isArray(result.items) ? result.items : []),
+          sortDriverWithdrawals(
+            Array.isArray(result.items) ? result.items : [],
+          ),
         );
         return true;
       })
@@ -1059,9 +1083,7 @@ export function DriverHomeScreen({
     );
   };
 
-  const refreshBankCards = (
-    options: { silentError?: boolean } = {},
-  ) => {
+  const refreshBankCards = (options: { silentError?: boolean } = {}) => {
     if (!platformDriverOrderApi) {
       setBankCards([]);
       return Promise.resolve(false);
@@ -1101,10 +1123,7 @@ export function DriverHomeScreen({
               };
             }
 
-            if (
-              current.selectedBankCardSource === 'default' &&
-              !defaultCard
-            ) {
+            if (current.selectedBankCardSource === 'default' && !defaultCard) {
               withdrawalIdempotencyKeyRef.current = undefined;
               return {
                 ...current,
@@ -1131,10 +1150,7 @@ export function DriverHomeScreen({
             };
           }
 
-          if (
-            current.selectedBankCardSource === 'default' &&
-            defaultCard
-          ) {
+          if (current.selectedBankCardSource === 'default' && defaultCard) {
             withdrawalIdempotencyKeyRef.current = undefined;
             return {
               ...current,
@@ -1168,15 +1184,15 @@ export function DriverHomeScreen({
 
           const nextForm =
             current.selectedBankCardId || current.selectedBankCardSource
-            ? {
-                ...current,
-                bankAccountName: '',
-                bankName: '',
-                bankAccountNo: '',
-                selectedBankCardId: undefined,
-                selectedBankCardSource: undefined,
-              }
-            : current;
+              ? {
+                  ...current,
+                  bankAccountName: '',
+                  bankName: '',
+                  bankAccountNo: '',
+                  selectedBankCardId: undefined,
+                  selectedBankCardSource: undefined,
+                }
+              : current;
 
           if (defaultCard && isDriverWithdrawalFormPristine(nextForm)) {
             withdrawalIdempotencyKeyRef.current = undefined;
@@ -1314,13 +1330,17 @@ export function DriverHomeScreen({
           : Promise.resolve(true),
         refreshIncome(),
         refreshBankCards(),
-        hasDirtyCertificationDraft ? Promise.resolve(true) : refreshCertification(),
+        hasDirtyCertificationDraft
+          ? Promise.resolve(true)
+          : refreshCertification(),
       ]);
 
       if (results.every(Boolean)) {
         setNotice(
           skippedDrafts.length > 0
-            ? `司机主页已手动刷新；已保留未保存的${skippedDrafts.join('、')}草稿。`
+            ? `司机主页已手动刷新；已保留未保存的${skippedDrafts.join(
+                '、',
+              )}草稿。`
             : '司机主页已手动刷新到最新平台快照。',
         );
       }
@@ -1479,7 +1499,7 @@ export function DriverHomeScreen({
         ...(currentForms[orderNo] ?? emptyForm),
         ...changes,
       },
-      }));
+    }));
   };
 
   const updateEvaluationReplyForm = (orderNo: string, content: string) => {
@@ -1518,15 +1538,15 @@ export function DriverHomeScreen({
   const toggleAcceptanceVehicleType = (vehicleType: string) => {
     setAcceptanceSettingsForm(current => ({
       ...current,
-      vehicleTypePreferences: current.vehicleTypePreferences.includes(vehicleType)
+      vehicleTypePreferences: current.vehicleTypePreferences.includes(
+        vehicleType,
+      )
         ? current.vehicleTypePreferences.filter(item => item !== vehicleType)
         : [...current.vehicleTypePreferences, vehicleType],
     }));
   };
 
-  const upsertOrderMutationQueueItem = (
-    item: DriverOrderMutationQueueItem,
-  ) => {
+  const upsertOrderMutationQueueItem = (item: DriverOrderMutationQueueItem) => {
     setOrderMutationQueue(currentQueue => {
       const nextQueue = {
         ...currentQueue,
@@ -1537,9 +1557,7 @@ export function DriverHomeScreen({
     });
   };
 
-  const removeOrderMutationQueueItem = (
-    item: DriverOrderMutationQueueItem,
-  ) => {
+  const removeOrderMutationQueueItem = (item: DriverOrderMutationQueueItem) => {
     setOrderMutationQueue(currentQueue => {
       const queueKey = createDriverOrderMutationQueueKey(
         item.operation,
@@ -1613,7 +1631,9 @@ export function DriverHomeScreen({
             })
         : platformDriverOrderApi.getOrder(item.orderId).then(updatedOrder => {
             setSelectedOrder(updatedOrder);
-            setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+            setMyOrders(currentOrders =>
+              upsertOrder(currentOrders, updatedOrder),
+            );
           });
 
     refreshTask
@@ -1635,8 +1655,8 @@ export function DriverHomeScreen({
         item.operation === 'accept'
           ? '司机接单失败，已加入本地重试队列。'
           : item.operation === 'cancel'
-            ? '司机取消订单失败，已加入本地重试队列。'
-            : '司机状态更新失败，已加入本地重试队列。',
+          ? '司机取消订单失败，已加入本地重试队列。'
+          : '司机状态更新失败，已加入本地重试队列。',
       );
       return;
     }
@@ -1666,9 +1686,13 @@ export function DriverHomeScreen({
         .then(updatedOrder => {
           removeOrderMutationQueueItem(item);
           setOrderHallOrders(currentOrders =>
-            currentOrders.filter(currentOrder => currentOrder.id !== item.orderId),
+            currentOrders.filter(
+              currentOrder => currentOrder.id !== item.orderId,
+            ),
           );
-          setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
+          setMyOrders(currentOrders =>
+            upsertOrder(currentOrders, updatedOrder),
+          );
           setSelectedOrder(updatedOrder);
           refreshIncome();
           setNotice('接单成功，订单已进入待装货。');
@@ -1690,7 +1714,9 @@ export function DriverHomeScreen({
           removeOrderMutationQueueItem(item);
           setSelectedOrder(updatedOrder);
           setMyOrders(currentOrders =>
-            currentOrders.filter(currentOrder => currentOrder.id !== item.orderId),
+            currentOrders.filter(
+              currentOrder => currentOrder.id !== item.orderId,
+            ),
           );
           refreshIncome();
           setNotice('订单已取消，货主将收到取消通知。');
@@ -1731,9 +1757,7 @@ export function DriverHomeScreen({
     }
 
     const queuedMutation =
-      orderMutationQueue[
-        createDriverOrderMutationQueueKey('accept', order.id)
-      ];
+      orderMutationQueue[createDriverOrderMutationQueueKey('accept', order.id)];
 
     if (queuedMutation?.operation === 'accept') {
       executeDriverOrderMutation(queuedMutation);
@@ -1812,7 +1836,9 @@ export function DriverHomeScreen({
       platformMapsApi
         .getDriverNavigationTargets(order.id)
         .then(result => {
-          setNavigationTargets(Array.isArray(result?.targets) ? result.targets : []);
+          setNavigationTargets(
+            Array.isArray(result?.targets) ? result.targets : [],
+          );
         })
         .catch(() => {
           setNavigationTargets([
@@ -1978,10 +2004,10 @@ export function DriverHomeScreen({
             ? error.code === 'AUTH_ACCESS_TOKEN_MISSING'
               ? '登录状态已失效，请重新登录后再提交申诉。'
               : error.code === 'EXCEPTION_CASE_CONFLICT'
-                ? '异常工单已被更新，请刷新后重试申诉。'
-                : error.code === 'EXCEPTION_CASE_APPEAL_NOT_ALLOWED'
-                  ? '当前工单状态不允许申诉。'
-                  : error.message || '申诉提交失败，请稍后重试。'
+              ? '异常工单已被更新，请刷新后重试申诉。'
+              : error.code === 'EXCEPTION_CASE_APPEAL_NOT_ALLOWED'
+              ? '当前工单状态不允许申诉。'
+              : error.message || '申诉提交失败，请稍后重试。'
             : '申诉提交失败，请稍后重试。',
         );
       })
@@ -2073,7 +2099,8 @@ export function DriverHomeScreen({
         setNotice('评价回复已提交。');
       })
       .catch(error => {
-        const isMissingAccessToken = isDriverEvaluationReplyMissingAccessToken(error);
+        const isMissingAccessToken =
+          isDriverEvaluationReplyMissingAccessToken(error);
 
         if (
           error instanceof PlatformApiError &&
@@ -2290,8 +2317,7 @@ export function DriverHomeScreen({
       .catch(error => {
         if (error instanceof PlatformApiError) {
           const noticeByCode: Record<string, string> = {
-            AUTH_ACCESS_TOKEN_MISSING:
-              '登录状态已失效，请重新登录后上报异常。',
+            AUTH_ACCESS_TOKEN_MISSING: '登录状态已失效，请重新登录后上报异常。',
             ORDER_STATE_INVALID: '当前订单状态不允许上报异常。',
             FILE_NOT_FOUND: '异常图片不存在，请重新上传。',
             FILE_STATE_INVALID: '异常图片尚未上传完成。',
@@ -2363,7 +2389,9 @@ export function DriverHomeScreen({
 
     const isLoadingProof = order.status === 'loading';
     const fileName = isLoadingProof ? '装货凭证.png' : '到达凭证.png';
-    const uploader = isLoadingProof ? loadingReceiptUpload : arrivalReceiptUpload;
+    const uploader = isLoadingProof
+      ? loadingReceiptUpload
+      : arrivalReceiptUpload;
     const result = await uploader.pickAndUpload();
 
     if (result.status === 'uploaded') {
@@ -2499,9 +2527,7 @@ export function DriverHomeScreen({
   };
 
   const updateWithdrawalForm = (
-    updater: (
-      current: DriverWithdrawalFormState,
-    ) => DriverWithdrawalFormState,
+    updater: (current: DriverWithdrawalFormState) => DriverWithdrawalFormState,
   ) => {
     withdrawalIdempotencyKeyRef.current = undefined;
     setWithdrawalForm(current => updater(current));
@@ -2650,7 +2676,8 @@ export function DriverHomeScreen({
 
     const hasBankAccountName = bankCardForm.bankAccountName.trim().length >= 2;
     const hasBankName = bankCardForm.bankName.trim().length >= 2;
-    const hasBankAccountNo = bankCardForm.bankAccountNo.replace(/\D+/g, '').length > 0;
+    const hasBankAccountNo =
+      bankCardForm.bankAccountNo.replace(/\D+/g, '').length > 0;
 
     const submitPromise = editingBankCardId
       ? (() => {
@@ -2669,7 +2696,10 @@ export function DriverHomeScreen({
             return undefined;
           }
 
-          return platformDriverOrderApi.updateBankCard(editingBankCardId, request);
+          return platformDriverOrderApi.updateBankCard(
+            editingBankCardId,
+            request,
+          );
         })()
       : (() => {
           if (!hasBankAccountName || !hasBankName || !hasBankAccountNo) {
@@ -2718,7 +2748,9 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .deleteBankCard(cardId)
       .then(() => {
-        setNotice(`银行卡 ${card.bankName}（${card.bankAccountMasked}）已删除。`);
+        setNotice(
+          `银行卡 ${card.bankName}（${card.bankAccountMasked}）已删除。`,
+        );
         refreshBankCards();
       })
       .catch(() => {
@@ -2752,7 +2784,9 @@ export function DriverHomeScreen({
     platformDriverOrderApi
       .updateBankCard(cardId, { isDefault: true })
       .then(() => {
-        setNotice(`已将 ${card.bankName}（${card.bankAccountMasked}）设为默认银行卡。`);
+        setNotice(
+          `已将 ${card.bankName}（${card.bankAccountMasked}）设为默认银行卡。`,
+        );
         refreshBankCards();
       })
       .catch(() => {
@@ -2795,7 +2829,8 @@ export function DriverHomeScreen({
     ? exceptionForms[selectedOrder.orderNo] ?? emptyExceptionForm
     : emptyExceptionForm;
   const selectedShipperEvaluationForm = selectedOrder
-    ? shipperEvaluationForms[selectedOrder.orderNo] ?? emptyShipperEvaluationForm
+    ? shipperEvaluationForms[selectedOrder.orderNo] ??
+      emptyShipperEvaluationForm
     : emptyShipperEvaluationForm;
   const selectedShipperEvaluationAttachmentRefs = selectedOrder
     ? shipperEvaluationAttachments[selectedOrder.orderNo] ?? []
@@ -2870,10 +2905,10 @@ export function DriverHomeScreen({
     const source: DriverCertificationAttachmentSource = !fileId
       ? 'empty'
       : attachmentRef?.file.id === fileId
-        ? 'file-object'
-        : snapshotFileId === fileId
-          ? 'snapshot'
-          : 'manual';
+      ? 'file-object'
+      : snapshotFileId === fileId
+      ? 'snapshot'
+      : 'manual';
 
     return {
       fieldName,
@@ -2908,7 +2943,8 @@ export function DriverHomeScreen({
     : undefined;
   const latestReportedHallLocationEstimateText = latestReportedHallLocation
     ? formatTrackingEstimateText({
-        distanceToTargetMeters: latestReportedHallLocation.distanceToTargetMeters,
+        distanceToTargetMeters:
+          latestReportedHallLocation.distanceToTargetMeters,
         etaMinutes: latestReportedHallLocation.etaMinutes,
         targetType: latestReportedHallLocation.targetType,
         targetAddress: latestReportedHallLocation.targetAddress,
@@ -2917,12 +2953,13 @@ export function DriverHomeScreen({
   const latestReportedHallLocationMetaText = latestReportedHallLocation
     ? getDriverLocationMetaText(latestReportedHallLocation)
     : undefined;
-  const latestReportedDriverLocationCoordinateText = latestReportedDriverLocation
-    ? formatCoordinateText(
-        latestReportedDriverLocation.latitude,
-        latestReportedDriverLocation.longitude,
-      )
-    : undefined;
+  const latestReportedDriverLocationCoordinateText =
+    latestReportedDriverLocation
+      ? formatCoordinateText(
+          latestReportedDriverLocation.latitude,
+          latestReportedDriverLocation.longitude,
+        )
+      : undefined;
   const latestReportedDriverLocationEstimateText = latestReportedDriverLocation
     ? formatTrackingEstimateText({
         distanceToTargetMeters:
@@ -2945,8 +2982,8 @@ export function DriverHomeScreen({
     ...(attachmentRef.file.publicUrl
       ? ['已生成预览地址。']
       : attachmentRef.file.objectKey
-        ? ['已写入平台对象存储。']
-        : []),
+      ? ['已写入平台对象存储。']
+      : []),
   ];
   const createCertificationAttachmentMetaLines = (
     entry: ReturnType<typeof createCertificationAttachmentEntry>,
@@ -2961,22 +2998,37 @@ export function DriverHomeScreen({
             entry.attachmentRef?.file.status ?? 'pending',
           )}）`
         : entry.source === 'snapshot'
-          ? '来源：平台认证快照'
-          : '来源：手动填写文件 ID',
+        ? '来源：平台认证快照'
+        : '来源：手动填写文件 ID',
       `文件 ID：${entry.fileId}`,
       ...(entry.attachmentRef?.file.publicUrl
         ? ['已生成预览地址。']
         : entry.attachmentRef?.file.objectKey
-          ? ['已写入平台对象存储。']
-          : []),
+        ? ['已写入平台对象存储。']
+        : []),
     ];
   };
+  const createCertificationAttachmentTitle = (
+    entry: ReturnType<typeof createCertificationAttachmentEntry>,
+  ) =>
+    entry.fileId
+      ? `${entry.label}：${
+          entry.source === 'file-object'
+            ? entry.attachmentRef?.fileName ?? '已关联平台文件对象'
+            : entry.source === 'snapshot'
+            ? '平台已同步文件 ID'
+            : '本地已填写文件 ID'
+        }`
+      : `${entry.label}：待上传占位`;
 
   const selectedExecutionReceipts = selectedOrder
     ? (() => {
         const state =
           executionReceiptAttachments[selectedOrder.id] ??
-          ({ transportingReceiptFiles: [], confirmingReceiptFiles: [] } as const);
+          ({
+            transportingReceiptFiles: [],
+            confirmingReceiptFiles: [],
+          } as const);
         return {
           loading: state.transportingReceiptFiles.map(ref => ref.file),
           confirming: state.confirmingReceiptFiles.map(ref => ref.file),
@@ -3057,20 +3109,20 @@ export function DriverHomeScreen({
             {certification?.identity?.status === 'approved'
               ? '已通过'
               : certification?.identity?.status === 'reviewing'
-                ? '审核中'
-                : certification?.identity?.status === 'rejected'
-                  ? '已驳回'
-                  : '未提交'}
+              ? '审核中'
+              : certification?.identity?.status === 'rejected'
+              ? '已驳回'
+              : '未提交'}
           </Text>
           <Text style={styles.detailMeta}>
             车辆认证：
             {certification?.vehicle?.status === 'approved'
               ? '已通过'
               : certification?.vehicle?.status === 'reviewing'
-                ? '审核中'
-                : certification?.vehicle?.status === 'rejected'
-                  ? '已驳回'
-                  : '未提交'}
+              ? '审核中'
+              : certification?.vehicle?.status === 'rejected'
+              ? '已驳回'
+              : '未提交'}
           </Text>
         </View>
         <View style={styles.detailInlineGroup}>
@@ -3080,13 +3132,17 @@ export function DriverHomeScreen({
           <Text style={styles.detailMeta}>
             可提现余额：
             {incomeOverview?.summary?.availableWithdrawalCents
-              ? `${(incomeOverview.summary.availableWithdrawalCents / 100).toFixed(2)} 元`
+              ? `${(
+                  incomeOverview.summary.availableWithdrawalCents / 100
+                ).toFixed(2)} 元`
               : '0.00 元'}
           </Text>
           <Text style={styles.detailMeta}>
             审核中提现：
             {incomeOverview?.summary?.reviewingWithdrawalCents
-              ? `${(incomeOverview.summary.reviewingWithdrawalCents / 100).toFixed(2)} 元`
+              ? `${(
+                  incomeOverview.summary.reviewingWithdrawalCents / 100
+                ).toFixed(2)} 元`
               : '0.00 元'}
           </Text>
         </View>
@@ -3156,7 +3212,10 @@ export function DriverHomeScreen({
         <Text style={styles.detailMeta}>
           {`接单范围：${acceptanceSettingsForm.maxDistanceKmText || '50'} 公里`}
         </Text>
-        <Text testID="driver-settings-vehicle-types-summary" style={styles.detailMeta}>
+        <Text
+          testID="driver-settings-vehicle-types-summary"
+          style={styles.detailMeta}
+        >
           {`车型匹配：${getDriverAcceptanceVehicleTypesText(
             acceptanceSettingsForm.vehicleTypePreferences,
           )}`}
@@ -3200,10 +3259,7 @@ export function DriverHomeScreen({
                 {latestReportedHallLocationCoordinateText}
               </Text>
             ) : null}
-            <Text
-              testID="driver-hall-location-meta"
-              style={styles.detailMeta}
-            >
+            <Text testID="driver-hall-location-meta" style={styles.detailMeta}>
               {latestReportedHallLocationMetaText}
             </Text>
             {latestReportedHallLocationEstimateText ? (
@@ -3225,9 +3281,8 @@ export function DriverHomeScreen({
           </View>
         ) : null}
         {vehicleRequirementOptions.map(option => {
-          const selected = acceptanceSettingsForm.vehicleTypePreferences.includes(
-            option.id,
-          );
+          const selected =
+            acceptanceSettingsForm.vehicleTypePreferences.includes(option.id);
 
           return (
             <Pressable
@@ -3237,7 +3292,9 @@ export function DriverHomeScreen({
               onPress={() => toggleAcceptanceVehicleType(option.id)}
             >
               <Text style={styles.detailSecondaryButtonText}>
-                {selected ? `已选车型：${option.label}` : `车型：${option.label}`}
+                {selected
+                  ? `已选车型：${option.label}`
+                  : `车型：${option.label}`}
               </Text>
             </Pressable>
           );
@@ -3428,15 +3485,17 @@ export function DriverHomeScreen({
                   {`${withdrawal.bankName} · ${withdrawal.bankAccountMasked}`}
                 </Text>
                 <Text style={styles.detailMeta}>
-                  {`${formatDriverCurrency(withdrawal.amountCents)} · ${getDriverWithdrawalStatusText(
-                    withdrawal.status,
-                  )}`}
+                  {`${formatDriverCurrency(
+                    withdrawal.amountCents,
+                  )} · ${getDriverWithdrawalStatusText(withdrawal.status)}`}
                 </Text>
                 <Text
                   testID={`driver-withdrawal-record-created-at-${withdrawal.id}`}
                   style={styles.detailMeta}
                 >
-                  {`申请时间：${formatDriverIncomeTime(withdrawal.createdAtIso)}`}
+                  {`申请时间：${formatDriverIncomeTime(
+                    withdrawal.createdAtIso,
+                  )}`}
                 </Text>
                 {withdrawalDetailText ? (
                   <Text
@@ -3506,9 +3565,8 @@ export function DriverHomeScreen({
                     onChangeText={bankAccountNo =>
                       setBankCardForm(current => ({
                         ...current,
-                        bankAccountNo: formatDriverBankCardNumberInput(
-                          bankAccountNo,
-                        ),
+                        bankAccountNo:
+                          formatDriverBankCardNumberInput(bankAccountNo),
                       }))
                     }
                   />
@@ -3540,9 +3598,7 @@ export function DriverHomeScreen({
                     style={styles.detailSecondaryButton}
                     onPress={closeBankCardForm}
                   >
-                    <Text style={styles.detailSecondaryButtonText}>
-                      取消
-                    </Text>
+                    <Text style={styles.detailSecondaryButtonText}>取消</Text>
                   </Pressable>
                 </>
               ) : (
@@ -3554,85 +3610,89 @@ export function DriverHomeScreen({
 
                   return (
                     <>
-                  <View style={styles.detailTitleRow}>
-                    <Text style={styles.detailRoute}>
-                      {`${card.bankName} · ${card.bankAccountMasked}`}
-                    </Text>
-                    {card.isDefault ? (
-                      <View style={styles.detailStatusPill}>
-                        <Text style={styles.detailStatusPillText}>默认</Text>
-                      </View>
-                    ) : null}
-                    {isSelectedForWithdrawal ? (
-                      <View
-                        testID={`driver-bank-card-selected-${card.id}`}
-                        style={styles.detailStatusPillActive}
-                      >
-                        <Text style={styles.detailStatusPillTextActive}>
-                          当前提现卡
+                      <View style={styles.detailTitleRow}>
+                        <Text style={styles.detailRoute}>
+                          {`${card.bankName} · ${card.bankAccountMasked}`}
                         </Text>
+                        {card.isDefault ? (
+                          <View style={styles.detailStatusPill}>
+                            <Text style={styles.detailStatusPillText}>
+                              默认
+                            </Text>
+                          </View>
+                        ) : null}
+                        {isSelectedForWithdrawal ? (
+                          <View
+                            testID={`driver-bank-card-selected-${card.id}`}
+                            style={styles.detailStatusPillActive}
+                          >
+                            <Text style={styles.detailStatusPillTextActive}>
+                              当前提现卡
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
-                    ) : null}
-                  </View>
-                  {bankCardLastUsedText ? (
-                    <Text
-                      testID={`driver-bank-card-last-used-${card.id}`}
-                      style={styles.detailMeta}
-                    >
-                      {bankCardLastUsedText}
-                    </Text>
-                  ) : null}
-                  <View style={styles.detailActionRow}>
-                    {!card.isDefault ? (
-                      <Pressable
-                        testID={`driver-bank-card-set-default-${card.id}`}
-                        style={styles.detailSecondaryButton}
-                        onPress={() => setDefaultBankCard(card.id)}
-                      >
-                        <Text style={styles.detailSecondaryButtonText}>
-                          设为默认
+                      {bankCardLastUsedText ? (
+                        <Text
+                          testID={`driver-bank-card-last-used-${card.id}`}
+                          style={styles.detailMeta}
+                        >
+                          {bankCardLastUsedText}
                         </Text>
-                      </Pressable>
-                    ) : null}
-                    <Pressable
-                      testID={`driver-bank-card-select-${card.id}`}
-                      style={
-                        isSelectedForWithdrawal
-                          ? styles.detailSelectedButton
-                          : styles.detailSecondaryButton
-                      }
-                      disabled={isSelectedForWithdrawal}
-                      onPress={() => selectBankCard(card)}
-                    >
-                      <Text
-                        style={
-                          isSelectedForWithdrawal
-                            ? styles.detailSelectedButtonText
-                            : styles.detailSecondaryButtonText
-                        }
-                      >
-                        {isSelectedForWithdrawal
-                          ? '已选用于提现'
-                          : '用于提现'}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      testID={`driver-bank-card-edit-${card.id}`}
-                      style={styles.detailSecondaryButton}
-                      onPress={() => openBankCardForm(card.id)}
-                    >
-                      <Text style={styles.detailSecondaryButtonText}>
-                        编辑
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      testID={`driver-bank-card-delete-${card.id}`}
-                      style={styles.detailDangerButton}
-                      onPress={() => deleteBankCardHandler(card.id)}
-                    >
-                      <Text style={styles.detailDangerButtonText}>删除</Text>
-                    </Pressable>
-                  </View>
+                      ) : null}
+                      <View style={styles.detailActionRow}>
+                        {!card.isDefault ? (
+                          <Pressable
+                            testID={`driver-bank-card-set-default-${card.id}`}
+                            style={styles.detailSecondaryButton}
+                            onPress={() => setDefaultBankCard(card.id)}
+                          >
+                            <Text style={styles.detailSecondaryButtonText}>
+                              设为默认
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          testID={`driver-bank-card-select-${card.id}`}
+                          style={
+                            isSelectedForWithdrawal
+                              ? styles.detailSelectedButton
+                              : styles.detailSecondaryButton
+                          }
+                          disabled={isSelectedForWithdrawal}
+                          onPress={() => selectBankCard(card)}
+                        >
+                          <Text
+                            style={
+                              isSelectedForWithdrawal
+                                ? styles.detailSelectedButtonText
+                                : styles.detailSecondaryButtonText
+                            }
+                          >
+                            {isSelectedForWithdrawal
+                              ? '已选用于提现'
+                              : '用于提现'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          testID={`driver-bank-card-edit-${card.id}`}
+                          style={styles.detailSecondaryButton}
+                          onPress={() => openBankCardForm(card.id)}
+                        >
+                          <Text style={styles.detailSecondaryButtonText}>
+                            编辑
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          testID={`driver-bank-card-delete-${card.id}`}
+                          style={styles.detailDangerButton}
+                          onPress={() => deleteBankCardHandler(card.id)}
+                        >
+                          <Text style={styles.detailDangerButtonText}>
+                            删除
+                          </Text>
+                        </Pressable>
+                      </View>
                     </>
                   );
                 })()
@@ -3680,9 +3740,7 @@ export function DriverHomeScreen({
               onChangeText={bankAccountNo =>
                 setBankCardForm(current => ({
                   ...current,
-                  bankAccountNo: formatDriverBankCardNumberInput(
-                    bankAccountNo,
-                  ),
+                  bankAccountNo: formatDriverBankCardNumberInput(bankAccountNo),
                 }))
               }
             />
@@ -3705,9 +3763,7 @@ export function DriverHomeScreen({
               style={styles.detailPrimaryButton}
               onPress={submitBankCard}
             >
-              <Text style={styles.detailPrimaryButtonText}>
-                添加银行卡
-              </Text>
+              <Text style={styles.detailPrimaryButtonText}>添加银行卡</Text>
             </Pressable>
             <Pressable
               testID="driver-bank-card-cancel"
@@ -3724,9 +3780,7 @@ export function DriverHomeScreen({
             style={styles.detailSecondaryButton}
             onPress={() => openBankCardForm()}
           >
-            <Text style={styles.detailSecondaryButtonText}>
-              添加银行卡
-            </Text>
+            <Text style={styles.detailSecondaryButtonText}>添加银行卡</Text>
           </Pressable>
         ) : null}
       </View>
@@ -3736,10 +3790,14 @@ export function DriverHomeScreen({
           司机认证
         </Text>
         <Text testID="driver-identity-status" style={styles.detailMeta}>
-          {`实名认证：${getCertificationStatusText(certification?.identity?.status)}`}
+          {`实名认证：${getCertificationStatusText(
+            certification?.identity?.status,
+          )}`}
         </Text>
         <Text testID="driver-vehicle-status" style={styles.detailMeta}>
-          {`车辆认证：${getCertificationStatusText(certification?.vehicle?.status)}`}
+          {`车辆认证：${getCertificationStatusText(
+            certification?.vehicle?.status,
+          )}`}
         </Text>
         {certification?.identity?.rejectionReason ? (
           <Text style={styles.detailMeta}>
@@ -3789,7 +3847,9 @@ export function DriverHomeScreen({
           testID="driver-cert-upload-identity-front"
           style={styles.detailSecondaryButton}
           onPress={() => {
-            uploadCertificationFile('identityFrontFileId').catch(() => undefined);
+            uploadCertificationFile('identityFrontFileId').catch(
+              () => undefined,
+            );
           }}
         >
           <Text style={styles.detailSecondaryButtonText}>上传身份证人像面</Text>
@@ -3811,7 +3871,9 @@ export function DriverHomeScreen({
           testID="driver-cert-upload-identity-back"
           style={styles.detailSecondaryButton}
           onPress={() => {
-            uploadCertificationFile('identityBackFileId').catch(() => undefined);
+            uploadCertificationFile('identityBackFileId').catch(
+              () => undefined,
+            );
           }}
         >
           <Text style={styles.detailSecondaryButtonText}>上传身份证国徽面</Text>
@@ -3823,22 +3885,18 @@ export function DriverHomeScreen({
         {identityAttachmentEntries.map(entry => (
           <ImageCredentialCard
             key={entry.fieldName}
-            title={
-              entry.fileId
-                ? `${entry.label}：${
-                    entry.source === 'file-object'
-                      ? entry.attachmentRef?.fileName ?? '已关联平台文件对象'
-                      : entry.source === 'snapshot'
-                        ? '平台已同步文件 ID'
-                        : '本地已填写文件 ID'
-                  }`
-                : `${entry.label}：待上传占位`
-            }
+            title={createCertificationAttachmentTitle(entry)}
             publicUrl={entry.attachmentRef?.file.publicUrl}
             placeholderLabel={entry.label}
             metaLines={createCertificationAttachmentMetaLines(entry)}
             imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
             placeholderTestID={`driver-cert-preview-placeholder-${entry.fieldName}`}
+            previewGroup={identityAttachmentEntries.map(groupEntry => ({
+              key: groupEntry.fieldName,
+              title: createCertificationAttachmentTitle(groupEntry),
+              publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+            }))}
+            previewKey={entry.fieldName}
           />
         ))}
         <Pressable
@@ -3912,7 +3970,9 @@ export function DriverHomeScreen({
           testID="driver-cert-upload-driving-license"
           style={styles.detailSecondaryButton}
           onPress={() => {
-            uploadCertificationFile('drivingLicenseFileId').catch(() => undefined);
+            uploadCertificationFile('drivingLicenseFileId').catch(
+              () => undefined,
+            );
           }}
         >
           <Text style={styles.detailSecondaryButtonText}>上传行驶证</Text>
@@ -3934,7 +3994,9 @@ export function DriverHomeScreen({
           testID="driver-cert-upload-driver-license"
           style={styles.detailSecondaryButton}
           onPress={() => {
-            uploadCertificationFile('driverLicenseFileId').catch(() => undefined);
+            uploadCertificationFile('driverLicenseFileId').catch(
+              () => undefined,
+            );
           }}
         >
           <Text style={styles.detailSecondaryButtonText}>上传驾驶证</Text>
@@ -4004,34 +4066,33 @@ export function DriverHomeScreen({
           testID="driver-cert-upload-vehicle-photo"
           style={styles.detailSecondaryButton}
           onPress={() => {
-            uploadCertificationFile('vehiclePhotoFileId').catch(() => undefined);
+            uploadCertificationFile('vehiclePhotoFileId').catch(
+              () => undefined,
+            );
           }}
         >
           <Text style={styles.detailSecondaryButtonText}>上传车辆照片</Text>
         </Pressable>
         <Text style={styles.routeMeta}>
-          车辆资料上传后会自动回填文件 ID；如已存在平台附件，也可手动填写已有文件 ID。
+          车辆资料上传后会自动回填文件
+          ID；如已存在平台附件，也可手动填写已有文件 ID。
         </Text>
         <Text style={styles.draftSectionTitle}>车辆认证附件</Text>
         {vehicleAttachmentEntries.map(entry => (
           <ImageCredentialCard
             key={entry.fieldName}
-            title={
-              entry.fileId
-                ? `${entry.label}：${
-                    entry.source === 'file-object'
-                      ? entry.attachmentRef?.fileName ?? '已关联平台文件对象'
-                      : entry.source === 'snapshot'
-                        ? '平台已同步文件 ID'
-                        : '本地已填写文件 ID'
-                  }`
-                : `${entry.label}：待上传占位`
-            }
+            title={createCertificationAttachmentTitle(entry)}
             publicUrl={entry.attachmentRef?.file.publicUrl}
             placeholderLabel={entry.label}
             metaLines={createCertificationAttachmentMetaLines(entry)}
             imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
             placeholderTestID={`driver-cert-preview-placeholder-${entry.fieldName}`}
+            previewGroup={vehicleAttachmentEntries.map(groupEntry => ({
+              key: groupEntry.fieldName,
+              title: createCertificationAttachmentTitle(groupEntry),
+              publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+            }))}
+            previewKey={entry.fieldName}
           />
         ))}
         <Pressable
@@ -4110,21 +4171,19 @@ export function DriverHomeScreen({
             {orderHallKeyword
               ? '没有匹配的待接单订单。'
               : activeOrderHallFilter === 'all'
-                ? '暂无可接订单，请调整接单设置。'
-                : '当前筛选下暂无待接单订单。'}
+              ? '暂无可接订单，请调整接单设置。'
+              : '当前筛选下暂无待接单订单。'}
           </Text>
         </View>
       ) : (
         displayedOrderHallOrders.map(order => {
           const form = getForm(order.orderNo);
-          const latestExceptionCaseHeadline =
-            order.latestExceptionCase
-              ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
-              : undefined;
-          const latestExceptionCaseDetail =
-            order.latestExceptionCase
-              ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
-              : undefined;
+          const latestExceptionCaseHeadline = order.latestExceptionCase
+            ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
+            : undefined;
+          const latestExceptionCaseDetail = order.latestExceptionCase
+            ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
+            : undefined;
           const orderDistanceText = getDriverOrderPickupDistanceText(order);
           const orderBonusText = getDriverOrderHallBonusText(order);
 
@@ -4303,106 +4362,103 @@ export function DriverHomeScreen({
             return <Text style={styles.detailMeta}>暂无执行中的订单。</Text>;
           }
           return filtered.map(order => {
-          const latestExceptionCaseHeadline =
-            order.latestExceptionCase
+            const latestExceptionCaseHeadline = order.latestExceptionCase
               ? getOrderExceptionCaseSummaryHeadline(order.latestExceptionCase)
               : undefined;
-          const latestExceptionCaseDetail =
-            order.latestExceptionCase
+            const latestExceptionCaseDetail = order.latestExceptionCase
               ? getOrderExceptionCaseSummaryText(order.latestExceptionCase)
               : undefined;
-          const driverOrderStatusBadgeStyle = {
-            backgroundColor: getDriverStatusBadgeColor(order.status),
-          };
+            const driverOrderStatusBadgeStyle = {
+              backgroundColor: getDriverStatusBadgeColor(order.status),
+            };
 
-          return (
-            <View
-              key={order.id}
-              testID={`driver-my-order-card-${order.orderNo}`}
-              style={styles.detailInlineGroup}
-            >
-              <Text style={styles.detailRoute}>
-                {order.pickupAddress} → {order.deliveryAddress}
-              </Text>
-              <View style={styles.driverOrderStatusRow}>
-                <Text style={styles.detailMeta}>
-                  {order.orderNo} · {getDriverStatusText(order.status)}
-                </Text>
-                <View
-                  style={[
-                    styles.driverOrderStatusBadge,
-                    driverOrderStatusBadgeStyle,
-                  ]}
-                >
-                  <Text style={styles.driverOrderStatusBadgeText}>
-                    {getDriverStatusText(order.status)}
-                  </Text>
-                </View>
-              </View>
-              {latestExceptionCaseHeadline ? (
-                <View style={styles.orderExceptionSummary}>
-                  <Text
-                    style={styles.orderExceptionSummaryTitle}
-                    numberOfLines={1}
-                  >
-                    {latestExceptionCaseHeadline}
-                  </Text>
-                  {latestExceptionCaseDetail ? (
-                    <Text
-                      style={styles.orderExceptionSummaryText}
-                      numberOfLines={2}
-                    >
-                      {latestExceptionCaseDetail}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-              <Pressable
-                testID={`driver-open-order-${order.orderNo}`}
-                style={styles.detailSecondaryButton}
-                onPress={() => openOrderDetail(order)}
-              >
-                <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
-              </Pressable>
-            </View>
-          );
-        })})()}
-      </View>
-
-      <View style={styles.detailCard}>
-        <Text testID="driver-completed-orders-title" style={styles.detailRoute}>
-          已完成订单
-        </Text>
-        <Text style={styles.detailMeta}>
-          展示已送达并确认完成的订单
-        </Text>
-        {completedMyOrders.length === 0 ? (
-          <Text style={styles.detailMeta}>暂无已完成订单。</Text>
-        ) : (
-          completedMyOrders.map(order => (
+            return (
               <View
                 key={order.id}
-                testID={`driver-completed-order-card-${order.orderNo}`}
+                testID={`driver-my-order-card-${order.orderNo}`}
                 style={styles.detailInlineGroup}
               >
                 <Text style={styles.detailRoute}>
                   {order.pickupAddress} → {order.deliveryAddress}
                 </Text>
-                <Text style={styles.detailMeta}>
-                  {order.orderNo} · {getDriverStatusText(order.status)}
-                </Text>
-                <Text style={styles.detailMeta}>
-                  货物：{order.cargoType} · {order.weightText}
-                </Text>
+                <View style={styles.driverOrderStatusRow}>
+                  <Text style={styles.detailMeta}>
+                    {order.orderNo} · {getDriverStatusText(order.status)}
+                  </Text>
+                  <View
+                    style={[
+                      styles.driverOrderStatusBadge,
+                      driverOrderStatusBadgeStyle,
+                    ]}
+                  >
+                    <Text style={styles.driverOrderStatusBadgeText}>
+                      {getDriverStatusText(order.status)}
+                    </Text>
+                  </View>
+                </View>
+                {latestExceptionCaseHeadline ? (
+                  <View style={styles.orderExceptionSummary}>
+                    <Text
+                      style={styles.orderExceptionSummaryTitle}
+                      numberOfLines={1}
+                    >
+                      {latestExceptionCaseHeadline}
+                    </Text>
+                    {latestExceptionCaseDetail ? (
+                      <Text
+                        style={styles.orderExceptionSummaryText}
+                        numberOfLines={2}
+                      >
+                        {latestExceptionCaseDetail}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
                 <Pressable
-                  testID={`driver-open-completed-order-${order.orderNo}`}
+                  testID={`driver-open-order-${order.orderNo}`}
                   style={styles.detailSecondaryButton}
                   onPress={() => openOrderDetail(order)}
                 >
                   <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
                 </Pressable>
               </View>
-            ))
+            );
+          });
+        })()}
+      </View>
+
+      <View style={styles.detailCard}>
+        <Text testID="driver-completed-orders-title" style={styles.detailRoute}>
+          已完成订单
+        </Text>
+        <Text style={styles.detailMeta}>展示已送达并确认完成的订单</Text>
+        {completedMyOrders.length === 0 ? (
+          <Text style={styles.detailMeta}>暂无已完成订单。</Text>
+        ) : (
+          completedMyOrders.map(order => (
+            <View
+              key={order.id}
+              testID={`driver-completed-order-card-${order.orderNo}`}
+              style={styles.detailInlineGroup}
+            >
+              <Text style={styles.detailRoute}>
+                {order.pickupAddress} → {order.deliveryAddress}
+              </Text>
+              <Text style={styles.detailMeta}>
+                {order.orderNo} · {getDriverStatusText(order.status)}
+              </Text>
+              <Text style={styles.detailMeta}>
+                货物：{order.cargoType} · {order.weightText}
+              </Text>
+              <Pressable
+                testID={`driver-open-completed-order-${order.orderNo}`}
+                style={styles.detailSecondaryButton}
+                onPress={() => openOrderDetail(order)}
+              >
+                <Text style={styles.detailSecondaryButtonText}>查看详情</Text>
+              </Pressable>
+            </View>
+          ))
         )}
       </View>
 
@@ -4415,7 +4471,8 @@ export function DriverHomeScreen({
             执行订单详情
           </Text>
           <Text style={styles.detailMeta}>
-            {selectedOrder.orderNo} · {getDriverStatusText(selectedOrder.status)}
+            {selectedOrder.orderNo} ·{' '}
+            {getDriverStatusText(selectedOrder.status)}
           </Text>
           <Text
             testID={`driver-order-route-${selectedOrder.orderNo}`}
@@ -4546,9 +4603,13 @@ export function DriverHomeScreen({
                   >
                     {`审核改价：${
                       reviewSnapshot.previousPayablePriceCents !== undefined
-                        ? `￥${(reviewSnapshot.previousPayablePriceCents / 100).toFixed(2)} → `
+                        ? `￥${(
+                            reviewSnapshot.previousPayablePriceCents / 100
+                          ).toFixed(2)} → `
                         : ''
-                    }￥${(reviewSnapshot.adjustedPayablePriceCents / 100).toFixed(2)}`}
+                    }￥${(
+                      reviewSnapshot.adjustedPayablePriceCents / 100
+                    ).toFixed(2)}`}
                   </Text>
                 ) : null}
                 {typeof selectedOrder.payablePriceCents === 'number' ||
@@ -4575,17 +4636,13 @@ export function DriverHomeScreen({
                     {target.type === 'pickup' ? '装货点' : '卸货点'}
                   </Text>
                   <Text
-                    testID={
-                      `driver-navigation-target-address-${target.type}-${selectedOrder.orderNo}`
-                    }
+                    testID={`driver-navigation-target-address-${target.type}-${selectedOrder.orderNo}`}
                     style={styles.detailInfoValue}
                   >
                     {target.address}
                   </Text>
                   <Text
-                    testID={
-                      `driver-navigation-target-contact-${target.type}-${selectedOrder.orderNo}`
-                    }
+                    testID={`driver-navigation-target-contact-${target.type}-${selectedOrder.orderNo}`}
                     style={styles.detailMeta}
                   >
                     {`联系人：${target.contactName} ${target.contactPhone}`}
@@ -4668,10 +4725,22 @@ export function DriverHomeScreen({
                     publicUrl={attachmentRef.file.publicUrl}
                     placeholderLabel={`异常凭证 ${index + 1}`}
                     metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
-                    imageTestID={`driver-reported-exception-preview-image-${index + 1}`}
-                    placeholderTestID={
-                      `driver-reported-exception-preview-placeholder-${index + 1}`
-                    }
+                    imageTestID={`driver-reported-exception-preview-image-${
+                      index + 1
+                    }`}
+                    placeholderTestID={`driver-reported-exception-preview-placeholder-${
+                      index + 1
+                    }`}
+                    previewGroup={selectedReportedExceptionAttachmentRefs.map(
+                      (groupRef, groupIndex) => ({
+                        key: `reported-exception-${groupRef.file.id}-${groupIndex}`,
+                        title: `异常凭证 ${groupIndex + 1}：${
+                          groupRef.fileName
+                        }`,
+                        publicUrl: groupRef.file.publicUrl,
+                      }),
+                    )}
+                    previewKey={`reported-exception-${attachmentRef.file.id}-${index}`}
                   />
                 ),
               )}
@@ -4738,24 +4807,44 @@ export function DriverHomeScreen({
                   uploadExceptionProof(selectedOrder).catch(() => undefined);
                 }}
               >
-                <Text style={styles.detailSecondaryButtonText}>上传异常凭证</Text>
+                <Text style={styles.detailSecondaryButtonText}>
+                  上传异常凭证
+                </Text>
               </Pressable>
               {selectedExceptionAttachmentRefs.length > 0 ? (
                 <View>
                   <Text style={styles.draftSectionTitle}>异常凭证清单</Text>
-                  {selectedExceptionAttachmentRefs.map((attachmentRef, index) => (
-                    <ImageCredentialCard
-                      key={`${attachmentRef.file.id}-${index}`}
-                      title={`异常凭证 ${index + 1}：${attachmentRef.fileName}`}
-                      publicUrl={attachmentRef.file.publicUrl}
-                      placeholderLabel={`异常凭证 ${index + 1}`}
-                      metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
-                      imageTestID={`driver-exception-preview-image-${index + 1}`}
-                      placeholderTestID={
-                        `driver-exception-preview-placeholder-${index + 1}`
-                      }
-                    />
-                  ))}
+                  {selectedExceptionAttachmentRefs.map(
+                    (attachmentRef, index) => (
+                      <ImageCredentialCard
+                        key={`${attachmentRef.file.id}-${index}`}
+                        title={`异常凭证 ${index + 1}：${
+                          attachmentRef.fileName
+                        }`}
+                        publicUrl={attachmentRef.file.publicUrl}
+                        placeholderLabel={`异常凭证 ${index + 1}`}
+                        metaLines={createUploadedAttachmentMetaLines(
+                          attachmentRef,
+                        )}
+                        imageTestID={`driver-exception-preview-image-${
+                          index + 1
+                        }`}
+                        placeholderTestID={`driver-exception-preview-placeholder-${
+                          index + 1
+                        }`}
+                        previewGroup={selectedExceptionAttachmentRefs.map(
+                          (groupRef, groupIndex) => ({
+                            key: `${groupRef.file.id}-${groupIndex}`,
+                            title: `异常凭证 ${groupIndex + 1}：${
+                              groupRef.fileName
+                            }`,
+                            publicUrl: groupRef.file.publicUrl,
+                          }),
+                        )}
+                        previewKey={`${attachmentRef.file.id}-${index}`}
+                      />
+                    ),
+                  )}
                 </View>
               ) : null}
               <Pressable
@@ -4789,7 +4878,9 @@ export function DriverHomeScreen({
                 style={styles.detailSecondaryButton}
                 onPress={() => submitEvaluationReply(selectedOrder)}
               >
-                <Text style={styles.detailSecondaryButtonText}>提交评价回复</Text>
+                <Text style={styles.detailSecondaryButtonText}>
+                  提交评价回复
+                </Text>
               </Pressable>
             </>
           ) : null}
@@ -4809,16 +4900,30 @@ export function DriverHomeScreen({
                     (attachmentRef, index) => (
                       <ImageCredentialCard
                         key={`reported-shipper-evaluation-${attachmentRef.file.id}-${index}`}
-                        title={`评价货主凭证 ${index + 1}：${attachmentRef.fileName}`}
+                        title={`评价货主凭证 ${index + 1}：${
+                          attachmentRef.fileName
+                        }`}
                         publicUrl={attachmentRef.file.publicUrl}
                         placeholderLabel={`评价货主凭证 ${index + 1}`}
-                        metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
-                        imageTestID={
-                          `driver-reported-shipper-evaluation-preview-image-${index + 1}`
-                        }
-                        placeholderTestID={
-                          `driver-reported-shipper-evaluation-preview-placeholder-${index + 1}`
-                        }
+                        metaLines={createUploadedAttachmentMetaLines(
+                          attachmentRef,
+                        )}
+                        imageTestID={`driver-reported-shipper-evaluation-preview-image-${
+                          index + 1
+                        }`}
+                        placeholderTestID={`driver-reported-shipper-evaluation-preview-placeholder-${
+                          index + 1
+                        }`}
+                        previewGroup={selectedReportedShipperEvaluationAttachmentRefs.map(
+                          (groupRef, groupIndex) => ({
+                            key: `reported-shipper-evaluation-${groupRef.file.id}-${groupIndex}`,
+                            title: `评价货主凭证 ${groupIndex + 1}：${
+                              groupRef.fileName
+                            }`,
+                            publicUrl: groupRef.file.publicUrl,
+                          }),
+                        )}
+                        previewKey={`reported-shipper-evaluation-${attachmentRef.file.id}-${index}`}
                       />
                     ),
                   )}
@@ -4875,7 +4980,8 @@ export function DriverHomeScreen({
                 </Text>
               </Pressable>
               <Text style={styles.detailMeta}>
-                评价凭证：{selectedShipperEvaluationForm.photoFileIds.length} / 6 张
+                评价凭证：{selectedShipperEvaluationForm.photoFileIds.length} /
+                6 张
               </Text>
               <Pressable
                 testID={`driver-upload-shipper-evaluation-proof-${selectedOrder.orderNo}`}
@@ -4897,16 +5003,30 @@ export function DriverHomeScreen({
                     (attachmentRef, index) => (
                       <ImageCredentialCard
                         key={`${attachmentRef.file.id}-${index}`}
-                        title={`评价货主凭证 ${index + 1}：${attachmentRef.fileName}`}
+                        title={`评价货主凭证 ${index + 1}：${
+                          attachmentRef.fileName
+                        }`}
                         publicUrl={attachmentRef.file.publicUrl}
                         placeholderLabel={`评价货主凭证 ${index + 1}`}
-                        metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
-                        imageTestID={
-                          `driver-shipper-evaluation-preview-image-${index + 1}`
-                        }
-                        placeholderTestID={
-                          `driver-shipper-evaluation-preview-placeholder-${index + 1}`
-                        }
+                        metaLines={createUploadedAttachmentMetaLines(
+                          attachmentRef,
+                        )}
+                        imageTestID={`driver-shipper-evaluation-preview-image-${
+                          index + 1
+                        }`}
+                        placeholderTestID={`driver-shipper-evaluation-preview-placeholder-${
+                          index + 1
+                        }`}
+                        previewGroup={selectedShipperEvaluationAttachmentRefs.map(
+                          (groupRef, groupIndex) => ({
+                            key: `${groupRef.file.id}-${groupIndex}`,
+                            title: `评价货主凭证 ${groupIndex + 1}：${
+                              groupRef.fileName
+                            }`,
+                            publicUrl: groupRef.file.publicUrl,
+                          }),
+                        )}
+                        previewKey={`${attachmentRef.file.id}-${index}`}
                       />
                     ),
                   )}
@@ -4937,7 +5057,9 @@ export function DriverHomeScreen({
                   retryEvaluationReply(selectedEvaluationReplyQueueItem)
                 }
               >
-                <Text style={styles.detailSecondaryButtonText}>重试评价回复</Text>
+                <Text style={styles.detailSecondaryButtonText}>
+                  重试评价回复
+                </Text>
               </Pressable>
             </View>
           ) : null}
@@ -4954,18 +5076,30 @@ export function DriverHomeScreen({
                   {section.refs.map((attachmentRef, index) => (
                     <ImageCredentialCard
                       key={`${section.key}-${attachmentRef.file.id}-${index}`}
-                      title={`${section.label} ${index + 1}：${attachmentRef.fileName}`}
+                      title={`${section.label} ${index + 1}：${
+                        attachmentRef.fileName
+                      }`}
                       publicUrl={attachmentRef.file.publicUrl}
                       placeholderLabel={section.label}
                       metaLines={createUploadedAttachmentMetaLines(
                         attachmentRef,
                       )}
-                      imageTestID={
-                        `driver-receipt-preview-image-${section.key}-${index + 1}`
-                      }
-                      placeholderTestID={
-                        `driver-receipt-preview-placeholder-${section.key}-${index + 1}`
-                      }
+                      imageTestID={`driver-receipt-preview-image-${
+                        section.key
+                      }-${index + 1}`}
+                      placeholderTestID={`driver-receipt-preview-placeholder-${
+                        section.key
+                      }-${index + 1}`}
+                      previewGroup={section.refs.map(
+                        (groupRef, groupIndex) => ({
+                          key: `${section.key}-${groupRef.file.id}-${groupIndex}`,
+                          title: `${section.label} ${groupIndex + 1}：${
+                            groupRef.fileName
+                          }`,
+                          publicUrl: groupRef.file.publicUrl,
+                        }),
+                      )}
+                      previewKey={`${section.key}-${attachmentRef.file.id}-${index}`}
                     />
                   ))}
                 </View>
@@ -4994,7 +5128,9 @@ export function DriverHomeScreen({
           </Pressable>
           <DriverOrderExecution
             order={selectedOrder}
-            baseUpdatedAtIso={selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? ''}
+            baseUpdatedAtIso={
+              selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? ''
+            }
             navigationTargets={navigationTargets}
             platformMapsApi={platformMapsApi}
             platformFileApi={platformFileApi}
@@ -5012,7 +5148,8 @@ export function DriverHomeScreen({
             onCancelOrder={request => {
               const baseUpdatedAtIso =
                 selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';
-              const mutationContext = createOrderMutationContext(baseUpdatedAtIso);
+              const mutationContext =
+                createOrderMutationContext(baseUpdatedAtIso);
               executeDriverOrderMutation({
                 operation: 'cancel',
                 driverAccountId: resolvedDriverAccountId,
@@ -5029,9 +5166,13 @@ export function DriverHomeScreen({
               });
             }}
             onAdvanceStatus={request => {
-              const nextStatus = request.nextStatus as 'transporting' | 'confirming';
-              const baseUpdatedAtIso = selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';
-              const mutationContext = createOrderMutationContext(baseUpdatedAtIso);
+              const nextStatus = request.nextStatus as
+                | 'transporting'
+                | 'confirming';
+              const baseUpdatedAtIso =
+                selectedOrder.updatedAtIso ?? selectedOrder.createdAtIso ?? '';
+              const mutationContext =
+                createOrderMutationContext(baseUpdatedAtIso);
               executeDriverOrderMutation({
                 operation: 'status',
                 driverAccountId: resolvedDriverAccountId,
@@ -5045,7 +5186,7 @@ export function DriverHomeScreen({
                     : {}),
                 },
                 mutationContext,
-                  });
+              });
             }}
             onChangeReceipt={(file, fieldName) => {
               setExecutionProofs(current => {

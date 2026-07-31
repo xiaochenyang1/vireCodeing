@@ -73,9 +73,7 @@ function getIdentityVerificationStatus(
   return undefined;
 }
 
-function getFaceCheckNoticeText(
-  usesPlatformIdentityVerification: boolean,
-) {
+function getFaceCheckNoticeText(usesPlatformIdentityVerification: boolean) {
   return usesPlatformIdentityVerification
     ? '人脸核验已完成，当前客户端未接入平台人脸 SDK，已使用平台占位校验标记。'
     : '人脸核验已完成，本地版不会调用第三方 SDK。';
@@ -174,12 +172,23 @@ export function IdentityVerificationRecords({
       file: backPhotoFile,
     },
   ].filter(entry => entry.added || entry.file);
+  const identityPhotoPreviewGroup = identityPhotoEntries.map(entry => ({
+    key: entry.key,
+    title: entry.file
+      ? `${entry.label}：${entry.file.fileName}`
+      : `${entry.label}：本地已保存`,
+    publicUrl: entry.file?.publicUrl,
+  }));
 
   useEffect(() => {
     setRealName(verification?.realName ?? '');
     setIdNumber(verification?.idNumber ?? '');
-    setFrontPhotoAdded(Boolean(verification && verification.identityPhotoCount >= 1));
-    setBackPhotoAdded(Boolean(verification && verification.identityPhotoCount >= 2));
+    setFrontPhotoAdded(
+      Boolean(verification && verification.identityPhotoCount >= 1),
+    );
+    setBackPhotoAdded(
+      Boolean(verification && verification.identityPhotoCount >= 2),
+    );
     setFrontPhotoFile(verification?.identityPhotoFiles?.[0]);
     setBackPhotoFile(verification?.identityPhotoFiles?.[1]);
     setFaceVerified(verification?.faceVerified ?? false);
@@ -243,7 +252,7 @@ export function IdentityVerificationRecords({
       } catch (error) {
         const syncFailureNotice =
           error instanceof PlatformApiError &&
-            error.code === 'AUTH_ACCESS_TOKEN_MISSING'
+          error.code === 'AUTH_ACCESS_TOKEN_MISSING'
             ? '实名认证提交需要重新登录后再同步。'
             : '实名认证资料提交失败，已保留本地资料，请稍后重试。';
         onSubmit(result.request, {
@@ -260,10 +269,8 @@ export function IdentityVerificationRecords({
   };
 
   const rejectVerification = () => {
-    const {
-      reason,
-      noticeText: rejectionNoticeText,
-    } = getIdentityVerificationRejectionNotice();
+    const { reason, noticeText: rejectionNoticeText } =
+      getIdentityVerificationRejectionNotice();
     onReject(reason);
     setActionNotice(rejectionNoticeText);
   };
@@ -336,8 +343,8 @@ export function IdentityVerificationRecords({
               {isApproved
                 ? '实名认证已通过'
                 : isRejected
-                  ? '实名认证认证失败'
-                  : '实名认证审核中'}
+                ? '实名认证认证失败'
+                : '实名认证审核中'}
             </Text>
             <Text style={styles.routeAction}>
               {isApproved ? '已认证' : isRejected ? '认证失败' : '审核中'}
@@ -365,7 +372,9 @@ export function IdentityVerificationRecords({
           ) : (
             <Text style={styles.detailMeta}>预计 1 个工作日内完成审核</Text>
           )}
-          {!platformProfileApi && !verification.rejectionReason && !isApproved ? (
+          {!platformProfileApi &&
+          !verification.rejectionReason &&
+          !isApproved ? (
             <Pressable
               testID="identity-verification-reject"
               style={styles.detailSecondaryButton}
@@ -444,23 +453,29 @@ export function IdentityVerificationRecords({
               metaLines={
                 entry.file
                   ? [
-                      `来源：平台文件对象（${getVerificationFileStatusText(entry.file.status)}）`,
+                      `来源：平台文件对象（${getVerificationFileStatusText(
+                        entry.file.status,
+                      )}）`,
                       `文件 ID：${entry.file.fileId}`,
                       ...(entry.file.publicUrl
                         ? ['已生成预览地址。']
                         : entry.file.objectKey
-                          ? ['已写入平台对象存储。']
-                          : []),
+                        ? ['已写入平台对象存储。']
+                        : []),
                     ]
                   : ['来源：本地图片凭证占位']
               }
               imageTestID={`identity-verification-${entry.key}-preview-image`}
               placeholderTestID={`identity-verification-${entry.key}-preview-placeholder`}
+              previewGroup={identityPhotoPreviewGroup}
+              previewKey={entry.key}
             />
           ))}
         </View>
       ) : null}
-      {faceVerified ? <Text style={styles.routeMeta}>人脸核验已完成</Text> : null}
+      {faceVerified ? (
+        <Text style={styles.routeMeta}>人脸核验已完成</Text>
+      ) : null}
       <Pressable
         testID="identity-verification-submit"
         style={({ pressed }) => [

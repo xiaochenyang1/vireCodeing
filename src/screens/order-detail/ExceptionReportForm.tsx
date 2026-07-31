@@ -238,11 +238,19 @@ export function ExceptionReportForm({
                 ...(file.publicUrl
                   ? ['已生成预览地址。']
                   : file.objectKey
-                    ? ['已写入平台对象存储。']
-                    : []),
+                  ? ['已写入平台对象存储。']
+                  : []),
               ]}
               imageTestID={`exception-photo-preview-image-${index + 1}`}
-              placeholderTestID={`exception-photo-preview-placeholder-${index + 1}`}
+              placeholderTestID={`exception-photo-preview-placeholder-${
+                index + 1
+              }`}
+              previewGroup={uploadedPhotoFiles.map(groupFile => ({
+                key: groupFile.fileId,
+                title: `异常图片凭证：${groupFile.fileName}`,
+                publicUrl: groupFile.publicUrl,
+              }))}
+              previewKey={file.fileId}
             />
           ))}
           {localPlaceholderIndexes.map(voucherIndex => (

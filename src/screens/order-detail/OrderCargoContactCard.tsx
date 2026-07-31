@@ -24,6 +24,13 @@ export function OrderCargoContactCard({
     order,
     supportsPlatformPaymentFlow,
   );
+  const cargoPhotoPreviewGroup = (order.cargoPhotoFiles ?? []).map(
+    (file, index) => ({
+      key: file.fileId,
+      title: `货物图片凭证 ${index + 1}：${file.fileName}`,
+      publicUrl: file.publicUrl,
+    }),
+  );
 
   return (
     <>
@@ -114,16 +121,24 @@ export function OrderCargoContactCard({
                 publicUrl={file.publicUrl}
                 placeholderLabel="货物图片"
                 metaLines={[
-                  `来源：平台文件对象（${file.status === 'uploaded' ? '已上传' : file.status === 'pending' ? '待上传' : '已驳回'}）`,
+                  `来源：平台文件对象（${
+                    file.status === 'uploaded'
+                      ? '已上传'
+                      : file.status === 'pending'
+                      ? '待上传'
+                      : '已驳回'
+                  }）`,
                   `文件 ID：${file.fileId}`,
                   ...(file.publicUrl
                     ? ['已生成预览地址。']
                     : file.objectKey
-                      ? ['已写入平台对象存储。']
-                      : []),
+                    ? ['已写入平台对象存储。']
+                    : []),
                 ]}
                 imageTestID={`order-cargo-photo-image-${index + 1}`}
                 placeholderTestID={`order-cargo-photo-placeholder-${index + 1}`}
+                previewGroup={cargoPhotoPreviewGroup}
+                previewKey={file.fileId}
               />
             ))}
           </>
@@ -164,7 +179,9 @@ export function OrderCargoContactCard({
           <Text style={styles.detailMeta}>{paymentHintText}</Text>
         ) : null}
         {order.bonusText ? (
-          <Text style={styles.detailMeta}>{`曝光赏金：${order.bonusText}`}</Text>
+          <Text
+            style={styles.detailMeta}
+          >{`曝光赏金：${order.bonusText}`}</Text>
         ) : null}
         {order.reorderSource ? (
           <>
@@ -174,7 +191,9 @@ export function OrderCargoContactCard({
             <Text style={styles.detailMeta}>
               {`来源记录：${order.reorderSource.noteText}`}
             </Text>
-            <Text style={styles.routeMeta}>{order.reorderSource.copiedAtText}</Text>
+            <Text style={styles.routeMeta}>
+              {order.reorderSource.copiedAtText}
+            </Text>
           </>
         ) : null}
         {order.cargoDescription ? (

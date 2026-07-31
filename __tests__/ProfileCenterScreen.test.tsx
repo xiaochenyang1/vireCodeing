@@ -562,7 +562,7 @@ describe('ProfileCenterScreen verification sync guards', () => {
     );
     expect(
       renderer.root.findByProps({
-        testID: 'enterprise-verification-license-preview-image',
+        testID: 'enterprise-verification-license-preview-image-1',
       }).props.source,
     ).toEqual({
       uri: 'https://cdn.example.com/file-platform-license.png',

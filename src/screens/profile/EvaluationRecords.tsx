@@ -47,8 +47,8 @@ function createAttachmentMetaLines(file: FileAttachmentRef) {
     ...(file.publicUrl
       ? ['已生成预览地址。']
       : file.objectKey
-        ? ['已写入平台对象存储。']
-        : []),
+      ? ['已写入平台对象存储。']
+      : []),
   ];
 }
 
@@ -203,14 +203,30 @@ export function EvaluationRecords({
                 {item.photoFiles.map((file, index) => (
                   <ImageCredentialCard
                     key={`${item.id}-${file.fileId}-${index}`}
-                    title={`${getAttachmentTitle(item.direction)}：${file.fileName}`}
+                    title={`${getAttachmentTitle(item.direction)}：${
+                      file.fileName
+                    }`}
                     publicUrl={file.publicUrl}
                     placeholderLabel={getAttachmentPlaceholderLabel(
                       item.direction,
                     )}
                     metaLines={createAttachmentMetaLines(file)}
-                    imageTestID={`profile-evaluation-photo-image-${item.id}-${index + 1}`}
-                    placeholderTestID={`profile-evaluation-photo-placeholder-${item.id}-${index + 1}`}
+                    imageTestID={`profile-evaluation-photo-image-${item.id}-${
+                      index + 1
+                    }`}
+                    placeholderTestID={`profile-evaluation-photo-placeholder-${
+                      item.id
+                    }-${index + 1}`}
+                    previewGroup={(item.photoFiles ?? []).map(
+                      (groupFile, groupIndex) => ({
+                        key: `${item.id}-${groupFile.fileId}-${groupIndex}`,
+                        title: `${getAttachmentTitle(item.direction)}：${
+                          groupFile.fileName
+                        }`,
+                        publicUrl: groupFile.publicUrl,
+                      }),
+                    )}
+                    previewKey={`${item.id}-${file.fileId}-${index}`}
                   />
                 ))}
               </View>

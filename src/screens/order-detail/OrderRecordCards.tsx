@@ -30,6 +30,12 @@ function renderAttachmentCards({
     return null;
   }
 
+  const previewGroup = files.map((file, index) => ({
+    key: `${file.fileId || file.fileName}-${index}`,
+    title: `${title}：${file.fileName}`,
+    publicUrl: file.publicUrl,
+  }));
+
   return (
     <View style={styles.detailInlineGroup}>
       <Text style={styles.draftSectionTitle}>{title}清单</Text>
@@ -45,11 +51,13 @@ function renderAttachmentCards({
             ...(file.publicUrl
               ? ['已生成预览地址。']
               : file.objectKey
-                ? ['已写入平台对象存储。']
-                : []),
+              ? ['已写入平台对象存储。']
+              : []),
           ]}
           imageTestID={`${testIDPrefix}-image-${index + 1}`}
           placeholderTestID={`${testIDPrefix}-placeholder-${index + 1}`}
+          previewGroup={previewGroup}
+          previewKey={`${file.fileId || file.fileName}-${index}`}
         />
       ))}
     </View>
@@ -88,9 +96,7 @@ export function ExceptionRecordCard({
         </Text>
       ) : null}
       {photoCount > 0 ? (
-        <Text style={styles.detailMeta}>
-          {`图片凭证 ${photoCount} 张`}
-        </Text>
+        <Text style={styles.detailMeta}>{`图片凭证 ${photoCount} 张`}</Text>
       ) : null}
       {renderAttachmentCards({
         title: '异常图片凭证',
@@ -167,9 +173,13 @@ export function ModificationRequestRecordCard({
         >
           {`审核改价：${
             modificationRequest.previousPayablePriceCents !== undefined
-              ? `￥${(modificationRequest.previousPayablePriceCents / 100).toFixed(2)} → `
+              ? `￥${(
+                  modificationRequest.previousPayablePriceCents / 100
+                ).toFixed(2)} → `
               : ''
-          }￥${(modificationRequest.adjustedPayablePriceCents / 100).toFixed(2)}`}
+          }￥${(modificationRequest.adjustedPayablePriceCents / 100).toFixed(
+            2,
+          )}`}
         </Text>
       ) : null}
       {modificationRequest.fundDispositionSummaryText ? (
@@ -189,7 +199,10 @@ export function ModificationRequestRecordCard({
         </Text>
       ) : null}
       {modificationRequest.fundDispositionKind === 'online_topup_queued' ? (
-        <Text style={styles.draftNotice} testID="modification-request-topup-hint">
+        <Text
+          style={styles.draftNotice}
+          testID="modification-request-topup-hint"
+        >
           主资金已托管。请在下方「改单补差」完成差额支付。
         </Text>
       ) : null}
@@ -243,7 +256,9 @@ export function CancellationRecordCard({
       {cancellation.description ? (
         <Text style={styles.detailMeta}>{cancellation.description}</Text>
       ) : null}
-      <Text style={styles.detailMeta}>{`违约提示：${cancellation.feeText}`}</Text>
+      <Text
+        style={styles.detailMeta}
+      >{`违约提示：${cancellation.feeText}`}</Text>
       {cancellation.settlementText ? (
         <Text style={styles.detailMeta}>
           {`结算结果：${cancellation.settlementText}`}
@@ -273,7 +288,8 @@ export function EvaluationRecordCard({
 }: {
   evaluation: NonNullable<RecentOrder['evaluation']>;
 }) {
-  const photoCount = evaluation.photoCount ?? evaluation.photoFiles?.length ?? 0;
+  const photoCount =
+    evaluation.photoCount ?? evaluation.photoFiles?.length ?? 0;
 
   return (
     <View style={styles.detailCard}>
@@ -290,9 +306,7 @@ export function EvaluationRecordCard({
         <Text style={styles.detailMeta}>匿名评价</Text>
       ) : null}
       {photoCount > 0 ? (
-        <Text style={styles.detailMeta}>
-          {`图片凭证 ${photoCount} 张`}
-        </Text>
+        <Text style={styles.detailMeta}>{`图片凭证 ${photoCount} 张`}</Text>
       ) : null}
       {renderAttachmentCards({
         title: '评价图片凭证',
@@ -319,7 +333,9 @@ export function ShipperEvaluationRecordCard({
       <View style={styles.detailInlineGroup}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.detailMeta}>
-            {`评分：${'★'.repeat(shipperEvaluation.rating)}${'☆'.repeat(5 - shipperEvaluation.rating)}`}
+            {`评分：${'★'.repeat(shipperEvaluation.rating)}${'☆'.repeat(
+              5 - shipperEvaluation.rating,
+            )}`}
           </Text>
         </View>
         {shipperEvaluation.submittedAtText ? (

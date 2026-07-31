@@ -129,9 +129,9 @@ export function ExceptionCaseProgressPanel({
   onSubmitAppeal?: (exceptionCase: PlatformOrderExceptionCase) => void;
   platformFileApi?: ExceptionCasePlatformFileApi;
 }) {
-  const [attachmentMap, setAttachmentMap] = useState<Record<string, FileAttachmentRef[]>>(
-    {},
-  );
+  const [attachmentMap, setAttachmentMap] = useState<
+    Record<string, FileAttachmentRef[]>
+  >({});
 
   useEffect(() => {
     let active = true;
@@ -158,7 +158,9 @@ export function ExceptionCaseProgressPanel({
   return (
     <View style={styles.detailInlineGroup}>
       <Text style={styles.draftSectionTitle}>异常处理进度</Text>
-      {isLoading ? <Text style={styles.detailMeta}>正在加载异常工单...</Text> : null}
+      {isLoading ? (
+        <Text style={styles.detailMeta}>正在加载异常工单...</Text>
+      ) : null}
       {notice ? <Text style={styles.detailMeta}>{notice}</Text> : null}
       {!isLoading && !notice && sortedCases.length === 0 ? (
         <Text style={styles.detailMeta}>暂无异常处理工单</Text>
@@ -220,11 +222,23 @@ export function ExceptionCaseProgressPanel({
                       ...(attachment.publicUrl
                         ? ['已生成预览地址。']
                         : attachment.objectKey
-                          ? ['已写入平台对象存储。']
-                          : []),
+                        ? ['已写入平台对象存储。']
+                        : []),
                     ]}
-                    imageTestID={`exception-case-proof-image-${exceptionCase.caseNo}-${index + 1}`}
-                    placeholderTestID={`exception-case-proof-placeholder-${exceptionCase.caseNo}-${index + 1}`}
+                    imageTestID={`exception-case-proof-image-${
+                      exceptionCase.caseNo
+                    }-${index + 1}`}
+                    placeholderTestID={`exception-case-proof-placeholder-${
+                      exceptionCase.caseNo
+                    }-${index + 1}`}
+                    previewGroup={caseAttachments.map(
+                      (groupAttachment, groupIndex) => ({
+                        key: `${exceptionCase.id}-${groupAttachment.fileId}-${groupIndex}`,
+                        title: `异常工单凭证：${groupAttachment.fileName}`,
+                        publicUrl: groupAttachment.publicUrl,
+                      }),
+                    )}
+                    previewKey={`${exceptionCase.id}-${attachment.fileId}-${index}`}
                   />
                 ))}
               </View>
@@ -252,13 +266,16 @@ export function ExceptionCaseProgressPanel({
                 赔付执行时间：{lifecycleFacts.compensationExecutedAtText}
               </Text>
             ) : null}
-            {exceptionCase.appealStatus && exceptionCase.appealStatus !== 'none' ? (
+            {exceptionCase.appealStatus &&
+            exceptionCase.appealStatus !== 'none' ? (
               <Text
                 style={styles.detailMeta}
                 testID={`exception-case-appeal-status-${exceptionCase.caseNo}`}
               >
                 申诉状态：
-                {getOrderExceptionCaseAppealStatusText(exceptionCase.appealStatus)}
+                {getOrderExceptionCaseAppealStatusText(
+                  exceptionCase.appealStatus,
+                )}
               </Text>
             ) : null}
             {lifecycleFacts.appealRequestedAtText ? (
@@ -281,13 +298,16 @@ export function ExceptionCaseProgressPanel({
                 结案时间：{lifecycleFacts.closedAtText}
               </Text>
             ) : null}
-            {sortOrderExceptionCaseActions(exceptionCase.actions).map(action => (
-              <Text key={action.id} style={styles.detailMeta}>
-                {getOrderExceptionCaseStatusText(action.fromStatus)} →{' '}
-                {getOrderExceptionCaseStatusText(action.toStatus)}：
-                {action.content} · {formatPlatformIsoMinute(action.createdAtIso)}
-              </Text>
-            ))}
+            {sortOrderExceptionCaseActions(exceptionCase.actions).map(
+              action => (
+                <Text key={action.id} style={styles.detailMeta}>
+                  {getOrderExceptionCaseStatusText(action.fromStatus)} →{' '}
+                  {getOrderExceptionCaseStatusText(action.toStatus)}：
+                  {action.content} ·{' '}
+                  {formatPlatformIsoMinute(action.createdAtIso)}
+                </Text>
+              ),
+            )}
             {canAppeal && onSubmitAppeal ? (
               <View style={styles.detailInlineGroup}>
                 <Text style={styles.detailMeta}>申请申诉</Text>
