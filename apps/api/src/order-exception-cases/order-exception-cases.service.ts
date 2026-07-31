@@ -1,4 +1,10 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
+import type { AuthenticatedUser } from '../auth/dto';
+import type { FilesRepository } from '../files/files.repository';
+import {
+  LocalFilePreviewUrlSigner,
+  type FilePreviewUrlSigner,
+} from '../files/file-preview-url.signer';
 import type { OrdersRepository } from '../orders/orders.repository';
 import { createAdminActionFingerprint } from '../payments/admin-finance.service';
 import type { NotificationsService } from '../notifications/notifications.service';
@@ -9,6 +15,7 @@ import type {
   OrderExceptionCaseRecord,
   ExecuteOrderExceptionCaseCompensationRequest,
   OrderExceptionCaseListQuery,
+  OrderExceptionCaseAttachmentPreview,
   OrderExceptionCaseSourceRole,
   OrderExceptionCaseStatus,
   ResolveOrderExceptionCaseRequest,
@@ -30,6 +37,9 @@ export class OrderExceptionCasesService {
     private readonly repository: OrdersRepository,
     private readonly notificationsService?: NotificationsService,
     private readonly now: () => Date = () => new Date(),
+    private readonly filesRepository?: FilesRepository,
+    private readonly previewUrlSigner: FilePreviewUrlSigner =
+      new LocalFilePreviewUrlSigner(),
   ) {}
 
   async listForShipper(shipperId: string, orderId: string) {
@@ -57,6 +67,59 @@ export class OrderExceptionCasesService {
     const result = await this.repository.listOrderExceptionCases(orderId);
 
     return mapOrderExceptionCaseListWithSla(result, this.now());
+  }
+
+  async getAttachmentPreview(
+    currentUser: AuthenticatedUser,
+    orderId: string,
+    caseId: string,
+    fileId: string,
+  ): Promise<OrderExceptionCaseAttachmentPreview> {
+    const order = await this.repository.findOrderById(orderId);
+    const canAccessOrder =
+      currentUser.userType === 'admin' ||
+      (currentUser.userType === 'shipper' &&
+        order?.shipperId === currentUser.id) ||
+      (currentUser.userType === 'driver' &&
+        order?.assignedDriverId === currentUser.id);
+
+    if (!order || !canAccessOrder) {
+      throw notFoundError();
+    }
+
+    const exceptionCase =
+      await this.repository.findOrderExceptionCaseById(caseId);
+
+    if (!exceptionCase || exceptionCase.orderId !== orderId) {
+      throw notFoundError();
+    }
+
+    if (
+      !exceptionCase.attachmentFileIds.some(
+        attachmentFileId => attachmentFileId.trim() === fileId,
+      ) ||
+      !this.filesRepository
+    ) {
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常工单附件不存在');
+    }
+
+    const file = await this.filesRepository.findFileById(fileId);
+
+    if (!file) {
+      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常工单附件不存在');
+    }
+
+    if (file.status !== 'uploaded') {
+      throw new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '异常工单附件尚未上传完成',
+      );
+    }
+
+    return {
+      fileId: file.id,
+      ...this.previewUrlSigner.signPreviewUrl(file),
+    };
   }
 
   async listForAdmin(query: OrderExceptionCaseListQuery) {

@@ -142,6 +142,7 @@ export function OrderDetailScreen({
       | 'confirmLocalUploadTarget'
       | 'getFileMetadata'
       | 'getOrderAttachmentPreview'
+      | 'getOrderExceptionCaseAttachmentPreview'
     >
   >;
   platformOrderApi?: Pick<

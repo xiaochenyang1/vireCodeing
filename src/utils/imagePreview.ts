@@ -14,10 +14,16 @@ export type ImagePreviewItem = {
   access?: ImagePreviewAccess;
 };
 
-export type ImagePreviewAccess = {
-  kind: 'order';
-  orderId: string;
-};
+export type ImagePreviewAccess =
+  | {
+      kind: 'order';
+      orderId: string;
+    }
+  | {
+      kind: 'exceptionCase';
+      orderId: string;
+      caseId: string;
+    };
 
 export type ImagePreviewEntry = {
   key: string;

@@ -42,6 +42,26 @@ describe('imagePreview utils', () => {
     ]);
   });
 
+  it('keeps exception case access context on preview entries', () => {
+    const access = {
+      kind: 'exceptionCase' as const,
+      orderId: 'order-1',
+      caseId: 'case-1',
+    };
+
+    expect(
+      buildImagePreviewGroup([
+        {
+          key: 'file-1',
+          title: '历史异常工单附件',
+          publicUrl: 'https://cdn/file-1.jpg',
+          fileId: 'file-1',
+          access,
+        },
+      ])[0].access,
+    ).toEqual(access);
+  });
+
   it('returns an empty group for missing or empty input', () => {
     expect(buildImagePreviewGroup(undefined)).toEqual([]);
     expect(buildImagePreviewGroup([])).toEqual([]);

@@ -62,6 +62,7 @@ export function createImagePreviewRefreshSourceId(
     sourceUrl,
     access?.kind ?? '',
     access?.orderId ?? '',
+    access?.kind === 'exceptionCase' ? access.caseId : '',
   ]);
 }
 

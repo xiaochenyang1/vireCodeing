@@ -190,6 +190,7 @@ S3 兼容上传完成回调第一片已补：`POST /files/storage-callbacks/s3-c
 
 - `GET /files/{fileId}` 继续只允许文件 owner 和 admin 读取。
 - `GET /orders/{orderId}/attachments/{fileId}/preview` 为订单货主、已分配司机和 admin 续签已上传的订单附件；服务端同时校验订单参与关系和订单附件引用关系。
+- `GET /orders/{orderId}/exception-cases/{caseId}/attachments/{fileId}/preview` 额外覆盖未回写订单事件附件的历史异常工单，并要求文件属于指定工单。
 - 移动端订单附件首次水合及图片失败重试均使用订单授权入口，签名 URL 不会因放宽通用文件读取而跨账号泄露。
 
 ## 目录规划

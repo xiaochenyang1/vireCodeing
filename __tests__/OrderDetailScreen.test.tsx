@@ -850,7 +850,7 @@ describe('OrderDetailScreen exception case progress', () => {
     };
     const platformFileApi = {
       getFileMetadata: jest.fn(),
-      getOrderAttachmentPreview: jest.fn().mockResolvedValue({
+      getOrderExceptionCaseAttachmentPreview: jest.fn().mockResolvedValue({
         fileId: 'file-case-attachment-1',
         previewUrl: 'https://cdn.example.com/file-case-attachment-1.png',
         previewExpiresAtIso: '2026-07-12T08:10:00.000Z',
@@ -863,8 +863,11 @@ describe('OrderDetailScreen exception case progress', () => {
       platformFileApi,
     });
 
-    expect(platformFileApi.getOrderAttachmentPreview).toHaveBeenCalledWith(
+    expect(
+      platformFileApi.getOrderExceptionCaseAttachmentPreview,
+    ).toHaveBeenCalledWith(
       'order-platform-case-attachments',
+      'case-attachment-1',
       'file-case-attachment-1',
     );
     expect(platformFileApi.getFileMetadata).not.toHaveBeenCalled();

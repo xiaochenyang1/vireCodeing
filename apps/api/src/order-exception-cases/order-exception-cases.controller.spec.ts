@@ -2,6 +2,7 @@ import type { AuthenticatedRequest } from '../auth/access-token.guard';
 import {
   AdminOrderExceptionCasesController,
   DriverOrderExceptionCasesController,
+  OrderExceptionCaseAttachmentPreviewsController,
   ShipperOrderExceptionCasesController,
 } from './order-exception-cases.controller';
 import type { OrderExceptionCaseOverdueEscalationService } from './order-exception-case-overdue-escalation.service';
@@ -34,6 +35,11 @@ describe('order exception case controllers', () => {
     appealForDriver: jest
       .fn()
       .mockResolvedValue({ id: 'case-1', status: 'processing', appealStatus: 'requested' }),
+    getAttachmentPreview: jest.fn().mockResolvedValue({
+      fileId: 'file-1',
+      previewUrl: '/api/files/preview-contents/file-1?signature=fresh',
+      previewExpiresAtIso: '2026-07-31T08:10:00.000Z',
+    }),
   };
 
   beforeEach(() => jest.clearAllMocks());
@@ -51,6 +57,31 @@ describe('order exception case controllers', () => {
 
     expect(service.listForShipper).toHaveBeenCalledWith('shipper-1', 'order-1');
     expect(service.listForDriver).toHaveBeenCalledWith('driver-1', 'order-1');
+  });
+
+  it('gets an exception case attachment preview for the current participant', async () => {
+    const controller = new OrderExceptionCaseAttachmentPreviewsController(
+      service as never,
+    );
+    const request = createRequest('shipper-1', 'shipper');
+
+    await expect(
+      controller.getAttachmentPreview(
+        request,
+        ' order-1 ',
+        ' case-1 ',
+        ' file-1 ',
+      ),
+    ).resolves.toMatchObject({
+      code: 'OK',
+      data: { fileId: 'file-1' },
+    });
+    expect(service.getAttachmentPreview).toHaveBeenCalledWith(
+      request.currentUser,
+      'order-1',
+      'case-1',
+      'file-1',
+    );
   });
 
   it('lists and gets cases for an administrator', async () => {

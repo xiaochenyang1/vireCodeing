@@ -85,6 +85,12 @@ export type OrderExceptionCaseRecord = {
   actions: OrderExceptionCaseActionRecord[];
 };
 
+export type OrderExceptionCaseAttachmentPreview = {
+  fileId: string;
+  previewUrl: string;
+  previewExpiresAtIso: string;
+};
+
 export type OrderExceptionCaseListQuery = {
   page: number;
   pageSize: number;

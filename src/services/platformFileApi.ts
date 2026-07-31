@@ -241,6 +241,31 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
         ),
       };
     },
+    async getOrderExceptionCaseAttachmentPreview(
+      orderId: string,
+      caseId: string,
+      fileId: string,
+    ) {
+      const normalizedOrderId = normalizeOrderAttachmentOrderId(orderId);
+      const normalizedCaseId = normalizeOrderExceptionCaseId(caseId);
+      const normalizedFileId = normalizeFileId(fileId);
+      const preview = await platformGet<PlatformOrderAttachmentPreview>(
+        config,
+        `/orders/${encodeURIComponent(
+          normalizedOrderId,
+        )}/exception-cases/${encodeURIComponent(
+          normalizedCaseId,
+        )}/attachments/${encodeURIComponent(normalizedFileId)}/preview`,
+      );
+
+      return {
+        ...preview,
+        previewUrl: resolvePlatformFilePreviewUrl(
+          preview.previewUrl.trim(),
+          config.baseUrl,
+        ),
+      };
+    },
     async confirmLocalUploadTarget(uploadUrl: string) {
       const uploadPath = normalizeLocalUploadTargetPath(
         uploadUrl,
@@ -327,13 +352,19 @@ export async function refreshPlatformFilePreviewUrl(
     Partial<
       Pick<
         ReturnType<typeof createPlatformFileApi>,
-        'getOrderAttachmentPreview'
+        'getOrderAttachmentPreview' | 'getOrderExceptionCaseAttachmentPreview'
       >
     >,
   fileId: string,
   access?: ImagePreviewAccess,
 ) {
-  if (access && !api.getOrderAttachmentPreview) {
+  const attachmentPreviewAvailable = access
+    ? access.kind === 'exceptionCase'
+      ? api.getOrderExceptionCaseAttachmentPreview
+      : api.getOrderAttachmentPreview
+    : undefined;
+
+  if (access && !attachmentPreviewAvailable) {
     throw new PlatformApiError(
       'Platform order attachment preview API is unavailable',
       'ORDER_ATTACHMENT_PREVIEW_UNAVAILABLE',
@@ -341,9 +372,15 @@ export async function refreshPlatformFilePreviewUrl(
     );
   }
 
-  const file = access
-    ? await api.getOrderAttachmentPreview!(access.orderId, fileId)
-    : await api.getFileMetadata(fileId);
+  const file = !access
+    ? await api.getFileMetadata(fileId)
+    : access.kind === 'exceptionCase'
+      ? await api.getOrderExceptionCaseAttachmentPreview!(
+          access.orderId,
+          access.caseId,
+          fileId,
+        )
+      : await api.getOrderAttachmentPreview!(access.orderId, fileId);
   const previewUrl =
     file.previewUrl?.trim() ||
     ('publicUrl' in file ? file.publicUrl?.trim() : undefined);
@@ -653,6 +690,18 @@ function normalizeOrderAttachmentOrderId(value: unknown) {
     throw new PlatformApiError(
       'Order id is invalid',
       'PLATFORM_ORDER_ID_INVALID',
+      0,
+    );
+  }
+
+  return value.trim();
+}
+
+function normalizeOrderExceptionCaseId(value: unknown) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new PlatformApiError(
+      'Order exception case id is invalid',
+      'PLATFORM_EXCEPTION_CASE_ID_INVALID',
       0,
     );
   }

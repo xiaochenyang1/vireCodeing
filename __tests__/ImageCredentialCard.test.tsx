@@ -3,7 +3,10 @@ import { Image, ScrollView, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
 import { ImageCredentialCard } from '../src/components/ImageCredentialCard';
-import { ImagePreviewRefreshProvider } from '../src/components/ImagePreviewRefreshProvider';
+import {
+  createImagePreviewRefreshSourceId,
+  ImagePreviewRefreshProvider,
+} from '../src/components/ImagePreviewRefreshProvider';
 
 const previewGroup = [
   {
@@ -91,6 +94,21 @@ async function openPreview(renderer: ReactTestRenderer.ReactTestRenderer) {
 }
 
 describe('ImageCredentialCard', () => {
+  it('isolates refresh records between exception cases', () => {
+    const first = createImagePreviewRefreshSourceId(
+      'file-1',
+      'https://cdn/file-1.jpg',
+      { kind: 'exceptionCase', orderId: 'order-1', caseId: 'case-1' },
+    );
+    const second = createImagePreviewRefreshSourceId(
+      'file-1',
+      'https://cdn/file-1.jpg',
+      { kind: 'exceptionCase', orderId: 'order-1', caseId: 'case-2' },
+    );
+
+    expect(first).not.toBe(second);
+  });
+
   it('opens and closes a fullscreen preview when the credential image is tapped', async () => {
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {

@@ -183,6 +183,11 @@ export const appealOrderExceptionCaseSchema = z.object({
 
 const orderIdSchema = z.string().trim().min(1, '订单 ID 不能为空').max(120);
 const caseIdSchema = z.string().trim().min(1, '工单 ID 不能为空').max(120);
+const attachmentFileIdSchema = z
+  .string()
+  .trim()
+  .min(1, '附件文件 ID 不能为空')
+  .max(120);
 
 export function parseOrderExceptionCaseListQuery(
   input: unknown,
@@ -220,6 +225,10 @@ export function parseOrderExceptionOrderId(input: unknown) {
 
 export function parseOrderExceptionCaseId(input: unknown) {
   return caseIdSchema.parse(input);
+}
+
+export function parseOrderExceptionCaseAttachmentFileId(input: unknown) {
+  return attachmentFileIdSchema.parse(input);
 }
 
 export function parseExecuteOrderExceptionCaseCompensationRequest(

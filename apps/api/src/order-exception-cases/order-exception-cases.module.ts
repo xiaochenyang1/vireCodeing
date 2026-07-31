@@ -4,6 +4,12 @@ import { AdminOnlyGuard, DriverOnlyGuard, ShipperOnlyGuard } from '../auth/role.
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  PrismaFilesRepository,
+  type PrismaFilesClient,
+} from '../files/files.repository';
+import { createFilePreviewUrlSignerConfigFromEnv } from '../files/file-preview-url.config';
+import { LocalFilePreviewUrlSigner } from '../files/file-preview-url.signer';
+import {
   PrismaOrdersRepository,
   type PrismaOrdersClient,
 } from '../orders/orders.repository';
@@ -12,6 +18,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import {
   AdminOrderExceptionCasesController,
   DriverOrderExceptionCasesController,
+  OrderExceptionCaseAttachmentPreviewsController,
   ShipperOrderExceptionCasesController,
 } from './order-exception-cases.controller';
 import { OrderExceptionCaseOverdueEscalationScheduler } from './order-exception-case-overdue-escalation.scheduler';
@@ -23,6 +30,7 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
   controllers: [
     ShipperOrderExceptionCasesController,
     DriverOrderExceptionCasesController,
+    OrderExceptionCaseAttachmentPreviewsController,
     AdminOrderExceptionCasesController,
   ],
   providers: [
@@ -35,12 +43,41 @@ import { OrderExceptionCasesService } from './order-exception-cases.service';
       inject: [PrismaService],
     },
     {
+      provide: PrismaFilesRepository,
+      useFactory: (prismaService: PrismaService) =>
+        new PrismaFilesRepository(
+          prismaService as unknown as PrismaFilesClient,
+        ),
+      inject: [PrismaService],
+    },
+    {
+      provide: LocalFilePreviewUrlSigner,
+      useFactory: () =>
+        new LocalFilePreviewUrlSigner(
+          createFilePreviewUrlSignerConfigFromEnv(process.env),
+        ),
+    },
+    {
       provide: OrderExceptionCasesService,
       useFactory: (
         repository: PrismaOrdersRepository,
         notificationsService: NotificationsService,
-      ) => new OrderExceptionCasesService(repository, notificationsService),
-      inject: [PrismaOrdersRepository, NotificationsService],
+        filesRepository: PrismaFilesRepository,
+        previewUrlSigner: LocalFilePreviewUrlSigner,
+      ) =>
+        new OrderExceptionCasesService(
+          repository,
+          notificationsService,
+          () => new Date(),
+          filesRepository,
+          previewUrlSigner,
+        ),
+      inject: [
+        PrismaOrdersRepository,
+        NotificationsService,
+        PrismaFilesRepository,
+        LocalFilePreviewUrlSigner,
+      ],
     },
     {
       provide: OrderExceptionCaseOverdueEscalationService,

@@ -159,6 +159,7 @@ type DriverPlatformFileApi = Pick<
       | 'confirmLocalUploadTarget'
       | 'getFileMetadata'
       | 'getOrderAttachmentPreview'
+      | 'getOrderExceptionCaseAttachmentPreview'
     >
   >;
 type PlatformMapsApi = Pick<

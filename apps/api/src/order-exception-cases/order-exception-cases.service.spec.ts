@@ -1,5 +1,6 @@
 import { ApiErrorCode, BusinessError } from '../common/errors';
 import { InMemoryOrdersRepository } from '../orders/orders.repository';
+import { InMemoryFilesRepository } from '../files/files.repository';
 import { OrderExceptionCasesService } from './order-exception-cases.service';
 
 describe('OrderExceptionCasesService', () => {
@@ -46,6 +47,107 @@ describe('OrderExceptionCasesService', () => {
     );
     await expect(service.listForDriver('driver-2', order.id)).rejects.toEqual(
       new BusinessError(ApiErrorCode.EXCEPTION_CASE_NOT_FOUND, '异常工单不存在'),
+    );
+  });
+
+  it('renews an orphaned historical case attachment for order participants', async () => {
+    const repository = new InMemoryOrdersRepository(() => now);
+    const filesRepository = new InMemoryFilesRepository(() => now);
+    const pendingFile = await filesRepository.createPendingFile('driver-1', {
+      purpose: 'exception',
+      fileName: 'historical-proof.png',
+      contentType: 'image/png',
+      byteSize: 1024,
+      objectKey: 'driver-1/exception/historical-proof.png',
+    });
+    const file = await filesRepository.markFileUploaded(
+      pendingFile.id,
+      'driver-1',
+      {},
+    );
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.reportDriverOrderException(order.id, 'driver-1', {
+      typeLabel: '货物损坏',
+      description: '历史异常工单附件没有回写订单事件。',
+      photoFileIds: [file.id],
+    });
+    const exceptionCase = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const storedOrder = (repository as unknown as {
+      orders: Array<{ events: Array<{ attachmentFileIds?: string[] }> }>;
+    }).orders[0];
+    storedOrder.events.forEach(event => {
+      event.attachmentFileIds = [];
+    });
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => now,
+      filesRepository,
+    );
+
+    await expect(
+      service.getAttachmentPreview(
+        { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+        order.id,
+        exceptionCase.id,
+        file.id,
+      ),
+    ).resolves.toMatchObject({
+      fileId: file.id,
+      previewUrl: expect.stringContaining('/api/files/preview-contents/'),
+      previewExpiresAtIso: expect.any(String),
+    });
+    await expect(
+      service.getAttachmentPreview(
+        { id: 'driver-1', phone: '13900139002', userType: 'driver' },
+        order.id,
+        exceptionCase.id,
+        file.id,
+      ),
+    ).resolves.toMatchObject({ fileId: file.id });
+  });
+
+  it('hides case attachments from non-participants and unrelated case files', async () => {
+    const repository = new InMemoryOrdersRepository(() => now);
+    const filesRepository = new InMemoryFilesRepository(() => now);
+    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    await repository.reportDriverOrderException(order.id, 'driver-1', {
+      typeLabel: '货物损坏',
+      description: '异常工单附件授权边界测试。',
+      photoFileIds: ['file-case-1'],
+    });
+    const exceptionCase = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const service = new OrderExceptionCasesService(
+      repository,
+      undefined,
+      () => now,
+      filesRepository,
+    );
+
+    await expect(
+      service.getAttachmentPreview(
+        { id: 'driver-2', phone: '13900139003', userType: 'driver' },
+        order.id,
+        exceptionCase.id,
+        'file-case-1',
+      ),
+    ).rejects.toEqual(
+      new BusinessError(
+        ApiErrorCode.EXCEPTION_CASE_NOT_FOUND,
+        '异常工单不存在',
+      ),
+    );
+    await expect(
+      service.getAttachmentPreview(
+        { id: 'shipper-1', phone: '13900139001', userType: 'shipper' },
+        order.id,
+        exceptionCase.id,
+        'file-other',
+      ),
+    ).rejects.toEqual(
+      new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '异常工单附件不存在'),
     );
   });
 

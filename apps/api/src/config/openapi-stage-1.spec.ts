@@ -75,6 +75,24 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Non-participants receive ORDER_NOT_FOUND');
   });
 
+  it('documents historical exception case attachment preview renewal', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+
+    expectPathBlockToContain(
+      source,
+      '/orders/{orderId}/exception-cases/{caseId}/attachments/{fileId}/preview',
+      'Renew an exception case attachment preview URL',
+    );
+    expectPathBlockToContain(
+      source,
+      '/orders/{orderId}/exception-cases/{caseId}/attachments/{fileId}/preview',
+      "$ref: '#/components/schemas/OrderAttachmentPreviewResponse'",
+    );
+    expect(source).toContain(
+      'historical cases whose attachment ids were not copied into OrderEvent',
+    );
+  });
+
   it('documents push device token management endpoints for the current user', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

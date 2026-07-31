@@ -280,6 +280,45 @@ describe('platform file api', () => {
     );
   });
 
+  it('renews a historical exception case attachment through its domain endpoint', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          fileId: 'file-orphan-1',
+          previewUrl:
+            '/api/files/preview-contents/driver-1/exception/file-orphan-1.jpg?signature=fresh',
+          previewExpiresAtIso: '2026-07-31T09:10:00.000Z',
+        },
+        requestId: 'req-case-preview',
+        timestamp: '2026-07-31T09:00:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(
+      refreshPlatformFilePreviewUrl(api, 'file-orphan-1', {
+        kind: 'exceptionCase',
+        orderId: ' order-1 ',
+        caseId: ' case-1 ',
+      }),
+    ).resolves.toEqual({
+      url: 'http://localhost:3000/api/files/preview-contents/driver-1/exception/file-orphan-1.jpg?signature=fresh',
+      expiresAtIso: '2026-07-31T09:10:00.000Z',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/api/orders/order-1/exception-cases/case-1/attachments/file-orphan-1/preview',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('falls back to a stable public url when refreshed preview metadata is blank', async () => {
     const getFileMetadata = jest.fn().mockResolvedValue({
       id: 'file-1',
@@ -726,6 +765,13 @@ describe('platform file api', () => {
     } satisfies Partial<PlatformApiError>);
 
     await expect(
+      api.getOrderExceptionCaseAttachmentPreview('order-1', ' ', 'file-1'),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_EXCEPTION_CASE_ID_INVALID',
+      status: 0,
+    } satisfies Partial<PlatformApiError>);
+
+    await expect(
       api.confirmLocalUploadTarget('https://cdn.example.com/file-1'),
     ).rejects.toMatchObject({
       code: 'PLATFORM_FILE_UPLOAD_TARGET_INVALID',
@@ -894,6 +940,7 @@ describe('platform file api', () => {
         timestamp: '2026-07-06T03:00:00.000Z',
       }),
     });
+
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = createPlatformFileApi({
       baseUrl: 'http://localhost:3000/api',

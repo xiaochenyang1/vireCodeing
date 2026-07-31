@@ -38,6 +38,7 @@ import {
   parseClaimOrderExceptionCaseRequest,
   parseExecuteOrderExceptionCaseCompensationRequest,
   parseOrderExceptionCaseId,
+  parseOrderExceptionCaseAttachmentFileId,
   parseOrderExceptionCaseListQuery,
   parseOrderExceptionOrderId,
   parseResolveOrderExceptionCaseRequest,
@@ -45,6 +46,32 @@ import {
   resolveOrderExceptionCaseSchema,
   updateOrderExceptionCaseSchema,
 } from './order-exception-cases.validation';
+import type { AuthenticatedUser } from '../auth/dto';
+
+@Controller('orders')
+@UseGuards(AccessTokenGuard)
+@ApiTags('异常工单 (Exception Cases)')
+export class OrderExceptionCaseAttachmentPreviewsController {
+  constructor(private readonly service: OrderExceptionCasesService) {}
+
+  @Get(':orderId/exception-cases/:caseId/attachments/:fileId/preview')
+  async getAttachmentPreview(
+    @Req() request: AuthenticatedRequest,
+    @Param('orderId') orderId: string,
+    @Param('caseId') caseId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return ok(
+      await this.service.getAttachmentPreview(
+        getCurrentUser(request),
+        parseOrderExceptionOrderId(orderId),
+        parseOrderExceptionCaseId(caseId),
+        parseOrderExceptionCaseAttachmentFileId(fileId),
+      ),
+      getRequestId(request),
+    );
+  }
+}
 
 @Controller('shipper/orders')
 @UseGuards(AccessTokenGuard, ShipperOnlyGuard)
@@ -331,6 +358,17 @@ function getCurrentUserId(
   }
 
   return currentUser.id;
+}
+
+function getCurrentUser(request: AuthenticatedRequest): AuthenticatedUser {
+  if (!request.currentUser) {
+    throw new BusinessError(
+      ApiErrorCode.AUTH_ACCESS_TOKEN_INVALID,
+      '访问令牌无效',
+    );
+  }
+
+  return request.currentUser;
 }
 
 function getRequestId(request: AuthenticatedRequest) {
