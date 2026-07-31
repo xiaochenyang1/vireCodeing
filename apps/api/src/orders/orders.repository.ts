@@ -7286,7 +7286,7 @@ function createOrderChangeFundDisposition(
   return {
     kind: 'online_partial_refund_pending_manual',
     deltaCents,
-    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；退款单未能自动创建（可退本金不足或已有进行中的退款），需人工跟进部分退款。`,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；退款单未能自动创建（缺少可用的已托管支付单、可退本金不足或已有进行中的退款），需人工跟进部分退款。`,
     requiresManualFollowUp: true,
   };
 }

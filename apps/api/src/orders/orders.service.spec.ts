@@ -2123,6 +2123,62 @@ describe('OrdersService', () => {
     ).toBe(true);
   });
 
+  it('explains the manual partial-refund fallback when no escrow payment exists', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {
+      noteText: '先接单',
+      driverSnapshot: {
+        driverId: 'driver-1',
+        driverName: '李师傅',
+        driverPhone: '13900139009',
+        completedOrderCount: 1,
+      },
+    });
+
+    const orderRef = (
+      repository as unknown as {
+        orders: Array<{
+          paymentMethod: string;
+          paymentStatus: string;
+          priceCents?: number;
+          payablePriceCents?: number;
+        }>;
+      }
+    ).orders[0];
+    orderRef.paymentMethod = 'online';
+    orderRef.paymentStatus = 'escrowed';
+    orderRef.priceCents = 76000;
+    orderRef.payablePriceCents = 76000;
+
+    await service.submitOrderChangeRequest('shipper-1', order.id, {
+      description: '卸货地址变更并下调运费',
+    });
+    const reviewed = await service.reviewOrderChangeRequest('admin-1', order.id, {
+      decision: 'approved',
+      reviewResultText: '确认下调运费',
+      adjustedPayablePriceCents: 70000,
+    });
+    const reviewNote = JSON.parse(
+      reviewed.events.find(
+        event => event.eventType === 'change_request_approved',
+      )?.noteText ?? '{}',
+    );
+
+    expect(reviewNote.fundDisposition).toMatchObject({
+      kind: 'online_partial_refund_pending_manual',
+      deltaCents: -6000,
+      requiresManualFollowUp: true,
+    });
+    expect(reviewNote.fundDisposition.summaryText).toContain(
+      '缺少可用的已托管支付单',
+    );
+  });
+
   it('queues a partial refund outbox when approving an online escrowed price decrease', async () => {
     const nowIso = '2026-07-28T10:00:00.000Z';
     const repository = new InMemoryOrdersRepository(() => new Date(nowIso));
