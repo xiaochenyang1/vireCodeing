@@ -244,7 +244,7 @@ describe('ImageCredentialCard preview carousel', () => {
     scrollTo.mockRestore();
   });
 
-  it('skips group images that have no preview url yet', async () => {
+  it('keeps the tapped image when its group entry has no preview url yet', async () => {
     const renderer = await renderGroupedCard({
       previewGroup: [
         previewGroup[0],
@@ -256,7 +256,46 @@ describe('ImageCredentialCard preview carousel', () => {
 
     expect(
       findByTestID(renderer, 'exception-proof-image-2-counter').props.children,
-    ).toBe('1 / 2');
+    ).toBe('2 / 3');
+    expect(getRenderedText(renderer)).toContain('异常凭证 2：b.jpg');
+  });
+
+  it('keeps the active image identity when a same-size group is reordered', async () => {
+    const scrollTo = jest
+      .spyOn(ScrollView.prototype, 'scrollTo')
+      .mockImplementation(() => undefined);
+    const renderer = await renderGroupedCard();
+    await openPreview(renderer);
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-pager').props.onLayout({
+        nativeEvent: { layout: { width: 300 } },
+      });
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.update(
+        <ImageCredentialCard
+          title="异常凭证 2：b.jpg"
+          publicUrl="https://cdn/b.jpg"
+          placeholderLabel="异常图片"
+          metaLines={['来源：平台文件对象（已上传）']}
+          imageTestID="exception-proof-image-2"
+          previewGroup={[previewGroup[1], previewGroup[2], previewGroup[0]]}
+          previewKey="file-2"
+        />,
+      );
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-counter').props.children,
+    ).toBe('1 / 3');
+    expect(getRenderedText(renderer)).toContain('异常凭证 2：b.jpg');
+    expect(scrollTo).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      animated: false,
+    });
+    scrollTo.mockRestore();
   });
 
   it('keeps the single image preview when the card has no group', async () => {

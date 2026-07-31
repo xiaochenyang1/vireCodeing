@@ -24,14 +24,31 @@ export type ImagePreviewEntry = {
  */
 export function buildImagePreviewGroup(
   items: ImagePreviewItem[] | undefined,
+  currentItem?: ImagePreviewItem,
 ): ImagePreviewEntry[] {
-  if (!items?.length) {
+  const normalizedItems = items ? [...items] : [];
+
+  if (currentItem?.publicUrl) {
+    const currentIndex = normalizedItems.findIndex(
+      item =>
+        item.key === currentItem.key ||
+        (item.publicUrl && item.publicUrl === currentItem.publicUrl),
+    );
+
+    if (currentIndex >= 0) {
+      normalizedItems[currentIndex] = currentItem;
+    } else {
+      normalizedItems.push(currentItem);
+    }
+  }
+
+  if (normalizedItems.length === 0) {
     return [];
   }
 
   const seenKeys = new Set<string>();
 
-  return items.reduce<ImagePreviewEntry[]>((entries, item) => {
+  return normalizedItems.reduce<ImagePreviewEntry[]>((entries, item) => {
     if (!item.publicUrl || seenKeys.has(item.key)) {
       return entries;
     }
@@ -45,6 +62,14 @@ export function buildImagePreviewGroup(
 
     return entries;
   }, []);
+}
+
+export function getImagePreviewModalImageHeight(windowHeight: number): number {
+  if (!Number.isFinite(windowHeight) || windowHeight <= 0) {
+    return 320;
+  }
+
+  return Math.min(320, Math.max(72, Math.floor(windowHeight - 180)));
 }
 
 /**

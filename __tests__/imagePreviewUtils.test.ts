@@ -4,6 +4,7 @@ import {
   canGoToPreviousImagePreview,
   clampPreviewIndex,
   getImagePreviewCounterText,
+  getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
@@ -26,6 +27,21 @@ describe('imagePreview utils', () => {
     expect(buildImagePreviewGroup(undefined)).toEqual([]);
     expect(buildImagePreviewGroup([])).toEqual([]);
     expect(buildImagePreviewGroup([{ key: 'a', title: '仅占位' }])).toEqual([]);
+  });
+
+  it('keeps the tapped card authoritative when its group entry is stale', () => {
+    const entries = buildImagePreviewGroup(
+      [
+        { key: 'a', title: '凭证 A', publicUrl: 'https://cdn/a.jpg' },
+        { key: 'b', title: '凭证 B（旧）' },
+      ],
+      { key: 'b', title: '凭证 B', publicUrl: 'https://cdn/b.jpg' },
+    );
+
+    expect(entries).toEqual([
+      { key: 'a', title: '凭证 A', publicUrl: 'https://cdn/a.jpg' },
+      { key: 'b', title: '凭证 B', publicUrl: 'https://cdn/b.jpg' },
+    ]);
   });
 
   it('locates the tapped image by key, then by url, then falls back', () => {
@@ -83,5 +99,12 @@ describe('imagePreview utils', () => {
   it('keeps the current index when the page width is not measured yet', () => {
     expect(resolveImagePreviewIndexFromOffset(320, 0, 3, 2)).toBe(2);
     expect(resolveImagePreviewIndexFromOffset(Number.NaN, 300, 3, 1)).toBe(1);
+  });
+
+  it('fits preview images to short windows without growing on tall screens', () => {
+    expect(getImagePreviewModalImageHeight(320)).toBe(140);
+    expect(getImagePreviewModalImageHeight(240)).toBe(72);
+    expect(getImagePreviewModalImageHeight(844)).toBe(320);
+    expect(getImagePreviewModalImageHeight(Number.NaN)).toBe(320);
   });
 });

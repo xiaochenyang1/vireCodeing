@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -15,6 +16,7 @@ import {
   canGoToNextImagePreview,
   canGoToPreviousImagePreview,
   getImagePreviewCounterText,
+  getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
@@ -46,8 +48,9 @@ export function ImageCredentialCard({
   previewGroup?: ImagePreviewItem[];
   previewKey?: string;
 }) {
+  const { height: windowHeight } = useWindowDimensions();
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
-  const [previewIndex, setPreviewIndex] = useState(0);
+  const [activePreviewKey, setActivePreviewKey] = useState<string>();
   const [previewPageWidth, setPreviewPageWidth] = useState(0);
   const previewScrollViewRef = useRef<ScrollView>(null);
   const resolvedPreviewTriggerTestID =
@@ -60,24 +63,31 @@ export function ImageCredentialCard({
 
   const previewEntries = useMemo(
     () =>
-      buildImagePreviewGroup(
-        previewGroup?.length
-          ? previewGroup
-          : [{ key: previewKey ?? title, title, publicUrl }],
-      ),
+      buildImagePreviewGroup(previewGroup, {
+        key: previewKey ?? title,
+        title,
+        publicUrl,
+      }),
     [previewGroup, previewKey, publicUrl, title],
   );
   const previewTotal = previewEntries.length;
+  const previewIndex = resolveImagePreviewStartIndex(previewEntries, {
+    key: activePreviewKey,
+  });
   const activePreviewEntry = previewEntries[previewIndex];
+  const previewImageHeight = getImagePreviewModalImageHeight(windowHeight);
   const counterText = getImagePreviewCounterText(previewIndex, previewTotal);
   const canGoPrevious = canGoToPreviousImagePreview(previewIndex, previewTotal);
   const canGoNext = canGoToNextImagePreview(previewIndex, previewTotal);
 
   useEffect(() => {
-    setPreviewIndex(current =>
-      resolveImagePreviewStep(current, previewTotal, 0),
-    );
-  }, [previewTotal]);
+    if (
+      activePreviewKey &&
+      !previewEntries.some(entry => entry.key === activePreviewKey)
+    ) {
+      setActivePreviewKey(previewEntries[0]?.key);
+    }
+  }, [activePreviewKey, previewEntries]);
 
   useEffect(() => {
     if (!isPreviewVisible || previewTotal <= 1 || previewPageWidth <= 0) {
@@ -92,19 +102,23 @@ export function ImageCredentialCard({
   }, [isPreviewVisible, previewIndex, previewPageWidth, previewTotal]);
 
   const openPreview = () => {
-    setPreviewIndex(
-      resolveImagePreviewStartIndex(previewEntries, {
-        key: previewKey,
-        publicUrl,
-      }),
-    );
+    const startIndex = resolveImagePreviewStartIndex(previewEntries, {
+      key: previewKey,
+      publicUrl,
+    });
+
+    setActivePreviewKey(previewEntries[startIndex]?.key);
     setIsPreviewVisible(true);
   };
 
   const stepPreview = (step: number) => {
-    setPreviewIndex(current =>
-      resolveImagePreviewStep(current, previewTotal, step),
+    const nextIndex = resolveImagePreviewStep(
+      previewIndex,
+      previewTotal,
+      step,
     );
+
+    setActivePreviewKey(previewEntries[nextIndex]?.key);
   };
 
   return (
@@ -137,7 +151,11 @@ export function ImageCredentialCard({
                   >
                     <View style={cardStyles.previewModalCard}>
                       <View style={cardStyles.previewModalHeader}>
-                        <Text style={cardStyles.previewModalTitle}>
+                        <Text
+                          numberOfLines={2}
+                          ellipsizeMode="tail"
+                          style={cardStyles.previewModalTitle}
+                        >
                           {activePreviewEntry?.title ?? title}
                         </Text>
                         <Pressable
@@ -164,17 +182,23 @@ export function ImageCredentialCard({
                           onLayout={event =>
                             setPreviewPageWidth(event.nativeEvent.layout.width)
                           }
-                          onMomentumScrollEnd={event =>
-                            setPreviewIndex(
+                          onMomentumScrollEnd={event => {
+                            const nextIndex =
                               resolveImagePreviewIndexFromOffset(
                                 event.nativeEvent.contentOffset.x,
                                 previewPageWidth,
                                 previewTotal,
                                 previewIndex,
-                              ),
-                            )
-                          }
-                          style={cardStyles.previewModalPager}
+                              );
+
+                            setActivePreviewKey(
+                              previewEntries[nextIndex]?.key,
+                            );
+                          }}
+                          style={[
+                            cardStyles.previewModalPager,
+                            { height: previewImageHeight },
+                          ]}
                         >
                           {previewEntries.map(entry => (
                             <Image
@@ -183,6 +207,7 @@ export function ImageCredentialCard({
                               resizeMode="contain"
                               style={[
                                 cardStyles.previewModalImage,
+                                { height: previewImageHeight },
                                 previewPageWidth > 0
                                   ? { width: previewPageWidth }
                                   : null,
@@ -196,7 +221,10 @@ export function ImageCredentialCard({
                             uri: activePreviewEntry?.publicUrl ?? publicUrl,
                           }}
                           resizeMode="contain"
-                          style={cardStyles.previewModalImage}
+                          style={[
+                            cardStyles.previewModalImage,
+                            { height: previewImageHeight },
+                          ]}
                         />
                       )}
                       {previewTotal > 1 ? (
@@ -321,10 +349,12 @@ const cardStyles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.overlay,
     paddingHorizontal: 20,
+    paddingVertical: 12,
     justifyContent: 'center',
   },
   previewModalCard: {
-    borderRadius: 16,
+    maxHeight: '100%',
+    borderRadius: 8,
     padding: 16,
     backgroundColor: colors.surface,
     gap: 12,
@@ -359,12 +389,11 @@ const cardStyles = StyleSheet.create({
   },
   previewModalImage: {
     width: '100%',
-    height: 320,
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
   previewModalPager: {
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
   previewModalPagerRow: {
