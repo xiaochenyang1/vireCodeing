@@ -1332,6 +1332,129 @@ describe('DriverHomeScreen certification uploads', () => {
     });
   });
 
+  it('hydrates the latest shipper evaluation attachments through order participant access in driver detail', async () => {
+    const order = {
+      id: 'order-evaluation-attachments-1',
+      orderNo: 'HY202607090021',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T10:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-evaluation-old',
+          eventType: 'evaluation_submitted',
+          noteText: '旧评价。',
+          attachmentFileIds: ['file-evaluation-old'],
+          createdAtIso: '2026-07-09T09:00:00.000Z',
+        },
+        {
+          id: 'event-evaluation-latest',
+          eventType: 'evaluation_submitted',
+          noteText: '服务准时，凭证完整。',
+          attachmentFileIds: [
+            'file-evaluation-latest-1',
+            'file-evaluation-latest-2',
+          ],
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const getOrderAttachmentPreview = jest
+      .fn()
+      .mockImplementation((orderId: string, fileId: string) =>
+        Promise.resolve({
+          fileId,
+          previewUrl: `https://cdn.example.com/${orderId}/${fileId}.jpg`,
+          previewExpiresAtIso: '2026-07-31T09:00:00.000Z',
+        }),
+      );
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      getOrderAttachmentPreview,
+    };
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    expect(getOrderAttachmentPreview).toHaveBeenCalledTimes(2);
+    expect(getOrderAttachmentPreview).not.toHaveBeenCalledWith(
+      order.id,
+      'file-evaluation-old',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-received-evaluation-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/order-evaluation-attachments-1/file-evaluation-latest-1.jpg',
+    });
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-received-evaluation-preview-image-2',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/order-evaluation-attachments-1/file-evaluation-latest-2.jpg',
+    });
+    const evaluationCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(
+        card =>
+          card.props.imageTestID ===
+          'driver-received-evaluation-preview-image-1',
+      );
+
+    expect(evaluationCard?.props.previewAccess).toEqual({
+      kind: 'order',
+      orderId: order.id,
+    });
+    expect(evaluationCard?.props.previewGroup).toHaveLength(2);
+    expect(
+      evaluationCard?.props.previewGroup.every(
+        (entry: { access?: unknown }) =>
+          JSON.stringify(entry.access) ===
+          JSON.stringify({ kind: 'order', orderId: order.id }),
+      ),
+    ).toBe(true);
+  });
+
   it('switches the visible driver order detail context immediately before getOrder resolves', async () => {
     const firstOrder = {
       id: 'order-1',

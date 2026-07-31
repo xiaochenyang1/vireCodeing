@@ -184,6 +184,10 @@ type DriverReportedExceptionAttachmentState = Record<
   DriverUploadedFileRef[]
 >;
 type DriverCargoPhotoAttachmentState = Record<string, DriverUploadedFileRef[]>;
+type DriverReceivedEvaluationAttachmentState = Record<
+  string,
+  DriverUploadedFileRef[]
+>;
 type DriverShipperEvaluationAttachmentState = Record<
   string,
   DriverUploadedFileRef[]
@@ -477,24 +481,33 @@ async function hydrateDriverUploadedFileRefs(
   );
 }
 
-async function buildDriverCargoPhotoAttachments(
+async function hydrateDriverOrderParticipantFileRefs(
   order: PlatformShipperOrder,
+  fileIds: string[] | undefined,
+  options: {
+    purpose: PlatformFileUploadRecord['purpose'];
+    fileName: string | ((index: number) => string);
+    createdAtIso: string;
+  },
   platformFileApi?: DriverPlatformFileApi,
 ) {
-  const fileIds = (order.cargoPhotoFileIds ?? [])
+  const normalizedFileIds = (fileIds ?? [])
     .map(fileId => fileId.trim())
     .filter(Boolean);
 
   return Promise.all(
-    fileIds.map(async (fileId, index) => {
-      const fileName = `货物图片凭证-${index + 1}.png`;
+    normalizedFileIds.map(async (fileId, index) => {
+      const fileName =
+        typeof options.fileName === 'function'
+          ? options.fileName(index)
+          : options.fileName;
 
       if (!platformFileApi?.getOrderAttachmentPreview) {
         return createFallbackDriverUploadedFileRef(
           fileId,
-          'cargo',
+          options.purpose,
           fileName,
-          order.createdAtIso,
+          options.createdAtIso,
         );
       }
 
@@ -508,23 +521,61 @@ async function buildDriverCargoPhotoAttachments(
           {
             id: preview.fileId,
             ownerUserId: order.shipperId,
-            purpose: 'cargo',
+            purpose: options.purpose,
             objectKey: '',
             publicUrl: preview.previewUrl,
             status: 'uploaded',
-            createdAtIso: order.createdAtIso,
+            createdAtIso: options.createdAtIso,
           },
           fileName,
         );
       } catch {
         return createFallbackDriverUploadedFileRef(
           fileId,
-          'cargo',
+          options.purpose,
           fileName,
-          order.createdAtIso,
+          options.createdAtIso,
         );
       }
     }),
+  );
+}
+
+function buildDriverCargoPhotoAttachments(
+  order: PlatformShipperOrder,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  return hydrateDriverOrderParticipantFileRefs(
+    order,
+    order.cargoPhotoFileIds,
+    {
+      purpose: 'cargo',
+      fileName: index => `货物图片凭证-${index + 1}.png`,
+      createdAtIso: order.createdAtIso,
+    },
+    platformFileApi,
+  );
+}
+
+function buildDriverReceivedEvaluationAttachments(
+  order: PlatformShipperOrder,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  const latestEvaluationEvent = (order.events ?? [])
+    .filter(event => event.eventType === 'evaluation_submitted')
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
+
+  return hydrateDriverOrderParticipantFileRefs(
+    order,
+    latestEvaluationEvent?.attachmentFileIds,
+    {
+      purpose: 'evaluation',
+      fileName: index => `货主评价凭证-${index + 1}.png`,
+      createdAtIso: latestEvaluationEvent?.createdAtIso ?? '',
+    },
+    platformFileApi,
   );
 }
 
@@ -816,6 +867,8 @@ export function DriverHomeScreen({
     useState<DriverReportedExceptionAttachmentState>({});
   const [cargoPhotoAttachments, setCargoPhotoAttachments] =
     useState<DriverCargoPhotoAttachmentState>({});
+  const [receivedEvaluationAttachments, setReceivedEvaluationAttachments] =
+    useState<DriverReceivedEvaluationAttachmentState>({});
   const [shipperEvaluationAttachments, setShipperEvaluationAttachments] =
     useState<DriverShipperEvaluationAttachmentState>({});
   const [
@@ -1467,6 +1520,33 @@ export function DriverHomeScreen({
             hydratedAttachments,
             current[selectedOrder.id],
           ),
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder, platformFileApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedOrder) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    buildDriverReceivedEvaluationAttachments(selectedOrder, platformFileApi)
+      .then(hydratedAttachments => {
+        if (cancelled) {
+          return;
+        }
+
+        setReceivedEvaluationAttachments(current => ({
+          ...current,
+          [selectedOrder.id]: hydratedAttachments,
         }));
       })
       .catch(() => undefined);
@@ -3021,6 +3101,9 @@ export function DriverHomeScreen({
     : [];
   const selectedCargoPhotoAttachmentRefs = selectedOrder
     ? cargoPhotoAttachments[selectedOrder.id] ?? []
+    : [];
+  const selectedReceivedEvaluationAttachmentRefs = selectedOrder
+    ? receivedEvaluationAttachments[selectedOrder.id] ?? []
     : [];
   const latestReportedHallLocationCoordinateText = latestReportedHallLocation
     ? formatCoordinateText(
@@ -4581,9 +4664,7 @@ export function DriverHomeScreen({
               {selectedCargoPhotoAttachmentRefs.map((attachmentRef, index) => (
                 <ImageCredentialCard
                   key={`driver-cargo-${attachmentRef.file.id}-${index}`}
-                  title={`货物图片凭证 ${index + 1}：${
-                    attachmentRef.fileName
-                  }`}
+                  title={`货物图片凭证 ${index + 1}：${attachmentRef.fileName}`}
                   publicUrl={attachmentRef.file.publicUrl}
                   placeholderLabel={`货物图片 ${index + 1}`}
                   metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
@@ -4998,6 +5079,52 @@ export function DriverHomeScreen({
                 <Text style={styles.detailMeta}>
                   司机回复：{latestEvaluationReply.noteText}
                 </Text>
+              ) : null}
+              {selectedReceivedEvaluationAttachmentRefs.length > 0 ? (
+                <View>
+                  <Text style={styles.draftSectionTitle}>货主评价凭证</Text>
+                  {selectedReceivedEvaluationAttachmentRefs.map(
+                    (attachmentRef, index) => (
+                      <ImageCredentialCard
+                        key={`received-evaluation-${attachmentRef.file.id}-${index}`}
+                        title={`货主评价凭证 ${index + 1}：${
+                          attachmentRef.fileName
+                        }`}
+                        publicUrl={attachmentRef.file.publicUrl}
+                        placeholderLabel={`货主评价凭证 ${index + 1}`}
+                        metaLines={createUploadedAttachmentMetaLines(
+                          attachmentRef,
+                        )}
+                        imageTestID={`driver-received-evaluation-preview-image-${
+                          index + 1
+                        }`}
+                        placeholderTestID={`driver-received-evaluation-preview-placeholder-${
+                          index + 1
+                        }`}
+                        previewGroup={selectedReceivedEvaluationAttachmentRefs.map(
+                          (groupRef, groupIndex) => ({
+                            key: `received-evaluation-${groupRef.file.id}-${groupIndex}`,
+                            title: `货主评价凭证 ${groupIndex + 1}：${
+                              groupRef.fileName
+                            }`,
+                            publicUrl: groupRef.file.publicUrl,
+                            fileId: groupRef.file.id,
+                            access: {
+                              kind: 'order' as const,
+                              orderId: selectedOrder.id,
+                            },
+                          }),
+                        )}
+                        previewKey={`received-evaluation-${attachmentRef.file.id}-${index}`}
+                        previewFileId={attachmentRef.file.id}
+                        previewAccess={{
+                          kind: 'order',
+                          orderId: selectedOrder.id,
+                        }}
+                      />
+                    ),
+                  )}
+                </View>
               ) : null}
               <TextInput
                 testID={`driver-evaluation-reply-${selectedOrder.orderNo}`}
