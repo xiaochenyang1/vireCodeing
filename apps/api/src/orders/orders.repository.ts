@@ -7278,7 +7278,7 @@ function createOrderChangeFundDisposition(
     return {
       kind: 'online_topup_pending_manual',
       deltaCents,
-      summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；本片只记录待补差，不自动创建补款支付单。`,
+      summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；补差支付单未能自动创建（缺少可用的已托管主支付单），需人工跟进补差。`,
       requiresManualFollowUp: true,
     };
   }
@@ -7286,7 +7286,7 @@ function createOrderChangeFundDisposition(
   return {
     kind: 'online_partial_refund_pending_manual',
     deltaCents,
-    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；本片只记录待部分退款，不自动发起渠道退款。`,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；退款单未能自动创建（可退本金不足或已有进行中的退款），需人工跟进部分退款。`,
     requiresManualFollowUp: true,
   };
 }
