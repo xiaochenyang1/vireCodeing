@@ -335,8 +335,8 @@ describe('AdminConsoleOverviewService', () => {
       overview.modules.find(module => module.key === 'order-change-request'),
     ).toMatchObject({
       summary:
-        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上；留空的审核快照也会按订单金额、支付状态和司机分配自动补全，但真实金额变更执行和差额资金处理还没补完。',
-      pendingGaps: ['真实金额变更执行 / 差额资金处理'],
+        '货主修改申请后台列表、通过驳回、费用/退款/司机通知快照、审核事件审计和按订单深链的司机通知第一片已接上；留空的审核快照也会按订单金额、支付状态和司机分配自动补全；通过审核时可选填写调整后应付金额并同步改写订单 price/payable 快照，同时会写入资金处置结论与财务审计留痕；在线托管降价支持同一支付单顺序多次部分退款，涨价会创建补差 PaymentOrder 并可拉起/入账；订单取消会取消未支付补差单、按全部托管支付单拆分退款并聚合最终状态；支付单读取侧会派生 refundedAmountCents/netAmountCents，并提供订单级 payments/summary 托管合计；后台订单管理台按单资金视图也会展示托管合计卡。',
+      pendingGaps: ['正式微信/支付宝商户联调'],
     });
     expect(overview.remainingPlatformGaps).not.toContain(
       '权限矩阵 / 多角色工作台 / 后台会话治理 / 报表 / 批量操作',
