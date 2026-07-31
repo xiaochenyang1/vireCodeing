@@ -183,6 +183,7 @@ type DriverReportedExceptionAttachmentState = Record<
   string,
   DriverUploadedFileRef[]
 >;
+type DriverCargoPhotoAttachmentState = Record<string, DriverUploadedFileRef[]>;
 type DriverShipperEvaluationAttachmentState = Record<
   string,
   DriverUploadedFileRef[]
@@ -476,6 +477,57 @@ async function hydrateDriverUploadedFileRefs(
   );
 }
 
+async function buildDriverCargoPhotoAttachments(
+  order: PlatformShipperOrder,
+  platformFileApi?: DriverPlatformFileApi,
+) {
+  const fileIds = (order.cargoPhotoFileIds ?? [])
+    .map(fileId => fileId.trim())
+    .filter(Boolean);
+
+  return Promise.all(
+    fileIds.map(async (fileId, index) => {
+      const fileName = `货物图片凭证-${index + 1}.png`;
+
+      if (!platformFileApi?.getOrderAttachmentPreview) {
+        return createFallbackDriverUploadedFileRef(
+          fileId,
+          'cargo',
+          fileName,
+          order.createdAtIso,
+        );
+      }
+
+      try {
+        const preview = await platformFileApi.getOrderAttachmentPreview(
+          order.id,
+          fileId,
+        );
+
+        return createDriverUploadedFileRef(
+          {
+            id: preview.fileId,
+            ownerUserId: order.shipperId,
+            purpose: 'cargo',
+            objectKey: '',
+            publicUrl: preview.previewUrl,
+            status: 'uploaded',
+            createdAtIso: order.createdAtIso,
+          },
+          fileName,
+        );
+      } catch {
+        return createFallbackDriverUploadedFileRef(
+          fileId,
+          'cargo',
+          fileName,
+          order.createdAtIso,
+        );
+      }
+    }),
+  );
+}
+
 async function buildDriverCertificationAttachments(
   certification: PlatformDriverCertificationSnapshot,
   platformFileApi?: DriverPlatformFileApi,
@@ -762,6 +814,8 @@ export function DriverHomeScreen({
     useState<DriverExceptionAttachmentState>({});
   const [reportedExceptionAttachments, setReportedExceptionAttachments] =
     useState<DriverReportedExceptionAttachmentState>({});
+  const [cargoPhotoAttachments, setCargoPhotoAttachments] =
+    useState<DriverCargoPhotoAttachmentState>({});
   const [shipperEvaluationAttachments, setShipperEvaluationAttachments] =
     useState<DriverShipperEvaluationAttachmentState>({});
   const [
@@ -1413,6 +1467,33 @@ export function DriverHomeScreen({
             hydratedAttachments,
             current[selectedOrder.id],
           ),
+        }));
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrder, platformFileApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedOrder) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    buildDriverCargoPhotoAttachments(selectedOrder, platformFileApi)
+      .then(hydratedAttachments => {
+        if (cancelled) {
+          return;
+        }
+
+        setCargoPhotoAttachments(current => ({
+          ...current,
+          [selectedOrder.id]: hydratedAttachments,
         }));
       })
       .catch(() => undefined);
@@ -2937,6 +3018,9 @@ export function DriverHomeScreen({
     : [];
   const selectedReportedExceptionAttachmentRefs = selectedOrder
     ? reportedExceptionAttachments[selectedOrder.orderNo] ?? []
+    : [];
+  const selectedCargoPhotoAttachmentRefs = selectedOrder
+    ? cargoPhotoAttachments[selectedOrder.id] ?? []
     : [];
   const latestReportedHallLocationCoordinateText = latestReportedHallLocation
     ? formatCoordinateText(
@@ -4491,6 +4575,46 @@ export function DriverHomeScreen({
             货物：{selectedOrder.cargoType} · {selectedOrder.weightText} ·{' '}
             {selectedOrder.quantityText}
           </Text>
+          {selectedCargoPhotoAttachmentRefs.length > 0 ? (
+            <View>
+              <Text style={styles.draftSectionTitle}>货物图片凭证</Text>
+              {selectedCargoPhotoAttachmentRefs.map((attachmentRef, index) => (
+                <ImageCredentialCard
+                  key={`driver-cargo-${attachmentRef.file.id}-${index}`}
+                  title={`货物图片凭证 ${index + 1}：${
+                    attachmentRef.fileName
+                  }`}
+                  publicUrl={attachmentRef.file.publicUrl}
+                  placeholderLabel={`货物图片 ${index + 1}`}
+                  metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
+                  imageTestID={`driver-cargo-preview-image-${index + 1}`}
+                  placeholderTestID={`driver-cargo-preview-placeholder-${
+                    index + 1
+                  }`}
+                  previewGroup={selectedCargoPhotoAttachmentRefs.map(
+                    (groupRef, groupIndex) => ({
+                      key: `driver-cargo-${groupRef.file.id}-${groupIndex}`,
+                      title: `货物图片凭证 ${groupIndex + 1}：${
+                        groupRef.fileName
+                      }`,
+                      publicUrl: groupRef.file.publicUrl,
+                      fileId: groupRef.file.id,
+                      access: {
+                        kind: 'order' as const,
+                        orderId: selectedOrder.id,
+                      },
+                    }),
+                  )}
+                  previewKey={`driver-cargo-${attachmentRef.file.id}-${index}`}
+                  previewFileId={attachmentRef.file.id}
+                  previewAccess={{
+                    kind: 'order',
+                    orderId: selectedOrder.id,
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
           <Text style={styles.detailMeta}>
             车辆：{selectedOrder.vehicleRequirement}
             {selectedOrder.vehicleLengthText

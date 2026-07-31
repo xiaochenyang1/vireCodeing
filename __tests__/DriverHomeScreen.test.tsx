@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
+import { ImageCredentialCard } from '../src/components/ImageCredentialCard';
 import { DriverHomeScreen } from '../src/screens/DriverHomeScreen';
 import { PlatformApiError } from '../src/services/platformApiClient';
 
@@ -1236,6 +1237,99 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: 'driver-navigation-target-contact-delivery-HY202607090010',
       }).props.children,
     ).toBe('联系人：钱店长 13900139002');
+  });
+
+  it('hydrates shipper cargo photos through order participant access in driver detail', async () => {
+    const order = {
+      id: 'order-cargo-1',
+      orderNo: 'HY202607090019',
+      status: 'loading' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      cargoPhotoCount: 2,
+      cargoPhotoFileIds: ['file-cargo-1', 'file-cargo-2'],
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T02:00:00.000Z',
+      updatedAtIso: '2026-07-09T02:00:00.000Z',
+      needTailboard: false,
+      needTarp: false,
+      pickupTimeIso: '2026-07-09T03:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const getOrderAttachmentPreview = jest
+      .fn()
+      .mockImplementation((orderId: string, fileId: string) =>
+        Promise.resolve({
+          fileId,
+          previewUrl: `https://cdn.example.com/${orderId}/${fileId}.jpg`,
+          previewExpiresAtIso: '2026-07-31T09:00:00.000Z',
+        }),
+      );
+    const platformFileApi = {
+      createUploadIntent: jest.fn(),
+      confirmUploaded: jest.fn(),
+      getOrderAttachmentPreview,
+    };
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          platformFileApi={platformFileApi}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    expect(getOrderAttachmentPreview).toHaveBeenCalledTimes(2);
+    expect(getOrderAttachmentPreview).toHaveBeenCalledWith(
+      order.id,
+      'file-cargo-1',
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-cargo-preview-image-1',
+      }).props.source,
+    ).toEqual({
+      uri: 'https://cdn.example.com/order-cargo-1/file-cargo-1.jpg',
+    });
+    const cargoCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(card => card.props.imageTestID === 'driver-cargo-preview-image-1');
+
+    expect(cargoCard?.props.previewAccess).toEqual({
+      kind: 'order',
+      orderId: order.id,
+    });
+    expect(cargoCard?.props.previewGroup).toHaveLength(2);
+    expect(cargoCard?.props.previewGroup[1].access).toEqual({
+      kind: 'order',
+      orderId: order.id,
+    });
   });
 
   it('switches the visible driver order detail context immediately before getOrder resolves', async () => {
