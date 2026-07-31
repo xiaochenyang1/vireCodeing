@@ -163,8 +163,10 @@ export function CargoSection({
                 key: groupFile.fileId,
                 title: `货物图片凭证：${groupFile.fileName}`,
                 publicUrl: groupFile.publicUrl,
+                fileId: groupFile.fileId,
               }))}
               previewKey={file.fileId}
+              previewFileId={file.fileId}
             />
           ))}
           {localPlaceholderIndexes.map(voucherIndex => (

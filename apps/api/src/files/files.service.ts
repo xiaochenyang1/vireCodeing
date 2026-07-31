@@ -15,6 +15,7 @@ import type {
 } from './dto';
 import {
   LocalFilePreviewUrlSigner,
+  type FilePreviewUrlSigner,
   type FilePreviewUrlVerifier,
   type VerifyFilePreviewUrlInput,
 } from './file-preview-url.signer';
@@ -38,8 +39,8 @@ export class FilesService {
   constructor(
     private readonly repository: FilesRepository,
     private readonly config: FilesServiceConfig = {},
-    private readonly previewUrlVerifier: FilePreviewUrlVerifier =
-      new LocalFilePreviewUrlSigner(),
+    private readonly previewUrlSigner: FilePreviewUrlSigner &
+      FilePreviewUrlVerifier = new LocalFilePreviewUrlSigner(),
     private readonly storageProvider: FileStorageProvider =
       new LocalFileStorageProvider(config),
   ) {}
@@ -164,7 +165,12 @@ export class FilesService {
       throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '文件不存在');
     }
 
-    return file;
+    return file.status === 'uploaded'
+      ? {
+          ...file,
+          ...this.previewUrlSigner.signPreviewUrl(file),
+        }
+      : file;
   }
 
   async rejectExpiredPendingFiles() {
@@ -414,7 +420,7 @@ export class FilesService {
       throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, '文件不存在');
     }
 
-    if (!this.previewUrlVerifier.verifyPreviewUrl(file, input)) {
+    if (!this.previewUrlSigner.verifyPreviewUrl(file, input)) {
       throw new BusinessError(
         ApiErrorCode.FILE_PREVIEW_SIGNATURE_INVALID,
         '预览链接无效或已过期',

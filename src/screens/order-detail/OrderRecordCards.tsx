@@ -34,6 +34,7 @@ function renderAttachmentCards({
     key: `${file.fileId || file.fileName}-${index}`,
     title: `${title}：${file.fileName}`,
     publicUrl: file.publicUrl,
+    fileId: file.fileId,
   }));
 
   return (
@@ -58,6 +59,7 @@ function renderAttachmentCards({
           placeholderTestID={`${testIDPrefix}-placeholder-${index + 1}`}
           previewGroup={previewGroup}
           previewKey={`${file.fileId || file.fileName}-${index}`}
+          previewFileId={file.fileId}
         />
       ))}
     </View>

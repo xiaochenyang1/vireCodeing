@@ -178,6 +178,7 @@ export function IdentityVerificationRecords({
       ? `${entry.label}：${entry.file.fileName}`
       : `${entry.label}：本地已保存`,
     publicUrl: entry.file?.publicUrl,
+    fileId: entry.file?.fileId,
   }));
 
   useEffect(() => {
@@ -469,6 +470,7 @@ export function IdentityVerificationRecords({
               placeholderTestID={`identity-verification-${entry.key}-preview-placeholder`}
               previewGroup={identityPhotoPreviewGroup}
               previewKey={entry.key}
+              previewFileId={entry.file?.fileId}
             />
           ))}
         </View>

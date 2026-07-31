@@ -236,9 +236,11 @@ export function ExceptionCaseProgressPanel({
                         key: `${exceptionCase.id}-${groupAttachment.fileId}-${groupIndex}`,
                         title: `异常工单凭证：${groupAttachment.fileName}`,
                         publicUrl: groupAttachment.publicUrl,
+                        fileId: groupAttachment.fileId,
                       }),
                     )}
                     previewKey={`${exceptionCase.id}-${attachment.fileId}-${index}`}
+                    previewFileId={attachment.fileId}
                   />
                 ))}
               </View>

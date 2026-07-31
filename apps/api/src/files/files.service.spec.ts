@@ -1236,6 +1236,29 @@ describe('FilesService', () => {
     });
   });
 
+  it('renews signed preview metadata for an uploaded owner file', async () => {
+    const { service } = createService();
+    const intent = await service.createUploadIntent('user-1', {
+      purpose: 'cargo',
+      fileName: 'cargo.jpg',
+      contentType: 'image/jpeg',
+      byteSize: 1024,
+    });
+    await service.confirmUploaded('user-1', intent.id, {});
+
+    await expect(
+      service.getFileMetadata(
+        { id: 'user-1', phone: '13900139001', userType: 'shipper' },
+        intent.id,
+      ),
+    ).resolves.toMatchObject({
+      id: intent.id,
+      status: 'uploaded',
+      previewUrl: expect.stringContaining('/api/files/preview-contents/'),
+      previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
+    });
+  });
+
   it('returns file metadata to admins', async () => {
     const { service } = createService();
     const intent = await service.createUploadIntent('user-1', {

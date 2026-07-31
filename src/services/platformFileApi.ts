@@ -37,6 +37,8 @@ export type PlatformFileUploadRecord = {
   purpose: PlatformFilePurpose;
   objectKey: string;
   publicUrl?: string;
+  previewUrl?: string;
+  previewExpiresAtIso?: string;
   status: PlatformFileStatus;
   createdAtIso: string;
 };
@@ -196,10 +198,23 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
     async getFileMetadata(fileId: string) {
       const normalizedFileId = normalizeFileId(fileId);
 
-      return platformGet<PlatformFileUploadRecord>(
+      const file = await platformGet<PlatformFileUploadRecord>(
         config,
         `/files/${normalizedFileId}`,
       );
+
+      const normalizedPreviewUrl = file.previewUrl?.trim();
+      const previewUrl = normalizedPreviewUrl
+        ? resolvePlatformFilePreviewUrl(normalizedPreviewUrl, config.baseUrl)
+        : undefined;
+
+      return previewUrl
+        ? {
+            ...file,
+            previewUrl,
+            publicUrl: previewUrl,
+          }
+        : file;
     },
     async confirmLocalUploadTarget(uploadUrl: string) {
       const uploadPath = normalizeLocalUploadTargetPath(
@@ -279,6 +294,29 @@ export function createPlatformFileApi(config: PlatformApiConfig) {
         undefined,
       );
     },
+  };
+}
+
+export async function refreshPlatformFilePreviewUrl(
+  api: Pick<ReturnType<typeof createPlatformFileApi>, 'getFileMetadata'>,
+  fileId: string,
+) {
+  const file = await api.getFileMetadata(fileId);
+  const previewUrl = file.previewUrl?.trim() || file.publicUrl?.trim();
+
+  if (!previewUrl) {
+    throw new PlatformApiError(
+      'Platform file preview URL is missing',
+      'FILE_PREVIEW_URL_MISSING',
+      0,
+    );
+  }
+
+  return {
+    url: previewUrl,
+    ...(file.previewExpiresAtIso
+      ? { expiresAtIso: file.previewExpiresAtIso }
+      : {}),
   };
 }
 
@@ -720,6 +758,30 @@ function createFileMaintenanceFilesPath(
 
 function ensureTrailingSlash(value: string) {
   return value.endsWith('/') ? value : `${value}/`;
+}
+
+function resolvePlatformFilePreviewUrl(previewUrl: string, baseUrl: string) {
+  let resolvedUrl: URL;
+
+  try {
+    resolvedUrl = new URL(previewUrl, ensureTrailingSlash(baseUrl));
+  } catch {
+    throwInvalidResolvedPreviewUrl();
+  }
+
+  if (resolvedUrl.protocol !== 'http:' && resolvedUrl.protocol !== 'https:') {
+    throwInvalidResolvedPreviewUrl();
+  }
+
+  return resolvedUrl.toString();
+}
+
+function throwInvalidResolvedPreviewUrl(): never {
+  throw new PlatformApiError(
+    'Platform file preview URL is invalid',
+    'PLATFORM_FILE_PREVIEW_URL_INVALID',
+    0,
+  );
 }
 
 function normalizeBasePath(pathname: string) {

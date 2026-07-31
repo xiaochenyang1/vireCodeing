@@ -2,6 +2,7 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 import {
   confirmPlatformFileUploadIntent,
   createPlatformFileApi,
+  refreshPlatformFilePreviewUrl,
 } from '../src/services/platformFileApi';
 
 describe('platform file api', () => {
@@ -129,6 +130,9 @@ describe('platform file api', () => {
           objectKey: 'user-1/exception/file-1.png',
           status: 'uploaded',
           publicUrl: 'https://cdn.example.com/user-1/exception/file-1.png',
+          previewUrl:
+            '/api/files/preview-contents/user-1/exception/file-1.png?signature=fresh',
+          previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
           createdAtIso: '2026-07-06T03:00:00.000Z',
         },
         requestId: 'req-file-metadata',
@@ -146,7 +150,11 @@ describe('platform file api', () => {
       id: 'file-1',
       purpose: 'exception',
       status: 'uploaded',
-      publicUrl: 'https://cdn.example.com/user-1/exception/file-1.png',
+      publicUrl:
+        'http://localhost:3000/api/files/preview-contents/user-1/exception/file-1.png?signature=fresh',
+      previewUrl:
+        'http://localhost:3000/api/files/preview-contents/user-1/exception/file-1.png?signature=fresh',
+      previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -208,6 +216,99 @@ describe('platform file api', () => {
         }),
       }),
     );
+  });
+
+  it('returns a renewed signed preview url from file metadata', async () => {
+    const getFileMetadata = jest.fn().mockResolvedValue({
+      id: 'file-1',
+      ownerUserId: 'user-1',
+      purpose: 'cargo',
+      objectKey: 'user-1/cargo/file-1.jpg',
+      status: 'uploaded',
+      createdAtIso: '2026-07-06T03:00:00.000Z',
+      previewUrl: ' https://preview.example.com/file-1?signature=fresh ',
+      previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
+    });
+
+    await expect(
+      refreshPlatformFilePreviewUrl({ getFileMetadata }, 'file-1'),
+    ).resolves.toEqual({
+      url: 'https://preview.example.com/file-1?signature=fresh',
+      expiresAtIso: '2026-07-06T03:10:00.000Z',
+    });
+    expect(getFileMetadata).toHaveBeenCalledWith('file-1');
+  });
+
+  it('falls back to a stable public url when refreshed preview metadata is blank', async () => {
+    const getFileMetadata = jest.fn().mockResolvedValue({
+      id: 'file-1',
+      ownerUserId: 'user-1',
+      purpose: 'cargo',
+      objectKey: 'user-1/cargo/file-1.jpg',
+      status: 'uploaded',
+      createdAtIso: '2026-07-06T03:00:00.000Z',
+      previewUrl: '   ',
+      publicUrl: ' https://cdn.example.com/file-1.jpg ',
+    });
+
+    await expect(
+      refreshPlatformFilePreviewUrl({ getFileMetadata }, 'file-1'),
+    ).resolves.toEqual({
+      url: 'https://cdn.example.com/file-1.jpg',
+    });
+  });
+
+  it('rejects non-http preview urls returned by file metadata', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        code: 'OK',
+        message: 'success',
+        data: {
+          id: 'file-1',
+          ownerUserId: 'user-1',
+          purpose: 'cargo',
+          objectKey: 'user-1/cargo/file-1.jpg',
+          status: 'uploaded',
+          previewUrl: 'file:///private/file-1.jpg',
+          createdAtIso: '2026-07-06T03:00:00.000Z',
+        },
+        requestId: 'req-file-metadata',
+        timestamp: '2026-07-06T03:00:00.000Z',
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformFileApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+
+    await expect(api.getFileMetadata('file-1')).rejects.toMatchObject({
+      code: 'PLATFORM_FILE_PREVIEW_URL_INVALID',
+      status: 0,
+    });
+  });
+
+  it('rejects refreshed metadata without a previewable url', async () => {
+    await expect(
+      refreshPlatformFilePreviewUrl(
+        {
+          getFileMetadata: jest.fn().mockResolvedValue({
+            id: 'file-1',
+            ownerUserId: 'user-1',
+            purpose: 'cargo',
+            objectKey: 'user-1/cargo/file-1.jpg',
+            status: 'pending',
+            createdAtIso: '2026-07-06T03:00:00.000Z',
+          }),
+        },
+        'file-1',
+      ),
+    ).rejects.toMatchObject({
+      code: 'FILE_PREVIEW_URL_MISSING',
+      status: 0,
+    });
   });
 
   it('confirms upload intents through the returned local upload target when available', async () => {

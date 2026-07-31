@@ -3,11 +3,27 @@ import { Image, ScrollView, Text } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
 import { ImageCredentialCard } from '../src/components/ImageCredentialCard';
+import { ImagePreviewRefreshProvider } from '../src/components/ImagePreviewRefreshProvider';
 
 const previewGroup = [
-  { key: 'file-1', title: '异常凭证 1：a.jpg', publicUrl: 'https://cdn/a.jpg' },
-  { key: 'file-2', title: '异常凭证 2：b.jpg', publicUrl: 'https://cdn/b.jpg' },
-  { key: 'file-3', title: '异常凭证 3：c.jpg', publicUrl: 'https://cdn/c.jpg' },
+  {
+    key: 'file-1',
+    title: '异常凭证 1：a.jpg',
+    publicUrl: 'https://cdn/a.jpg',
+    fileId: 'file-1',
+  },
+  {
+    key: 'file-2',
+    title: '异常凭证 2：b.jpg',
+    publicUrl: 'https://cdn/b.jpg',
+    fileId: 'file-2',
+  },
+  {
+    key: 'file-3',
+    title: '异常凭证 3：c.jpg',
+    publicUrl: 'https://cdn/c.jpg',
+    fileId: 'file-3',
+  },
 ];
 
 function findByTestID(
@@ -33,6 +49,17 @@ function getRenderedText(renderer: ReactTestRenderer.ReactTestRenderer) {
     .join('');
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function renderGroupedCard(
   props: Partial<React.ComponentProps<typeof ImageCredentialCard>> = {},
 ) {
@@ -48,6 +75,7 @@ async function renderGroupedCard(
         imageTestID="exception-proof-image-2"
         previewGroup={previewGroup}
         previewKey="file-2"
+        previewFileId="file-2"
         {...props}
       />,
     );
@@ -316,5 +344,600 @@ describe('ImageCredentialCard preview carousel', () => {
         .findAllByType(Image)
         .some(node => node.props.source?.uri === 'https://cdn/b.jpg'),
     ).toBe(true);
+  });
+
+  it('renews a failed preview once and exposes a manual retry after another load error', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValueOnce('https://cdn/fresh-b-1.jpg')
+      .mockResolvedValueOnce('https://cdn/fresh-b-2.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="exception-proof-image-2"
+            previewGroup={previewGroup}
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    expect(refreshPreviewUrl).toHaveBeenCalledWith('file-2');
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/fresh-b-1.jpg' });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+    });
+    await openPreview(renderer);
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toBeDefined();
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-retry').props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/fresh-b-2.jpg' });
+    expect(
+      queryAllByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toHaveLength(0);
+  });
+
+  it('keeps preview load failures scoped to their carousel entry', async () => {
+    const refreshPreviewUrl = jest.fn().mockRejectedValue(new Error('expired'));
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="exception-proof-image-2"
+            previewGroup={previewGroup}
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+    await openPreview(renderer);
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-page-1').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledWith('file-1');
+    expect(
+      queryAllByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toHaveLength(0);
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-previous').props.onPress();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toBeDefined();
+  });
+
+  it('drops a refreshed override when the parent supplies a newer source url', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValueOnce('https://cdn/refreshed-b.jpg')
+      .mockResolvedValueOnce('https://cdn/refreshed-b-again.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    const renderCard = (publicUrl: string) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        <ImageCredentialCard
+          title="异常凭证 2：b.jpg"
+          publicUrl={publicUrl}
+          placeholderLabel="异常图片"
+          metaLines={['来源：平台文件对象（已上传）']}
+          imageTestID="exception-proof-image-2"
+          previewGroup={[
+            previewGroup[0],
+            { ...previewGroup[1], publicUrl },
+            previewGroup[2],
+          ]}
+          previewKey="file-2"
+          previewFileId="file-2"
+        />
+      </ImagePreviewRefreshProvider>
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(renderCard('https://cdn/b.jpg'));
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/refreshed-b.jpg' });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(renderCard('https://cdn/parent-b.jpg'));
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/parent-b.jpg' });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/refreshed-b-again.jpg' });
+  });
+
+  it('does not let an older source request block or overwrite a newer source', async () => {
+    const olderRequest = createDeferred<string>();
+    const newerRequest = createDeferred<string>();
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockImplementationOnce(() => olderRequest.promise)
+      .mockImplementationOnce(() => newerRequest.promise);
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    const renderCard = (publicUrl: string) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        <ImageCredentialCard
+          title="异常凭证 2：b.jpg"
+          publicUrl={publicUrl}
+          placeholderLabel="异常图片"
+          metaLines={['来源：平台文件对象（已上传）']}
+          imageTestID="exception-proof-image-2"
+          previewGroup={[
+            previewGroup[0],
+            { ...previewGroup[1], publicUrl },
+            previewGroup[2],
+          ]}
+          previewKey="file-2"
+          previewFileId="file-2"
+        />
+      </ImagePreviewRefreshProvider>
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(renderCard('https://cdn/older-b.jpg'));
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+      await Promise.resolve();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(renderCard('https://cdn/newer-b.jpg'));
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+
+    await ReactTestRenderer.act(async () => {
+      newerRequest.resolve('https://cdn/newer-b-renewed.jpg');
+      await newerRequest.promise;
+    });
+    await openPreview(renderer);
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/newer-b-renewed.jpg' });
+
+    await ReactTestRenderer.act(async () => {
+      olderRequest.reject(new Error('older request failed late'));
+      await Promise.resolve();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/newer-b-renewed.jpg' });
+    expect(
+      queryAllByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toHaveLength(0);
+  });
+
+  it('preserves one image failure when another group member changes', async () => {
+    const refreshPreviewUrl = jest.fn().mockRejectedValue(new Error('expired'));
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    const renderCard = (firstUrl: string) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        <ImageCredentialCard
+          title="异常凭证 2：b.jpg"
+          publicUrl="https://cdn/b.jpg"
+          placeholderLabel="异常图片"
+          metaLines={['来源：平台文件对象（已上传）']}
+          imageTestID="exception-proof-image-2"
+          previewGroup={[
+            { ...previewGroup[0], publicUrl: firstUrl },
+            previewGroup[1],
+            previewGroup[2],
+          ]}
+          previewKey="file-2"
+          previewFileId="file-2"
+        />
+      </ImagePreviewRefreshProvider>
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(renderCard('https://cdn/a.jpg'));
+    });
+    await openPreview(renderer);
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-page-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-retry'),
+    ).toBeDefined();
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(renderCard('https://cdn/a-updated.jpg'));
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-retry'),
+    ).toBeDefined();
+  });
+
+  it('shares refreshed urls and automatic attempt budgets across sibling cards', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValue('https://cdn/refreshed-a.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 1：a.jpg"
+            publicUrl="https://cdn/a.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="sibling-a"
+            previewGroup={previewGroup}
+            previewKey="file-1"
+            previewFileId="file-1"
+          />
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="sibling-b"
+            previewGroup={previewGroup}
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'sibling-a').props.onError();
+      await Promise.resolve();
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'sibling-b-trigger').props.onPress();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+    expect(findByTestID(renderer, 'sibling-b-page-1').props.source).toEqual({
+      uri: 'https://cdn/refreshed-a.jpg',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'sibling-b-page-1').props.onError();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one in-flight renewal when sibling thumbnails fail together', async () => {
+    const renewal = createDeferred<string>();
+    const refreshPreviewUrl = jest.fn(() => renewal.promise);
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 A"
+            publicUrl="https://cdn/a.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="concurrent-a"
+            previewKey="file-1"
+            previewFileId="file-1"
+          />
+          <ImageCredentialCard
+            title="异常凭证 A 副本"
+            publicUrl="https://cdn/a.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="concurrent-a-copy"
+            previewKey="file-1-copy"
+            previewFileId="file-1"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'concurrent-a').props.onError();
+      findByTestID(renderer, 'concurrent-a-copy').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+
+    await ReactTestRenderer.act(async () => {
+      renewal.resolve('https://cdn/a-renewed.jpg');
+      await renewal.promise;
+    });
+
+    expect(findByTestID(renderer, 'concurrent-a').props.source).toEqual({
+      uri: 'https://cdn/a-renewed.jpg',
+    });
+    expect(findByTestID(renderer, 'concurrent-a-copy').props.source).toEqual({
+      uri: 'https://cdn/a-renewed.jpg',
+    });
+  });
+
+  it('clears a local failure overlay when the rendered image later loads', async () => {
+    const refreshPreviewUrl = jest.fn().mockRejectedValue(new Error('expired'));
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="exception-proof-image-2"
+            previewGroup={previewGroup}
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+    await openPreview(renderer);
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-page-2').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toBeDefined();
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-page-2').props.onLoad();
+    });
+
+    expect(
+      queryAllByTestID(renderer, 'exception-proof-image-2-load-status'),
+    ).toHaveLength(0);
+  });
+
+  it('renews again after a cached signed url expires while the provider stays mounted', async () => {
+    const initialNow = Date.parse('2026-07-31T08:00:00.000Z');
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(initialNow);
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValueOnce({
+        url: 'https://cdn/b-renewed-1.jpg',
+        expiresAtIso: '2026-07-31T08:01:00.000Z',
+      })
+      .mockResolvedValueOnce({
+        url: 'https://cdn/b-renewed-2.jpg',
+        expiresAtIso: '2026-07-31T08:03:00.000Z',
+      });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    const renderCard = (visible: boolean) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        {visible ? (
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="expiring-preview"
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        ) : null}
+      </ImagePreviewRefreshProvider>
+    );
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(renderCard(true));
+      });
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'expiring-preview').props.onError();
+        await Promise.resolve();
+      });
+
+      expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
+        uri: 'https://cdn/b-renewed-1.jpg',
+      });
+
+      await ReactTestRenderer.act(async () => {
+        renderer.update(renderCard(false));
+      });
+      nowSpy.mockReturnValue(Date.parse('2026-07-31T08:02:00.000Z'));
+      await ReactTestRenderer.act(async () => {
+        renderer.update(renderCard(true));
+      });
+
+      expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
+        uri: 'https://cdn/b.jpg',
+      });
+
+      await ReactTestRenderer.act(async () => {
+        findByTestID(renderer, 'expiring-preview').props.onError();
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+      expect(findByTestID(renderer, 'expiring-preview').props.source).toEqual({
+        uri: 'https://cdn/b-renewed-2.jpg',
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('does not reuse an override after fileId changes under a stable key and url', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockResolvedValueOnce('https://cdn/file-1-renewed.jpg')
+      .mockResolvedValueOnce('https://cdn/file-2-renewed.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    const renderCard = (fileId: string) => (
+      <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+        <ImageCredentialCard
+          title="稳定槽位凭证"
+          publicUrl="https://cdn/stable-slot.jpg"
+          placeholderLabel="凭证"
+          metaLines={['来源：平台文件对象（已上传）']}
+          imageTestID="stable-slot"
+          previewGroup={[
+            {
+              key: 'stable-slot',
+              title: '稳定槽位凭证',
+              publicUrl: 'https://cdn/stable-slot.jpg',
+              fileId,
+            },
+          ]}
+          previewKey="stable-slot"
+          previewFileId={fileId}
+        />
+      </ImagePreviewRefreshProvider>
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(renderCard('file-1'));
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'stable-slot').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(findByTestID(renderer, 'stable-slot').props.source).toEqual({
+      uri: 'https://cdn/file-1-renewed.jpg',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(renderCard('file-2'));
+    });
+
+    expect(findByTestID(renderer, 'stable-slot').props.source).toEqual({
+      uri: 'https://cdn/stable-slot.jpg',
+    });
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'stable-slot').props.onError();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenLastCalledWith('file-2');
+    expect(findByTestID(renderer, 'stable-slot').props.source).toEqual({
+      uri: 'https://cdn/file-2-renewed.jpg',
+    });
+  });
+
+  it('allows repeated manual retries after renewal requests keep failing', async () => {
+    const refreshPreviewUrl = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('automatic failed'))
+      .mockRejectedValueOnce(new Error('manual failed'))
+      .mockResolvedValueOnce('https://cdn/recovered-b.jpg');
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+          <ImageCredentialCard
+            title="异常凭证 2：b.jpg"
+            publicUrl="https://cdn/b.jpg"
+            placeholderLabel="异常图片"
+            metaLines={['来源：平台文件对象（已上传）']}
+            imageTestID="exception-proof-image-2"
+            previewGroup={previewGroup}
+            previewKey="file-2"
+            previewFileId="file-2"
+          />
+        </ImagePreviewRefreshProvider>,
+      );
+    });
+    await openPreview(renderer);
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-page-2').props.onError();
+      await Promise.resolve();
+    });
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-retry').props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(2);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2-retry'),
+    ).toBeDefined();
+
+    await ReactTestRenderer.act(async () => {
+      findByTestID(renderer, 'exception-proof-image-2-retry').props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(refreshPreviewUrl).toHaveBeenCalledTimes(3);
+    expect(
+      findByTestID(renderer, 'exception-proof-image-2').props.source,
+    ).toEqual({ uri: 'https://cdn/recovered-b.jpg' });
   });
 });

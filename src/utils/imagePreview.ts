@@ -10,12 +10,14 @@ export type ImagePreviewItem = {
   key: string;
   title: string;
   publicUrl?: string;
+  fileId?: string;
 };
 
 export type ImagePreviewEntry = {
   key: string;
   title: string;
   publicUrl: string;
+  fileId?: string;
 };
 
 /**
@@ -58,6 +60,7 @@ export function buildImagePreviewGroup(
       key: item.key,
       title: item.title,
       publicUrl: item.publicUrl,
+      ...(item.fileId ? { fileId: item.fileId } : {}),
     });
 
     return entries;

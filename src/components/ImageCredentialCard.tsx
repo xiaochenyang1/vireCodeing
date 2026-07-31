@@ -21,7 +21,24 @@ import {
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
 } from '../utils/imagePreview';
-import type { ImagePreviewItem } from '../utils/imagePreview';
+import type {
+  ImagePreviewEntry,
+  ImagePreviewItem,
+} from '../utils/imagePreview';
+import {
+  createImagePreviewRefreshSourceId,
+  getUsableImagePreviewRefreshRecord,
+  useImagePreviewRefresh,
+} from './ImagePreviewRefreshProvider';
+
+type ImagePreviewLoadState = 'refreshing' | 'failed';
+
+function getImagePreviewEntryRefreshSourceId(entry: ImagePreviewEntry) {
+  return entry.fileId
+    ? createImagePreviewRefreshSourceId(entry.fileId, entry.publicUrl)
+    : undefined;
+}
+
 
 export function ImageCredentialCard({
   title,
@@ -35,6 +52,7 @@ export function ImageCredentialCard({
   previewCloseTestID,
   previewGroup,
   previewKey,
+  previewFileId,
 }: {
   title: string;
   publicUrl?: string;
@@ -47,11 +65,16 @@ export function ImageCredentialCard({
   previewCloseTestID?: string;
   previewGroup?: ImagePreviewItem[];
   previewKey?: string;
+  previewFileId?: string;
 }) {
   const { height: windowHeight } = useWindowDimensions();
+  const previewRefreshController = useImagePreviewRefresh();
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [activePreviewKey, setActivePreviewKey] = useState<string>();
   const [previewPageWidth, setPreviewPageWidth] = useState(0);
+  const [previewLoadStates, setPreviewLoadStates] = useState<
+    Record<string, ImagePreviewLoadState>
+  >({});
   const previewScrollViewRef = useRef<ScrollView>(null);
   const resolvedPreviewTriggerTestID =
     previewTriggerTestID ??
@@ -61,20 +84,49 @@ export function ImageCredentialCard({
   const resolvedPreviewCloseTestID =
     previewCloseTestID ?? (imageTestID ? `${imageTestID}-close` : undefined);
 
-  const previewEntries = useMemo(
+  const currentPreviewKey = previewKey ?? title;
+  const basePreviewEntries = useMemo(
     () =>
       buildImagePreviewGroup(previewGroup, {
-        key: previewKey ?? title,
+        key: currentPreviewKey,
         title,
         publicUrl,
+        fileId: previewFileId,
       }),
-    [previewGroup, previewKey, publicUrl, title],
+    [currentPreviewKey, previewFileId, previewGroup, publicUrl, title],
+  );
+  const previewEntries = useMemo(
+    () =>
+      basePreviewEntries.map(entry => {
+        const sourceId = getImagePreviewEntryRefreshSourceId(entry);
+        const record = getUsableImagePreviewRefreshRecord(
+          sourceId ? previewRefreshController?.records[sourceId] : undefined,
+        );
+
+        return record?.refreshedUrl
+          ? { ...entry, publicUrl: record.refreshedUrl }
+          : entry;
+      }),
+    [basePreviewEntries, previewRefreshController?.records],
   );
   const previewTotal = previewEntries.length;
   const previewIndex = resolveImagePreviewStartIndex(previewEntries, {
     key: activePreviewKey,
   });
   const activePreviewEntry = previewEntries[previewIndex];
+  const activeBasePreviewEntry = activePreviewEntry
+    ? basePreviewEntries.find(entry => entry.key === activePreviewEntry.key)
+    : undefined;
+  const currentPreviewEntry =
+    previewEntries.find(entry => entry.key === currentPreviewKey) ??
+    previewEntries.find(entry => entry.publicUrl === publicUrl);
+  const currentPreviewUrl = currentPreviewEntry?.publicUrl ?? publicUrl;
+  const activePreviewSourceId = activeBasePreviewEntry
+    ? getImagePreviewEntryRefreshSourceId(activeBasePreviewEntry)
+    : undefined;
+  const activePreviewLoadState = activePreviewSourceId
+    ? previewLoadStates[activePreviewSourceId]
+    : undefined;
   const previewImageHeight = getImagePreviewModalImageHeight(windowHeight);
   const counterText = getImagePreviewCounterText(previewIndex, previewTotal);
   const canGoPrevious = canGoToPreviousImagePreview(previewIndex, previewTotal);
@@ -104,19 +156,104 @@ export function ImageCredentialCard({
   const openPreview = () => {
     const startIndex = resolveImagePreviewStartIndex(previewEntries, {
       key: previewKey,
-      publicUrl,
+      publicUrl: currentPreviewUrl,
     });
 
     setActivePreviewKey(previewEntries[startIndex]?.key);
     setIsPreviewVisible(true);
   };
 
-  const stepPreview = (step: number) => {
-    const nextIndex = resolveImagePreviewStep(
-      previewIndex,
-      previewTotal,
-      step,
+  const setPreviewLoadState = (
+    sourceId: string,
+    state: ImagePreviewLoadState | undefined,
+  ) => {
+    setPreviewLoadStates(current => {
+      if (state) {
+        return current[sourceId] === state
+          ? current
+          : { ...current, [sourceId]: state };
+      }
+
+      if (!current[sourceId]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[sourceId];
+      return next;
+    });
+  };
+
+  const refreshPreviewEntry = async (
+    entry: ImagePreviewEntry,
+    automatic: boolean,
+  ) => {
+    const sourceId = getImagePreviewEntryRefreshSourceId(entry);
+
+    if (!sourceId || !entry.fileId) {
+      return;
+    }
+
+    if (!previewRefreshController?.available) {
+      setPreviewLoadState(sourceId, 'failed');
+      return;
+    }
+
+    setPreviewLoadState(sourceId, 'refreshing');
+    const outcome = await previewRefreshController.refresh({
+      fileId: entry.fileId,
+      sourceUrl: entry.publicUrl,
+      automatic,
+    });
+
+    setPreviewLoadState(
+      sourceId,
+      outcome === 'refreshed' ? undefined : 'failed',
     );
+  };
+
+  const handlePreviewImageError = (
+    entry: (typeof previewEntries)[number] | undefined,
+  ) => {
+    if (!entry) {
+      return;
+    }
+
+    const baseEntry =
+      basePreviewEntries.find(item => item.key === entry.key) ?? entry;
+
+    refreshPreviewEntry(baseEntry, true).catch(() => undefined);
+  };
+
+  const handlePreviewImageLoad = (
+    entry: (typeof previewEntries)[number] | undefined,
+  ) => {
+    if (!entry) {
+      return;
+    }
+
+    const baseEntry =
+      basePreviewEntries.find(item => item.key === entry.key) ?? entry;
+    const sourceId = getImagePreviewEntryRefreshSourceId(baseEntry);
+
+    if (sourceId) {
+      setPreviewLoadState(sourceId, undefined);
+    }
+  };
+
+  const getPreviewImageRenderKey = (entry: (typeof previewEntries)[number]) => {
+    const baseEntry =
+      basePreviewEntries.find(item => item.key === entry.key) ?? entry;
+    const sourceId = getImagePreviewEntryRefreshSourceId(baseEntry);
+    const revision = getUsableImagePreviewRefreshRecord(
+      sourceId ? previewRefreshController?.records[sourceId] : undefined,
+    )?.revision ?? 0;
+
+    return `${entry.key}-${sourceId ?? baseEntry.publicUrl}-${revision}`;
+  };
+
+  const stepPreview = (step: number) => {
+    const nextIndex = resolveImagePreviewStep(previewIndex, previewTotal, step);
 
     setActivePreviewKey(previewEntries[nextIndex]?.key);
   };
@@ -125,7 +262,7 @@ export function ImageCredentialCard({
     <View style={styles.driverInfoCard}>
       <View style={cardStyles.previewRow}>
         <View style={cardStyles.previewFrame}>
-          {publicUrl ? (
+          {currentPreviewUrl ? (
             <>
               <Pressable
                 testID={resolvedPreviewTriggerTestID}
@@ -133,9 +270,16 @@ export function ImageCredentialCard({
                 onPress={openPreview}
               >
                 <Image
+                  key={
+                    currentPreviewEntry
+                      ? getPreviewImageRenderKey(currentPreviewEntry)
+                      : currentPreviewKey
+                  }
                   testID={imageTestID}
-                  source={{ uri: publicUrl }}
+                  source={{ uri: currentPreviewUrl }}
                   style={cardStyles.previewImage}
+                  onError={() => handlePreviewImageError(currentPreviewEntry)}
+                  onLoad={() => handlePreviewImageLoad(currentPreviewEntry)}
                 />
               </Pressable>
               {isPreviewVisible ? (
@@ -170,63 +314,137 @@ export function ImageCredentialCard({
                           </Text>
                         </Pressable>
                       </View>
-                      {previewTotal > 1 ? (
-                        <ScrollView
-                          ref={previewScrollViewRef}
-                          testID={
-                            imageTestID ? `${imageTestID}-pager` : undefined
-                          }
-                          horizontal
-                          pagingEnabled
-                          showsHorizontalScrollIndicator={false}
-                          onLayout={event =>
-                            setPreviewPageWidth(event.nativeEvent.layout.width)
-                          }
-                          onMomentumScrollEnd={event => {
-                            const nextIndex =
-                              resolveImagePreviewIndexFromOffset(
-                                event.nativeEvent.contentOffset.x,
-                                previewPageWidth,
-                                previewTotal,
-                                previewIndex,
-                              );
+                      <View
+                        style={[
+                          cardStyles.previewModalMediaFrame,
+                          { height: previewImageHeight },
+                        ]}
+                      >
+                        {previewTotal > 1 ? (
+                          <ScrollView
+                            ref={previewScrollViewRef}
+                            testID={
+                              imageTestID ? `${imageTestID}-pager` : undefined
+                            }
+                            horizontal
+                            pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            onLayout={event =>
+                              setPreviewPageWidth(
+                                event.nativeEvent.layout.width,
+                              )
+                            }
+                            onMomentumScrollEnd={event => {
+                              const nextIndex =
+                                resolveImagePreviewIndexFromOffset(
+                                  event.nativeEvent.contentOffset.x,
+                                  previewPageWidth,
+                                  previewTotal,
+                                  previewIndex,
+                                );
 
-                            setActivePreviewKey(
-                              previewEntries[nextIndex]?.key,
-                            );
-                          }}
-                          style={[
-                            cardStyles.previewModalPager,
-                            { height: previewImageHeight },
-                          ]}
-                        >
-                          {previewEntries.map(entry => (
-                            <Image
-                              key={entry.key}
-                              source={{ uri: entry.publicUrl }}
-                              resizeMode="contain"
-                              style={[
-                                cardStyles.previewModalImage,
-                                { height: previewImageHeight },
-                                previewPageWidth > 0
-                                  ? { width: previewPageWidth }
-                                  : null,
-                              ]}
-                            />
-                          ))}
-                        </ScrollView>
-                      ) : (
-                        <Image
-                          source={{
-                            uri: activePreviewEntry?.publicUrl ?? publicUrl,
-                          }}
-                          resizeMode="contain"
-                          style={[
-                            cardStyles.previewModalImage,
-                            { height: previewImageHeight },
-                          ]}
-                        />
-                      )}
+                              setActivePreviewKey(
+                                previewEntries[nextIndex]?.key,
+                              );
+                            }}
+                            style={cardStyles.previewModalPager}
+                          >
+                            {previewEntries.map((entry, index) => (
+                              <Image
+                                key={getPreviewImageRenderKey(entry)}
+                                testID={
+                                  imageTestID
+                                    ? `${imageTestID}-page-${index + 1}`
+                                    : undefined
+                                }
+                                source={{ uri: entry.publicUrl }}
+                                resizeMode="contain"
+                                onError={() => handlePreviewImageError(entry)}
+                                onLoad={() => handlePreviewImageLoad(entry)}
+                                style={[
+                                  cardStyles.previewModalImage,
+                                  { height: previewImageHeight },
+                                  previewPageWidth > 0
+                                    ? { width: previewPageWidth }
+                                    : null,
+                                ]}
+                              />
+                            ))}
+                          </ScrollView>
+                        ) : (
+                          <Image
+                            key={
+                              activePreviewEntry
+                                ? getPreviewImageRenderKey(activePreviewEntry)
+                                : currentPreviewKey
+                            }
+                            testID={
+                              imageTestID
+                                ? `${imageTestID}-single-preview`
+                                : undefined
+                            }
+                            source={{
+                              uri:
+                                activePreviewEntry?.publicUrl ??
+                                currentPreviewUrl,
+                            }}
+                            resizeMode="contain"
+                            onError={() =>
+                              handlePreviewImageError(activePreviewEntry)
+                            }
+                            onLoad={() =>
+                              handlePreviewImageLoad(activePreviewEntry)
+                            }
+                            style={[
+                              cardStyles.previewModalImage,
+                              { height: previewImageHeight },
+                            ]}
+                          />
+                        )}
+                        {activePreviewLoadState ? (
+                          <View
+                            testID={
+                              imageTestID
+                                ? `${imageTestID}-load-status`
+                                : undefined
+                            }
+                            accessibilityLiveRegion="polite"
+                            style={cardStyles.previewModalLoadOverlay}
+                          >
+                            <Text style={cardStyles.previewModalLoadText}>
+                              {activePreviewLoadState === 'refreshing'
+                                ? '正在刷新预览地址...'
+                                : '图片加载失败'}
+                            </Text>
+                            {activePreviewLoadState === 'failed' &&
+                            activeBasePreviewEntry?.fileId &&
+                            previewRefreshController?.available ? (
+                              <Pressable
+                                testID={
+                                  imageTestID
+                                    ? `${imageTestID}-retry`
+                                    : undefined
+                                }
+                                accessibilityRole="button"
+                                accessibilityLabel="重试图片预览"
+                                style={cardStyles.previewModalRetryButton}
+                                onPress={() =>
+                                  refreshPreviewEntry(
+                                    activeBasePreviewEntry,
+                                    false,
+                                  ).catch(() => undefined)
+                                }
+                              >
+                                <Text
+                                  style={cardStyles.previewModalRetryButtonText}
+                                >
+                                  ↻
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
                       {previewTotal > 1 ? (
                         <View style={cardStyles.previewModalPagerRow}>
                           <Pressable
@@ -392,7 +610,14 @@ const cardStyles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
+  previewModalMediaFrame: {
+    width: '100%',
+    overflow: 'hidden',
+    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+  },
   previewModalPager: {
+    flex: 1,
     borderRadius: 8,
     backgroundColor: colors.surfaceMuted,
   },
@@ -425,5 +650,35 @@ const cardStyles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
     fontWeight: '900',
+  },
+  previewModalLoadOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: colors.overlay,
+  },
+  previewModalLoadText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  previewModalRetryButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+  },
+  previewModalRetryButtonText: {
+    color: colors.text,
+    fontSize: 26,
+    lineHeight: 28,
+    fontWeight: '700',
   },
 });

@@ -29,6 +29,7 @@ export function OrderCargoContactCard({
       key: file.fileId,
       title: `货物图片凭证 ${index + 1}：${file.fileName}`,
       publicUrl: file.publicUrl,
+      fileId: file.fileId,
     }),
   );
 
@@ -139,6 +140,7 @@ export function OrderCargoContactCard({
                 placeholderTestID={`order-cargo-photo-placeholder-${index + 1}`}
                 previewGroup={cargoPhotoPreviewGroup}
                 previewKey={file.fileId}
+                previewFileId={file.fileId}
               />
             ))}
           </>

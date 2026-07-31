@@ -418,8 +418,10 @@ export function EnterpriseVerificationRecords({
                       key: groupFile.fileId,
                       title: `营业执照凭证：${groupFile.fileName}`,
                       publicUrl: groupFile.publicUrl,
+                      fileId: groupFile.fileId,
                     }))}
                     previewKey={file.fileId}
+                    previewFileId={file.fileId}
                   />
                 ))
             ) : (

@@ -3895,8 +3895,10 @@ export function DriverHomeScreen({
               key: groupEntry.fieldName,
               title: createCertificationAttachmentTitle(groupEntry),
               publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+              fileId: groupEntry.attachmentRef?.file.id,
             }))}
             previewKey={entry.fieldName}
+            previewFileId={entry.attachmentRef?.file.id}
           />
         ))}
         <Pressable
@@ -4091,8 +4093,10 @@ export function DriverHomeScreen({
               key: groupEntry.fieldName,
               title: createCertificationAttachmentTitle(groupEntry),
               publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+              fileId: groupEntry.attachmentRef?.file.id,
             }))}
             previewKey={entry.fieldName}
+            previewFileId={entry.attachmentRef?.file.id}
           />
         ))}
         <Pressable
@@ -4738,9 +4742,11 @@ export function DriverHomeScreen({
                           groupRef.fileName
                         }`,
                         publicUrl: groupRef.file.publicUrl,
+                        fileId: groupRef.file.id,
                       }),
                     )}
                     previewKey={`reported-exception-${attachmentRef.file.id}-${index}`}
+                    previewFileId={attachmentRef.file.id}
                   />
                 ),
               )}
@@ -4839,9 +4845,11 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            fileId: groupRef.file.id,
                           }),
                         )}
                         previewKey={`${attachmentRef.file.id}-${index}`}
+                        previewFileId={attachmentRef.file.id}
                       />
                     ),
                   )}
@@ -4921,9 +4929,11 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            fileId: groupRef.file.id,
                           }),
                         )}
                         previewKey={`reported-shipper-evaluation-${attachmentRef.file.id}-${index}`}
+                        previewFileId={attachmentRef.file.id}
                       />
                     ),
                   )}
@@ -5024,9 +5034,11 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            fileId: groupRef.file.id,
                           }),
                         )}
                         previewKey={`${attachmentRef.file.id}-${index}`}
+                        previewFileId={attachmentRef.file.id}
                       />
                     ),
                   )}
@@ -5097,9 +5109,11 @@ export function DriverHomeScreen({
                             groupRef.fileName
                           }`,
                           publicUrl: groupRef.file.publicUrl,
+                          fileId: groupRef.file.id,
                         }),
                       )}
                       previewKey={`${section.key}-${attachmentRef.file.id}-${index}`}
+                      previewFileId={attachmentRef.file.id}
                     />
                   ))}
                 </View>

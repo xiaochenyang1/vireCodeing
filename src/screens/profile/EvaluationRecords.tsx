@@ -224,9 +224,11 @@ export function EvaluationRecords({
                           groupFile.fileName
                         }`,
                         publicUrl: groupFile.publicUrl,
+                        fileId: groupFile.fileId,
                       }),
                     )}
                     previewKey={`${item.id}-${file.fileId}-${index}`}
+                    previewFileId={file.fileId}
                   />
                 ))}
               </View>

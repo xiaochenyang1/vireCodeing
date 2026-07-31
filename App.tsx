@@ -110,6 +110,7 @@ import { OrderDraftScreen } from './src/screens/OrderDraftScreen';
 import { OrdersScreen } from './src/screens/OrdersScreen';
 import { OrderDetailScreen } from './src/screens/OrderDetailScreen';
 import { DriverHomeScreen } from './src/screens/DriverHomeScreen';
+import { ImagePreviewRefreshProvider } from './src/components/ImagePreviewRefreshProvider';
 import {
   createPlatformAuthApi,
   type PlatformAuthenticatedUser,
@@ -125,7 +126,10 @@ import { createPlatformProfileApi } from './src/services/platformProfileApi';
 import { createPlatformFrequentRoutesApi } from './src/services/platformFrequentRoutesApi';
 import { createPlatformDriverOrderApi } from './src/services/platformDriverOrderApi';
 import { createPlatformDriverCertificationApi } from './src/services/platformDriverCertificationApi';
-import { createPlatformFileApi } from './src/services/platformFileApi';
+import {
+  createPlatformFileApi,
+  refreshPlatformFilePreviewUrl,
+} from './src/services/platformFileApi';
 import {
   createPlatformPaymentApi,
   createSandboxPlatformPaymentSdk,
@@ -465,6 +469,14 @@ function App({
           })
         : undefined,
     [resolvedPlatformApiBaseUrl],
+  );
+  const platformFilePreviewRefresher = useMemo(
+    () =>
+      platformFileApi
+        ? (fileId: string) =>
+            refreshPlatformFilePreviewUrl(platformFileApi, fileId)
+        : undefined,
+    [platformFileApi],
   );
   const platformSupportTicketsApi = useMemo(
     () =>
@@ -3272,6 +3284,12 @@ function App({
         backgroundColor={colors.background}
       />
       <SafeAreaView style={styles.safeArea}>
+        <ImagePreviewRefreshProvider
+          key={`${authenticatedUser?.id ?? 'anonymous'}:${
+            resolvedPlatformApiBaseUrl ?? 'local'
+          }`}
+          refreshPreviewUrl={platformFilePreviewRefresher}
+        >
         {screen === 'onboarding' ? (
           <OnboardingScreen onFinish={handleOnboardingFinished} />
         ) : screen === 'auth' ? (
@@ -3403,6 +3421,7 @@ function App({
             onReorder={handleReorder}
           />
         )}
+        </ImagePreviewRefreshProvider>
       </SafeAreaView>
     </SafeAreaProvider>
   );

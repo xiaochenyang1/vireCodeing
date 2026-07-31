@@ -664,7 +664,7 @@ paths:
   /files/{fileId}:
     get:
       summary: Get current user file metadata
-      description: Returns file metadata for the current file owner. Admin users may read any file metadata; non-owner users receive FILE_NOT_FOUND so file ids cannot be enumerated across accounts.
+      description: Returns file metadata for the current file owner. Uploaded files include a newly signed short-lived previewUrl and previewExpiresAtIso on every read. Admin users may read any file metadata; non-owner users receive FILE_NOT_FOUND so file ids cannot be enumerated across accounts.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - name: fileId
@@ -8418,6 +8418,15 @@ components:
         publicUrl:
           type: string
           example: https://cdn.example.com/user-1/identity/file-1.png
+        previewUrl:
+          type: string
+          description: Newly signed short-lived preview URL returned when uploaded file metadata is read.
+          example: https://files.example.com/previews/user-1/identity/file-1.png?expiresAtIso=2026-07-06T03%3A10%3A00.000Z&signature=valid
+        previewExpiresAtIso:
+          type: string
+          format: date-time
+          description: Expiration time of previewUrl.
+          example: '2026-07-06T03:10:00.000Z'
         etag:
           type: string
           description: Object storage entity tag saved from upload confirmation callback when available.

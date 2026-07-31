@@ -311,8 +311,10 @@ export function DriverEvaluationForm({
                 key: groupFile.fileId,
                 title: `评价图片凭证：${groupFile.fileName}`,
                 publicUrl: groupFile.publicUrl,
+                fileId: groupFile.fileId,
               }))}
               previewKey={file.fileId}
+              previewFileId={file.fileId}
             />
           ))}
           {localPlaceholderIndexes.map(voucherIndex => (

@@ -765,6 +765,9 @@ describe('FilesController', () => {
         byteSize: 1024,
         objectKey: 'user-1/cargo/file-1.jpg',
         status: 'uploaded',
+        previewUrl:
+          '/api/files/preview-contents/user-1/cargo/file-1.jpg?signature=fresh',
+        previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
         createdAtIso: '2026-07-06T03:00:00.000Z',
       }),
     } as unknown as FilesService;
@@ -778,6 +781,8 @@ describe('FilesController', () => {
         id: 'file-1',
         ownerUserId: 'user-1',
         status: 'uploaded',
+        previewUrl: expect.stringContaining('/api/files/preview-contents/'),
+        previewExpiresAtIso: '2026-07-06T03:10:00.000Z',
       },
       requestId: 'req_files_test',
     });
