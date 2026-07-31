@@ -1,4 +1,4 @@
-import { cargoTypeOptions, vehicleRequirementOptions } from '../data/mockData';
+import { cargoTypeOptions, vehicleRequirementOptions } from '../data/options';
 import type { RecentOrder, RecentOrderStatus } from '../types';
 import { formatPlatformIsoMinute } from '../utils/dateTime';
 import {

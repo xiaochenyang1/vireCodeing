@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
-import { evaluationTagOptions } from '../../data/mockData';
+import { evaluationTagOptions } from '../../data/options';
 import { useImageUpload } from '../../hooks/useImageUpload';
 import type {
   PlatformFileUploadRecord,

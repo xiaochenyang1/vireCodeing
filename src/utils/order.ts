@@ -1,11 +1,11 @@
+import { orderStatusSummaries } from '../data/mockData';
 import {
   cargoTypeOptions,
-  orderStatusSummaries,
   paymentMethodOptions,
   valueAddedServiceOptions,
   vehicleLengthRequirementOptions,
   vehicleRequirementOptions,
-} from '../data/mockData';
+} from '../data/options';
 import type {
   CargoTypeOption,
   DraftOrderInput,

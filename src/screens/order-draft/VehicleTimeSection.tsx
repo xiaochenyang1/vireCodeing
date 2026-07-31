@@ -4,7 +4,7 @@ import { AuthField } from '../../components/AuthField';
 import {
   vehicleLengthRequirementOptions,
   vehicleRequirementOptions,
-} from '../../data/mockData';
+} from '../../data/options';
 import { styles } from '../../styles';
 import type {
   VehicleLengthRequirementOption,

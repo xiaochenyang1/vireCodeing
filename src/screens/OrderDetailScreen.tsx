@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   recentOrderStatusCopy,
-} from '../data/mockData';
+} from '../data/options';
 import { styles } from '../styles';
 import { BonusForm } from './order-detail/BonusForm';
 import { CancellationForm } from './order-detail/CancellationForm';

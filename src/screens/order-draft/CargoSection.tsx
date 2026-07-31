@@ -2,7 +2,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
 import { ImageCredentialCard } from '../../components/ImageCredentialCard';
-import { cargoTypeOptions } from '../../data/mockData';
+import { cargoTypeOptions } from '../../data/options';
 import { styles } from '../../styles';
 import type { CargoTypeOption, FileAttachmentRef } from '../../types';
 import { MAX_LOCAL_CARGO_DESCRIPTION_LENGTH } from '../../utils/order';

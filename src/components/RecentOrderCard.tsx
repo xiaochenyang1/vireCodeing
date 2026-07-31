@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 
-import { recentOrderStatusCopy } from '../data/mockData';
+import { recentOrderStatusCopy } from '../data/options';
 import { styles } from '../styles';
 import type { RecentOrder } from '../types';
 import { formatVehicleRequirementText } from '../utils/order';

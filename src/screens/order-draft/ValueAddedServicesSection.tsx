@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 
 import { AuthField } from '../../components/AuthField';
-import { valueAddedServiceOptions } from '../../data/mockData';
+import { valueAddedServiceOptions } from '../../data/options';
 import { styles } from '../../styles';
 import type { ValueAddedServiceOption } from '../../types';
 import type { DraftValueAddedServiceEstimate } from '../../utils/orderDraft';

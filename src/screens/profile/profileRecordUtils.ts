@@ -1,8 +1,8 @@
 import {
   invoiceableOrderItems,
-  recentOrderStatusCopy,
   spendingRecordItems,
 } from '../../data/mockData';
+import { recentOrderStatusCopy } from '../../data/options';
 import type { PlatformProfileSpendingRecord } from '../../services/platformProfileApi';
 import type { RecentOrder } from '../../types';
 import { createPlatformInvoiceOrderSelectionId } from '../../utils/profileInvoices';

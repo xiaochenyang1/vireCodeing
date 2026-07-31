@@ -5,7 +5,7 @@ import { RecentOrderCard } from '../../components/RecentOrderCard';
 import { SectionHeader } from '../../components/SectionHeader';
 import {
   verificationCopy,
-} from '../../data/mockData';
+} from '../../data/options';
 import { colors, styles } from '../../styles';
 import type { FrequentRoute, OrderListFilter, RecentOrder } from '../../types';
 import {

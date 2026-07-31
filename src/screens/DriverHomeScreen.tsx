@@ -12,7 +12,7 @@ import {
 import { ImageCredentialCard } from '../components/ImageCredentialCard';
 import { IncomeChart } from '../components/IncomeChart';
 import { DriverOrderExecution } from '../components/DriverOrderExecution';
-import { vehicleRequirementOptions } from '../data/mockData';
+import { vehicleRequirementOptions } from '../data/options';
 import { useImageUpload } from '../hooks/useImageUpload';
 import { colors, styles } from '../styles';
 import type {

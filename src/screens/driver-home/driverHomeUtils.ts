@@ -1,4 +1,4 @@
-import { vehicleRequirementOptions } from '../../data/mockData';
+import { vehicleRequirementOptions } from '../../data/options';
 import type {
   PlatformCreateDriverBankCardRequest,
   PlatformCreateDriverWithdrawalRequest,

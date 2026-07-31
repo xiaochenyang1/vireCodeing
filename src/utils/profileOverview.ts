@@ -1,8 +1,5 @@
-import {
-  accountTypeCopy,
-  shipperSummary,
-  verificationCopy,
-} from '../data/mockData';
+import { shipperSummary } from '../data/mockData';
+import { accountTypeCopy, verificationCopy } from '../data/options';
 import type { ShipperSummary, VerificationStatus } from '../types';
 import type {
   EnterpriseVerificationRequest,

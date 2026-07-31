@@ -1,7 +1,7 @@
 import {
   cargoTypeOptions,
   vehicleRequirementOptions,
-} from '../data/mockData';
+} from '../data/options';
 import type { DraftOrderInput, RecentOrder } from '../types';
 import type { PlatformCreateShipperOrderRequest } from '../services/platformOrderApi';
 

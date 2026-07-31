@@ -5,7 +5,7 @@ import {
   valueAddedServiceOptions,
   vehicleLengthRequirementOptions,
   vehicleRequirementOptions,
-} from '../data/mockData';
+} from '../data/options';
 import type { DraftOrderPrefill } from '../types';
 
 type DraftStringFieldName =

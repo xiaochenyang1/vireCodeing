@@ -4,7 +4,7 @@ import { AuthField } from '../../components/AuthField';
 import {
   paymentMethodOptions,
   pricingModeOptions,
-} from '../../data/mockData';
+} from '../../data/options';
 import { styles } from '../../styles';
 import type { PaymentMethod, PricingMode } from '../../types';
 import type { CouponItem } from '../../utils/profileLocalState';
