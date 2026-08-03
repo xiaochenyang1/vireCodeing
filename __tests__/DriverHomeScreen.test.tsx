@@ -1325,7 +1325,18 @@ describe('DriverHomeScreen certification uploads', () => {
       kind: 'order',
       orderId: order.id,
     });
+    expect(cargoCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-31T09:00:00.000Z',
+    );
     expect(cargoCard?.props.previewGroup).toHaveLength(2);
+    expect(
+      cargoCard?.props.previewGroup.map(
+        (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
+      ),
+    ).toEqual([
+      '2026-07-31T09:00:00.000Z',
+      '2026-07-31T09:00:00.000Z',
+    ]);
     expect(cargoCard?.props.previewGroup[1].access).toEqual({
       kind: 'order',
       orderId: order.id,
@@ -1471,7 +1482,18 @@ describe('DriverHomeScreen certification uploads', () => {
       kind: 'order',
       orderId: order.id,
     });
+    expect(evaluationCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-31T09:00:00.000Z',
+    );
     expect(evaluationCard?.props.previewGroup).toHaveLength(2);
+    expect(
+      evaluationCard?.props.previewGroup.map(
+        (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
+      ),
+    ).toEqual([
+      '2026-07-31T09:00:00.000Z',
+      '2026-07-31T09:00:00.000Z',
+    ]);
     expect(
       evaluationCard?.props.previewGroup.every(
         (entry: { access?: unknown }) =>
@@ -4270,6 +4292,8 @@ describe('DriverHomeScreen certification uploads', () => {
           purpose: 'identity',
           objectKey: 'driver-1/identity/file-identity-front.png',
           status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/uploaded-identity-front.png',
+          previewExpiresAtIso: '2026-07-07T08:20:00.000Z',
           createdAtIso: '2026-07-07T08:00:00.000Z',
         })
         .mockResolvedValueOnce({
@@ -4278,9 +4302,36 @@ describe('DriverHomeScreen certification uploads', () => {
           purpose: 'identity',
           objectKey: 'driver-1/identity/file-identity-back.png',
           status: 'uploaded',
+          publicUrl: 'https://cdn.example.com/uploaded-identity-back.png',
+          previewExpiresAtIso: '2026-07-07T08:21:00.000Z',
           createdAtIso: '2026-07-07T08:00:00.000Z',
         }),
       confirmUploaded: jest.fn(),
+      getFileMetadata: jest.fn().mockImplementation((fileId: string) =>
+        Promise.resolve(
+          fileId === 'file-identity-front'
+            ? {
+                id: fileId,
+                ownerUserId: 'driver-1',
+                purpose: 'identity' as const,
+                objectKey: `driver-1/identity/${fileId}.png`,
+                status: 'uploaded' as const,
+                previewExpiresAtIso: '2026-07-07T09:20:00.000Z',
+                createdAtIso: '2026-07-07T08:00:00.000Z',
+              }
+            : {
+                id: fileId,
+                ownerUserId: 'driver-1',
+                purpose: 'identity' as const,
+                objectKey: `driver-1/identity/${fileId}.png`,
+                status: 'uploaded' as const,
+                publicUrl:
+                  'https://cdn.example.com/hydrated-identity-back.png',
+                previewExpiresAtIso: '2026-07-07T09:21:00.000Z',
+                createdAtIso: '2026-07-07T08:00:00.000Z',
+              },
+        ),
+      ),
     };
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -4363,6 +4414,31 @@ describe('DriverHomeScreen certification uploads', () => {
       identityBackFileId: 'file-identity-back',
     });
     expect(getRenderedText(renderer)).toContain('司机实名认证已提交审核。');
+
+    const identityCards = renderer.root.findAllByType(ImageCredentialCard);
+    const identityFrontCard = identityCards.find(
+      card =>
+        card.props.imageTestID ===
+        'driver-cert-preview-image-identityFrontFileId',
+    );
+    const identityBackCard = identityCards.find(
+      card =>
+        card.props.imageTestID ===
+        'driver-cert-preview-image-identityBackFileId',
+    );
+
+    expect(identityFrontCard?.props.publicUrl).toBe(
+      'https://cdn.example.com/uploaded-identity-front.png',
+    );
+    expect(identityFrontCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T08:20:00.000Z',
+    );
+    expect(identityBackCard?.props.publicUrl).toBe(
+      'https://cdn.example.com/hydrated-identity-back.png',
+    );
+    expect(identityBackCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T09:21:00.000Z',
+    );
   });
 
   it('hydrates certification snapshot attachments through the platform file metadata api on load', async () => {
@@ -4395,6 +4471,7 @@ describe('DriverHomeScreen certification uploads', () => {
           objectKey: `driver-1/identity/${fileId}.png`,
           status: 'uploaded',
           publicUrl: `https://cdn.example.com/${fileId}.png`,
+          previewExpiresAtIso: '2026-07-07T09:00:00.000Z',
           createdAtIso: '2026-07-07T08:00:00.000Z',
         }),
       ),
@@ -4432,6 +4509,34 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-vehicle-photo.png',
     });
+    const certificationCards = renderer.root.findAllByType(ImageCredentialCard);
+    const identityFrontCard = certificationCards.find(
+      card =>
+        card.props.imageTestID ===
+        'driver-cert-preview-image-identityFrontFileId',
+    );
+    const vehiclePhotoCard = certificationCards.find(
+      card =>
+        card.props.imageTestID ===
+        'driver-cert-preview-image-vehiclePhotoFileId',
+    );
+
+    expect(identityFrontCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T09:00:00.000Z',
+    );
+    expect(
+      identityFrontCard?.props.previewGroup.find(
+        (entry: { key: string }) => entry.key === 'identityFrontFileId',
+      ).expiresAtIso,
+    ).toBe('2026-07-07T09:00:00.000Z');
+    expect(vehiclePhotoCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T09:00:00.000Z',
+    );
+    expect(
+      vehiclePhotoCard?.props.previewGroup.find(
+        (entry: { key: string }) => entry.key === 'vehiclePhotoFileId',
+      ).expiresAtIso,
+    ).toBe('2026-07-07T09:00:00.000Z');
 
     const renderedText = getRenderedText(renderer);
 
@@ -4997,6 +5102,7 @@ describe('DriverHomeScreen certification uploads', () => {
           objectKey: `driver-1/receipt/${fileId}.png`,
           publicUrl: `https://cdn.example.com/${fileId}.png`,
           status: 'uploaded' as const,
+          previewExpiresAtIso: '2026-07-07T10:30:00.000Z',
           createdAtIso: '2026-07-07T08:00:00.000Z',
         }),
       ),
@@ -5048,6 +5154,25 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-arrival-receipt-1.png',
     });
+    const receiptCards = renderer.root.findAllByType(ImageCredentialCard);
+    const loadingReceiptCard = receiptCards.find(
+      card =>
+        card.props.imageTestID === 'driver-receipt-preview-image-loading-1',
+    );
+    const confirmingReceiptCard = receiptCards.find(
+      card =>
+        card.props.imageTestID === 'driver-receipt-preview-image-confirming-1',
+    );
+
+    expect(loadingReceiptCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T10:30:00.000Z',
+    );
+    expect(loadingReceiptCard?.props.previewGroup[0].expiresAtIso).toBe(
+      '2026-07-07T10:30:00.000Z',
+    );
+    expect(confirmingReceiptCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-07T10:30:00.000Z',
+    );
   });
 
   it('restores a failed driver status mutation and retries with the original context', async () => {
@@ -5250,6 +5375,7 @@ describe('DriverHomeScreen certification uploads', () => {
         purpose: 'exception',
         objectKey: 'driver-1/exception/file-exception-1.png',
         status: 'uploaded',
+        previewExpiresAtIso: '2026-07-11T08:30:00.000Z',
         createdAtIso: '2026-07-11T08:00:00.000Z',
       }),
       confirmUploaded: jest.fn(),
@@ -5319,6 +5445,18 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: 'driver-exception-preview-placeholder-1',
       }).props.children,
     ).toBe('异常凭证 1');
+    const pendingExceptionCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(
+        card => card.props.imageTestID === 'driver-exception-preview-image-1',
+      );
+
+    expect(pendingExceptionCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-11T08:30:00.000Z',
+    );
+    expect(pendingExceptionCard?.props.previewGroup[0].expiresAtIso).toBe(
+      '2026-07-11T08:30:00.000Z',
+    );
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -5405,6 +5543,7 @@ describe('DriverHomeScreen certification uploads', () => {
           objectKey: `driver-1/exception/${fileId}.png`,
           publicUrl: `https://cdn.example.com/${fileId}.png`,
           status: 'uploaded' as const,
+          previewExpiresAtIso: '2026-07-11T08:30:00.000Z',
           createdAtIso: '2026-07-11T08:05:00.000Z',
         }),
       ),
@@ -5454,6 +5593,25 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-exception-history-2.png',
     });
+    const reportedExceptionCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(
+        card =>
+          card.props.imageTestID ===
+          'driver-reported-exception-preview-image-1',
+      );
+
+    expect(reportedExceptionCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-11T08:30:00.000Z',
+    );
+    expect(
+      reportedExceptionCard?.props.previewGroup.map(
+        (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
+      ),
+    ).toEqual([
+      '2026-07-11T08:30:00.000Z',
+      '2026-07-11T08:30:00.000Z',
+    ]);
   });
 
   it('falls back to exception case attachments when the latest exception event has no files', async () => {
@@ -6112,6 +6270,7 @@ describe('DriverHomeScreen certification uploads', () => {
         objectKey: 'driver-1/evaluation/file-shipper-evaluation-1.png',
         publicUrl: 'https://cdn.example.com/file-shipper-evaluation-1.png',
         status: 'uploaded',
+        previewExpiresAtIso: '2026-07-09T08:30:00.000Z',
         createdAtIso: '2026-07-09T08:00:00.000Z',
       }),
       confirmUploaded: jest.fn(),
@@ -6177,6 +6336,20 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-shipper-evaluation-1.png',
     });
+    const pendingShipperEvaluationCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(
+        card =>
+          card.props.imageTestID ===
+          'driver-shipper-evaluation-preview-image-1',
+      );
+
+    expect(pendingShipperEvaluationCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-09T08:30:00.000Z',
+    );
+    expect(
+      pendingShipperEvaluationCard?.props.previewGroup[0].expiresAtIso,
+    ).toBe('2026-07-09T08:30:00.000Z');
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -6232,6 +6405,20 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toEqual({
       uri: 'https://cdn.example.com/file-shipper-evaluation-1.png',
     });
+    const reportedShipperEvaluationCard = renderer.root
+      .findAllByType(ImageCredentialCard)
+      .find(
+        card =>
+          card.props.imageTestID ===
+          'driver-reported-shipper-evaluation-preview-image-1',
+      );
+
+    expect(reportedShipperEvaluationCard?.props.previewExpiresAtIso).toBe(
+      '2026-07-09T08:30:00.000Z',
+    );
+    expect(
+      reportedShipperEvaluationCard?.props.previewGroup[0].expiresAtIso,
+    ).toBe('2026-07-09T08:30:00.000Z');
   });
 
   it('blocks blank driver evaluation replies before calling the api', async () => {

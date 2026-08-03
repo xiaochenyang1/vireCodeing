@@ -357,13 +357,20 @@ function mergeDriverUploadedFileRef(
     return primary;
   }
 
+  const previewFile = primary.file.publicUrl
+    ? primary.file
+    : fallback.file.publicUrl
+    ? fallback.file
+    : undefined;
+
   return {
     fileName: primary.fileName || fallback.fileName,
     file: {
       ...fallback.file,
       ...primary.file,
       objectKey: primary.file.objectKey || fallback.file.objectKey,
-      publicUrl: primary.file.publicUrl || fallback.file.publicUrl,
+      publicUrl: previewFile?.publicUrl,
+      previewExpiresAtIso: previewFile?.previewExpiresAtIso,
     },
   };
 }
@@ -526,6 +533,7 @@ async function hydrateDriverOrderParticipantFileRefs(
             purpose: options.purpose,
             objectKey: '',
             publicUrl: preview.previewUrl,
+            previewExpiresAtIso: preview.previewExpiresAtIso,
             status: 'uploaded',
             createdAtIso: options.createdAtIso,
           },
@@ -4066,6 +4074,9 @@ export function DriverHomeScreen({
             key={entry.fieldName}
             title={createCertificationAttachmentTitle(entry)}
             publicUrl={entry.attachmentRef?.file.publicUrl}
+            previewExpiresAtIso={
+              entry.attachmentRef?.file.previewExpiresAtIso
+            }
             placeholderLabel={entry.label}
             metaLines={createCertificationAttachmentMetaLines(entry)}
             imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
@@ -4074,6 +4085,8 @@ export function DriverHomeScreen({
               key: groupEntry.fieldName,
               title: createCertificationAttachmentTitle(groupEntry),
               publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+              expiresAtIso:
+                groupEntry.attachmentRef?.file.previewExpiresAtIso,
               fileId: groupEntry.attachmentRef?.file.id,
             }))}
             previewKey={entry.fieldName}
@@ -4264,6 +4277,9 @@ export function DriverHomeScreen({
             key={entry.fieldName}
             title={createCertificationAttachmentTitle(entry)}
             publicUrl={entry.attachmentRef?.file.publicUrl}
+            previewExpiresAtIso={
+              entry.attachmentRef?.file.previewExpiresAtIso
+            }
             placeholderLabel={entry.label}
             metaLines={createCertificationAttachmentMetaLines(entry)}
             imageTestID={`driver-cert-preview-image-${entry.fieldName}`}
@@ -4272,6 +4288,8 @@ export function DriverHomeScreen({
               key: groupEntry.fieldName,
               title: createCertificationAttachmentTitle(groupEntry),
               publicUrl: groupEntry.attachmentRef?.file.publicUrl,
+              expiresAtIso:
+                groupEntry.attachmentRef?.file.previewExpiresAtIso,
               fileId: groupEntry.attachmentRef?.file.id,
             }))}
             previewKey={entry.fieldName}
@@ -4675,6 +4693,7 @@ export function DriverHomeScreen({
                   key={`driver-cargo-${attachmentRef.file.id}-${index}`}
                   title={`货物图片凭证 ${index + 1}：${attachmentRef.fileName}`}
                   publicUrl={attachmentRef.file.publicUrl}
+                  previewExpiresAtIso={attachmentRef.file.previewExpiresAtIso}
                   placeholderLabel={`货物图片 ${index + 1}`}
                   metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
                   imageTestID={`driver-cargo-preview-image-${index + 1}`}
@@ -4688,6 +4707,7 @@ export function DriverHomeScreen({
                         groupRef.fileName
                       }`,
                       publicUrl: groupRef.file.publicUrl,
+                      expiresAtIso: groupRef.file.previewExpiresAtIso,
                       fileId: groupRef.file.id,
                       access: {
                         kind: 'order' as const,
@@ -4944,6 +4964,7 @@ export function DriverHomeScreen({
                     key={`reported-exception-${attachmentRef.file.id}-${index}`}
                     title={`异常凭证 ${index + 1}：${attachmentRef.fileName}`}
                     publicUrl={attachmentRef.file.publicUrl}
+                    previewExpiresAtIso={attachmentRef.file.previewExpiresAtIso}
                     placeholderLabel={`异常凭证 ${index + 1}`}
                     metaLines={createUploadedAttachmentMetaLines(attachmentRef)}
                     imageTestID={`driver-reported-exception-preview-image-${
@@ -4959,6 +4980,7 @@ export function DriverHomeScreen({
                           groupRef.fileName
                         }`,
                         publicUrl: groupRef.file.publicUrl,
+                        expiresAtIso: groupRef.file.previewExpiresAtIso,
                         fileId: groupRef.file.id,
                       }),
                     )}
@@ -5046,6 +5068,9 @@ export function DriverHomeScreen({
                           attachmentRef.fileName
                         }`}
                         publicUrl={attachmentRef.file.publicUrl}
+                        previewExpiresAtIso={
+                          attachmentRef.file.previewExpiresAtIso
+                        }
                         placeholderLabel={`异常凭证 ${index + 1}`}
                         metaLines={createUploadedAttachmentMetaLines(
                           attachmentRef,
@@ -5063,6 +5088,7 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            expiresAtIso: groupRef.file.previewExpiresAtIso,
                             fileId: groupRef.file.id,
                           }),
                         )}
@@ -5143,6 +5169,9 @@ export function DriverHomeScreen({
                           attachmentRef.fileName
                         }`}
                         publicUrl={attachmentRef.file.publicUrl}
+                        previewExpiresAtIso={
+                          attachmentRef.file.previewExpiresAtIso
+                        }
                         placeholderLabel={`货主评价凭证 ${index + 1}`}
                         metaLines={createUploadedAttachmentMetaLines(
                           attachmentRef,
@@ -5160,6 +5189,7 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            expiresAtIso: groupRef.file.previewExpiresAtIso,
                             fileId: groupRef.file.id,
                             access: {
                               kind: 'order' as const,
@@ -5257,6 +5287,9 @@ export function DriverHomeScreen({
                           attachmentRef.fileName
                         }`}
                         publicUrl={attachmentRef.file.publicUrl}
+                        previewExpiresAtIso={
+                          attachmentRef.file.previewExpiresAtIso
+                        }
                         placeholderLabel={`评价货主凭证 ${index + 1}`}
                         metaLines={createUploadedAttachmentMetaLines(
                           attachmentRef,
@@ -5274,6 +5307,7 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            expiresAtIso: groupRef.file.previewExpiresAtIso,
                             fileId: groupRef.file.id,
                           }),
                         )}
@@ -5362,6 +5396,9 @@ export function DriverHomeScreen({
                           attachmentRef.fileName
                         }`}
                         publicUrl={attachmentRef.file.publicUrl}
+                        previewExpiresAtIso={
+                          attachmentRef.file.previewExpiresAtIso
+                        }
                         placeholderLabel={`评价货主凭证 ${index + 1}`}
                         metaLines={createUploadedAttachmentMetaLines(
                           attachmentRef,
@@ -5379,6 +5416,7 @@ export function DriverHomeScreen({
                               groupRef.fileName
                             }`,
                             publicUrl: groupRef.file.publicUrl,
+                            expiresAtIso: groupRef.file.previewExpiresAtIso,
                             fileId: groupRef.file.id,
                           }),
                         )}
@@ -5437,6 +5475,9 @@ export function DriverHomeScreen({
                         attachmentRef.fileName
                       }`}
                       publicUrl={attachmentRef.file.publicUrl}
+                      previewExpiresAtIso={
+                        attachmentRef.file.previewExpiresAtIso
+                      }
                       placeholderLabel={section.label}
                       metaLines={createUploadedAttachmentMetaLines(
                         attachmentRef,
@@ -5454,6 +5495,7 @@ export function DriverHomeScreen({
                             groupRef.fileName
                           }`,
                           publicUrl: groupRef.file.publicUrl,
+                          expiresAtIso: groupRef.file.previewExpiresAtIso,
                           fileId: groupRef.file.id,
                         }),
                       )}
