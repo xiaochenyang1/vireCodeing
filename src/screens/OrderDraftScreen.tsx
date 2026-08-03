@@ -90,6 +90,9 @@ function mapPlatformFileToAttachmentRef(
     status: file.status,
     objectKey: file.objectKey,
     publicUrl: file.publicUrl,
+    ...(file.previewExpiresAtIso
+      ? { previewExpiresAtIso: file.previewExpiresAtIso }
+      : {}),
   };
 }
 

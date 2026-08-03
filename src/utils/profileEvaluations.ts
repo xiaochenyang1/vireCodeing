@@ -44,7 +44,9 @@ type ProfileEvaluationAttachmentHydration = Pick<
   FileAttachmentRef,
   'fileId' | 'status'
 > &
-  Partial<Pick<FileAttachmentRef, 'objectKey' | 'publicUrl'>>;
+  Partial<
+    Pick<FileAttachmentRef, 'objectKey' | 'publicUrl' | 'previewExpiresAtIso'>
+  >;
 
 export type EvaluationFilter = 'all' | 'high' | 'lower';
 
@@ -506,7 +508,7 @@ async function hydrateProfileEvaluationAttachmentRefs(
     fileRefs.map(async fileRef => {
       const fileId = normalizeAttachmentFileId(fileRef.fileId);
 
-      if (!fileId || fileRef.publicUrl) {
+      if (!fileId || (fileRef.publicUrl && fileRef.previewExpiresAtIso)) {
         return fileRef;
       }
 
@@ -545,6 +547,7 @@ async function hydrateProfileEvaluationAttachmentRef(
         fileId: preview.fileId,
         status: 'uploaded',
         publicUrl: preview.previewUrl,
+        previewExpiresAtIso: preview.previewExpiresAtIso,
       };
     } catch {
       // Authored legacy evaluations may still be recoverable through ownership.
@@ -563,6 +566,9 @@ async function hydrateProfileEvaluationAttachmentRef(
       status: metadata.status,
       ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
       ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
+      ...(metadata.previewExpiresAtIso
+        ? { previewExpiresAtIso: metadata.previewExpiresAtIso }
+        : {}),
     };
   } catch {
     return undefined;

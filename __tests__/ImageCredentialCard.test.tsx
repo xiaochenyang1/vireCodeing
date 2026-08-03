@@ -979,6 +979,55 @@ describe('ImageCredentialCard preview carousel', () => {
     }
   });
 
+  it('proactively renews an initially hydrated signed url before it fails', async () => {
+    const initialNow = Date.parse('2026-07-31T08:00:00.000Z');
+    jest.useFakeTimers({ now: initialNow });
+    const refreshPreviewUrl = jest.fn().mockResolvedValue({
+      url: 'https://cdn/initial-renewed.jpg',
+      expiresAtIso: '2026-07-31T08:03:00.000Z',
+    });
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+
+    try {
+      await ReactTestRenderer.act(async () => {
+        renderer = ReactTestRenderer.create(
+          <ImagePreviewRefreshProvider refreshPreviewUrl={refreshPreviewUrl}>
+            <ImageCredentialCard
+              title="初始签名凭证"
+              publicUrl="https://cdn/initial-signed.jpg"
+              placeholderLabel="凭证"
+              metaLines={['来源：平台文件对象（已上传）']}
+              imageTestID="initial-expiring-preview"
+              previewKey="file-initial"
+              previewFileId="file-initial"
+              previewExpiresAtIso="2026-07-31T08:01:00.000Z"
+              previewAccess={{ kind: 'order', orderId: 'order-1' }}
+            />
+          </ImagePreviewRefreshProvider>,
+        );
+      });
+
+      expect(refreshPreviewUrl).not.toHaveBeenCalled();
+
+      await ReactTestRenderer.act(async () => {
+        jest.advanceTimersByTime(55_000);
+        await Promise.resolve();
+      });
+
+      expect(refreshPreviewUrl).toHaveBeenCalledTimes(1);
+      expect(refreshPreviewUrl).toHaveBeenCalledWith('file-initial', {
+        kind: 'order',
+        orderId: 'order-1',
+      });
+      expect(
+        findByTestID(renderer, 'initial-expiring-preview').props.source,
+      ).toEqual({ uri: 'https://cdn/initial-renewed.jpg' });
+    } finally {
+      renderer?.unmount();
+      jest.useRealTimers();
+    }
+  });
+
   it('does not schedule proactive renewal without a signed url expiration', async () => {
     jest.useFakeTimers({ now: Date.parse('2026-07-31T08:00:00.000Z') });
     const refreshPreviewUrl = jest

@@ -10,6 +10,7 @@ export type ImagePreviewItem = {
   key: string;
   title: string;
   publicUrl?: string;
+  expiresAtIso?: string;
   fileId?: string;
   access?: ImagePreviewAccess;
 };
@@ -29,6 +30,7 @@ export type ImagePreviewEntry = {
   key: string;
   title: string;
   publicUrl: string;
+  expiresAtIso?: string;
   fileId?: string;
   access?: ImagePreviewAccess;
 };
@@ -73,12 +75,26 @@ export function buildImagePreviewGroup(
       key: item.key,
       title: item.title,
       publicUrl: item.publicUrl,
+      ...(item.expiresAtIso ? { expiresAtIso: item.expiresAtIso } : {}),
       ...(item.fileId ? { fileId: item.fileId } : {}),
       ...(item.access ? { access: item.access } : {}),
     });
 
     return entries;
   }, []);
+}
+
+export function resolveImagePreviewProactiveRefreshAtMs(
+  expiresAtIso: string | undefined,
+  now = Date.now(),
+) {
+  const expiresAtMs = expiresAtIso ? Date.parse(expiresAtIso) : Number.NaN;
+
+  if (!Number.isFinite(expiresAtMs)) {
+    return undefined;
+  }
+
+  return Math.max(now, expiresAtMs - 5_000);
 }
 
 export function getImagePreviewModalImageHeight(windowHeight: number): number {

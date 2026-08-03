@@ -63,6 +63,7 @@ async function hydrateExceptionCaseAttachments(
       status?: FileAttachmentRef['status'];
       objectKey?: string;
       publicUrl?: string;
+      previewExpiresAtIso?: string;
     }>
   >();
   const entries = await Promise.all(
@@ -110,6 +111,9 @@ async function hydrateExceptionCaseAttachments(
               status: metadata.status ?? 'uploaded',
               ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
               ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
+              ...(metadata.previewExpiresAtIso
+                ? { previewExpiresAtIso: metadata.previewExpiresAtIso }
+                : {}),
             };
           } catch {
             return createFallbackExceptionCaseAttachment(fileId, index);

@@ -46,6 +46,7 @@ export type VerificationFileRef = {
   status: 'pending' | 'uploaded' | 'rejected';
   objectKey?: string;
   publicUrl?: string;
+  previewExpiresAtIso?: string;
 };
 
 export type ProfileVerificationStatus =

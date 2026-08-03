@@ -302,6 +302,7 @@ export type FileAttachmentRef = {
   status: 'pending' | 'uploaded' | 'rejected';
   objectKey?: string;
   publicUrl?: string;
+  previewExpiresAtIso?: string;
 };
 
 export type CargoTypeOption = {

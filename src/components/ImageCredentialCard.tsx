@@ -19,6 +19,7 @@ import {
   getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
   resolveImagePreviewRotation,
+  resolveImagePreviewProactiveRefreshAtMs,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
 } from '../utils/imagePreview';
@@ -66,6 +67,7 @@ export function ImageCredentialCard({
   previewGroup,
   previewKey,
   previewFileId,
+  previewExpiresAtIso,
   previewAccess,
 }: {
   title: string;
@@ -80,6 +82,7 @@ export function ImageCredentialCard({
   previewGroup?: ImagePreviewItem[];
   previewKey?: string;
   previewFileId?: string;
+  previewExpiresAtIso?: string;
   previewAccess?: ImagePreviewAccess;
 }) {
   const { height: windowHeight } = useWindowDimensions();
@@ -111,12 +114,14 @@ export function ImageCredentialCard({
         key: currentPreviewKey,
         title,
         publicUrl,
+        expiresAtIso: previewExpiresAtIso,
         fileId: previewFileId,
         access: previewAccess,
       }),
     [
       currentPreviewKey,
       previewAccess,
+      previewExpiresAtIso,
       previewFileId,
       previewGroup,
       publicUrl,
@@ -200,20 +205,18 @@ export function ImageCredentialCard({
     basePreviewEntries.forEach(entry => {
       const sourceId = getImagePreviewEntryRefreshSourceId(entry);
       const record = sourceId ? controller.records[sourceId] : undefined;
+      const proactiveRefreshAtMs = record?.refreshedUrl
+        ? record.proactiveRefreshAtMs
+        : resolveImagePreviewProactiveRefreshAtMs(entry.expiresAtIso);
 
-      if (
-        !sourceId ||
-        !entry.fileId ||
-        !record?.refreshedUrl ||
-        record.proactiveRefreshAtMs === undefined
-      ) {
+      if (!sourceId || !entry.fileId || proactiveRefreshAtMs === undefined) {
         return;
       }
 
       const attemptId = JSON.stringify([
         sourceId,
-        record.revision,
-        record.proactiveRefreshAtMs,
+        record?.revision ?? 0,
+        proactiveRefreshAtMs,
       ]);
       activeAttemptIds.add(attemptId);
 
@@ -222,11 +225,11 @@ export function ImageCredentialCard({
       }
 
       const scheduleRefresh = () => {
-        const remainingMs = record.proactiveRefreshAtMs! - Date.now();
+        const remainingMs = proactiveRefreshAtMs - Date.now();
         const timeout = setTimeout(() => {
           timeouts.delete(timeout);
 
-          if (Date.now() < record.proactiveRefreshAtMs!) {
+          if (Date.now() < proactiveRefreshAtMs) {
             scheduleRefresh();
             return;
           }

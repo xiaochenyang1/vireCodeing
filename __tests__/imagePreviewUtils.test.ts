@@ -7,6 +7,7 @@ import {
   getImagePreviewModalImageHeight,
   resolveImagePreviewIndexFromOffset,
   resolveImagePreviewRotation,
+  resolveImagePreviewProactiveRefreshAtMs,
   resolveImagePreviewStartIndex,
   resolveImagePreviewStep,
 } from '../src/utils/imagePreview';
@@ -154,4 +155,18 @@ describe('imagePreview utils', () => {
     expect(getImagePreviewModalImageHeight(844)).toBe(320);
     expect(getImagePreviewModalImageHeight(Number.NaN)).toBe(320);
   });
+});
+
+test('resolves initial signed preview renewal deadlines', () => {
+  const now = Date.parse('2026-07-31T08:00:00.000Z');
+
+  expect(
+    resolveImagePreviewProactiveRefreshAtMs('2026-07-31T08:01:00.000Z', now),
+  ).toBe(Date.parse('2026-07-31T08:00:55.000Z'));
+  expect(
+    resolveImagePreviewProactiveRefreshAtMs('2026-07-31T07:59:00.000Z', now),
+  ).toBe(now);
+  expect(
+    resolveImagePreviewProactiveRefreshAtMs('invalid', now),
+  ).toBeUndefined();
 });

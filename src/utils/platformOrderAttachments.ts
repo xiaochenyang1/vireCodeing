@@ -34,6 +34,8 @@ function mergeFileAttachmentRef(
     fileName: primary.fileName || fallback.fileName,
     objectKey: primary.objectKey || fallback.objectKey,
     publicUrl: primary.publicUrl || fallback.publicUrl,
+    previewExpiresAtIso:
+      primary.previewExpiresAtIso || fallback.previewExpiresAtIso,
   };
 }
 
@@ -150,6 +152,7 @@ async function hydrateFileAttachmentRefs(
       status?: FileAttachmentRef['status'];
       objectKey?: string;
       publicUrl?: string;
+      previewExpiresAtIso?: string;
     }>
   >();
 
@@ -157,7 +160,7 @@ async function hydrateFileAttachmentRefs(
     fileRefs.map(async fileRef => {
       const fileId = normalizeAttachmentFileId(fileRef.fileId);
 
-      if (!fileId || fileRef.publicUrl) {
+      if (!fileId || (fileRef.publicUrl && fileRef.previewExpiresAtIso)) {
         return fileRef;
       }
 
@@ -167,6 +170,7 @@ async function hydrateFileAttachmentRefs(
         metadataPromise = getOrderAttachmentPreview
           ? getOrderAttachmentPreview(orderId!, fileId).then(preview => ({
               publicUrl: preview.previewUrl,
+              previewExpiresAtIso: preview.previewExpiresAtIso,
             }))
           : getFileMetadata!(fileId);
         metadataCache.set(fileId, metadataPromise);
@@ -181,6 +185,9 @@ async function hydrateFileAttachmentRefs(
           ...(metadata.status ? { status: metadata.status } : {}),
           ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
           ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
+          ...(metadata.previewExpiresAtIso
+            ? { previewExpiresAtIso: metadata.previewExpiresAtIso }
+            : {}),
         };
       } catch {
         return fileRef;

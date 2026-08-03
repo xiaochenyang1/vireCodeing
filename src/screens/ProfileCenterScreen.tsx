@@ -275,6 +275,9 @@ async function hydrateVerificationFileRef(
       status: metadata.status,
       ...(metadata.objectKey ? { objectKey: metadata.objectKey } : {}),
       ...(metadata.publicUrl ? { publicUrl: metadata.publicUrl } : {}),
+      ...(metadata.previewExpiresAtIso
+        ? { previewExpiresAtIso: metadata.previewExpiresAtIso }
+        : {}),
     };
   } catch {
     return fileRef;
