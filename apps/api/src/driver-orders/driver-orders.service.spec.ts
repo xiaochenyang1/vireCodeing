@@ -43,6 +43,11 @@ describe('DriverOrdersService', () => {
         bankName: '招商银行',
         bankAccountNo: '6225888800001234',
       });
+      // @ts-expect-error Evaluation replies require an idempotency key.
+      service.replyToEvaluation(driver, 'order-1', {
+        evaluationEventId: 'evaluation-1',
+        content: '谢谢认可。',
+      });
     }
 
     expect(service).toBeNull();
@@ -51,13 +56,22 @@ describe('DriverOrdersService', () => {
   const now = new Date('2026-07-06T08:00:00.000Z');
 
   type DriverLocationLookup = {
-    getDriverLocation(driverId: string): Promise<DriverLocationSnapshotRecord | null>;
+    getDriverLocation(
+      driverId: string,
+    ): Promise<DriverLocationSnapshotRecord | null>;
   };
 
-  function createService(options: { mapsService?: DriverLocationLookup } = {}) {
+  function createService(
+    options: {
+      mapsService?: DriverLocationLookup;
+      now?: () => Date;
+      orderMutationIdempotencyTtlSeconds?: number;
+    } = {},
+  ) {
+    const nowProvider = options.now ?? (() => now);
     const financialStore = new InMemoryFinancialStore();
     const repository = new InMemoryOrdersRepository(
-      () => now,
+      nowProvider,
       new InMemoryProfileCouponsStore(),
       financialStore,
     );
@@ -66,17 +80,17 @@ describe('DriverOrdersService', () => {
       vehicleStatus: 'approved',
     });
     const acceptanceSettingsRepository =
-      new InMemoryDriverAcceptanceSettingsRepository(() => now);
+      new InMemoryDriverAcceptanceSettingsRepository(nowProvider);
     const driverBankCardsRepository = new InMemoryDriverBankCardsRepository(
-      () => now,
+      nowProvider,
     );
-    const filesRepository = new InMemoryFilesRepository(() => now);
+    const filesRepository = new InMemoryFilesRepository(nowProvider);
     const driverWithdrawalsRepository = new InMemoryDriverWithdrawalsRepository(
-      () => now,
+      nowProvider,
     );
     const driverFinanceRepository = new InMemoryDriverFinanceRepository(
       financialStore,
-      { now: () => now },
+      { now: nowProvider },
     );
 
     const notificationsService = {
@@ -100,8 +114,8 @@ describe('DriverOrdersService', () => {
         driverBankCardsRepository,
         driverWithdrawalsRepository,
         filesRepository,
-        () => now,
-        86400,
+        nowProvider,
+        options.orderMutationIdempotencyTtlSeconds ?? 86400,
         driverFinanceRepository,
         notificationsService as never,
         options.mapsService,
@@ -164,9 +178,11 @@ describe('DriverOrdersService', () => {
         updatedAtIso: now.toISOString(),
       }),
     };
-    const { acceptanceSettingsRepository, repository, service } = createService({
-      mapsService,
-    });
+    const { acceptanceSettingsRepository, repository, service } = createService(
+      {
+        mapsService,
+      },
+    );
     await acceptanceSettingsRepository.saveAcceptanceSettings('driver-1', {
       isOnline: true,
       maxDistanceKm: 30,
@@ -268,7 +284,9 @@ describe('DriverOrdersService', () => {
       ],
     });
     expect(
-      JSON.parse(quotedOrder.events[quotedOrder.events.length - 1].noteText ?? '{}'),
+      JSON.parse(
+        quotedOrder.events[quotedOrder.events.length - 1].noteText ?? '{}',
+      ),
     ).toEqual({
       quoteCents: 88000,
       arrivalText: '45 分钟到达',
@@ -615,6 +633,7 @@ describe('DriverOrdersService', () => {
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440021',
         {
           evaluationEventId,
           content: '谢谢认可，后续继续保持。',
@@ -630,6 +649,144 @@ describe('DriverOrdersService', () => {
         }),
       ]),
     });
+  });
+
+  it('replays the first evaluation reply snapshot after a newer evaluation is submitted', async () => {
+    const { repository, service } = createService();
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['准时送达'], content: '第一次评价' },
+    );
+    const evaluationEventId = evaluatedOrder.events.at(-1)!.id;
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440022';
+    const first = await service.replyToEvaluation(
+      driver,
+      order.id,
+      idempotencyKey,
+      { evaluationEventId, content: '谢谢认可。' },
+    );
+
+    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
+      rating: 4,
+      tags: ['服务好'],
+      content: '后来补充的评价',
+    });
+    const currentOrderLookup = jest
+      .spyOn(repository, 'findDriverAcceptedOrder')
+      .mockRejectedValue(
+        new Error('replay must not inspect the current order'),
+      );
+    const replay = await service.replyToEvaluation(
+      driver,
+      `  ${order.id}  `,
+      idempotencyKey,
+      {
+        evaluationEventId: `  ${evaluationEventId}  `,
+        content: '  谢谢认可。  ',
+      },
+    );
+
+    expect(replay).toEqual(first);
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+    currentOrderLookup.mockRestore();
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'evaluation_replied',
+      ),
+    ).toHaveLength(1);
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'evaluation_submitted',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('rejects an evaluation reply key reused for different content or order', async () => {
+    const { repository, service } = createService();
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['准时送达'], content: '司机服务细致' },
+    );
+    const evaluationEventId = evaluatedOrder.events.at(-1)!.id;
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440023';
+    await service.replyToEvaluation(driver, order.id, idempotencyKey, {
+      evaluationEventId,
+      content: '谢谢认可。',
+    });
+
+    await expect(
+      service.replyToEvaluation(driver, order.id, idempotencyKey, {
+        evaluationEventId,
+        content: '另一条回复。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(
+      service.replyToEvaluation(driver, 'another-order', idempotencyKey, {
+        evaluationEventId,
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+  });
+
+  it('rejects an expired evaluation reply replay before loading the order', async () => {
+    let currentNow = new Date('2026-07-06T08:00:00.000Z');
+    const { repository, service } = createService({
+      now: () => currentNow,
+      orderMutationIdempotencyTtlSeconds: 1,
+    });
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['准时送达'], content: '司机服务细致' },
+    );
+    const request = {
+      evaluationEventId: evaluatedOrder.events.at(-1)!.id,
+      content: '谢谢认可。',
+    };
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440024';
+    await service.replyToEvaluation(driver, order.id, idempotencyKey, request);
+    currentNow = new Date('2026-07-06T08:00:01.001Z');
+    const currentOrderLookup = jest.spyOn(
+      repository,
+      'findDriverAcceptedOrder',
+    );
+
+    await expect(
+      service.replyToEvaluation(driver, order.id, idempotencyKey, request),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED });
+    expect(currentOrderLookup).not.toHaveBeenCalled();
   });
 
   it('rejects evaluation replies for orders not accepted by the current driver', async () => {
@@ -655,6 +812,7 @@ describe('DriverOrdersService', () => {
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440025',
         { evaluationEventId, content: '谢谢认可。' },
       ),
     ).rejects.toMatchObject(
@@ -674,13 +832,17 @@ describe('DriverOrdersService', () => {
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440026',
         {
           evaluationEventId: 'event-evaluation-missing',
           content: '谢谢认可。',
         },
       ),
     ).rejects.toMatchObject(
-      new BusinessError(ApiErrorCode.ORDER_STATE_INVALID, '订单尚未收到货主评价'),
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '订单尚未收到货主评价',
+      ),
     );
   });
 
@@ -712,6 +874,7 @@ describe('DriverOrdersService', () => {
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440027',
         {
           evaluationEventId: staleEvaluationEventId,
           content: '谢谢认可。',
@@ -768,7 +931,9 @@ describe('DriverOrdersService', () => {
         }),
       ]),
     });
-    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject({
+    await expect(
+      repository.listOrderExceptionCases(order.id),
+    ).resolves.toMatchObject({
       total: 1,
       items: [
         expect.objectContaining({
@@ -1007,7 +1172,10 @@ describe('DriverOrdersService', () => {
         },
       ),
     ).rejects.toMatchObject(
-      new BusinessError(ApiErrorCode.ORDER_STATE_INVALID, '订单完成后才能评价货主'),
+      new BusinessError(
+        ApiErrorCode.ORDER_STATE_INVALID,
+        '订单完成后才能评价货主',
+      ),
     );
   });
 
@@ -1162,14 +1330,11 @@ describe('DriverOrdersService', () => {
       'driver-1',
       createOrderInput('宝安区福永物流园'),
     );
-    const pendingOrder = await repository.seedOrderForTest(
-      'shipper-1',
-      {
-        ...createOrderInput('南山区科技园'),
-        priceCents: 88000,
-        payablePriceCents: 84000,
-      },
-    );
+    const pendingOrder = await repository.seedOrderForTest('shipper-1', {
+      ...createOrderInput('南山区科技园'),
+      priceCents: 88000,
+      payablePriceCents: 84000,
+    });
     await repository.acceptDriverOrder(pendingOrder.id, 'driver-1', {});
     await driverFinanceRepository.executeIdempotentWithdrawalRequest({
       driverId: 'driver-1',
@@ -1449,7 +1614,7 @@ describe('DriverOrdersService', () => {
       order.id,
       'driver-1',
       {
-      nextStatus: 'confirming',
+        nextStatus: 'confirming',
       },
     );
     await expect(
@@ -1496,7 +1661,7 @@ describe('DriverOrdersService', () => {
       order.id,
       'driver-1',
       {
-      nextStatus: 'confirming',
+        nextStatus: 'confirming',
       },
     );
     await expect(
@@ -1692,7 +1857,7 @@ async function createCompletedDriverOrder(
     order.id,
     driverId,
     {
-    nextStatus: 'confirming',
+      nextStatus: 'confirming',
     },
   );
   const result = await repository.executeIdempotentOrderMutation({

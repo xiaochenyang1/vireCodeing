@@ -171,9 +171,7 @@ function createMockDriverOrderApi() {
     getIncomeOverview: jest
       .fn()
       .mockResolvedValue(createDriverIncomeOverviewSnapshot()),
-    listWithdrawals: jest
-      .fn()
-      .mockResolvedValue(createDriverWithdrawalsPage()),
+    listWithdrawals: jest.fn().mockResolvedValue(createDriverWithdrawalsPage()),
     createWithdrawal: jest.fn(),
     listBankCards: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     createBankCard: jest.fn(),
@@ -214,13 +212,15 @@ function createMockDriverCertificationApi() {
 
 function createMockDriverMapsApi() {
   return {
-    getDriverLocation: jest.fn().mockRejectedValue(
-      new PlatformApiError(
-        'driver location not found',
-        'DRIVER_LOCATION_NOT_FOUND',
-        404,
+    getDriverLocation: jest
+      .fn()
+      .mockRejectedValue(
+        new PlatformApiError(
+          'driver location not found',
+          'DRIVER_LOCATION_NOT_FOUND',
+          404,
+        ),
       ),
-    ),
     reportDriverLocation: jest.fn().mockResolvedValue({
       driverId: 'driver-1',
       latitude: 22.6,
@@ -331,7 +331,9 @@ async function openDriverOrderDetail(
   orderNo: string,
 ) {
   const openButton =
-    renderer.root.findAllByProps({ testID: `driver-open-order-${orderNo}` })[0] ??
+    renderer.root.findAllByProps({
+      testID: `driver-open-order-${orderNo}`,
+    })[0] ??
     renderer.root.findAllByProps({
       testID: `driver-open-completed-order-${orderNo}`,
     })[0];
@@ -359,11 +361,11 @@ function mockSelectedImageUpload(
   (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
     status: 'granted',
   });
-  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
-    {
-      status: 'granted',
-    },
-  );
+  (
+    ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock
+  ).mockResolvedValue({
+    status: 'granted',
+  });
   (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
     canceled: false,
     assets: [
@@ -385,11 +387,11 @@ beforeEach(async () => {
   (ImagePicker.getMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue({
     status: 'granted',
   });
-  (ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock).mockResolvedValue(
-    {
-      status: 'granted',
-    },
-  );
+  (
+    ImagePicker.requestMediaLibraryPermissionsAsync as jest.Mock
+  ).mockResolvedValue({
+    status: 'granted',
+  });
   (ImagePicker.launchImageLibraryAsync as jest.Mock).mockResolvedValue({
     canceled: true,
     assets: [],
@@ -424,7 +426,9 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(1);
+    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(
+      1,
+    );
     expect(getRenderedText(renderer)).toContain('车型匹配：中型货车');
 
     ReactTestRenderer.act(() => {
@@ -440,7 +444,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-settings-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-settings-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -449,7 +455,9 @@ describe('DriverHomeScreen certification uploads', () => {
       maxDistanceKm: 30,
       vehicleTypePreferences: ['medium', 'box'],
     });
-    expect(getRenderedText(renderer)).toContain('接单设置已保存，当前为离线接单。');
+    expect(getRenderedText(renderer)).toContain(
+      '接单设置已保存，当前为离线接单。',
+    );
     expect(getRenderedText(renderer)).toContain('车型匹配：中型货车、厢式货车');
   });
 
@@ -554,22 +562,32 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('实名认证：未提交');
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
-    expect(platformDriverCertificationApi.getCertification).toHaveBeenCalledTimes(2);
-    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(2);
+    expect(
+      platformDriverCertificationApi.getCertification,
+    ).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(
+      2,
+    );
     expect(platformDriverOrderApi.getIncomeOverview).toHaveBeenCalledTimes(2);
     expect(platformDriverOrderApi.listWithdrawals).toHaveBeenCalledTimes(2);
     expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
-    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+    expect(getRenderedText(renderer)).toContain(
+      '司机主页已手动刷新到最新平台快照。',
+    );
     expect(getRenderedText(renderer)).toContain('接单状态：离线');
     expect(getRenderedText(renderer)).toContain('接单范围：30 公里');
     expect(getRenderedText(renderer)).toContain('车型匹配：厢式货车');
     expect(getRenderedText(renderer)).toContain('今日收入：￥402.00');
     expect(getRenderedText(renderer)).toContain('已完成 2 单');
-    expect(getRenderedText(renderer)).toContain('建设银行 · **** **** **** 5678');
+    expect(getRenderedText(renderer)).toContain(
+      '建设银行 · **** **** **** 5678',
+    );
     expect(getRenderedText(renderer)).toContain('实名认证：已通过');
     expect(getRenderedText(renderer)).toContain('车辆认证：审核中');
   });
@@ -709,7 +727,9 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('路线：宝安区福永物流园 → 龙岗区坂田仓');
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -727,7 +747,9 @@ describe('DriverHomeScreen certification uploads', () => {
       }).props.children,
     ).toBe('南山区科技园仓 2 号门');
     expect(getRenderedText(renderer)).toContain('事件记录：1 条');
-    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+    expect(getRenderedText(renderer)).toContain(
+      '司机主页已手动刷新到最新平台快照。',
+    );
   });
 
   it('keeps local certification and acceptance drafts when manually refreshing the driver home screen', async () => {
@@ -756,22 +778,27 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
-    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(1);
-    expect(platformDriverCertificationApi.getCertification).toHaveBeenCalledTimes(
+    expect(platformDriverOrderApi.getAcceptanceSettings).toHaveBeenCalledTimes(
       1,
     );
+    expect(
+      platformDriverCertificationApi.getCertification,
+    ).toHaveBeenCalledTimes(1);
     expect(platformDriverOrderApi.getIncomeOverview).toHaveBeenCalledTimes(2);
     expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
     expect(
-      renderer.root.findByProps({ testID: 'driver-settings-max-distance-km' }).props
-        .value,
+      renderer.root.findByProps({ testID: 'driver-settings-max-distance-km' })
+        .props.value,
     ).toBe('88');
     expect(
-      renderer.root.findByProps({ testID: 'driver-cert-real-name' }).props.value,
+      renderer.root.findByProps({ testID: 'driver-cert-real-name' }).props
+        .value,
     ).toBe('本地李师傅');
     expect(getRenderedText(renderer)).toContain(
       '司机主页已手动刷新；已保留未保存的接单设置、司机认证草稿。',
@@ -830,8 +857,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     ReactTestRenderer.act(() => {
-      renderer.root.findByProps({ testID: 'driver-report-hall-location' }).props
-        .onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-report-hall-location' })
+        .props.onPress();
     });
 
     await ReactTestRenderer.act(async () => {
@@ -850,8 +878,8 @@ describe('DriverHomeScreen certification uploads', () => {
     );
     expect(getRenderedText(renderer)).toContain('约 1.2 公里');
     expect(
-      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
-        .children,
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' })
+        .props.children,
     ).toBe('22.600000, 113.900000');
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
@@ -1045,7 +1073,9 @@ describe('DriverHomeScreen certification uploads', () => {
       pageSize: 40,
     });
     expect(
-      renderer.root.findAllByProps({ testID: 'driver-my-orders-tab-completed' }),
+      renderer.root.findAllByProps({
+        testID: 'driver-my-orders-tab-completed',
+      }),
     ).toHaveLength(0);
     expect(getDriverMyOrderCardTestIds(renderer)).toEqual([
       'driver-my-order-card-HY202607090013',
@@ -1093,8 +1123,8 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
     expect(
-      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
-        .children,
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' })
+        .props.children,
     ).toBe('22.610000, 113.910000');
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
@@ -1102,20 +1132,24 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('来源：手动上报 · 上报时间：2026-07-09 10:00');
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
     expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(2);
     expect(
-      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' }).props
-        .children,
+      renderer.root.findByProps({ testID: 'driver-hall-location-coordinate' })
+        .props.children,
     ).toBe('22.620000, 113.920000');
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
         .children,
     ).toBe('来源：设备定位 · 上报时间：2026-07-09 11:00');
-    expect(getRenderedText(renderer)).toContain('司机主页已手动刷新到最新平台快照。');
+    expect(getRenderedText(renderer)).toContain(
+      '司机主页已手动刷新到最新平台快照。',
+    );
   });
 
   it('ignores execution-order location snapshots when hydrating hall location feedback', async () => {
@@ -1145,7 +1179,9 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
     expect(
-      renderer.root.findAllByProps({ testID: 'driver-hall-location-coordinate' }),
+      renderer.root.findAllByProps({
+        testID: 'driver-hall-location-coordinate',
+      }),
     ).toHaveLength(0);
   });
 
@@ -1172,7 +1208,9 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(platformMapsApi.getDriverLocation).toHaveBeenCalledTimes(1);
     expect(
-      renderer.root.findAllByProps({ testID: 'driver-hall-location-coordinate' }),
+      renderer.root.findAllByProps({
+        testID: 'driver-hall-location-coordinate',
+      }),
     ).toHaveLength(0);
     expect(
       renderer.root.findByProps({ testID: 'driver-hall-location-meta' }).props
@@ -1365,10 +1403,7 @@ describe('DriverHomeScreen certification uploads', () => {
       cargoCard?.props.previewGroup.map(
         (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
       ),
-    ).toEqual([
-      '2026-07-31T09:00:00.000Z',
-      '2026-07-31T09:00:00.000Z',
-    ]);
+    ).toEqual(['2026-07-31T09:00:00.000Z', '2026-07-31T09:00:00.000Z']);
     expect(cargoCard?.props.previewGroup[1].access).toEqual({
       kind: 'order',
       orderId: order.id,
@@ -1522,10 +1557,7 @@ describe('DriverHomeScreen certification uploads', () => {
       evaluationCard?.props.previewGroup.map(
         (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
       ),
-    ).toEqual([
-      '2026-07-31T09:00:00.000Z',
-      '2026-07-31T09:00:00.000Z',
-    ]);
+    ).toEqual(['2026-07-31T09:00:00.000Z', '2026-07-31T09:00:00.000Z']);
     expect(
       evaluationCard?.props.previewGroup.every(
         (entry: { access?: unknown }) =>
@@ -1582,9 +1614,11 @@ describe('DriverHomeScreen certification uploads', () => {
     let resolveSecondOrderDetail:
       | ((value: typeof secondOrder) => void)
       | undefined;
-    const pendingSecondOrderDetail = new Promise<typeof secondOrder>(resolve => {
-      resolveSecondOrderDetail = resolve;
-    });
+    const pendingSecondOrderDetail = new Promise<typeof secondOrder>(
+      resolve => {
+        resolveSecondOrderDetail = resolve;
+      },
+    );
     platformDriverOrderApi.getOrder
       .mockResolvedValueOnce(firstOrder)
       .mockReturnValueOnce(pendingSecondOrderDetail);
@@ -1722,9 +1756,11 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findAllByProps({
-        testID: 'driver-report-location-HY202607090011',
-      })[0].props.onPress();
+      renderer.root
+        .findAllByProps({
+          testID: 'driver-report-location-HY202607090011',
+        })[0]
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2129,12 +2165,8 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(renderedText).toContain(
       '赔付决议：待赔付跟进 · 对象：货主 · 金额：￥120.00',
     );
-    expect(renderedText).not.toContain(
-      '更新时间：2026-07-18T09:15:00.000Z',
-    );
-    expect(renderedText).not.toContain(
-      '更新时间：2026-07-18T10:05:00.000Z',
-    );
+    expect(renderedText).not.toContain('更新时间：2026-07-18T09:15:00.000Z');
+    expect(renderedText).not.toContain('更新时间：2026-07-18T10:05:00.000Z');
   });
 
   it('passes mutation context when accepting an order from the hall', async () => {
@@ -2289,9 +2321,9 @@ describe('DriverHomeScreen certification uploads', () => {
 
     const firstCall = platformDriverOrderApi.acceptOrder.mock.calls[0];
     expect(getRenderedText(renderer)).toContain('司机订单同步队列');
-    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toContain(
-      firstCall[2],
-    );
+    expect(
+      await AsyncStorage.getItem(driverOrderMutationQueueStorageKey),
+    ).toContain(firstCall[2]);
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -2306,7 +2338,9 @@ describe('DriverHomeScreen certification uploads', () => {
       firstCall[1],
       firstCall[2],
     );
-    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
+    expect(
+      await AsyncStorage.getItem(driverOrderMutationQueueStorageKey),
+    ).toBeNull();
     expect(getRenderedText(renderer)).toContain('接单成功，订单已进入待装货。');
   });
 
@@ -2338,7 +2372,12 @@ describe('DriverHomeScreen certification uploads', () => {
     };
     const platformDriverOrderApi = createMockDriverOrderApi();
     platformDriverOrderApi.listOrderHall
-      .mockResolvedValueOnce({ items: [hallOrder], page: 1, pageSize: 20, total: 1 })
+      .mockResolvedValueOnce({
+        items: [hallOrder],
+        page: 1,
+        pageSize: 20,
+        total: 1,
+      })
       .mockResolvedValueOnce({ items: [], page: 1, pageSize: 20, total: 0 });
     platformDriverOrderApi.acceptOrder.mockRejectedValue(
       new PlatformApiError('订单已被其他操作更新', 'ORDER_CONFLICT', 409),
@@ -2364,7 +2403,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(platformDriverOrderApi.listOrderHall).toHaveBeenCalledTimes(2);
-    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
+    expect(
+      await AsyncStorage.getItem(driverOrderMutationQueueStorageKey),
+    ).toBeNull();
     expect(getRenderedText(renderer)).toContain(
       '订单已被其他操作更新，请确认最新状态。',
     );
@@ -2399,7 +2440,9 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(getRenderedText(renderer)).toContain('今日收入：￥361.00');
     expect(getRenderedText(renderer)).toContain('可提现：￥241.00');
     expect(getRenderedText(renderer)).toContain('已提现：￥80.00');
-    expect(getRenderedText(renderer)).toContain('累计历史收入：￥361.00 · 已完成 1 单');
+    expect(getRenderedText(renderer)).toContain(
+      '累计历史收入：￥361.00 · 已完成 1 单',
+    );
     expect(
       renderer.root.findByProps({
         testID: 'driver-income-record-summary-HY202607090001',
@@ -2427,7 +2470,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2484,7 +2529,9 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('6225 0000 0002 1234');
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2735,7 +2782,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2758,8 +2807,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('招商银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('李师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -2808,15 +2858,18 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('招商银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('李师傅');
     expect(getRenderedText(renderer)).toContain(
       '当前提现银行卡：招商银行 · **** **** **** 1234',
     );
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2882,8 +2935,9 @@ describe('DriverHomeScreen certification uploads', () => {
       }).props.children,
     ).toBe('最近用于提现：2026-07-24 20:00');
     expect(
-      renderer.root.findByProps({ testID: 'driver-bank-card-select-bank-card-1' })
-        .props.disabled,
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-select-bank-card-1',
+      }).props.disabled,
     ).toBe(true);
   });
 
@@ -2923,7 +2977,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -2989,7 +3045,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3012,8 +3070,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('王师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3055,7 +3114,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3108,8 +3169,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3153,7 +3215,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3167,8 +3231,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3224,7 +3289,9 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toHaveLength(0);
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-withdrawal-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-withdrawal-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3262,8 +3329,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('招商银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('李师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3324,7 +3392,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3337,8 +3407,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('王师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3390,7 +3461,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3404,8 +3477,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('王师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3457,7 +3531,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3471,8 +3547,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3549,7 +3626,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3564,7 +3643,9 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toHaveLength(0);
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3578,8 +3659,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('王师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -3674,7 +3756,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3683,8 +3767,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('王师傅');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
@@ -3727,7 +3812,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3737,8 +3824,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('本地收款人');
     expect(
       renderer.root.findAllByProps({
@@ -3789,7 +3877,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3799,8 +3889,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('平安银行');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('李队长');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-amount' }).props
@@ -3860,8 +3951,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(
-      renderer.root.findByProps({ testID: 'driver-bank-card-edit-name-bank-card-1' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-bank-card-edit-name-bank-card-1',
+      }).props.value,
     ).toBe('招商银行');
     expect(
       renderer.root.findByProps({
@@ -3902,7 +3994,9 @@ describe('DriverHomeScreen certification uploads', () => {
     );
     expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
     expect(getRenderedText(renderer)).toContain('银行卡已更新。');
-    expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 1234');
+    expect(getRenderedText(renderer)).toContain(
+      '平安银行 · **** **** **** 1234',
+    );
   });
 
   it('allows marking a newly added bank card as the default card', async () => {
@@ -3946,7 +4040,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-bank-card-add' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-add' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3966,7 +4062,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-bank-card-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -3978,7 +4076,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     expect(platformDriverOrderApi.listBankCards).toHaveBeenCalledTimes(2);
     expect(getRenderedText(renderer)).toContain('银行卡已添加。');
-    expect(getRenderedText(renderer)).toContain('平安银行 · **** **** **** 5678');
+    expect(getRenderedText(renderer)).toContain(
+      '平安银行 · **** **** **** 5678',
+    );
   });
 
   it('sanitizes bank card number inputs in add and edit forms', async () => {
@@ -4000,7 +4100,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-bank-card-add' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-add' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -4063,7 +4165,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-bank-card-add' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-add' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -4080,7 +4184,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-bank-card-submit' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-bank-card-submit' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -4135,7 +4241,9 @@ describe('DriverHomeScreen certification uploads', () => {
 
     ReactTestRenderer.act(() => {
       renderer.root
-        .findByProps({ testID: 'driver-bank-card-edit-toggle-default-bank-card-1' })
+        .findByProps({
+          testID: 'driver-bank-card-edit-toggle-default-bank-card-1',
+        })
         .props.onPress();
       renderer.root
         .findByProps({ testID: 'driver-bank-card-edit-name-bank-card-1' })
@@ -4200,7 +4308,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-refresh-home' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-refresh-home' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -4214,8 +4324,9 @@ describe('DriverHomeScreen certification uploads', () => {
         .value,
     ).toBe('');
     expect(
-      renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-name' })
-        .props.value,
+      renderer.root.findByProps({
+        testID: 'driver-withdrawal-bank-account-name',
+      }).props.value,
     ).toBe('');
     expect(
       renderer.root.findByProps({ testID: 'driver-withdrawal-bank-account-no' })
@@ -4283,14 +4394,14 @@ describe('DriverHomeScreen certification uploads', () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     const platformDriverCertificationApi = createMockDriverCertificationApi();
     platformDriverCertificationApi.submitIdentity.mockResolvedValue({
-        ...createDriverCertificationSnapshot(),
-        identity: {
-          driverId: 'driver-1',
-          status: 'reviewing' as const,
-          identityFrontFileId: 'file-identity-front',
-          identityBackFileId: 'file-identity-back',
-        },
-      });
+      ...createDriverCertificationSnapshot(),
+      identity: {
+        driverId: 'driver-1',
+        status: 'reviewing' as const,
+        identityFrontFileId: 'file-identity-front',
+        identityBackFileId: 'file-identity-back',
+      },
+    });
     const platformFileApi = {
       createUploadIntent: jest
         .fn()
@@ -4357,8 +4468,7 @@ describe('DriverHomeScreen certification uploads', () => {
                 purpose: 'identity' as const,
                 objectKey: `driver-1/identity/${fileId}.png`,
                 status: 'uploaded' as const,
-                publicUrl:
-                  'https://cdn.example.com/hydrated-identity-back.png',
+                publicUrl: 'https://cdn.example.com/hydrated-identity-back.png',
                 previewExpiresAtIso: '2026-07-07T09:21:00.000Z',
                 createdAtIso: '2026-07-07T08:00:00.000Z',
               },
@@ -4522,8 +4632,12 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith('file-id-front');
-    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith('file-id-back');
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-id-front',
+    );
+    expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
+      'file-id-back',
+    );
     expect(platformFileApi.getFileMetadata).toHaveBeenCalledWith(
       'file-vehicle-photo',
     );
@@ -4615,17 +4729,17 @@ describe('DriverHomeScreen certification uploads', () => {
     const platformDriverOrderApi = createMockDriverOrderApi();
     const platformDriverCertificationApi = createMockDriverCertificationApi();
     platformDriverCertificationApi.submitVehicle.mockResolvedValue({
-        ...createDriverCertificationSnapshot(),
-        vehicle: {
-          driverId: 'driver-1',
-          status: 'reviewing' as const,
-          drivingLicenseFileId: 'file-vehicle-license',
-          driverLicenseFileId: 'file-driver-license',
-          transportQualificationFileId: 'file-transport-qualification',
-          operationPermitFileId: 'file-operation-permit',
-          vehiclePhotoFileId: 'file-vehicle-photo',
-        },
-      });
+      ...createDriverCertificationSnapshot(),
+      vehicle: {
+        driverId: 'driver-1',
+        status: 'reviewing' as const,
+        drivingLicenseFileId: 'file-vehicle-license',
+        driverLicenseFileId: 'file-driver-license',
+        transportQualificationFileId: 'file-transport-qualification',
+        operationPermitFileId: 'file-operation-permit',
+        vehiclePhotoFileId: 'file-vehicle-photo',
+      },
+    });
     const platformFileApi = {
       createUploadIntent: jest
         .fn()
@@ -5056,7 +5170,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     await ReactTestRenderer.act(async () => {
-      renderer.root.findByProps({ testID: 'driver-cancel-order-1' }).props.onPress();
+      renderer.root
+        .findByProps({ testID: 'driver-cancel-order-1' })
+        .props.onPress();
       await flushMicrotasks();
     });
 
@@ -5069,7 +5185,9 @@ describe('DriverHomeScreen certification uploads', () => {
       },
       expect.stringMatching(uuidV4Pattern),
     );
-    expect(getRenderedText(renderer)).toContain('订单已取消，货主将收到取消通知。');
+    expect(getRenderedText(renderer)).toContain(
+      '订单已取消，货主将收到取消通知。',
+    );
     expect(
       renderer.root.findAllByProps({ testID: 'driver-cancel-order-1' }),
     ).toHaveLength(0);
@@ -5277,9 +5395,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     const firstCall = platformDriverOrderApi.advanceOrderStatus.mock.calls[0];
-    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toContain(
-      firstCall[2],
-    );
+    expect(
+      await AsyncStorage.getItem(driverOrderMutationQueueStorageKey),
+    ).toContain(firstCall[2]);
 
     ReactTestRenderer.act(() => {
       renderer.unmount();
@@ -5310,8 +5428,12 @@ describe('DriverHomeScreen certification uploads', () => {
       firstCall[1],
       firstCall[2],
     );
-    expect(await AsyncStorage.getItem(driverOrderMutationQueueStorageKey)).toBeNull();
-    expect(getRenderedText(renderer)).toContain('司机已确认到达，等待货主确认。');
+    expect(
+      await AsyncStorage.getItem(driverOrderMutationQueueStorageKey),
+    ).toBeNull();
+    expect(getRenderedText(renderer)).toContain(
+      '司机已确认到达，等待货主确认。',
+    );
   });
 
   it('uploads proof and reports a driver exception from an executing order', async () => {
@@ -5347,8 +5469,7 @@ describe('DriverHomeScreen certification uploads', () => {
           id: 'event-driver-exception-1',
           actorUserId: 'driver-1',
           eventType: 'driver_exception_reported',
-          noteText:
-            '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
+          noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
           attachmentFileIds: ['file-exception-1'],
           createdAtIso: '2026-07-11T08:05:00.000Z',
         },
@@ -5396,8 +5517,7 @@ describe('DriverHomeScreen certification uploads', () => {
         purpose: 'exception',
         objectKey: 'driver-1/exception/file-exception-1.png',
         status: 'pending',
-        uploadUrl:
-          'http://localhost:3000/api/files/uploads/file-exception-1',
+        uploadUrl: 'http://localhost:3000/api/files/uploads/file-exception-1',
         expiresAtIso: '2026-07-11T08:15:00.000Z',
         createdAtIso: '2026-07-11T08:00:00.000Z',
       }),
@@ -5446,8 +5566,7 @@ describe('DriverHomeScreen certification uploads', () => {
     ReactTestRenderer.act(() => {
       renderer.root
         .findByProps({
-          testID:
-            'driver-exception-type-cargo-damage-HY202607110001',
+          testID: 'driver-exception-type-cargo-damage-HY202607110001',
         })
         .props.onPress();
       renderer.root
@@ -5512,9 +5631,7 @@ describe('DriverHomeScreen certification uploads', () => {
         photoFileIds: ['file-exception-1'],
       },
     );
-    expect(getRenderedText(renderer)).toContain(
-      '异常已上报，等待客服跟进。',
-    );
+    expect(getRenderedText(renderer)).toContain('异常已上报，等待客服跟进。');
     expect(getRenderedText(renderer)).toContain(
       '最新异常：货物损坏：装货时发现外包装已经破损。；图片凭证 1 张',
     );
@@ -5550,7 +5667,10 @@ describe('DriverHomeScreen certification uploads', () => {
           actorUserId: 'driver-1',
           eventType: 'driver_exception_reported',
           noteText: '货物损坏：装货时发现外包装已经破损。；图片凭证 2 张',
-          attachmentFileIds: ['file-exception-history-1', 'file-exception-history-2'],
+          attachmentFileIds: [
+            'file-exception-history-1',
+            'file-exception-history-2',
+          ],
           createdAtIso: '2026-07-11T08:05:00.000Z',
         },
       ],
@@ -5640,10 +5760,7 @@ describe('DriverHomeScreen certification uploads', () => {
       reportedExceptionCard?.props.previewGroup.map(
         (entry: { expiresAtIso?: string }) => entry.expiresAtIso,
       ),
-    ).toEqual([
-      '2026-07-11T08:30:00.000Z',
-      '2026-07-11T08:30:00.000Z',
-    ]);
+    ).toEqual(['2026-07-11T08:30:00.000Z', '2026-07-11T08:30:00.000Z']);
   });
 
   it('falls back to exception case attachments when the latest exception event has no files', async () => {
@@ -5931,11 +6048,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     platformDriverOrderApi.getOrder.mockResolvedValue(order);
     platformDriverOrderApi.reportException.mockRejectedValue(
-      new PlatformApiError(
-        'pending',
-        'FILE_STATE_INVALID',
-        409,
-      ),
+      new PlatformApiError('pending', 'FILE_STATE_INVALID', 409),
     );
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -5960,8 +6073,7 @@ describe('DriverHomeScreen certification uploads', () => {
     ReactTestRenderer.act(() => {
       renderer.root
         .findByProps({
-          testID:
-            'driver-exception-type-cargo-damage-HY202607110002',
+          testID: 'driver-exception-type-cargo-damage-HY202607110002',
         })
         .props.onPress();
       renderer.root
@@ -6226,6 +6338,7 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-1',
         content: '谢谢认可，后续继续保持。',
       },
+      expect.stringMatching(uuidV4Pattern),
     );
     expect(getRenderedText(renderer)).toContain('评价回复已提交。');
     expect(getRenderedText(renderer)).toContain(
@@ -6350,8 +6463,7 @@ describe('DriverHomeScreen certification uploads', () => {
     await ReactTestRenderer.act(async () => {
       renderer.root
         .findByProps({
-          testID:
-            'driver-upload-shipper-evaluation-proof-HY202607090104',
+          testID: 'driver-upload-shipper-evaluation-proof-HY202607090104',
         })
         .props.onPress();
       await flushMicrotasks();
@@ -6413,8 +6525,7 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBe('5 星 · 沟通顺畅、装货配合');
     expect(
       renderer.root.findByProps({
-        testID:
-          'driver-shipper-evaluation-summary-submitted-at-HY202607090104',
+        testID: 'driver-shipper-evaluation-summary-submitted-at-HY202607090104',
       }).props.children,
     ).toBe('提交时间：2026-07-09 18:20');
     expect(
@@ -6574,11 +6685,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     platformDriverOrderApi.getOrder.mockResolvedValue(order);
     platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
-      new PlatformApiError(
-        '订单尚未收到货主评价',
-        'ORDER_STATE_INVALID',
-        409,
-      ),
+      new PlatformApiError('订单尚未收到货主评价', 'ORDER_STATE_INVALID', 409),
     );
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -6616,10 +6723,272 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-1',
         content: '谢谢认可，后续继续保持。',
       },
+      expect.stringMatching(uuidV4Pattern),
     );
     expect(getRenderedText(renderer)).toContain(
       '订单尚未收到货主评价，暂不能回复。',
     );
+  });
+
+  it('durably stores the reply idempotency key before the first platform request', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const updatedOrder = {
+      ...order,
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-reply-durable',
+          eventType: 'evaluation_replied' as const,
+          noteText: '先落盘再提交。',
+          createdAtIso: '2026-07-09T10:04:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    let storedSnapshotAtRequest: Record<string, unknown> | undefined;
+    platformDriverOrderApi.replyToEvaluation.mockImplementation(async () => {
+      storedSnapshotAtRequest = JSON.parse(
+        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+          '{}',
+      );
+      return updatedOrder;
+    });
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    const setItemMock = AsyncStorage.setItem as jest.Mock;
+    const originalSetItemImplementation =
+      setItemMock.getMockImplementation() as typeof AsyncStorage.setItem;
+    let releaseQueueWrite!: () => void;
+    const pendingQueueWrite = new Promise<void>((resolve, reject) => {
+      setItemMock.mockImplementation((key, value) => {
+        if (key !== driverEvaluationReplyQueueStorageKey) {
+          return originalSetItemImplementation(key, value);
+        }
+
+        releaseQueueWrite = () => {
+          originalSetItemImplementation(key, value).then(resolve, reject);
+        };
+        return pendingQueueWrite;
+      });
+    });
+
+    try {
+      ReactTestRenderer.act(() => {
+        renderer.root
+          .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+          .props.onChangeText('先落盘再提交。');
+      });
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({
+            testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+          })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+
+      expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+
+      await ReactTestRenderer.act(async () => {
+        releaseQueueWrite();
+        await pendingQueueWrite;
+        await flushMicrotasks();
+      });
+    } finally {
+      setItemMock.mockImplementation(originalSetItemImplementation);
+    }
+
+    const submittedIdempotencyKey =
+      platformDriverOrderApi.replyToEvaluation.mock.calls[0][2];
+    expect(storedSnapshotAtRequest).toMatchObject({
+      version: 3,
+      queue: {
+        [order.id]: {
+          idempotencyKey: submittedIdempotencyKey,
+          content: '先落盘再提交。',
+        },
+      },
+    });
+    expect(getRenderedText(renderer)).toContain('评价回复已提交。');
+  });
+
+  it('does not submit a reply when its durable queue write fails', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    const setItemMock = AsyncStorage.setItem as jest.Mock;
+    const originalSetItemImplementation =
+      setItemMock.getMockImplementation() as typeof AsyncStorage.setItem;
+    setItemMock.mockImplementation((key, value) =>
+      key === driverEvaluationReplyQueueStorageKey
+        ? Promise.reject(new Error('AsyncStorage write failed'))
+        : originalSetItemImplementation(key, value),
+    );
+
+    try {
+      ReactTestRenderer.act(() => {
+        renderer.root
+          .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+          .props.onChangeText('落盘失败不能提交。');
+      });
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({
+            testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+          })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+
+      expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+      expect(getRenderedText(renderer)).toContain(
+        '评价回复队列保存失败，尚未提交平台，请保持应用打开后重试。',
+      );
+
+      await ReactTestRenderer.act(async () => {
+        renderer.root
+          .findByProps({
+            testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+          })
+          .props.onPress();
+        await flushMicrotasks();
+      });
+
+      expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+      expect(getRenderedText(renderer)).toContain(
+        '评价回复队列保存失败，尚未重试平台，请保持应用打开后重试。',
+      );
+    } finally {
+      setItemMock.mockImplementation(originalSetItemImplementation);
+    }
+
+    expect(getRenderedText(renderer)).toContain('评价回复同步队列');
+  });
+
+  it('does not replace an unresolved queued reply with a new submission', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
+      new Error('Network request failed'),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('原提交结果未知。');
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const storedSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+        '{}',
+    );
+    const queuedIdempotencyKey =
+      storedSnapshot.queue[order.id].idempotencyKey;
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+      }).props.disabled,
+    ).toBe(true);
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('不能覆盖原 Key 的新回复。');
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(getRenderedText(renderer)).toContain(
+      '该订单已有待同步评价回复，请先重试确认原提交结果。',
+    );
+    expect(
+      JSON.parse(
+        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+          '{}',
+      ),
+    ).toMatchObject({
+      queue: {
+        [order.id]: {
+          idempotencyKey: queuedIdempotencyKey,
+          content: '原提交结果未知。',
+        },
+      },
+    });
   });
 
   it('waits for queue hydration before persisting and retrying a failed reply', async () => {
@@ -6688,7 +7057,9 @@ describe('DriverHomeScreen certification uploads', () => {
       pageSize: 20,
       total: 1,
     });
-    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(updatedOrder);
     platformDriverOrderApi.replyToEvaluation
       .mockRejectedValueOnce(new Error('Network request failed'))
       .mockResolvedValueOnce(updatedOrder);
@@ -6728,10 +7099,11 @@ describe('DriverHomeScreen certification uploads', () => {
     );
 
     const hydratedQueue = {
-      version: 2,
+      version: 3,
       queue: {
         'order-existing': {
           driverAccountId: 'local-driver',
+          idempotencyKey: '550e8400-e29b-41d4-a716-446655440101',
           orderId: 'order-existing',
           orderNo: 'HY202607090099',
           evaluationEventId: 'event-evaluation-existing',
@@ -6762,7 +7134,10 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-1',
         content: '网络恢复后补交回复。',
       },
+      expect.stringMatching(uuidV4Pattern),
     );
+    const evaluationReplyIdempotencyKey =
+      platformDriverOrderApi.replyToEvaluation.mock.calls[0][2];
     expect(getRenderedText(renderer)).toContain(
       '评价回复提交失败，已加入本地重试队列。',
     );
@@ -6777,6 +7152,7 @@ describe('DriverHomeScreen certification uploads', () => {
       queue: {
         'order-existing': hydratedQueue.queue['order-existing'],
         'order-1': {
+          idempotencyKey: evaluationReplyIdempotencyKey,
           content: '网络恢复后补交回复。',
         },
       },
@@ -6798,6 +7174,7 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-1',
         content: '网络恢复后补交回复。',
       },
+      evaluationReplyIdempotencyKey,
     );
     expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
     expect(getRenderedText(renderer)).toContain(
@@ -6873,9 +7250,11 @@ describe('DriverHomeScreen certification uploads', () => {
     platformDriverOrderApi.getOrder
       .mockResolvedValueOnce(order)
       .mockResolvedValueOnce(refreshedOrder);
-    platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
-      new Error('Network request failed'),
-    );
+    platformDriverOrderApi.replyToEvaluation
+      .mockRejectedValueOnce(new Error('Network request failed'))
+      .mockRejectedValueOnce(
+        new PlatformApiError('订单已被其他操作更新', 'ORDER_CONFLICT', 409),
+      );
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
@@ -6916,7 +7295,7 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
-    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(2);
     expect(getRenderedText(renderer)).toContain(
       '货主评价已更新，旧回复已移除，请重新填写。',
     );
@@ -6926,7 +7305,198 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: `driver-evaluation-reply-queue-${order.orderNo}`,
       }),
     ).toHaveLength(0);
-    expect(await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)).toBeNull();
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
+  });
+
+  it('replays before refreshing when a newer evaluation followed a lost success response', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const replyEvent = {
+      id: 'event-evaluation-reply-race',
+      eventType: 'evaluation_replied' as const,
+      noteText: '平台已接收但客户端丢失响应。',
+      createdAtIso: '2026-07-09T10:05:00.000Z',
+    };
+    const replaySnapshot = {
+      ...order,
+      updatedAtIso: replyEvent.createdAtIso,
+      events: [...order.events, replyEvent],
+    };
+    const currentOrder = {
+      ...replaySnapshot,
+      updatedAtIso: '2026-07-09T11:00:00.000Z',
+      events: [
+        ...replaySnapshot.events,
+        {
+          id: 'event-evaluation-newer',
+          eventType: 'evaluation_submitted' as const,
+          noteText: '货主后来补充的新评价。',
+          createdAtIso: '2026-07-09T11:00:00.000Z',
+        },
+      ],
+    };
+    const queueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440109',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: replyEvent.noteText,
+    };
+    await AsyncStorage.setItem(
+      driverEvaluationReplyQueueStorageKey,
+      JSON.stringify({
+        version: 3,
+        queue: { [order.id]: queueItem },
+      }),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [currentOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(currentOrder);
+    platformDriverOrderApi.replyToEvaluation.mockResolvedValue(replaySnapshot);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      order.id,
+      {
+        evaluationEventId: queueItem.evaluationEventId,
+        content: queueItem.content,
+      },
+      queueItem.idempotencyKey,
+    );
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain('货主后来补充的新评价。');
+    expect(getRenderedText(renderer)).toContain(
+      '司机回复：平台已接收但客户端丢失响应。',
+    );
+    expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
+  });
+
+  it('keeps a newer local order when replay succeeds but refresh fails', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const replyEvent = {
+      id: 'event-evaluation-reply-race',
+      eventType: 'evaluation_replied' as const,
+      noteText: '平台已接收但客户端丢失响应。',
+      createdAtIso: '2026-07-09T10:05:00.000Z',
+    };
+    const replaySnapshot = {
+      ...order,
+      updatedAtIso: replyEvent.createdAtIso,
+      events: [...order.events, replyEvent],
+    };
+    const currentOrder = {
+      ...replaySnapshot,
+      updatedAtIso: '2026-07-09T11:00:00.000Z',
+      events: [
+        ...replaySnapshot.events,
+        {
+          id: 'event-evaluation-newer',
+          eventType: 'evaluation_submitted' as const,
+          noteText: '刷新失败时仍需保留的新评价。',
+          createdAtIso: '2026-07-09T11:00:00.000Z',
+        },
+      ],
+    };
+    const queueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440110',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: replyEvent.noteText,
+    };
+    await AsyncStorage.setItem(
+      driverEvaluationReplyQueueStorageKey,
+      JSON.stringify({
+        version: 3,
+        queue: { [order.id]: queueItem },
+      }),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [currentOrder],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(currentOrder)
+      .mockRejectedValueOnce(new Error('Order refresh failed'));
+    platformDriverOrderApi.replyToEvaluation.mockResolvedValue(replaySnapshot);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      order.id,
+      {
+        evaluationEventId: queueItem.evaluationEventId,
+        content: queueItem.content,
+      },
+      queueItem.idempotencyKey,
+    );
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
+    expect(getRenderedText(renderer)).toContain(
+      '刷新失败时仍需保留的新评价。',
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '评价回复已确认，但最新订单刷新失败，请稍后刷新。',
+    );
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
   });
 
   it('keeps a queued reply when an order conflict does not change the evaluation', async () => {
@@ -6972,16 +7542,11 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     platformDriverOrderApi.getOrder
       .mockResolvedValueOnce(order)
-      .mockResolvedValueOnce(order)
       .mockResolvedValueOnce(refreshedOrder);
     platformDriverOrderApi.replyToEvaluation
       .mockRejectedValueOnce(new Error('Network request failed'))
       .mockRejectedValueOnce(
-        new PlatformApiError(
-          '订单已被其他操作更新',
-          'ORDER_CONFLICT',
-          409,
-        ),
+        new PlatformApiError('订单已被其他操作更新', 'ORDER_CONFLICT', 409),
       );
 
     let renderer!: ReactTestRenderer.ReactTestRenderer;
@@ -7020,7 +7585,7 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(3);
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
     expect(getRenderedText(renderer)).toContain(
       '订单信息已更新，货主评价未变化；回复已保留在重试队列。',
     );
@@ -7030,6 +7595,179 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: `driver-evaluation-reply-queue-${order.orderNo}`,
       }).length,
     ).toBeGreaterThan(0);
+  });
+
+  it('renews a reused evaluation reply idempotency key before retrying', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const updatedOrder = {
+      ...order,
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-reply-renewed',
+          eventType: 'evaluation_replied' as const,
+          noteText: '换新标识后重试。',
+          createdAtIso: '2026-07-09T10:08:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          'Idempotency-Key 已被其他请求复用',
+          'IDEMPOTENCY_KEY_REUSED',
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(updatedOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('换新标识后重试。');
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const firstIdempotencyKey =
+      platformDriverOrderApi.replyToEvaluation.mock.calls[0][2];
+    const storedSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+        '{}',
+    );
+    const renewedIdempotencyKey = storedSnapshot.queue[order.id].idempotencyKey;
+    expect(renewedIdempotencyKey).toMatch(uuidV4Pattern);
+    expect(renewedIdempotencyKey).not.toBe(firstIdempotencyKey);
+    expect(getRenderedText(renderer)).toContain(
+      '评价回复重试标识冲突，已生成新标识，请再次重试。',
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenNthCalledWith(
+      2,
+      order.id,
+      {
+        evaluationEventId: 'event-evaluation-race',
+        content: '换新标识后重试。',
+      },
+      renewedIdempotencyKey,
+    );
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
+    expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
+  });
+
+  it('clears an expired evaluation reply replay after the platform processed it', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const queueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440108',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: '平台已经处理的回复。',
+    };
+    await AsyncStorage.setItem(
+      driverEvaluationReplyQueueStorageKey,
+      JSON.stringify({
+        version: 3,
+        queue: { [order.id]: queueItem },
+      }),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
+      new PlatformApiError(
+        'Idempotency-Key 已过期',
+        'IDEMPOTENCY_KEY_EXPIRED',
+        409,
+      ),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      order.id,
+      {
+        evaluationEventId: queueItem.evaluationEventId,
+        content: queueItem.content,
+      },
+      queueItem.idempotencyKey,
+    );
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-evaluation-reply-queue-${order.orderNo}`,
+      }),
+    ).toHaveLength(0);
+    expect(getRenderedText(renderer)).toContain(
+      '评价回复已由平台处理，但幂等回放窗口已过期；本地队列已清理，请刷新订单查看。',
+    );
   });
 
   it('hydrates evaluation reply queues from the active driver account only', async () => {
@@ -7063,10 +7801,14 @@ describe('DriverHomeScreen certification uploads', () => {
       ],
     };
     const createSnapshot = (driverAccountId: string, content: string) => ({
-      version: 2,
+      version: 3,
       queue: {
         [order.id]: {
           driverAccountId,
+          idempotencyKey:
+            driverAccountId === 'driver-1'
+              ? '550e8400-e29b-41d4-a716-446655440102'
+              : '550e8400-e29b-41d4-a716-446655440103',
           orderId: order.id,
           orderNo: order.orderNo,
           evaluationEventId: 'event-evaluation-1',
@@ -7145,6 +7887,7 @@ describe('DriverHomeScreen certification uploads', () => {
       '@vireCodeing/driver-evaluation-reply-queue:driver-1';
     const queuedReply = {
       driverAccountId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440104',
       orderId: order.id,
       orderNo: order.orderNo,
       evaluationEventId: 'event-evaluation-race',
@@ -7153,6 +7896,7 @@ describe('DriverHomeScreen certification uploads', () => {
     };
     const unrelatedQueuedReply = {
       driverAccountId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440105',
       orderId: 'order-unrelated',
       orderNo: 'HY202607090110',
       evaluationEventId: 'event-evaluation-unrelated',
@@ -7160,7 +7904,7 @@ describe('DriverHomeScreen certification uploads', () => {
       content: '另一个订单仍待同步。',
     };
     const storedSnapshot = JSON.stringify({
-      version: 2,
+      version: 3,
       queue: {
         [queuedReply.orderId]: queuedReply,
         [unrelatedQueuedReply.orderId]: unrelatedQueuedReply,
@@ -7281,9 +8025,11 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: `driver-evaluation-reply-queue-${order.orderNo}`,
       }),
     ).toHaveLength(0);
-    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
+    await expect(
+      originalGetItemImplementation(driverOneStorageKey),
+    ).resolves.toBe(
       JSON.stringify({
-        version: 2,
+        version: 3,
         queue: {
           [unrelatedQueuedReply.orderId]: unrelatedQueuedReply,
         },
@@ -7309,6 +8055,7 @@ describe('DriverHomeScreen certification uploads', () => {
       '@vireCodeing/driver-evaluation-reply-queue:driver-1';
     const unreadQueuedReply = {
       driverAccountId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440106',
       orderId: 'order-unread',
       orderNo: 'HY202607090111',
       evaluationEventId: 'event-evaluation-unread',
@@ -7316,7 +8063,7 @@ describe('DriverHomeScreen certification uploads', () => {
       content: '读取失败时不能覆盖的待同步回复。',
     };
     const storedSnapshot = JSON.stringify({
-      version: 2,
+      version: 3,
       queue: {
         [unreadQueuedReply.orderId]: unreadQueuedReply,
       },
@@ -7382,9 +8129,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
     expect(retryLoadButton.props.disabled).toBe(false);
     expect(getRenderedText(renderer)).toContain('重新加载评价回复队列');
-    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
-      storedSnapshot,
-    );
+    await expect(
+      originalGetItemImplementation(driverOneStorageKey),
+    ).resolves.toBe(storedSnapshot);
 
     await ReactTestRenderer.act(async () => {
       retryLoadButton.props.onPress();
@@ -7407,9 +8154,9 @@ describe('DriverHomeScreen certification uploads', () => {
     });
 
     expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
-    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
-      storedSnapshot,
-    );
+    await expect(
+      originalGetItemImplementation(driverOneStorageKey),
+    ).resolves.toBe(storedSnapshot);
     expect(
       renderer.root.findByProps({
         testID: `driver-submit-evaluation-reply-${order.orderNo}`,
@@ -7432,10 +8179,11 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-race',
         content: '队列加载成功后提交。',
       },
+      expect.stringMatching(uuidV4Pattern),
     );
-    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
-      storedSnapshot,
-    );
+    await expect(
+      originalGetItemImplementation(driverOneStorageKey),
+    ).resolves.toBe(storedSnapshot);
   });
 
   it('ignores an in-flight reply result after switching driver accounts', async () => {
@@ -7473,10 +8221,11 @@ describe('DriverHomeScreen certification uploads', () => {
     await AsyncStorage.setItem(
       driverTwoStorageKey,
       JSON.stringify({
-        version: 2,
+        version: 3,
         queue: {
           [order.id]: {
             driverAccountId: 'driver-2',
+            idempotencyKey: '550e8400-e29b-41d4-a716-446655440107',
             orderId: order.id,
             orderNo: order.orderNo,
             evaluationEventId: 'event-evaluation-1',
@@ -7667,16 +8416,16 @@ describe('DriverHomeScreen certification uploads', () => {
       '评价回复需要重新登录后再同步。',
     );
     expect(getRenderedText(renderer)).toContain('评价回复同步队列');
-    expect(
-      JSON.parse(
-        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
-          '{}',
-      ),
-    ).toMatchObject({
-      version: 2,
+    const storedQueueSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+        '{}',
+    );
+    expect(storedQueueSnapshot).toMatchObject({
+      version: 3,
       queue: {
         'order-1': {
           driverAccountId: 'local-driver',
+          idempotencyKey: expect.stringMatching(uuidV4Pattern),
           orderId: 'order-1',
           orderNo: 'HY202607090103',
           evaluationEventId: 'event-evaluation-1',
@@ -7685,6 +8434,16 @@ describe('DriverHomeScreen certification uploads', () => {
         },
       },
     });
+    const queuedIdempotencyKey =
+      storedQueueSnapshot.queue['order-1'].idempotencyKey;
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      'order-1',
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '登录恢复后继续同步。',
+      },
+      queuedIdempotencyKey,
+    );
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -7801,16 +8560,16 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
-    expect(
-      JSON.parse(
-        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
-          '{}',
-      ),
-    ).toMatchObject({
-      version: 2,
+    const storedQueueSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+        '{}',
+    );
+    expect(storedQueueSnapshot).toMatchObject({
+      version: 3,
       queue: {
         'order-1': {
           driverAccountId: 'local-driver',
+          idempotencyKey: expect.stringMatching(uuidV4Pattern),
           orderId: 'order-1',
           orderNo: 'HY202607090102',
           evaluationEventId: 'event-evaluation-1',
@@ -7819,6 +8578,16 @@ describe('DriverHomeScreen certification uploads', () => {
         },
       },
     });
+    const persistedIdempotencyKey =
+      storedQueueSnapshot.queue['order-1'].idempotencyKey;
+    expect(failingDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      'order-1',
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '持久化队列恢复后重试。',
+      },
+      persistedIdempotencyKey,
+    );
 
     ReactTestRenderer.act(() => {
       renderer.unmount();
@@ -7865,8 +8634,11 @@ describe('DriverHomeScreen certification uploads', () => {
         evaluationEventId: 'event-evaluation-1',
         content: '持久化队列恢复后重试。',
       },
+      persistedIdempotencyKey,
     );
-    expect(await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)).toBeNull();
+    expect(
+      await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).toBeNull();
     expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
   });
 });

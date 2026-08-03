@@ -50,20 +50,20 @@ import {
   upsertOrder,
 } from '../src/screens/driver-home/driverHomeUtils';
 import { PlatformApiError } from '../src/services/platformApiClient';
-import type {
-  PlatformDriverAcceptanceSettings,
-} from '../src/services/platformDriverOrderApi';
+import type { PlatformDriverAcceptanceSettings } from '../src/services/platformDriverOrderApi';
 import type { PlatformDriverCertificationSnapshot } from '../src/services/platformDriverCertificationApi';
 import type { PlatformShipperOrder } from '../src/services/platformOrderApi';
 
-const order = (overrides: Partial<PlatformShipperOrder> = {}): PlatformShipperOrder =>
+const order = (
+  overrides: Partial<PlatformShipperOrder> = {},
+): PlatformShipperOrder =>
   ({
     id: 'order-1',
     status: 'waiting',
     vehicleRequirement: 'mini-truck',
     events: [],
     ...overrides,
-  }) as PlatformShipperOrder;
+  } as PlatformShipperOrder);
 
 const acceptance = (
   overrides: Partial<PlatformDriverAcceptanceSettings> = {},
@@ -76,7 +76,7 @@ const acceptance = (
     createdAtIso: '2026-07-10T00:00:00.000Z',
     updatedAtIso: '2026-07-10T00:00:00.000Z',
     ...overrides,
-  }) as PlatformDriverAcceptanceSettings;
+  } as PlatformDriverAcceptanceSettings);
 
 const certification = (
   overrides: Partial<PlatformDriverCertificationSnapshot> = {},
@@ -109,15 +109,23 @@ const certification = (
       status: 'reviewing',
     },
     ...overrides,
-  }) as PlatformDriverCertificationSnapshot;
+  } as PlatformDriverCertificationSnapshot);
 
 test('builds a quote request only for valid amounts and arrival text', () => {
   expect(
-    createQuoteRequest({ quoteText: ' 88 ', arrivalText: ' 45 分钟 ', noteText: ' 带尾板 ' }),
+    createQuoteRequest({
+      quoteText: ' 88 ',
+      arrivalText: ' 45 分钟 ',
+      noteText: ' 带尾板 ',
+    }),
   ).toEqual({ quoteCents: 8800, arrivalText: '45 分钟', noteText: '带尾板' });
 
   expect(
-    createQuoteRequest({ quoteText: '0', arrivalText: '45 分钟', noteText: '' }),
+    createQuoteRequest({
+      quoteText: '0',
+      arrivalText: '45 分钟',
+      noteText: '',
+    }),
   ).toBeUndefined();
   expect(
     createQuoteRequest({ quoteText: '88', arrivalText: '  ', noteText: '' }),
@@ -131,7 +139,11 @@ test('validates acceptance settings bounds and dedupe', () => {
       maxDistanceKmText: '50',
       vehicleTypePreferences: ['a', 'b'],
     }),
-  ).toEqual({ isOnline: true, maxDistanceKm: 50, vehicleTypePreferences: ['a', 'b'] });
+  ).toEqual({
+    isOnline: true,
+    maxDistanceKm: 50,
+    vehicleTypePreferences: ['a', 'b'],
+  });
 
   expect(
     createAcceptanceSettingsRequest({
@@ -687,7 +699,9 @@ test('maps status/certification/withdrawal texts and advance notices', () => {
       updatedAtIso: '2026-07-10T10:30:00.000Z',
     }),
   ).toBe('驳回原因：银行卡户名校验失败');
-  expect(createDriverAdvanceSuccessNotice('transporting')).toBe('司机已确认发车。');
+  expect(createDriverAdvanceSuccessNotice('transporting')).toBe(
+    '司机已确认发车。',
+  );
   expect(createDriverAdvanceSuccessNotice('confirming')).toBe(
     '司机已确认到达，等待货主确认。',
   );
@@ -890,18 +904,22 @@ test('filters the order hall by vehicle preferences and builds the notice', () =
   ];
 
   expect(
-    filterDriverOrderHallOrders(orders, acceptance({ vehicleTypePreferences: ['box-truck'] })).map(
-      o => o.id,
-    ),
+    filterDriverOrderHallOrders(
+      orders,
+      acceptance({ vehicleTypePreferences: ['box-truck'] }),
+    ).map(o => o.id),
   ).toEqual(['b']);
   // No preferences → all orders.
   expect(filterDriverOrderHallOrders(orders, acceptance())).toHaveLength(2);
 
-  expect(createDriverOrderHallNotice(orders, acceptance({ isOnline: false }))).toBe(
-    '当前处于离线接单，可查看订单但无法报价或接单。',
-  );
   expect(
-    createDriverOrderHallNotice(orders, acceptance({ vehicleTypePreferences: ['crane'] })),
+    createDriverOrderHallNotice(orders, acceptance({ isOnline: false })),
+  ).toBe('当前处于离线接单，可查看订单但无法报价或接单。');
+  expect(
+    createDriverOrderHallNotice(
+      orders,
+      acceptance({ vehicleTypePreferences: ['crane'] }),
+    ),
   ).toBe('当前接单车型下暂无匹配订单。');
   expect(
     createDriverOrderHallNotice(
@@ -927,9 +945,9 @@ test('filters the order hall by pickup distance and formats distance text', () =
       o => o.id,
     ),
   ).toEqual(['near', 'unknown']);
-  expect(getDriverOrderPickupDistanceText(order({ pickupDistanceMeters: 12345 }))).toBe(
-    '约 12.3 公里',
-  );
+  expect(
+    getDriverOrderPickupDistanceText(order({ pickupDistanceMeters: 12345 })),
+  ).toBe('约 12.3 公里');
   expect(getDriverOrderPickupDistanceText(order())).toBe('');
 });
 
@@ -960,12 +978,7 @@ test('sorts order hall cards by pickup distance first, then latest update time',
         updatedAtIso: '2026-07-10T02:10:00.000Z',
       }),
     ]).map(item => item.id),
-  ).toEqual([
-    'same-distance-newer',
-    'same-distance-older',
-    'far',
-    'unknown',
-  ]);
+  ).toEqual(['same-distance-newer', 'same-distance-older', 'far', 'unknown']);
 });
 
 test('formats acceptance vehicle types with fallback to raw id', () => {
@@ -978,10 +991,30 @@ test('formats acceptance vehicle types with fallback to raw id', () => {
 test('reads order events for evaluation state and latest reply', () => {
   const evaluated = order({
     events: [
-      { id: 'e1', eventType: 'evaluation_submitted', noteText: '较早评价', createdAtIso: '2026-07-10T00:00:00.000Z' },
-      { id: 'e2', eventType: 'evaluation_replied', noteText: '早', createdAtIso: '2026-07-10T01:00:00.000Z' },
-      { id: 'e3', eventType: 'evaluation_replied', noteText: '晚', createdAtIso: '2026-07-10T02:00:00.000Z' },
-      { id: 'e4', eventType: 'evaluation_submitted', noteText: '最新评价', createdAtIso: '2026-07-10T03:00:00.000Z' },
+      {
+        id: 'e1',
+        eventType: 'evaluation_submitted',
+        noteText: '较早评价',
+        createdAtIso: '2026-07-10T00:00:00.000Z',
+      },
+      {
+        id: 'e2',
+        eventType: 'evaluation_replied',
+        noteText: '早',
+        createdAtIso: '2026-07-10T01:00:00.000Z',
+      },
+      {
+        id: 'e3',
+        eventType: 'evaluation_replied',
+        noteText: '晚',
+        createdAtIso: '2026-07-10T02:00:00.000Z',
+      },
+      {
+        id: 'e4',
+        eventType: 'evaluation_submitted',
+        noteText: '最新评价',
+        createdAtIso: '2026-07-10T03:00:00.000Z',
+      },
     ],
   } as never);
 
@@ -1033,9 +1066,7 @@ test('selects the latest received evaluation with a deterministic event id tie b
   expect(getLatestDriverReceivedEvaluation(latestByTime)?.id).toBe(
     'evaluation-newer',
   );
-  expect(getLatestDriverReceivedEvaluation(evaluated)?.id).toBe(
-    'evaluation-z',
-  );
+  expect(getLatestDriverReceivedEvaluation(evaluated)?.id).toBe('evaluation-z');
 });
 
 test('parses structured driver order evaluation summaries from event notes', () => {
@@ -1093,6 +1124,7 @@ test('omits a driver evaluation reply queue item immutably', () => {
   const queue = {
     'order-1': {
       driverAccountId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
       orderId: 'order-1',
       orderNo: 'HY1',
       evaluationEventId: 'evaluation-1',
@@ -1101,6 +1133,7 @@ test('omits a driver evaluation reply queue item immutably', () => {
     },
     'order-2': {
       driverAccountId: 'driver-1',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440002',
       orderId: 'order-2',
       orderNo: 'HY2',
       evaluationEventId: 'evaluation-2',
@@ -1121,6 +1154,7 @@ test('omits a driver evaluation reply queue item immutably', () => {
 test('keeps a newer driver evaluation reply queue item when an old request completes', () => {
   const currentItem = {
     driverAccountId: 'driver-1',
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
     orderId: 'order-1',
     orderNo: 'HY1',
     evaluationEventId: 'evaluation-1',
@@ -1130,6 +1164,10 @@ test('keeps a newer driver evaluation reply queue item when an old request compl
   const queue = { 'order-1': currentItem };
   const staleItems = [
     { ...currentItem, driverAccountId: 'driver-2' },
+    {
+      ...currentItem,
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440002',
+    },
     { ...currentItem, evaluationEventId: 'evaluation-older' },
     {
       ...currentItem,
@@ -1170,6 +1208,7 @@ test('matches a queued driver reply only to the same latest evaluation event', (
   });
   const queueItem = {
     driverAccountId: 'driver-1',
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440001',
     orderId: evaluatedOrder.id,
     orderNo: evaluatedOrder.orderNo,
     evaluationEventId: 'evaluation-2',
@@ -1177,9 +1216,9 @@ test('matches a queued driver reply only to the same latest evaluation event', (
     content: '谢谢认可。',
   };
 
-  expect(isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, queueItem)).toBe(
-    true,
-  );
+  expect(
+    isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, queueItem),
+  ).toBe(true);
   expect(
     isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, {
       ...queueItem,
@@ -1221,16 +1260,16 @@ test('selects execution receipt file ids by current status', () => {
     },
   };
 
-  expect(getDriverExecutionReceiptFileIds(proofs, 'order-1', 'loading')).toEqual([
-    'load-1',
-  ]);
+  expect(
+    getDriverExecutionReceiptFileIds(proofs, 'order-1', 'loading'),
+  ).toEqual(['load-1']);
   expect(
     getDriverExecutionReceiptFileIds(proofs, 'order-1', 'transporting'),
   ).toEqual(['arrive-1']);
-  expect(getDriverExecutionReceiptFileIds(proofs, 'order-1', 'confirming')).toEqual(
-    [],
-  );
-  expect(getDriverExecutionReceiptFileIds(proofs, 'missing', 'loading')).toEqual(
-    [],
-  );
+  expect(
+    getDriverExecutionReceiptFileIds(proofs, 'order-1', 'confirming'),
+  ).toEqual([]);
+  expect(
+    getDriverExecutionReceiptFileIds(proofs, 'missing', 'loading'),
+  ).toEqual([]);
 });

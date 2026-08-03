@@ -59,8 +59,8 @@ type PlatformDriverOrderMutationRequest = {
 
 export type PlatformDriverAcceptOrderRequest =
   PlatformDriverOrderMutationRequest & {
-  noteText?: string;
-};
+    noteText?: string;
+  };
 
 export type PlatformDriverCancelOrderRequest =
   PlatformDriverOrderMutationRequest & {
@@ -70,12 +70,12 @@ export type PlatformDriverCancelOrderRequest =
 
 export type PlatformDriverAdvanceOrderStatusRequest =
   PlatformDriverOrderMutationRequest & {
-  nextStatus: Extract<
-    PlatformDriverExecutingOrderStatus,
-    'transporting' | 'confirming'
-  >;
-  receiptPhotoFileIds?: string[];
-};
+    nextStatus: Extract<
+      PlatformDriverExecutingOrderStatus,
+      'transporting' | 'confirming'
+    >;
+    receiptPhotoFileIds?: string[];
+  };
 
 export type PlatformDriverReplyEvaluationRequest = {
   evaluationEventId: string;
@@ -213,10 +213,8 @@ const DRIVER_MY_ORDER_STATUSES: PlatformDriverMyOrderStatus[] = [
   'completed',
 ];
 
-const DRIVER_ADVANCE_ORDER_STATUSES: PlatformDriverAdvanceOrderStatusRequest['nextStatus'][] = [
-  'transporting',
-  'confirming',
-];
+const DRIVER_ADVANCE_ORDER_STATUSES: PlatformDriverAdvanceOrderStatusRequest['nextStatus'][] =
+  ['transporting', 'confirming'];
 const PLATFORM_DRIVER_ORDER_IDEMPOTENCY_KEY_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PLATFORM_DRIVER_ORDER_DATE_TIME_WITH_OFFSET_PATTERN =
@@ -237,7 +235,10 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       );
     },
     getIncomeOverview() {
-      return platformGet<PlatformDriverIncomeOverview>(config, '/driver/income');
+      return platformGet<PlatformDriverIncomeOverview>(
+        config,
+        '/driver/income',
+      );
     },
     async listWithdrawals(query: PlatformDriverWithdrawalsQuery = {}) {
       return platformGet<PlatformDriverWithdrawalsResult>(
@@ -250,10 +251,11 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       idempotencyKey: string,
     ) {
       const normalizedRequest = normalizeDriverWithdrawalRequest(request);
-      const normalizedIdempotencyKey = normalizeDriverOrderMutationIdempotencyKey(
-        idempotencyKey,
-        'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
-      );
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
+        );
       return platformPost<
         PlatformCreateDriverWithdrawalRequest,
         PlatformDriverWithdrawalRecord
@@ -286,11 +288,7 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       return platformPut<
         PlatformUpdateDriverBankCardRequest,
         PlatformDriverBankCardRecord
-      >(
-        config,
-        `/driver/bank-cards/${normalizedCardId}`,
-        normalizedRequest,
-      );
+      >(config, `/driver/bank-cards/${normalizedCardId}`, normalizedRequest);
     },
     async deleteBankCard(cardId: string) {
       const normalizedCardId = normalizeDriverBankCardId(cardId);
@@ -337,9 +335,8 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedCaseId = normalizeDriverExceptionCaseId(caseId);
-      const normalizedRequest = normalizeDriverAppealExceptionCaseRequest(
-        request,
-      );
+      const normalizedRequest =
+        normalizeDriverAppealExceptionCaseRequest(request);
 
       return platformPost<
         PlatformAppealOrderExceptionCaseRequest,
@@ -350,18 +347,17 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         normalizedRequest,
       );
     },
-    async quoteOrder(orderId: string, request: PlatformDriverQuoteOrderRequest) {
+    async quoteOrder(
+      orderId: string,
+      request: PlatformDriverQuoteOrderRequest,
+    ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedRequest = normalizeDriverQuoteOrderRequest(request);
 
       return platformPost<
         PlatformDriverQuoteOrderRequest,
         PlatformShipperOrder
-      >(
-        config,
-        `/driver/orders/${normalizedOrderId}/quote`,
-        normalizedRequest,
-      );
+      >(config, `/driver/orders/${normalizedOrderId}/quote`, normalizedRequest);
     },
     async acceptOrder(
       orderId: string,
@@ -392,7 +388,8 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
       idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
-      const normalizedRequest = normalizeDriverAdvanceOrderStatusRequest(request);
+      const normalizedRequest =
+        normalizeDriverAdvanceOrderStatusRequest(request);
       const normalizedIdempotencyKey =
         normalizeDriverOrderMutationIdempotencyKey(
           idempotencyKey,
@@ -435,9 +432,15 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
     async replyToEvaluation(
       orderId: string,
       request: PlatformDriverReplyEvaluationRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedRequest = normalizeDriverReplyEvaluationRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
+        );
 
       return platformPost<
         PlatformDriverReplyEvaluationRequest,
@@ -446,6 +449,7 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         config,
         `/driver/orders/${normalizedOrderId}/evaluation-reply`,
         normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
     async reportException(
@@ -507,7 +511,9 @@ function createOrderHallPath(query: PlatformDriverOrderHallQuery) {
 
   const queryString = searchParams.toString();
 
-  return queryString ? `/driver/order-hall?${queryString}` : '/driver/order-hall';
+  return queryString
+    ? `/driver/order-hall?${queryString}`
+    : '/driver/order-hall';
 }
 
 function createMyOrdersPath(query: PlatformDriverMyOrdersQuery) {
@@ -546,7 +552,11 @@ function createWithdrawalsPath(query: PlatformDriverWithdrawalsQuery) {
   const searchParams = new URLSearchParams();
 
   if (query.page !== undefined) {
-    assertPositiveInteger(query.page, 'page', 'PLATFORM_DRIVER_WITHDRAWALS_QUERY_INVALID');
+    assertPositiveInteger(
+      query.page,
+      'page',
+      'PLATFORM_DRIVER_WITHDRAWALS_QUERY_INVALID',
+    );
     searchParams.set('page', String(query.page));
   }
 
@@ -570,7 +580,9 @@ function createWithdrawalsPath(query: PlatformDriverWithdrawalsQuery) {
 
   const queryString = searchParams.toString();
 
-  return queryString ? `/driver/withdrawals?${queryString}` : '/driver/withdrawals';
+  return queryString
+    ? `/driver/withdrawals?${queryString}`
+    : '/driver/withdrawals';
 }
 
 function normalizeDriverOrderId(orderId: string) {
@@ -722,7 +734,9 @@ function normalizeDriverAdvanceOrderStatusRequest(
     typeof requestInput !== 'object' ||
     Array.isArray(requestInput)
   ) {
-    throwInvalidStatusRequest('Platform driver status request must be an object');
+    throwInvalidStatusRequest(
+      'Platform driver status request must be an object',
+    );
   }
 
   if (!DRIVER_ADVANCE_ORDER_STATUSES.includes(request.nextStatus)) {
@@ -817,7 +831,9 @@ function normalizeDriverReportExceptionRequest(
       request.photoCount < 0 ||
       request.photoCount > 6)
   ) {
-    throwInvalidExceptionRequest('Platform driver exception photoCount is invalid');
+    throwInvalidExceptionRequest(
+      'Platform driver exception photoCount is invalid',
+    );
   }
 
   const photoFileIds = normalizeOptionalExceptionPhotoFileIds(
@@ -827,7 +843,9 @@ function normalizeDriverReportExceptionRequest(
   return {
     typeLabel,
     description,
-    ...(request.photoCount === undefined ? {} : { photoCount: request.photoCount }),
+    ...(request.photoCount === undefined
+      ? {}
+      : { photoCount: request.photoCount }),
     ...(photoFileIds === undefined ? {} : { photoFileIds }),
   };
 }
@@ -858,7 +876,11 @@ function normalizeDriverEvaluateShipperRequest(
     );
   }
 
-  if (!Array.isArray(request.tags) || request.tags.length === 0 || request.tags.length > 6) {
+  if (
+    !Array.isArray(request.tags) ||
+    request.tags.length === 0 ||
+    request.tags.length > 6
+  ) {
     throwInvalidShipperEvaluationRequest(
       'Platform driver shipper evaluation tags are invalid',
     );
@@ -897,7 +919,10 @@ function normalizeDriverEvaluateShipperRequest(
     );
   }
 
-  if (request.anonymous !== undefined && typeof request.anonymous !== 'boolean') {
+  if (
+    request.anonymous !== undefined &&
+    typeof request.anonymous !== 'boolean'
+  ) {
     throwInvalidShipperEvaluationRequest(
       'Platform driver shipper evaluation anonymous is invalid',
     );
@@ -923,8 +948,12 @@ function normalizeDriverEvaluateShipperRequest(
     rating: request.rating,
     tags,
     content,
-    ...(request.anonymous === undefined ? {} : { anonymous: request.anonymous }),
-    ...(request.photoCount === undefined ? {} : { photoCount: request.photoCount }),
+    ...(request.anonymous === undefined
+      ? {}
+      : { anonymous: request.anonymous }),
+    ...(request.photoCount === undefined
+      ? {}
+      : { photoCount: request.photoCount }),
     ...(photoFileIds === undefined ? {} : { photoFileIds }),
   };
 }
@@ -945,7 +974,9 @@ function normalizeDriverAcceptanceSettingsRequest(
   }
 
   if (typeof request.isOnline !== 'boolean') {
-    throwInvalidAcceptanceSettingsRequest('Platform driver isOnline is invalid');
+    throwInvalidAcceptanceSettingsRequest(
+      'Platform driver isOnline is invalid',
+    );
   }
 
   if (
@@ -1029,9 +1060,7 @@ function normalizeDriverWithdrawalRequest(
   ).replace(/\s+/g, '');
 
   if (bankAccountName.length < 2) {
-    throwInvalidWithdrawalRequest(
-      'Platform driver bankAccountName is invalid',
-    );
+    throwInvalidWithdrawalRequest('Platform driver bankAccountName is invalid');
   }
 
   if (bankName.length < 2) {
@@ -1101,7 +1130,9 @@ function normalizeDriverBankCardRequest(
     bankAccountName,
     bankName,
     bankAccountNo,
-    ...(typeof request.isDefault === 'boolean' ? { isDefault: request.isDefault } : {}),
+    ...(typeof request.isDefault === 'boolean'
+      ? { isDefault: request.isDefault }
+      : {}),
   };
 }
 
@@ -1121,27 +1152,28 @@ function normalizeDriverBankCardUpdateRequest(
   const result: Record<string, unknown> = {};
 
   if (request.bankAccountName !== undefined) {
-    const bankAccountName = typeof request.bankAccountName === 'string'
-      ? request.bankAccountName.trim()
-      : '';
+    const bankAccountName =
+      typeof request.bankAccountName === 'string'
+        ? request.bankAccountName.trim()
+        : '';
     if (bankAccountName.length >= 2) {
       result.bankAccountName = bankAccountName;
     }
   }
 
   if (request.bankName !== undefined) {
-    const bankName = typeof request.bankName === 'string'
-      ? request.bankName.trim()
-      : '';
+    const bankName =
+      typeof request.bankName === 'string' ? request.bankName.trim() : '';
     if (bankName.length >= 2) {
       result.bankName = bankName;
     }
   }
 
   if (request.bankAccountNo !== undefined) {
-    const bankAccountNo = typeof request.bankAccountNo === 'string'
-      ? request.bankAccountNo.replace(/\s+/g, '')
-      : '';
+    const bankAccountNo =
+      typeof request.bankAccountNo === 'string'
+        ? request.bankAccountNo.replace(/\s+/g, '')
+        : '';
     if (/^\d{10,30}$/.test(bankAccountNo)) {
       result.bankAccountNo = bankAccountNo;
     }
@@ -1167,7 +1199,11 @@ function normalizeDriverBankCardId(cardId: unknown): string {
 }
 
 function throwInvalidBankCardRequest(message: string): never {
-  throw new PlatformApiError(message, 'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID', 0);
+  throw new PlatformApiError(
+    message,
+    'PLATFORM_DRIVER_BANK_CARD_REQUEST_INVALID',
+    0,
+  );
 }
 
 function normalizeOptionalDriverFileIds(
@@ -1295,6 +1331,7 @@ function normalizeDriverOrderMutationIdempotencyKey(
     | 'PLATFORM_DRIVER_ORDER_ACCEPT_INVALID'
     | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
     | 'PLATFORM_DRIVER_ORDER_CANCEL_INVALID'
+    | 'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID'
     | 'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
@@ -1410,7 +1447,9 @@ function normalizeDriverOrderMutationBaseUpdatedAtIso(
 
   if (
     !normalizedValue ||
-    !PLATFORM_DRIVER_ORDER_DATE_TIME_WITH_OFFSET_PATTERN.test(normalizedValue) ||
+    !PLATFORM_DRIVER_ORDER_DATE_TIME_WITH_OFFSET_PATTERN.test(
+      normalizedValue,
+    ) ||
     Number.isNaN(Date.parse(normalizedValue))
   ) {
     throw new PlatformApiError(
@@ -1451,8 +1490,7 @@ function assertPositiveInteger(
   fieldName: string,
   errorCode:
     | 'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID'
-    | 'PLATFORM_DRIVER_WITHDRAWALS_QUERY_INVALID' =
-    'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID',
+    | 'PLATFORM_DRIVER_WITHDRAWALS_QUERY_INVALID' = 'PLATFORM_DRIVER_ORDER_HALL_QUERY_INVALID',
 ) {
   if (!Number.isInteger(value) || value < 1) {
     throw new PlatformApiError(
@@ -1522,11 +1560,7 @@ function normalizeOptionalDriverString(
 }
 
 function throwInvalidQuoteRequest(message: string): never {
-  throw new PlatformApiError(
-    message,
-    'PLATFORM_DRIVER_ORDER_QUOTE_INVALID',
-    0,
-  );
+  throw new PlatformApiError(message, 'PLATFORM_DRIVER_ORDER_QUOTE_INVALID', 0);
 }
 
 function throwInvalidStatusRequest(message: string): never {

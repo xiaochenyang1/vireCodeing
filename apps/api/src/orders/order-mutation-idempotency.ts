@@ -12,6 +12,7 @@ export const ORDER_MUTATION_OPERATIONS = [
   'driver_accept',
   'driver_status',
   'driver_cancel',
+  'driver_evaluation_reply',
 ] as const;
 
 export const ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION =
@@ -54,6 +55,16 @@ export function createOrderMutationFingerprint(
     .digest('hex');
 }
 
+export function createDriverEvaluationReplyFingerprint(
+  orderId: string,
+  request: { evaluationEventId: string; content: string },
+) {
+  return createOrderMutationFingerprint(orderId.trim(), {
+    evaluationEventId: request.evaluationEventId.trim(),
+    content: request.content.trim(),
+  });
+}
+
 export function createAdminOrderBatchCancelFingerprint(request: unknown) {
   return createHash('sha256')
     .update(
@@ -70,9 +81,7 @@ export function createAdminOrderBatchCancelFingerprint(request: unknown) {
 export function createOrderCreateFingerprint(request: unknown) {
   return createHash('sha256')
     .update(
-      JSON.stringify(
-        sortJsonValue({ operation: 'shipper_create', request }),
-      ),
+      JSON.stringify(sortJsonValue({ operation: 'shipper_create', request })),
     )
     .digest('hex');
 }

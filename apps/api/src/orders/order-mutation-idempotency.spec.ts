@@ -2,6 +2,7 @@ import { ApiErrorCode, BusinessError } from '../common/errors';
 import {
   ORDER_IDEMPOTENCY_OPERATIONS,
   ORDER_MUTATION_OPERATIONS,
+  createDriverEvaluationReplyFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
   createOrderMutationIdempotencyConfigFromEnv,
@@ -26,9 +27,7 @@ describe('order mutation idempotency', () => {
   });
 
   it('creates a stable fingerprint from normalized object keys', () => {
-    expect(
-      createOrderMutationFingerprint('order-1', { b: 2, a: ' x ' }),
-    ).toBe(
+    expect(createOrderMutationFingerprint('order-1', { b: 2, a: ' x ' })).toBe(
       createOrderMutationFingerprint('order-1', {
         a: ' x ',
         b: 2,
@@ -39,13 +38,34 @@ describe('order mutation idempotency', () => {
   it('changes the fingerprint when order id or request changes', () => {
     expect(
       createOrderMutationFingerprint('order-1', { a: 'x', b: 2 }),
-    ).not.toBe(
-      createOrderMutationFingerprint('order-2', { a: 'x', b: 2 }),
-    );
+    ).not.toBe(createOrderMutationFingerprint('order-2', { a: 'x', b: 2 }));
     expect(
       createOrderMutationFingerprint('order-1', { a: 'x', b: 2 }),
+    ).not.toBe(createOrderMutationFingerprint('order-1', { a: 'x', b: 3 }));
+  });
+
+  it('normalizes evaluation reply fingerprint fields', () => {
+    expect(
+      createDriverEvaluationReplyFingerprint('  order-1  ', {
+        evaluationEventId: '  evaluation-1  ',
+        content: '  谢谢认可。  ',
+      }),
+    ).toBe(
+      createDriverEvaluationReplyFingerprint('order-1', {
+        evaluationEventId: 'evaluation-1',
+        content: '谢谢认可。',
+      }),
+    );
+    expect(
+      createDriverEvaluationReplyFingerprint('order-2', {
+        evaluationEventId: 'evaluation-1',
+        content: '谢谢认可。',
+      }),
     ).not.toBe(
-      createOrderMutationFingerprint('order-1', { a: 'x', b: 3 }),
+      createDriverEvaluationReplyFingerprint('order-1', {
+        evaluationEventId: 'evaluation-1',
+        content: '谢谢认可。',
+      }),
     );
   });
 
@@ -74,6 +94,7 @@ describe('order mutation idempotency', () => {
       'driver_accept',
       'driver_status',
       'driver_cancel',
+      'driver_evaluation_reply',
     ]);
   });
 
@@ -89,6 +110,7 @@ describe('order mutation idempotency', () => {
       'driver_accept',
       'driver_status',
       'driver_cancel',
+      'driver_evaluation_reply',
     ]);
   });
 

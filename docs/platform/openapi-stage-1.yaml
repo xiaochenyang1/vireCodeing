@@ -6329,9 +6329,10 @@ paths:
   /driver/orders/{orderId}/evaluation-reply:
     post:
       summary: Reply to a shipper evaluation
-      description: Appends an evaluation_replied event to an order accepted by the current driver. evaluationEventId must still identify the latest shipper evaluation_submitted event when the repository claims the order write; stale or mismatched targets return ORDER_CONFLICT. The order status is not changed.
+      description: Requires Idempotency-Key and has no optimistic-concurrency baseline. The evaluation reply request body does not contain baseUpdatedAtIso. On the first attempt, evaluationEventId must identify the latest shipper evaluation_submitted event when the repository claims the order write; stale or mismatched targets return ORDER_CONFLICT. Reusing the same Idempotency-Key with the same normalized evaluationEventId and content replays the first successful order snapshot without appending another evaluation_replied event, even if a newer shipper evaluation is submitted later. Reusing the key for a different request is rejected. The order status is not changed.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -6353,6 +6354,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key or request body is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: IDEMPOTENCY_KEY_INVALID
+                message: Idempotency-Key 无效
+                requestId: req_local
+                timestamp: '2026-07-09T08:29:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -6382,12 +6394,26 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
         '409':
-          description: The order has not received a shipper evaluation yet, or the targeted evaluation is stale or mismatched
+          description: The idempotency key cannot be replayed, the order has not received a shipper evaluation yet, or the targeted evaluation is stale or mismatched
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
+                keyReused:
+                  summary: Same key reused for different evaluation reply content or target
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:28:00.000Z'
+                keyExpired:
+                  summary: Successful reply replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-10T08:28:00.000Z'
                 evaluationMissing:
                   summary: No shipper evaluation exists
                   value:
@@ -7692,7 +7718,7 @@ components:
         type: string
         format: uuid
         maxLength: 64
-      description: Required UUID idempotency key for order creation, protected versioned order mutations and admin coupon issuance. Creation has no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
+      description: Required UUID idempotency key for order creation, protected versioned order mutations, evaluation replies and admin coupon issuance. Order creation and evaluation replies have no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
       example: 550e8400-e29b-41d4-a716-446655440000
   securitySchemes:
     bearerAuth:

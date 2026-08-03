@@ -5,17 +5,20 @@ import {
   writeJsonStorage,
 } from './storage';
 
-const DRIVER_EVALUATION_REPLY_QUEUE_VERSION = 2;
+const DRIVER_EVALUATION_REPLY_QUEUE_VERSION = 3;
 const LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY =
   '@vireCodeing/driver-evaluation-reply-queue';
 const DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY_PREFIX =
   LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY;
 const ISO_DATE_TIME_WITH_OFFSET_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const driverEvaluationReplyQueueStorageTails = new Map<string, Promise<void>>();
 
 export type DriverEvaluationReplyQueueItem = {
   driverAccountId: string;
+  idempotencyKey: string;
   orderId: string;
   orderNo: string;
   evaluationEventId: string;
@@ -155,6 +158,7 @@ function isValidQueueItem(
 
   return (
     item.driverAccountId === driverAccountId &&
+    UUID_V4_PATTERN.test(item.idempotencyKey ?? '') &&
     isNonEmptyString(item.orderId) &&
     isNonEmptyString(item.orderNo) &&
     isNonEmptyString(item.evaluationEventId) &&

@@ -3,9 +3,9 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 
 describe('platform driver order api', () => {
   it('lists driver exception cases with a normalized order id', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ items: [], total: 0 }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(createJsonResponse({ items: [], total: 0 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = createPlatformDriverOrderApi({
       baseUrl: 'http://localhost:3000/api',
@@ -69,9 +69,11 @@ describe('platform driver order api', () => {
   });
 
   it('appeals a resolved driver exception case with normalized ids and reason', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'case-1', status: 'processing' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'case-1', status: 'processing' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const api = createPlatformDriverOrderApi({
       baseUrl: 'http://localhost:3000/api',
@@ -116,12 +118,14 @@ describe('platform driver order api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await expect(api.listOrderHall({ page: 2, pageSize: 10 })).resolves.toEqual({
-      items: [],
-      page: 1,
-      pageSize: 20,
-      total: 0,
-    });
+    await expect(api.listOrderHall({ page: 2, pageSize: 10 })).resolves.toEqual(
+      {
+        items: [],
+        page: 1,
+        pageSize: 20,
+        total: 0,
+      },
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/order-hall?page=2&pageSize=10',
       expect.objectContaining({
@@ -134,9 +138,11 @@ describe('platform driver order api', () => {
   });
 
   it('quotes a driver order with a normalized request', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', orderNo: 'HY202607060001' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', orderNo: 'HY202607060001' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -164,9 +170,11 @@ describe('platform driver order api', () => {
   });
 
   it('accepts a driver order with an optional note', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'loading' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'loading' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -300,9 +308,11 @@ describe('platform driver order api', () => {
   });
 
   it('creates a driver withdrawal with a normalized request', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'withdrawal-1', status: 'reviewing' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'withdrawal-1', status: 'reviewing' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -406,9 +416,11 @@ describe('platform driver order api', () => {
   });
 
   it('gets current driver order detail', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'transporting' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'transporting' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -427,9 +439,11 @@ describe('platform driver order api', () => {
   });
 
   it('advances current driver order status with a normalized request', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'transporting' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'transporting' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -463,9 +477,11 @@ describe('platform driver order api', () => {
   });
 
   it('advances current driver order status with normalized receipt proof file ids', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'transporting' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'transporting' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -474,11 +490,15 @@ describe('platform driver order api', () => {
     });
     const mutationContext = createDriverOrderMutationContext();
 
-    await api.advanceOrderStatus(' order-1 ', {
-      baseUpdatedAtIso: `  ${mutationContext.baseUpdatedAtIso}  `,
-      nextStatus: 'transporting',
-      receiptPhotoFileIds: [' file-receipt-1 ', 'file-receipt-1'],
-    }, `  ${mutationContext.idempotencyKey}  `);
+    await api.advanceOrderStatus(
+      ' order-1 ',
+      {
+        baseUpdatedAtIso: `  ${mutationContext.baseUpdatedAtIso}  `,
+        nextStatus: 'transporting',
+        receiptPhotoFileIds: [' file-receipt-1 ', 'file-receipt-1'],
+      },
+      `  ${mutationContext.idempotencyKey}  `,
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/status',
@@ -538,18 +558,12 @@ describe('platform driver order api', () => {
       { typeLabel: '', description: '装货时发现外包装已经破损。' },
       'blank type',
     ],
-    [
-      { typeLabel: '货物损坏', description: '太短' },
-      'short description',
-    ],
+    [{ typeLabel: '货物损坏', description: '太短' }, 'short description'],
     [
       {
         typeLabel: '货物损坏',
         description: '装货时发现外包装已经破损。',
-        photoFileIds: Array.from(
-          { length: 7 },
-          (_, index) => `file-${index}`,
-        ),
+        photoFileIds: Array.from({ length: 7 }, (_, index) => `file-${index}`),
       },
       'too many files',
     ],
@@ -573,9 +587,11 @@ describe('platform driver order api', () => {
   );
 
   it('replies to a driver evaluation with normalized content', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'completed' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'completed' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -583,15 +599,22 @@ describe('platform driver order api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await api.replyToEvaluation(' order-1 ', {
-      evaluationEventId: ' event-evaluation-1 ',
-      content: '  谢谢认可  ',
-    });
+    await api.replyToEvaluation(
+      ' order-1 ',
+      {
+        evaluationEventId: ' event-evaluation-1 ',
+        content: '  谢谢认可  ',
+      },
+      ' 550e8400-e29b-41d4-a716-446655440113 ',
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/evaluation-reply',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': '550e8400-e29b-41d4-a716-446655440113',
+        }),
         body: JSON.stringify({
           evaluationEventId: 'event-evaluation-1',
           content: '谢谢认可',
@@ -601,9 +624,11 @@ describe('platform driver order api', () => {
   });
 
   it('submits a driver evaluation for the shipper with normalized content', async () => {
-    const fetchMock = jest.fn().mockResolvedValue(
-      createJsonResponse({ id: 'order-1', status: 'completed' }),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(
+        createJsonResponse({ id: 'order-1', status: 'completed' }),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const api = createPlatformDriverOrderApi({
@@ -637,9 +662,26 @@ describe('platform driver order api', () => {
   });
 
   it.each([
-    ['invalid rating', { rating: 0, tags: ['沟通顺畅'], content: '货主装货配合好，结算沟通清楚。' }],
-    ['empty tags', { rating: 5, tags: [], content: '货主装货配合好，结算沟通清楚。' }],
-    ['full-width semicolon tag', { rating: 5, tags: ['沟通；顺畅'], content: '货主装货配合好，结算沟通清楚。' }],
+    [
+      'invalid rating',
+      {
+        rating: 0,
+        tags: ['沟通顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+      },
+    ],
+    [
+      'empty tags',
+      { rating: 5, tags: [], content: '货主装货配合好，结算沟通清楚。' },
+    ],
+    [
+      'full-width semicolon tag',
+      {
+        rating: 5,
+        tags: ['沟通；顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+      },
+    ],
     ['short content', { rating: 5, tags: ['沟通顺畅'], content: '太短' }],
     [
       'too many photo ids',
@@ -680,10 +722,7 @@ describe('platform driver order api', () => {
   );
 
   it.each([
-    [
-      'blank event id',
-      { evaluationEventId: '   ', content: '谢谢认可' },
-    ],
+    ['blank event id', { evaluationEventId: '   ', content: '谢谢认可' }],
     [
       'blank content',
       { evaluationEventId: 'event-evaluation-1', content: '   ' },
@@ -718,6 +757,39 @@ describe('platform driver order api', () => {
             evaluationEventId: string;
             content: string;
           },
+          '550e8400-e29b-41d4-a716-446655440113',
+        ),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
+        status: 0,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['missing', undefined],
+    ['blank', '   '],
+    ['malformed', 'not-a-uuid'],
+  ])(
+    'rejects a %s evaluation reply idempotency key before sending',
+    async (_caseName, idempotencyKey) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.replyToEvaluation(
+          'order-1',
+          {
+            evaluationEventId: 'event-evaluation-1',
+            content: '谢谢认可',
+          },
+          idempotencyKey as string,
         ),
       ).rejects.toMatchObject({
         code: 'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
@@ -738,10 +810,14 @@ describe('platform driver order api', () => {
     const mutationContext = createDriverOrderMutationContext();
 
     await expect(
-      api.advanceOrderStatus('order-1', {
-        baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
-        nextStatus: 'completed' as 'transporting',
-      }, mutationContext.idempotencyKey),
+      api.advanceOrderStatus(
+        'order-1',
+        {
+          baseUpdatedAtIso: mutationContext.baseUpdatedAtIso,
+          nextStatus: 'completed' as 'transporting',
+        },
+        mutationContext.idempotencyKey,
+      ),
     ).rejects.toMatchObject(
       new PlatformApiError(
         'Platform driver nextStatus is invalid',
@@ -826,12 +902,15 @@ describe('platform driver order api', () => {
     });
 
     await expect(
-      api.createWithdrawal({
-        amountCents: 50,
-        bankAccountName: '李师傅',
-        bankName: '招商银行',
-        bankAccountNo: '1234',
-      }, '550e8400-e29b-41d4-a716-446655440112'),
+      api.createWithdrawal(
+        {
+          amountCents: 50,
+          bankAccountName: '李师傅',
+          bankName: '招商银行',
+          bankAccountNo: '1234',
+        },
+        '550e8400-e29b-41d4-a716-446655440112',
+      ),
     ).rejects.toMatchObject(
       new PlatformApiError(
         'Platform driver amountCents is invalid',

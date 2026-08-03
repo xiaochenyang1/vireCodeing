@@ -9,7 +9,10 @@ import {
   createDriverWithdrawalFingerprint,
   type DriverFinanceRepository,
 } from '../payments/driver-finance.repository';
-import { createOrderMutationFingerprint } from '../orders/order-mutation-idempotency';
+import {
+  createDriverEvaluationReplyFingerprint,
+  createOrderMutationFingerprint,
+} from '../orders/order-mutation-idempotency';
 import type {
   ExecuteOrderMutationResult,
   OrdersRepository,
@@ -65,9 +68,10 @@ export class DriverOrdersService {
     query: DriverOrderHallQuery,
   ): Promise<DriverOrderHallResult> {
     this.assertDriver(currentUser);
-    const acceptanceSettings = await this.acceptanceSettingsRepository.getAcceptanceSettings(
-      currentUser.id,
-    );
+    const acceptanceSettings =
+      await this.acceptanceSettingsRepository.getAcceptanceSettings(
+        currentUser.id,
+      );
     const driverLocation = this.mapsService
       ? await this.mapsService.getDriverLocation(currentUser.id)
       : null;
@@ -94,7 +98,9 @@ export class DriverOrdersService {
   async getAcceptanceSettings(currentUser: AuthenticatedUser) {
     this.assertDriver(currentUser);
 
-    return this.acceptanceSettingsRepository.getAcceptanceSettings(currentUser.id);
+    return this.acceptanceSettingsRepository.getAcceptanceSettings(
+      currentUser.id,
+    );
   }
 
   async saveAcceptanceSettings(
@@ -197,10 +203,7 @@ export class DriverOrdersService {
   ): Promise<DriverBankCardRecord> {
     this.assertDriver(currentUser);
 
-    return this.driverBankCardsRepository.createBankCard(
-      currentUser.id,
-      input,
-    );
+    return this.driverBankCardsRepository.createBankCard(currentUser.id, input);
   }
 
   async updateBankCard(
@@ -479,7 +482,10 @@ export class DriverOrdersService {
       throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
     }
 
-    await this.assertReceiptProofFiles(currentUser.id, input.receiptPhotoFileIds);
+    await this.assertReceiptProofFiles(
+      currentUser.id,
+      input.receiptPhotoFileIds,
+    );
 
     const { baseUpdatedAtIso, ...mutationInput } = input;
 
@@ -515,9 +521,29 @@ export class DriverOrdersService {
   async replyToEvaluation(
     currentUser: AuthenticatedUser,
     orderId: string,
+    idempotencyKey: string,
     input: DriverReplyEvaluationRequest,
   ): Promise<ShipperOrderRecord> {
     this.assertDriver(currentUser);
+    const requestFingerprint = createDriverEvaluationReplyFingerprint(
+      orderId,
+      input,
+    );
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_evaluation_reply',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '订单尚未收到货主评价',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
     const order = await this.getOrder(currentUser, orderId);
 
     if (!hasSubmittedEvaluation(order)) {
@@ -527,11 +553,22 @@ export class DriverOrdersService {
       );
     }
 
-    return this.ordersRepository.replyToOrderEvaluation(
-      order.id,
-      currentUser.id,
-      input,
-    );
+    return this.unwrapOrderMutationResult(
+      await this.ordersRepository.executeIdempotentOrderMutation({
+        actorUserId: currentUser.id,
+        orderId: order.id,
+        operation: 'driver_evaluation_reply',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: order.updatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'driver_evaluation_reply',
+          input,
+        },
+      }),
+      '订单尚未收到货主评价',
+    ).order;
   }
 
   async reportException(
@@ -606,8 +643,9 @@ export class DriverOrdersService {
   }
 
   private async assertDriverCertified(driverId: string) {
-    const certification =
-      await this.certificationRepository.getCertification(driverId);
+    const certification = await this.certificationRepository.getCertification(
+      driverId,
+    );
 
     if (
       certification.identity.status !== 'approved' ||
@@ -704,7 +742,10 @@ export class DriverOrdersService {
     }
 
     if (!this.filesRepository) {
-      throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, options.notFoundMessage);
+      throw new BusinessError(
+        ApiErrorCode.FILE_NOT_FOUND,
+        options.notFoundMessage,
+      );
     }
 
     for (const fileId of fileIds) {
@@ -714,7 +755,10 @@ export class DriverOrdersService {
       );
 
       if (!file) {
-        throw new BusinessError(ApiErrorCode.FILE_NOT_FOUND, options.notFoundMessage);
+        throw new BusinessError(
+          ApiErrorCode.FILE_NOT_FOUND,
+          options.notFoundMessage,
+        );
       }
 
       if (file.status !== 'uploaded') {
@@ -796,8 +840,9 @@ export class DriverOrdersService {
     input: ResolveExistingOrderMutationInput,
     stateInvalidMessage: string,
   ) {
-    const result =
-      await this.ordersRepository.resolveExistingOrderMutation(input);
+    const result = await this.ordersRepository.resolveExistingOrderMutation(
+      input,
+    );
 
     return result
       ? this.unwrapOrderMutationResult(result, stateInvalidMessage).order
@@ -852,17 +897,14 @@ export class DriverOrdersService {
     return {
       driverId: currentUser.id,
       driverName:
-        certification.identity.realName?.trim() ||
-        `平台司机 ${currentUser.id}`,
-      driverPhone:
-        certification.driver.phone?.trim() || currentUser.phone,
+        certification.identity.realName?.trim() || `平台司机 ${currentUser.id}`,
+      driverPhone: certification.driver.phone?.trim() || currentUser.phone,
       ...(vehicleType ? { vehicleType } : {}),
       ...(vehicleLengthText ? { vehicleLengthText } : {}),
       ...(plateNumber ? { plateNumber } : {}),
       completedOrderCount,
     };
   }
-
 }
 
 function hasSubmittedEvaluation(order: ShipperOrderRecord) {
@@ -871,8 +913,6 @@ function hasSubmittedEvaluation(order: ShipperOrderRecord) {
 
 function isDriverExecutingOrderStatus(status: ShipperOrderRecord['status']) {
   return (
-    status === 'loading' ||
-    status === 'transporting' ||
-    status === 'confirming'
+    status === 'loading' || status === 'transporting' || status === 'confirming'
   );
 }

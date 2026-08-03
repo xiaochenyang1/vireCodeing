@@ -186,7 +186,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Register with phone and verification code');
     expect(source).toContain('#/components/schemas/RegisterRequest');
     expect(source).toContain('#/components/schemas/RegisterResponse');
-    expect(source).toContain('required: [phone, code, userType, deviceId, password]');
+    expect(source).toContain(
+      'required: [phone, code, userType, deviceId, password]',
+    );
     expect(source).toContain('密码需至少 6 位并包含字母和数字');
   });
 
@@ -325,8 +327,16 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('AdminAuthSessionRiskLevel:');
     expect(source).toContain('AdminAuthSessionRiskContext:');
     expect(source).toContain('AdminAuthSessionRiskSummary:');
-    expectSchemaBlockToContain(source, 'AdminAuthSessionRecord', "example: '139****9000'");
-    expectSchemaBlockToContain(source, 'AdminAuthSessionRecord', 'adm**************ice');
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthSessionRecord',
+      "example: '139****9000'",
+    );
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthSessionRecord',
+      'adm**************ice',
+    );
     expect(source).toContain('shared_device');
     expect(source).toContain('high_session_volume');
     expect(source).toContain('admin_multi_device');
@@ -440,11 +450,7 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/auth/accounts/export',
       'Export admin auth accounts as csv',
     );
-    expectPathBlockToContain(
-      source,
-      '/admin/auth/accounts/export',
-      'text/csv',
-    );
+    expectPathBlockToContain(source, '/admin/auth/accounts/export', 'text/csv');
     expectPathBlockToContain(
       source,
       '/admin/auth/accounts/export',
@@ -607,7 +613,11 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('activeSessionCount');
     expect(source).toContain('activeDeviceCount');
     expect(source).toContain('latestSessionCreatedAtIso');
-    expectSchemaBlockToContain(source, 'AdminAuthAccountRecord', "example: '138****8001'");
+    expectSchemaBlockToContain(
+      source,
+      'AdminAuthAccountRecord',
+      "example: '138****8001'",
+    );
     expect(source).toContain('disabledUserCount');
     expect(source).toContain('highRiskUserCount');
     expect(source).toContain('statusBreakdown');
@@ -627,7 +637,11 @@ describe('stage 1 OpenAPI contract', () => {
     const path = '/files/maintenance/batch-governance';
 
     expect(source).toContain(`${path}:`);
-    expectPathBlockToContain(source, path, 'Run file maintenance batch governance');
+    expectPathBlockToContain(
+      source,
+      path,
+      'Run file maintenance batch governance',
+    );
     expectPathBlockToContain(source, path, 'bearerAuth: []');
     expectPathBlockToContain(
       source,
@@ -709,9 +723,7 @@ describe('stage 1 OpenAPI contract', () => {
 
     expect(source).toContain('RequestIdHeader:');
     expect(source).toContain('name: x-request-id');
-    expect(source).toContain(
-      "$ref: '#/components/parameters/RequestIdHeader'",
-    );
+    expect(source).toContain("$ref: '#/components/parameters/RequestIdHeader'");
   });
 
   it('documents shipper order endpoints', () => {
@@ -770,11 +782,7 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/orders/export',
       'Export admin orders as csv',
     );
-    expectPathBlockToContain(
-      source,
-      '/admin/orders/export',
-      'text/csv',
-    );
+    expectPathBlockToContain(source, '/admin/orders/export', 'text/csv');
     expectPathBlockToContain(
       source,
       '/admin/orders/export',
@@ -864,7 +872,11 @@ describe('stage 1 OpenAPI contract', () => {
       '/admin/orders/batch-cancel',
       "$ref: '#/components/responses/AdminOnlyError'",
     );
-    expectPathBlockToContain(source, '/admin/orders/attachments', 'name: status');
+    expectPathBlockToContain(
+      source,
+      '/admin/orders/attachments',
+      'name: status',
+    );
     expectPathBlockToContain(
       source,
       '/admin/orders/attachments',
@@ -1005,7 +1017,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('DriverEvaluateShipperRequest');
     expect(source).toContain('DriverReportOrderExceptionRequest');
     expect(source).toContain('driver_exception_reported');
-    expect(source).toContain('Driver exception files may return FILE_NOT_FOUND, FILE_STATE_INVALID or FILE_PURPOSE_INVALID.');
+    expect(source).toContain(
+      'Driver exception files may return FILE_NOT_FOUND, FILE_STATE_INVALID or FILE_PURPOSE_INVALID.',
+    );
     expect(source).toContain('SaveDriverAcceptanceSettingsRequest');
     expect(source).toContain('CreateDriverWithdrawalRequest');
     expect(source).toContain('availableWithdrawalCents');
@@ -1102,6 +1116,34 @@ describe('stage 1 OpenAPI contract', () => {
     );
   });
 
+  it('documents idempotent evaluation replies without a mutation baseline', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/driver/orders/{orderId}/evaluation-reply';
+
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'The evaluation reply request body does not contain baseUpdatedAtIso.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'replays the first successful order snapshot without appending another evaluation_replied event, even if a newer shipper evaluation is submitted later.',
+    );
+    expectPathBlockToContain(source, path, "'400':");
+    expectPathBlockToContain(source, path, "'409':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_INVALID');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_EXPIRED');
+    expectPathBlockToContain(source, path, 'ORDER_CONFLICT');
+    expectPathBlockToContain(source, path, 'ORDER_STATE_INVALID');
+  });
+
   it('documents idempotent shipper order creation without a mutation baseline', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
@@ -1165,7 +1207,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/shipper/orders/{orderId}/exception-cases:');
     expect(source).toContain('/driver/orders/{orderId}/exception-cases:');
     expect(source).toContain('/admin/order-exception-cases:');
-    expect(source).toContain('/admin/order-exception-cases/overdue-escalations/sweep:');
+    expect(source).toContain(
+      '/admin/order-exception-cases/overdue-escalations/sweep:',
+    );
     expect(source).toContain('/admin/order-exception-cases/{caseId}:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/claim:');
     expect(source).toContain('/admin/order-exception-cases/{caseId}/takeover:');
@@ -1180,7 +1224,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ClaimOrderExceptionCaseRequest');
     expect(source).toContain('AssignOrderExceptionCaseRequest');
     expect(source).toContain('OrderExceptionCaseOverdueEscalationSweep');
-    expect(source).toContain('OrderExceptionCaseOverdueEscalationSweepResponse');
+    expect(source).toContain(
+      'OrderExceptionCaseOverdueEscalationSweepResponse',
+    );
     expect(source).toContain('OrderExceptionCaseStatus');
     expect(source).toContain('OrderExceptionCaseCompensationStatus');
     expect(source).toContain('OrderExceptionCaseSourceRole');
@@ -1398,11 +1444,17 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('SubmitDriverIdentityCertificationRequest');
     expect(source).toContain('SubmitDriverVehicleCertificationRequest');
     expect(source).toContain('unsubmitted, reviewing, approved, rejected');
-    expect(source).toContain('Certification file ids must belong to the current driver, be uploaded, and use identity purpose.');
+    expect(source).toContain(
+      'Certification file ids must belong to the current driver, be uploaded, and use identity purpose.',
+    );
     expect(source).toContain('FILE_PURPOSE_INVALID');
     expect(source).toContain('认证附件用途不匹配');
-    expect(source).toContain('required: [realName, identityNumber, identityFrontFileId, identityBackFileId]');
-    expect(source).toContain('required: [plateNumber, vehicleType, vehicleLengthText, loadCapacityText, hasTailboard, drivingLicenseFileId, driverLicenseFileId, transportQualificationFileId, operationPermitFileId, vehiclePhotoFileId]');
+    expect(source).toContain(
+      'required: [realName, identityNumber, identityFrontFileId, identityBackFileId]',
+    );
+    expect(source).toContain(
+      'required: [plateNumber, vehicleType, vehicleLengthText, loadCapacityText, hasTailboard, drivingLicenseFileId, driverLicenseFileId, transportQualificationFileId, operationPermitFileId, vehiclePhotoFileId]',
+    );
     expect(source).toContain('driverLicenseFileId');
     expect(source).toContain('transportQualificationFileId');
     expect(source).toContain('operationPermitFileId');
@@ -1415,7 +1467,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('司机当前处于离线接单状态');
     expect(source).toContain('DRIVER_CERTIFICATION_REQUIRED');
     expect(source).toContain('司机实名和车辆认证通过后才能接单');
-    expect(source).toContain('Driver identity or vehicle certification is not approved');
+    expect(source).toContain(
+      'Driver identity or vehicle certification is not approved',
+    );
   });
 
   it('documents admin driver certification review endpoints', () => {
@@ -1425,12 +1479,22 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/driver-certifications:');
     expect(source).toContain(`${detailPath}:`);
     expect(source).toContain('/admin/driver-certifications/batch-review:');
-    expect(source).toContain('/admin/driver-certifications/{driverId}/identity/review:');
-    expect(source).toContain('/admin/driver-certifications/{driverId}/vehicle/review:');
-    expect(source).toContain('/admin/driver-certifications/{driverId}/attachments:');
-    expect(source).toContain('/admin/driver-certifications/{driverId}/review-events:');
+    expect(source).toContain(
+      '/admin/driver-certifications/{driverId}/identity/review:',
+    );
+    expect(source).toContain(
+      '/admin/driver-certifications/{driverId}/vehicle/review:',
+    );
+    expect(source).toContain(
+      '/admin/driver-certifications/{driverId}/attachments:',
+    );
+    expect(source).toContain(
+      '/admin/driver-certifications/{driverId}/review-events:',
+    );
     expect(source).toContain('List driver certifications for admin review');
-    expect(source).toContain('Get driver certification detail for admin review');
+    expect(source).toContain(
+      'Get driver certification detail for admin review',
+    );
     expectPathBlockToContain(
       source,
       detailPath,
@@ -1514,7 +1578,9 @@ describe('stage 1 OpenAPI contract', () => {
       'Valid repeated callbacks with matching metadata are idempotent.',
     );
     expect(source).toContain('ConfirmStorageCallbackRequest');
-    expect(source).toContain('required: [fileId, objectKey, byteSize, contentType, signature]');
+    expect(source).toContain(
+      'required: [fileId, objectKey, byteSize, contentType, signature]',
+    );
     expect(source).toContain('FILE_STORAGE_CALLBACK_INVALID');
     expect(source).toContain('对象存储回调签名无效');
     expect(source).toContain('etag');
@@ -1583,11 +1649,7 @@ describe('stage 1 OpenAPI contract', () => {
       '/files/maintenance/files',
       'name: keyword',
     );
-    expectPathBlockToContain(
-      source,
-      '/files/maintenance/files',
-      'name: page',
-    );
+    expectPathBlockToContain(source, '/files/maintenance/files', 'name: page');
     expectPathBlockToContain(
       source,
       '/files/maintenance/files',
@@ -1845,8 +1907,7 @@ describe('stage 1 OpenAPI contract', () => {
   it('documents admin shipper invoice detail, download, and immutable review events', () => {
     const source = readFileSync(openApiPath, 'utf8');
     const detailPath = '/admin/shipper-invoices/{applicationId}';
-    const downloadPath =
-      '/admin/shipper-invoices/{applicationId}/download';
+    const downloadPath = '/admin/shipper-invoices/{applicationId}/download';
     const reviewEventsPath =
       '/admin/shipper-invoices/{applicationId}/review-events';
 
@@ -1873,9 +1934,7 @@ describe('stage 1 OpenAPI contract', () => {
       detailPath,
       'INVOICE_APPLICATION_NOT_FOUND',
     );
-    expect(source).toContain(
-      '/admin/shipper-invoices/{applicationId}/review:',
-    );
+    expect(source).toContain('/admin/shipper-invoices/{applicationId}/review:');
     expect(source).toContain(`${reviewEventsPath}:`);
     expectPathBlockToContain(
       source,
@@ -1899,11 +1958,7 @@ describe('stage 1 OpenAPI contract', () => {
       'ShipperInvoiceReviewEvent',
       'fromStatus',
     );
-    expectSchemaBlockToContain(
-      source,
-      'ShipperInvoiceReviewEvent',
-      'toStatus',
-    );
+    expectSchemaBlockToContain(source, 'ShipperInvoiceReviewEvent', 'toStatus');
     expectPathBlockToContain(
       source,
       '/admin/shipper-invoices/{applicationId}/review',
@@ -2019,11 +2074,7 @@ describe('stage 1 OpenAPI contract', () => {
       detailPath,
       "$ref: '#/components/schemas/AdminEvaluationAuditResponse'",
     );
-    expectPathBlockToContain(
-      source,
-      detailPath,
-      'EVALUATION_AUDIT_NOT_FOUND',
-    );
+    expectPathBlockToContain(source, detailPath, 'EVALUATION_AUDIT_NOT_FOUND');
     expectPathBlockToContain(
       source,
       '/admin/evaluations/{evaluationId}/attachments',
@@ -2069,7 +2120,7 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('ResolveAdminEvaluationAppealRequest');
     expect(source).toContain('EvaluationAppealEventRecord');
     expect(source).toContain(
-      "Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.",
+      'Only uploaded files with purpose=evaluation are returned in items; missing, pending or rejected files are surfaced via missingFileIds.',
     );
     expect(source).toContain('missingFileIds');
     expect(source).toContain('previewUrl');
@@ -2325,7 +2376,9 @@ describe('stage 1 OpenAPI contract', () => {
     const source = readFileSync(openApiPath, 'utf8');
 
     expect(source).toContain('/admin/support-tickets:');
-    expect(source).toContain('/admin/support-tickets/overdue-escalations/sweep:');
+    expect(source).toContain(
+      '/admin/support-tickets/overdue-escalations/sweep:',
+    );
     expect(source).toContain('/admin/support-tickets/{ticketId}:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/claim:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/takeover:');
@@ -2333,10 +2386,14 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('/admin/support-tickets/{ticketId}/unclaim:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/process:');
     expect(source).toContain('/admin/support-tickets/{ticketId}/resolve:');
-    expect(source).toContain('List help-center support tickets for admin handling');
+    expect(source).toContain(
+      'List help-center support tickets for admin handling',
+    );
     expect(source).toContain('Run overdue support-ticket escalation sweep');
     expect(source).toContain('Get help-center support ticket detail');
-    expect(source).toContain('Claim an unclaimed open help-center support ticket');
+    expect(source).toContain(
+      'Claim an unclaimed open help-center support ticket',
+    );
     expect(source).toContain(
       'Force-take over an already claimed open help-center support ticket',
     );
@@ -2354,7 +2411,9 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('SupportTicketOverdueEscalationSweepResponse');
     expect(source).toContain('SupportTicketClaimStatus');
     expect(source).toContain('SUPPORT_TICKET_NOT_FOUND');
-    expect(source).toContain('SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT');
+    expect(source).toContain(
+      'SUPPORT_TICKET_STATE_INVALID or SUPPORT_TICKET_CONFLICT',
+    );
     expect(source).toContain('baseUpdatedAtIso');
     expect(source).toContain('claimedByAdminUserId');
     expect(source).toContain('claimNote');
@@ -2487,31 +2546,19 @@ describe('stage 1 OpenAPI contract', () => {
       'CreatePaymentRequest',
       'enum: [wechat, alipay]',
     );
-    expectSchemaBlockToContain(
-      source,
-      'PaymentOrderRecord',
-      'clientPayload:',
-    );
+    expectSchemaBlockToContain(source, 'PaymentOrderRecord', 'clientPayload:');
     expectSchemaBlockToContain(
       source,
       'PaymentOrderRecord',
       'providerTradeNo:',
     );
-    expectSchemaBlockToContain(
-      source,
-      'PaymentOrderRecord',
-      'refundedAtIso:',
-    );
+    expectSchemaBlockToContain(source, 'PaymentOrderRecord', 'refundedAtIso:');
     expectSchemaBlockToContain(
       source,
       'PaymentOrderRecord',
       'refundedAmountCents:',
     );
-    expectSchemaBlockToContain(
-      source,
-      'PaymentOrderRecord',
-      'netAmountCents:',
-    );
+    expectSchemaBlockToContain(source, 'PaymentOrderRecord', 'netAmountCents:');
     expect(source).toContain('opaque provider payload');
   });
 
@@ -2569,11 +2616,7 @@ describe('stage 1 OpenAPI contract', () => {
       '/callbacks/payment/wechat',
       "$ref: '#/components/schemas/WechatCallbackSuccessAck'",
     );
-    expectPathBlockToContain(
-      source,
-      '/callbacks/payment/alipay',
-      'text/plain',
-    );
+    expectPathBlockToContain(source, '/callbacks/payment/alipay', 'text/plain');
     expectPathBlockToContain(
       source,
       '/callbacks/payment/sandbox',
@@ -2653,11 +2696,7 @@ describe('stage 1 OpenAPI contract', () => {
       'AdminPaymentRecord',
       'requestFingerprint:',
     );
-    expectSchemaBlockNotToContain(
-      source,
-      'AdminPaymentRecord',
-      'orderNo:',
-    );
+    expectSchemaBlockNotToContain(source, 'AdminPaymentRecord', 'orderNo:');
     for (const path of writePaths) {
       expectPathBlockToContain(
         source,
@@ -2718,11 +2757,7 @@ describe('stage 1 OpenAPI contract', () => {
       'BatchReviewAdminWithdrawalsResult',
       'updatedCount:',
     );
-    expectPathBlockToContain(
-      source,
-      batchWritePath,
-      'IDEMPOTENCY_KEY_REUSED',
-    );
+    expectPathBlockToContain(source, batchWritePath, 'IDEMPOTENCY_KEY_REUSED');
     expect(source).toContain('AdminPaymentPageResponse');
     expect(source).toContain('AdminFinanceReportResponse');
     expect(source).toContain('AdminRefundPageResponse');
@@ -2890,11 +2925,7 @@ describe('stage 1 OpenAPI contract', () => {
       '/driver/withdrawals',
       'Same key and same normalized body replay the original withdrawal.',
     );
-    expectSchemaBlockToContain(
-      source,
-      'DriverIncomeSummary',
-      'withdrawnCents',
-    );
+    expectSchemaBlockToContain(source, 'DriverIncomeSummary', 'withdrawnCents');
     expectSchemaBlockToContain(source, 'AdminRefundRecord', 'outboxEvent:');
     expectSchemaBlockToContain(
       source,
@@ -2948,7 +2979,11 @@ describe('stage 1 OpenAPI contract', () => {
   });
 });
 
-function expectPathBlockToContain(source: string, path: string, expected: string) {
+function expectPathBlockToContain(
+  source: string,
+  path: string,
+  expected: string,
+) {
   const pathStart = source.indexOf(`  ${path}:`);
 
   expect(pathStart).toBeGreaterThanOrEqual(0);
@@ -2992,9 +3027,7 @@ function expectSchemaBlockToContain(
   const restSource = source.slice(schemaStart + 1);
   const nextSchemaMatch = /\n {4}[^ ]/.exec(restSource);
   const nextSchemaStart =
-    nextSchemaMatch == null
-      ? -1
-      : schemaStart + 1 + nextSchemaMatch.index + 1;
+    nextSchemaMatch == null ? -1 : schemaStart + 1 + nextSchemaMatch.index + 1;
   const schemaBlock =
     nextSchemaStart === -1
       ? source.slice(schemaStart)
@@ -3015,9 +3048,7 @@ function expectSchemaBlockNotToContain(
   const restSource = source.slice(schemaStart + 1);
   const nextSchemaMatch = /\n {4}[^ ]/.exec(restSource);
   const nextSchemaStart =
-    nextSchemaMatch == null
-      ? -1
-      : schemaStart + 1 + nextSchemaMatch.index + 1;
+    nextSchemaMatch == null ? -1 : schemaStart + 1 + nextSchemaMatch.index + 1;
   const schemaBlock =
     nextSchemaStart === -1
       ? source.slice(schemaStart)

@@ -153,6 +153,10 @@ export type OrderMutationCommand =
         reasonText: string;
         description?: string;
       };
+    }
+  | {
+      type: 'driver_evaluation_reply';
+      input: DriverReplyEvaluationRequest;
     };
 
 export type ExecuteOrderMutationInput = {
@@ -505,11 +509,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const existingRecord = this.findInMemoryIdempotencyRecord(input);
 
     return existingRecord
-      ? mapExistingInMemoryOrderCreateRecord(
-          existingRecord,
-          input,
-          this.now(),
-        )
+      ? mapExistingInMemoryOrderCreateRecord(existingRecord, input, this.now())
       : undefined;
   }
 
@@ -533,13 +533,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return this.nextOrderSequence++;
   }
 
-  private findInMemoryIdempotencyRecord(
-    input: {
-      actorUserId: string;
-      operation: StoredOrderIdempotencyOperation;
-      idempotencyKey: string;
-    },
-  ) {
+  private findInMemoryIdempotencyRecord(input: {
+    actorUserId: string;
+    operation: StoredOrderIdempotencyOperation;
+    idempotencyKey: string;
+  }) {
     return this.orderIdempotencyRecords.find(
       record =>
         record.actorUserId === input.actorUserId &&
@@ -610,7 +608,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
 
   async listAdminOrderExceptionCases(query: OrderExceptionCaseListQuery) {
     const matched = this.exceptionCases.filter(exceptionCase => {
-      const searchable = `${exceptionCase.caseNo} ${exceptionCase.orderNo}`.toLocaleLowerCase();
+      const searchable =
+        `${exceptionCase.caseNo} ${exceptionCase.orderNo}`.toLocaleLowerCase();
       const keyword = query.keyword?.toLocaleLowerCase();
 
       return (
@@ -621,7 +620,8 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         (!query.appealStatus ||
           exceptionCase.appealStatus === query.appealStatus) &&
         (!keyword || searchable.includes(keyword)) &&
-        (!query.createdFromIso || exceptionCase.createdAtIso >= query.createdFromIso) &&
+        (!query.createdFromIso ||
+          exceptionCase.createdAtIso >= query.createdFromIso) &&
         (!query.createdToIso || exceptionCase.createdAtIso < query.createdToIso)
       );
     });
@@ -640,7 +640,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   }
 
   async findOrderExceptionCaseById(caseId: string) {
-    return this.exceptionCases.find(exceptionCase => exceptionCase.id === caseId);
+    return this.exceptionCases.find(
+      exceptionCase => exceptionCase.id === caseId,
+    );
   }
 
   async transitionOrderExceptionCase(
@@ -709,14 +711,19 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       exceptionCase.closedAtIso = updatedAtIso;
     }
 
-    const order = this.orders.find(currentOrder => currentOrder.id === exceptionCase.orderId);
+    const order = this.orders.find(
+      currentOrder => currentOrder.id === exceptionCase.orderId,
+    );
     if (order) {
       if (nextStatus === 'resolved' && appealDecision) {
         order.events.push({
           id: `event-${this.orders.length}-${order.events.length + 1}`,
           actorUserId: adminUserId,
           eventType: `exception_appeal_${appealDecision}`,
-          noteText: createExceptionAppealDecisionNote(appealDecision, input.content),
+          noteText: createExceptionAppealDecisionNote(
+            appealDecision,
+            input.content,
+          ),
           createdAtIso: updatedAtIso,
         });
       }
@@ -760,7 +767,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     });
     exceptionCase.updatedAtIso = updatedAtIso;
 
-    const order = this.orders.find(currentOrder => currentOrder.id === exceptionCase.orderId);
+    const order = this.orders.find(
+      currentOrder => currentOrder.id === exceptionCase.orderId,
+    );
     if (order) {
       order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
     }
@@ -989,7 +998,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       id: `event-${this.orders.length}-${order.events.length + 1}`,
       actorUserId: input.actorUserId,
       eventType: 'exception_appeal_requested',
-      noteText: `${input.actorRole === 'driver' ? '司机' : '货主'}申诉：${input.reason}`,
+      noteText: `${input.actorRole === 'driver' ? '司机' : '货主'}申诉：${
+        input.reason
+      }`,
       createdAtIso: nowIso,
     });
     order.latestExceptionCase = createExceptionCaseSummary(exceptionCase);
@@ -1037,6 +1048,17 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       return { kind: 'conflict' };
     }
 
+    if (
+      input.mutation.type === 'driver_evaluation_reply' &&
+      !isCurrentEvaluationReplyTarget(
+        currentOrder,
+        input.actorUserId,
+        input.mutation.input.evaluationEventId,
+      )
+    ) {
+      return { kind: 'conflict' };
+    }
+
     if (input.mutation.type === 'driver_accept') {
       assertOrderCanEnterDriverHall(currentOrder);
     }
@@ -1045,10 +1067,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       return { kind: 'state-invalid' };
     }
 
-    const updatedAtIso = createNextUpdatedAtIso(
-      currentOrder.updatedAtIso,
-      now,
-    );
+    const updatedAtIso = createNextUpdatedAtIso(currentOrder.updatedAtIso, now);
     const nextOrder = cloneOrderRecord(currentOrder);
     const couponPricing = applyInMemoryOrderCouponMutation(
       stagedCoupons,
@@ -1143,7 +1162,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     const updatedOrders: ShipperOrderRecord[] = [];
 
     for (const item of input.input.items) {
-      const orderIndex = stagedOrders.findIndex(order => order.id === item.orderId);
+      const orderIndex = stagedOrders.findIndex(
+        order => order.id === item.orderId,
+      );
 
       if (orderIndex < 0) {
         throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
@@ -1535,7 +1556,9 @@ export class InMemoryOrdersRepository implements OrdersRepository {
             amountCents: topUpAmountCents,
             basePaymentId: existingPayment.id,
           }),
-          expiresAtIso: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          expiresAtIso: new Date(
+            now.getTime() + 24 * 60 * 60 * 1000,
+          ).toISOString(),
           createdAtIso: nowIso,
           updatedAtIso: nowIso,
         });
@@ -1723,9 +1746,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   async listDriverCompletedOrders(driverId: string) {
     return this.orders
       .filter(
-        order => order.status === 'completed' && isOrderAcceptedByDriver(order, driverId),
+        order =>
+          order.status === 'completed' &&
+          isOrderAcceptedByDriver(order, driverId),
       )
-      .sort((left, right) => right.updatedAtIso.localeCompare(left.updatedAtIso));
+      .sort((left, right) =>
+        right.updatedAtIso.localeCompare(left.updatedAtIso),
+      );
   }
 
   async listDriverPendingSettlementOrders(driverId: string) {
@@ -1735,13 +1762,17 @@ export class InMemoryOrdersRepository implements OrdersRepository {
           ['loading', 'transporting', 'confirming'].includes(order.status) &&
           isOrderAcceptedByDriver(order, driverId),
       )
-      .sort((left, right) => right.updatedAtIso.localeCompare(left.updatedAtIso));
+      .sort((left, right) =>
+        right.updatedAtIso.localeCompare(left.updatedAtIso),
+      );
   }
 
   async findDriverAcceptedOrder(driverId: string, orderId: string) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
-    return order && isOrderAcceptedByDriver(order, driverId) ? order : undefined;
+    return order && isOrderAcceptedByDriver(order, driverId)
+      ? order
+      : undefined;
   }
 
   async advanceDriverOrderStatus(
@@ -2031,7 +2062,10 @@ function isOrderMutationAllowed(
     case 'shipper_cancel':
       return order.status !== 'completed' && order.status !== 'cancelled';
     case 'shipper_status':
-      return canAdvanceOrderStatus(order.status, input.mutation.input.nextStatus);
+      return canAdvanceOrderStatus(
+        order.status,
+        input.mutation.input.nextStatus,
+      );
     case 'shipper_complete':
       return order.status === 'confirming';
     case 'shipper_accept_quote':
@@ -2054,6 +2088,8 @@ function isOrderMutationAllowed(
         (order.status === 'loading' || order.status === 'transporting') &&
         order.assignedDriverId === input.actorUserId
       );
+    case 'driver_evaluation_reply':
+      return true;
     default:
       return false;
   }
@@ -2172,6 +2208,7 @@ function applyInMemoryOrderCouponMutation(
     case 'shipper_add_bonus':
     case 'driver_accept':
     case 'driver_status':
+    case 'driver_evaluation_reply':
       return undefined;
   }
 }
@@ -2215,7 +2252,9 @@ function applyInMemoryOrderFinancialMutation(
   const payment = payments.at(-1);
 
   if (nextPaymentStatus === 'refund_pending') {
-    const escrowedPayments = payments.filter(item => item.status === 'escrowed');
+    const escrowedPayments = payments.filter(
+      item => item.status === 'escrowed',
+    );
     if (escrowedPayments.length === 0) {
       throw new BusinessError(
         ApiErrorCode.REFUND_NOT_AVAILABLE,
@@ -2227,8 +2266,9 @@ function applyInMemoryOrderFinancialMutation(
     const drafts = createCancellationRefundDrafts(
       escrowedPayments.map(escrowedPayment => ({
         payment: escrowedPayment,
-        succeededRefundedCents:
-          financialStore.sumSucceededRefundsByPaymentId(escrowedPayment.id),
+        succeededRefundedCents: financialStore.sumSucceededRefundsByPaymentId(
+          escrowedPayment.id,
+        ),
         hasOpenRefund: Boolean(
           financialStore.findOpenRefundByPaymentId(escrowedPayment.id),
         ),
@@ -2375,10 +2415,7 @@ function applyInMemoryOrderSettlement(
   );
   const entryDrafts =
     currentOrder.paymentMethod === 'online'
-      ? createOnlineSettlementEntries(
-          breakdown,
-          currentOrder.assignedDriverId,
-        )
+      ? createOnlineSettlementEntries(breakdown, currentOrder.assignedDriverId)
       : createOfflineSettlementEntries(
           breakdown,
           currentOrder.assignedDriverId,
@@ -2404,9 +2441,7 @@ function applyInMemoryOrderSettlement(
       transactionId,
       sequence,
       accountType: entry.accountType,
-      ...(entry.accountUserId
-        ? { accountUserId: entry.accountUserId }
-        : {}),
+      ...(entry.accountUserId ? { accountUserId: entry.accountUserId } : {}),
       direction: entry.direction,
       amountCents: entry.amountCents,
       createdAtIso: nowIso,
@@ -2493,14 +2528,11 @@ function redeemInMemoryOrderCoupon(
   const nonCancelledOwners =
     coupon.status === 'usable'
       ? orders.filter(
-          order =>
-            order.couponId === coupon.id && order.status !== 'cancelled',
+          order => order.couponId === coupon.id && order.status !== 'cancelled',
         )
       : [];
   const uniqueNonCancelledOwnerOrderId =
-    nonCancelledOwners.length === 1
-      ? nonCancelledOwners[0].id
-      : undefined;
+    nonCancelledOwners.length === 1 ? nonCancelledOwners[0].id : undefined;
 
   assertCurrentOrderCouponOwnership(coupon, currentOrder, {
     kind: 'redeem-to-used',
@@ -2622,7 +2654,9 @@ function applyInMemoryOrderMutation(
         id: `event-${orderCount}-${order.events.length + 1}`,
         actorUserId: input.actorUserId,
         eventType: 'driver_status_changed',
-        noteText: createDriverStatusAdvanceNote(input.mutation.input.nextStatus),
+        noteText: createDriverStatusAdvanceNote(
+          input.mutation.input.nextStatus,
+        ),
         attachmentFileIds: input.mutation.input.receiptPhotoFileIds ?? [],
         createdAtIso: updatedAtIso,
       });
@@ -2637,6 +2671,15 @@ function applyInMemoryOrderMutation(
           reasonText: `司机取消：${input.mutation.input.reasonText}`,
           description: input.mutation.input.description,
         }),
+        createdAtIso: updatedAtIso,
+      });
+      return;
+    case 'driver_evaluation_reply':
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'evaluation_replied',
+        noteText: input.mutation.input.content,
         createdAtIso: updatedAtIso,
       });
       return;
@@ -2817,13 +2860,11 @@ function mapExistingPrismaOrderCreateRecord(
   );
 }
 
-function createOrderIdempotencyRecordWhereUnique(
-  input: {
-    actorUserId: string;
-    operation: StoredOrderIdempotencyOperation;
-    idempotencyKey: string;
-  },
-) {
+function createOrderIdempotencyRecordWhereUnique(input: {
+  actorUserId: string;
+  operation: StoredOrderIdempotencyOperation;
+  idempotencyKey: string;
+}) {
   return {
     OrderIdempotencyRecord_actor_operation_key_unique: {
       actorUserId: input.actorUserId,
@@ -3055,6 +3096,7 @@ async function applyPrismaOrderCouponMutation(
     case 'shipper_add_bonus':
     case 'driver_accept':
     case 'driver_status':
+    case 'driver_evaluation_reply':
       return undefined;
   }
 }
@@ -3143,10 +3185,7 @@ async function releasePrismaOrderCoupon(
         id: coupon.id,
         shipperId: currentOrder.shipperId,
         status: 'locked',
-        OR: [
-          { lockedOrderNo: currentOrder.orderNo },
-          { lockedOrderNo: null },
-        ],
+        OR: [{ lockedOrderNo: currentOrder.orderNo }, { lockedOrderNo: null }],
       },
       data: {
         status: 'usable',
@@ -3184,10 +3223,14 @@ async function redeemPrismaOrderCoupon(
       owners.length === 1 ? owners[0].id : undefined;
   }
 
-  assertCurrentOrderCouponOwnership(mapPrismaOrderCoupon(coupon), currentOrder, {
-    kind: 'redeem-to-used',
-    uniqueNonCancelledOwnerOrderId,
-  });
+  assertCurrentOrderCouponOwnership(
+    mapPrismaOrderCoupon(coupon),
+    currentOrder,
+    {
+      kind: 'redeem-to-used',
+      uniqueNonCancelledOwnerOrderId,
+    },
+  );
 
   if (coupon.status === 'used') {
     return;
@@ -3270,7 +3313,9 @@ async function applyPrismaOrderFinancialMutation(
   const payment = payments[0];
 
   if (paymentStatus === 'refund_pending') {
-    const escrowedPayments = payments.filter(item => item.status === 'escrowed');
+    const escrowedPayments = payments.filter(
+      item => item.status === 'escrowed',
+    );
     if (escrowedPayments.length === 0) {
       throw new BusinessError(
         ApiErrorCode.REFUND_NOT_AVAILABLE,
@@ -3460,10 +3505,7 @@ async function applyPrismaOrderSettlement(
   );
   const entryDrafts =
     currentOrder.paymentMethod === 'online'
-      ? createOnlineSettlementEntries(
-          breakdown,
-          currentOrder.assignedDriverId,
-        )
+      ? createOnlineSettlementEntries(breakdown, currentOrder.assignedDriverId)
       : createOfflineSettlementEntries(
           breakdown,
           currentOrder.assignedDriverId,
@@ -3569,9 +3611,12 @@ function createPrismaOrderMutationOrderData(
           input.mutation.input.paymentMethod,
           input.mutation.input.pricingMode,
         ),
-        couponId: couponPricing?.couponId ?? input.mutation.input.couponId ?? null,
+        couponId:
+          couponPricing?.couponId ?? input.mutation.input.couponId ?? null,
         couponTitle:
-          couponPricing?.couponTitle ?? input.mutation.input.couponTitle ?? null,
+          couponPricing?.couponTitle ??
+          input.mutation.input.couponTitle ??
+          null,
         couponDiscountCents:
           couponPricing?.couponDiscountCents ??
           input.mutation.input.couponDiscountCents ??
@@ -3631,6 +3676,8 @@ function createPrismaOrderMutationOrderData(
         paymentStatus: financialMutation.paymentStatus,
         updatedAt,
       };
+    case 'driver_evaluation_reply':
+      return { updatedAt };
   }
 }
 
@@ -3749,7 +3796,9 @@ async function applyPrismaOrderMutation(
           orderId: input.orderId,
           actorUserId: input.actorUserId,
           eventType: 'status_changed',
-          noteText: createOrderStatusAdvanceNote(input.mutation.input.nextStatus),
+          noteText: createOrderStatusAdvanceNote(
+            input.mutation.input.nextStatus,
+          ),
           createdAt: updatedAt,
         },
       });
@@ -3805,7 +3854,9 @@ async function applyPrismaOrderMutation(
           orderId: input.orderId,
           actorUserId: input.actorUserId,
           eventType: 'driver_accepted',
-          noteText: serializeDriverAcceptOrderEventPayload(input.mutation.input),
+          noteText: serializeDriverAcceptOrderEventPayload(
+            input.mutation.input,
+          ),
           createdAt: updatedAt,
         },
       });
@@ -3838,13 +3889,30 @@ async function applyPrismaOrderMutation(
         },
       });
       return;
+    case 'driver_evaluation_reply':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'evaluation_replied',
+          noteText: input.mutation.input.content,
+          attachmentFileIds: [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
   }
 }
 
 class OrderMutationTransactionAbortError extends Error {
-  constructor(public readonly result: Exclude<ExecuteOrderMutationResult, {
-    kind: 'success';
-  }>) {
+  constructor(
+    public readonly result: Exclude<
+      ExecuteOrderMutationResult,
+      {
+        kind: 'success';
+      }
+    >,
+  ) {
     super(`Order mutation aborted: ${result.kind}`);
   }
 }
@@ -3919,9 +3987,7 @@ export type PrismaOrdersClient = {
     callback: (transaction: PrismaOrdersTransactionClient) => Promise<T>,
   ): Promise<T>;
   order: {
-    count(args: {
-      where: PrismaOrderWhere;
-    }): Promise<number>;
+    count(args: { where: PrismaOrderWhere }): Promise<number>;
     findMany(args: {
       where: PrismaOrderWhere;
       include: typeof orderInclude;
@@ -3953,7 +4019,9 @@ export type PrismaOrdersClient = {
     create(args: unknown): Promise<unknown>;
   };
   financialAuditLog?: {
-    findUnique(args: unknown): Promise<PrismaExceptionCompensationAuditLog | null>;
+    findUnique(
+      args: unknown,
+    ): Promise<PrismaExceptionCompensationAuditLog | null>;
   };
 };
 
@@ -3972,14 +4040,12 @@ type PrismaOrdersTransactionClient = {
     create(args: unknown): Promise<PrismaOrderRecord>;
     count(args: unknown): Promise<number>;
     findMany: {
-      (args: {
-        where: unknown;
-        include: typeof orderInclude;
-      }): Promise<PrismaOrderRecord[]>;
-      (args: {
-        where: unknown;
-        select: { id: true };
-      }): Promise<Array<{ id: string }>>;
+      (args: { where: unknown; include: typeof orderInclude }): Promise<
+        PrismaOrderRecord[]
+      >;
+      (args: { where: unknown; select: { id: true } }): Promise<
+        Array<{ id: string }>
+      >;
     };
     updateMany(args: unknown): Promise<{ count: number }>;
     update(args: unknown): Promise<PrismaOrderRecord>;
@@ -4039,17 +4105,23 @@ type PrismaOrdersTransactionClient = {
     create(args: unknown): Promise<unknown>;
   };
   financialTransaction: {
-    create(args: unknown): Promise<PrismaExceptionCompensationTransactionRecord>;
+    create(
+      args: unknown,
+    ): Promise<PrismaExceptionCompensationTransactionRecord>;
   };
   financialAuditLog: {
-    findUnique(args: unknown): Promise<PrismaExceptionCompensationAuditLogRecord | null>;
+    findUnique(
+      args: unknown,
+    ): Promise<PrismaExceptionCompensationAuditLogRecord | null>;
     create(args: unknown): Promise<PrismaExceptionCompensationAuditLogRecord>;
   };
   settlement: {
     create(args: unknown): Promise<unknown>;
   };
   driverWallet: {
-    findUnique(args: unknown): Promise<PrismaExceptionCompensationWalletRecord | null>;
+    findUnique(
+      args: unknown,
+    ): Promise<PrismaExceptionCompensationWalletRecord | null>;
     upsert(args: unknown): Promise<PrismaExceptionCompensationWalletRecord>;
   };
 };
@@ -4141,7 +4213,11 @@ type PrismaOrderExceptionCaseRecord = {
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  order: { orderNo: string; shipperId: string; assignedDriverId: string | null };
+  order: {
+    orderNo: string;
+    shipperId: string;
+    assignedDriverId: string | null;
+  };
   actions: Array<{
     id: string;
     adminUserId: string;
@@ -4221,11 +4297,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
           });
 
         if (existingRecord) {
-          return mapExistingPrismaOrderCreateRecord(
-            existingRecord,
-            input,
-            now,
-          );
+          return mapExistingPrismaOrderCreateRecord(existingRecord, input, now);
         }
 
         let couponPricing:
@@ -4267,23 +4339,22 @@ export class PrismaOrdersRepository implements OrdersRepository {
           ),
           include: orderInclude,
         });
-        const reservation =
-          await transaction.orderIdempotencyRecord.create({
-            data: {
-              actorUserId: input.actorUserId,
-              orderId: created.id,
-              operation: input.operation,
-              idempotencyKey: input.idempotencyKey,
-              requestFingerprint: input.requestFingerprint,
-              responseSnapshot: {},
-              createdAt: now,
-              expiresAt: new Date(input.expiresAtIso),
-            },
-          });
+        const reservation = await transaction.orderIdempotencyRecord.create({
+          data: {
+            actorUserId: input.actorUserId,
+            orderId: created.id,
+            operation: input.operation,
+            idempotencyKey: input.idempotencyKey,
+            requestFingerprint: input.requestFingerprint,
+            responseSnapshot: {},
+            createdAt: now,
+            expiresAt: new Date(input.expiresAtIso),
+          },
+        });
 
         if (couponPricing) {
-          const couponUpdateResult =
-            await transaction.shipperCoupon.updateMany({
+          const couponUpdateResult = await transaction.shipperCoupon.updateMany(
+            {
               where: {
                 id: couponPricing.couponId,
                 shipperId: input.actorUserId,
@@ -4296,7 +4367,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
                 usedOrderNo: null,
                 usedAt: null,
               },
-            });
+            },
+          );
 
           if (couponUpdateResult.count !== 1) {
             throwCouponNotAvailable();
@@ -4358,11 +4430,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
     });
 
     return existingRecord
-      ? mapExistingPrismaOrderCreateRecord(
-          existingRecord,
-          input,
-          this.now(),
-        )
+      ? mapExistingPrismaOrderCreateRecord(existingRecord, input, this.now())
       : undefined;
   }
 
@@ -4466,7 +4534,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
   }
 
   private async attachLatestExceptionCaseSummary(order: ShipperOrderRecord) {
-    const [withSummary] = await this.attachLatestExceptionCaseSummaries([order]);
+    const [withSummary] = await this.attachLatestExceptionCaseSummaries([
+      order,
+    ]);
 
     return withSummary;
   }
@@ -4503,7 +4573,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
     });
     const keyword = query.keyword?.toLocaleLowerCase();
     const matched = records.filter(record => {
-      const searchable = `${record.caseNo} ${record.order.orderNo}`.toLocaleLowerCase();
+      const searchable =
+        `${record.caseNo} ${record.order.orderNo}`.toLocaleLowerCase();
 
       return (
         (!query.status || record.status === query.status) &&
@@ -4512,7 +4583,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
           record.compensationStatus === query.compensationStatus) &&
         (!query.appealStatus || record.appealStatus === query.appealStatus) &&
         (!keyword || searchable.includes(keyword)) &&
-        (!query.createdFromIso || record.createdAt >= new Date(query.createdFromIso)) &&
+        (!query.createdFromIso ||
+          record.createdAt >= new Date(query.createdFromIso)) &&
         (!query.createdToIso || record.createdAt < new Date(query.createdToIso))
       );
     });
@@ -4662,7 +4734,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
       });
 
       if (!result) {
-        throw new Error(`Order exception case not found after transition: ${caseId}`);
+        throw new Error(
+          `Order exception case not found after transition: ${caseId}`,
+        );
       }
 
       return result;
@@ -4743,7 +4817,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
       });
 
       if (!result) {
-        throw new Error(`Order exception case not found after action append: ${caseId}`);
+        throw new Error(
+          `Order exception case not found after action append: ${caseId}`,
+        );
       }
 
       return result;
@@ -5003,15 +5079,17 @@ export class PrismaOrdersRepository implements OrdersRepository {
         return result;
       }
 
-      const concurrentAuditLog = await this.prisma.financialAuditLog.findUnique({
-        where: {
-          FinancialAuditLog_actor_action_key_unique: {
-            actorAdminId: input.adminUserId,
-            action,
-            idempotencyKey: input.idempotencyKey,
+      const concurrentAuditLog = await this.prisma.financialAuditLog.findUnique(
+        {
+          where: {
+            FinancialAuditLog_actor_action_key_unique: {
+              actorAdminId: input.adminUserId,
+              action,
+              idempotencyKey: input.idempotencyKey,
+            },
           },
         },
-      });
+      );
 
       if (!concurrentAuditLog) {
         return result;
@@ -5169,9 +5247,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
           orderId: current.orderId,
           actorUserId: input.actorUserId,
           eventType: 'exception_appeal_requested',
-          noteText: `${
-            input.actorRole === 'driver' ? '司机' : '货主'
-          }申诉：${input.reason}`,
+          noteText: `${input.actorRole === 'driver' ? '司机' : '货主'}申诉：${
+            input.reason
+          }`,
           attachmentFileIds: [],
           createdAt: now,
         },
@@ -5277,6 +5355,17 @@ export class PrismaOrdersRepository implements OrdersRepository {
           throw new OrderMutationTransactionAbortError({ kind: 'conflict' });
         }
 
+        if (
+          input.mutation.type === 'driver_evaluation_reply' &&
+          !isCurrentEvaluationReplyTarget(
+            currentOrder,
+            input.actorUserId,
+            input.mutation.input.evaluationEventId,
+          )
+        ) {
+          throw new OrderMutationTransactionAbortError({ kind: 'conflict' });
+        }
+
         if (!isOrderMutationAllowed(currentOrder, input)) {
           throw new OrderMutationTransactionAbortError({
             kind: 'state-invalid',
@@ -5305,6 +5394,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
             updatedAt: current.updatedAt,
             status: current.status,
             paymentStatus: currentOrder.paymentStatus,
+            ...(input.mutation.type === 'driver_evaluation_reply'
+              ? { assignedDriverId: input.actorUserId }
+              : {}),
           },
           data: createPrismaOrderMutationOrderData(
             input,
@@ -5397,7 +5489,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
     input: ExecuteAdminBatchCancelInput,
   ): Promise<BatchCancelAdminOrdersResult> {
     if (!this.prisma.$transaction || !this.prisma.orderIdempotencyRecord) {
-      throw new Error('Prisma order batch cancel idempotency client is required');
+      throw new Error(
+        'Prisma order batch cancel idempotency client is required',
+      );
     }
 
     try {
@@ -5522,7 +5616,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
           include: orderInclude,
         });
         const updatedOrderById = new Map(
-          updatedOrders.map(order => [order.id, mapPrismaOrder(order)] as const),
+          updatedOrders.map(
+            order => [order.id, mapPrismaOrder(order)] as const,
+          ),
         );
         const responseSnapshot = createBatchCancelAdminOrdersResult(
           input.input.items,
@@ -5576,7 +5672,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
     input: ResolveExistingAdminBatchCancelInput,
   ): Promise<BatchCancelAdminOrdersResult | undefined> {
     if (!this.prisma.orderIdempotencyRecord) {
-      throw new Error('Prisma order batch cancel idempotency client is required');
+      throw new Error(
+        'Prisma order batch cancel idempotency client is required',
+      );
     }
 
     const existingRecord = await this.prisma.orderIdempotencyRecord.findUnique({
@@ -5854,7 +5952,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
       throw new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在');
     }
 
-    return listAdminOrderChangeRequestReviewEventsFromOrder(mapPrismaOrder(order));
+    return listAdminOrderChangeRequestReviewEventsFromOrder(
+      mapPrismaOrder(order),
+    );
   }
 
   async reviewOrderChangeRequest(
@@ -5964,7 +6064,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
             refundAmountCents <= remainingCents
           ) {
             const refundId = randomUUID();
-            const refundNo = `RF-${payment.paymentNo}-P${refundAmountCents}-${randomUUID().slice(0, 8)}`;
+            const refundNo = `RF-${
+              payment.paymentNo
+            }-P${refundAmountCents}-${randomUUID().slice(0, 8)}`;
             const outboxEventId = randomUUID();
             await transaction.refund.create({
               data: {
@@ -6138,7 +6240,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
         include: orderInclude,
       });
       if (!order) {
-        throw new Error(`Order not found after change request review: ${orderId}`);
+        throw new Error(
+          `Order not found after change request review: ${orderId}`,
+        );
       }
 
       return mapPrismaOrder(order);
@@ -6490,7 +6594,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
     input: ReportShipperOrderExceptionRequest,
   ) {
     if (!this.prisma.$transaction) {
-      throw new Error('Prisma transaction client is required for exception cases');
+      throw new Error(
+        'Prisma transaction client is required for exception cases',
+      );
     }
 
     const now = this.now();
@@ -6521,7 +6627,10 @@ export class PrismaOrdersRepository implements OrdersRepository {
       });
       const createdCase = await transaction.orderExceptionCase.create({
         data: {
-          caseNo: `YC${formatOrderDate(now)}${String(sequence).padStart(4, '0')}`,
+          caseNo: `YC${formatOrderDate(now)}${String(sequence).padStart(
+            4,
+            '0',
+          )}`,
           orderId,
           sourceEventId: event.id,
           reporterUserId,
@@ -6564,7 +6673,6 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
     return order;
   }
-
 }
 
 function createPrismaOrderListWhere(
@@ -6614,9 +6722,7 @@ function createPrismaCreatedAtFilter(query: ListShipperOrdersQuery) {
 
   return {
     createdAt: {
-      ...(query.createdFromIso
-        ? { gte: new Date(query.createdFromIso) }
-        : {}),
+      ...(query.createdFromIso ? { gte: new Date(query.createdFromIso) } : {}),
       ...(query.createdToIso ? { lt: new Date(query.createdToIso) } : {}),
     },
   };
@@ -6680,10 +6786,7 @@ function isOrderInCreatedRange(
 ) {
   const createdAt = Date.parse(order.createdAtIso);
 
-  if (
-    query.createdFromIso &&
-    createdAt < Date.parse(query.createdFromIso)
-  ) {
+  if (query.createdFromIso && createdAt < Date.parse(query.createdFromIso)) {
     return false;
   }
 
@@ -6709,10 +6812,7 @@ function isOrderMatchedByStatus(
   return true;
 }
 
-function isOrderMatchedByKeyword(
-  order: ShipperOrderRecord,
-  keyword?: string,
-) {
+function isOrderMatchedByKeyword(order: ShipperOrderRecord, keyword?: string) {
   if (!keyword) {
     return true;
   }
@@ -6753,9 +6853,7 @@ function applyDriverOrderHallFilters(
     Number.isFinite(query.driverLatitude) &&
     Number.isFinite(query.driverLongitude);
   const maxDistanceMeters =
-    query.maxDistanceKm === undefined
-      ? undefined
-      : query.maxDistanceKm * 1000;
+    query.maxDistanceKm === undefined ? undefined : query.maxDistanceKm * 1000;
 
   return orders
     .map(order => {
@@ -6908,7 +7006,7 @@ function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {
     valueAddedServicesText:
       order.requirement?.valueAddedServicesText ?? undefined,
     pricingMode: order.pricingMode,
-    priceCents: isFixedPrice ? (order.priceCents ?? undefined) : undefined,
+    priceCents: isFixedPrice ? order.priceCents ?? undefined : undefined,
     paymentMethod: order.paymentMethod,
     paymentStatus:
       order.paymentStatus ??
@@ -6922,13 +7020,13 @@ function mapPrismaOrder(order: PrismaOrderRecord): ShipperOrderRecord {
     ...(order.refundedAt
       ? { refundedAtIso: order.refundedAt.toISOString() }
       : {}),
-    couponId: isFixedPrice ? (order.couponId ?? undefined) : undefined,
-    couponTitle: isFixedPrice ? (order.couponTitle ?? undefined) : undefined,
+    couponId: isFixedPrice ? order.couponId ?? undefined : undefined,
+    couponTitle: isFixedPrice ? order.couponTitle ?? undefined : undefined,
     couponDiscountCents: isFixedPrice
-      ? (order.couponDiscountCents ?? undefined)
+      ? order.couponDiscountCents ?? undefined
       : undefined,
     payablePriceCents: isFixedPrice
-      ? (order.payablePriceCents ?? undefined)
+      ? order.payablePriceCents ?? undefined
       : undefined,
     exposureBonusCents: order.exposureBonusCents ?? 0,
     createdAtIso: order.createdAt.toISOString(),
@@ -6969,8 +7067,7 @@ function mapPrismaExceptionCase(
     compensationStatus: record.compensationStatus ?? undefined,
     compensationTargetRole: record.compensationTargetRole ?? undefined,
     compensationAmountCents: record.compensationAmountCents ?? undefined,
-    compensationUpdatedAtIso:
-      record.compensationUpdatedAt?.toISOString(),
+    compensationUpdatedAtIso: record.compensationUpdatedAt?.toISOString(),
     compensationTransactionId: record.compensationTransactionId ?? undefined,
     compensationExecutedAtIso: record.compensationExecutedAt?.toISOString(),
     appealStatus: record.appealStatus ?? 'none',
@@ -7011,8 +7108,7 @@ function createOrderCancellationNote(input: {
 }
 
 function resolveCancellationPenaltyForOrder(order: ShipperOrderRecord) {
-  const orderAmountCents =
-    order.payablePriceCents ?? order.priceCents ?? 0;
+  const orderAmountCents = order.payablePriceCents ?? order.priceCents ?? 0;
   return resolveCancellationPenaltyCents({
     orderStatus: order.status,
     orderAmountCents,
@@ -7065,8 +7161,7 @@ function createCancellationRefundDrafts<
     );
     return {
       ...fact,
-      remainingCents:
-        fact.payment.amountCents - fact.succeededRefundedCents,
+      remainingCents: fact.payment.amountCents - fact.succeededRefundedCents,
     };
   });
   const totalRemainingCents = withRemaining.reduce(
@@ -7085,15 +7180,15 @@ function createCancellationRefundDrafts<
   }
 
   const allocatedFees = withRemaining.map(fact =>
-    Math.floor(
-      (fact.remainingCents * totalFeeCents) / totalRemainingCents,
-    ),
+    Math.floor((fact.remainingCents * totalFeeCents) / totalRemainingCents),
   );
   let unallocatedFeeCents =
     totalFeeCents - allocatedFees.reduce((total, fee) => total + fee, 0);
   for (let index = 0; unallocatedFeeCents > 0; index += 1) {
     const targetIndex = index % allocatedFees.length;
-    if (allocatedFees[targetIndex] < withRemaining[targetIndex].remainingCents) {
+    if (
+      allocatedFees[targetIndex] < withRemaining[targetIndex].remainingCents
+    ) {
       allocatedFees[targetIndex] += 1;
       unallocatedFeeCents -= 1;
     }
@@ -7261,12 +7356,12 @@ function createOrderChangeReviewPayload(
     (fundDisposition
       ? fundDisposition.summaryText
       : adjustedPayablePriceCents !== undefined
-        ? createAdjustedOrderChangeRefundText(
-            previousPayablePriceCents,
-            adjustedPayablePriceCents,
-            order,
-          )
-        : automaticSnapshot.refundText);
+      ? createAdjustedOrderChangeRefundText(
+          previousPayablePriceCents,
+          adjustedPayablePriceCents,
+          order,
+        )
+      : automaticSnapshot.refundText);
   const driverNoticeText =
     input.driverNoticeText?.trim() || automaticSnapshot.driverNoticeText;
 
@@ -7301,7 +7396,9 @@ function createOrderChangeFundDisposition(
       summaryText:
         deltaCents === 0
           ? '货到付款订单金额快照已确认，无需在线资金处理。'
-          : `货到付款订单金额快照已${deltaCents > 0 ? '上调' : '下调'} ${formatOrderAmountCents(Math.abs(deltaCents))}，线下补收/退差。`,
+          : `货到付款订单金额快照已${
+              deltaCents > 0 ? '上调' : '下调'
+            } ${formatOrderAmountCents(Math.abs(deltaCents))}，线下补收/退差。`,
       requiresManualFollowUp: deltaCents !== 0,
     };
   }
@@ -7328,7 +7425,9 @@ function createOrderChangeFundDisposition(
     return {
       kind: 'online_topup_pending_manual',
       deltaCents,
-      summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；补差支付单未能自动创建（缺少可用的已托管主支付单），需人工跟进补差。`,
+      summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(
+        deltaCents,
+      )}；补差支付单未能自动创建（缺少可用的已托管主支付单），需人工跟进补差。`,
       requiresManualFollowUp: true,
     };
   }
@@ -7336,7 +7435,9 @@ function createOrderChangeFundDisposition(
   return {
     kind: 'online_partial_refund_pending_manual',
     deltaCents,
-    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；退款单未能自动创建（缺少可用的已托管支付单、可退本金不足或已有进行中的退款），需人工跟进部分退款。`,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(
+      -deltaCents,
+    )}；退款单未能自动创建（缺少可用的已托管支付单、可退本金不足或已有进行中的退款），需人工跟进部分退款。`,
     requiresManualFollowUp: true,
   };
 }
@@ -7349,7 +7450,11 @@ function createQueuedOrderChangePartialRefundDisposition(
   return {
     kind: 'online_partial_refund_queued',
     deltaCents,
-    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(-deltaCents)}；已创建部分退款 ${refund.refundNo} 并进入 outbox，主托管单保持 escrowed。`,
+    summaryText: `在线托管订单应付下调 ${formatOrderAmountCents(
+      -deltaCents,
+    )}；已创建部分退款 ${
+      refund.refundNo
+    } 并进入 outbox，主托管单保持 escrowed。`,
     requiresManualFollowUp: false,
     refundId: refund.id,
     refundNo: refund.refundNo,
@@ -7364,7 +7469,11 @@ function createQueuedOrderChangeTopUpDisposition(
   return {
     kind: 'online_topup_queued',
     deltaCents,
-    summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(deltaCents)}；已创建补差支付单 ${payment.paymentNo}（pending），主托管单保持 escrowed，需货主另行完成补差支付。`,
+    summaryText: `在线托管订单应付上调 ${formatOrderAmountCents(
+      deltaCents,
+    )}；已创建补差支付单 ${
+      payment.paymentNo
+    }（pending），主托管单保持 escrowed，需货主另行完成补差支付。`,
     requiresManualFollowUp: true,
     paymentId: payment.id,
     paymentNo: payment.paymentNo,
@@ -7393,14 +7502,14 @@ function createAdjustedOrderChangeCostImpactText(
   }
 
   if (deltaCents > 0) {
-    return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，需补收 ${formatOrderAmountCents(deltaCents)}${
-      order.paymentMethod === 'online' ? '；托管资金本片不自动补差' : ''
-    }。`;
+    return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，需补收 ${formatOrderAmountCents(
+      deltaCents,
+    )}${order.paymentMethod === 'online' ? '；托管资金本片不自动补差' : ''}。`;
   }
 
-  return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，应退 ${formatOrderAmountCents(-deltaCents)}${
-    order.paymentMethod === 'online' ? '；托管资金本片不自动退款' : ''
-  }。`;
+  return `订单应付金额由 ${previousText} 调整为 ${adjustedText}，应退 ${formatOrderAmountCents(
+    -deltaCents,
+  )}${order.paymentMethod === 'online' ? '；托管资金本片不自动退款' : ''}。`;
 }
 
 function createAdjustedOrderChangeRefundText(
@@ -7442,7 +7551,11 @@ function parseOrderChangeReviewNote(
       fundDisposition?: unknown;
     };
 
-    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    if (
+      payload === null ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload)
+    ) {
       return {
         reviewResultText: trimmedNoteText,
       };
@@ -7702,8 +7815,8 @@ function listAdminOrderChangeRequestReviewEventsFromOrder(
           event.eventType === 'change_requested'
             ? 'requested'
             : event.eventType === 'change_request_approved'
-              ? 'approved'
-              : 'rejected',
+            ? 'approved'
+            : 'rejected',
         ...(noteText ? { noteText } : {}),
         ...(parsedReviewNote.costImpactText
           ? { costImpactText: parsedReviewNote.costImpactText }
@@ -7762,7 +7875,9 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
         event.eventType !== 'change_requested' &&
         event.createdAtIso >= requestEvent.createdAtIso,
     )
-    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
 
   if (!reviewEvent) {
     return {
@@ -7793,14 +7908,12 @@ function findLatestOrderChangeRequest(order: ShipperOrderRecord): {
       : {}),
     ...(parsedReviewNote.adjustedPayablePriceCents !== undefined
       ? {
-          adjustedPayablePriceCents:
-            parsedReviewNote.adjustedPayablePriceCents,
+          adjustedPayablePriceCents: parsedReviewNote.adjustedPayablePriceCents,
         }
       : {}),
     ...(parsedReviewNote.previousPayablePriceCents !== undefined
       ? {
-          previousPayablePriceCents:
-            parsedReviewNote.previousPayablePriceCents,
+          previousPayablePriceCents: parsedReviewNote.previousPayablePriceCents,
         }
       : {}),
     ...(parsedReviewNote.fundDisposition
@@ -7833,7 +7946,9 @@ function createAdminOrderChangeRequestRecord(
     ...(changeRequest.costImpactText
       ? { costImpactText: changeRequest.costImpactText }
       : {}),
-    ...(changeRequest.refundText ? { refundText: changeRequest.refundText } : {}),
+    ...(changeRequest.refundText
+      ? { refundText: changeRequest.refundText }
+      : {}),
     ...(changeRequest.driverNoticeText
       ? { driverNoticeText: changeRequest.driverNoticeText }
       : {}),
@@ -7876,6 +7991,19 @@ function assertCurrentEvaluationReplyTarget(
   driverId: string,
   evaluationEventId: string,
 ): asserts order is ShipperOrderRecord {
+  if (!isCurrentEvaluationReplyTarget(order, driverId, evaluationEventId)) {
+    throw new BusinessError(
+      ApiErrorCode.ORDER_CONFLICT,
+      '订单已被其他操作更新',
+    );
+  }
+}
+
+function isCurrentEvaluationReplyTarget(
+  order: ShipperOrderRecord | undefined,
+  driverId: string,
+  evaluationEventId: string,
+) {
   const latestEvaluation = order
     ? order.events.reduce<ShipperOrderEventRecord | undefined>(
         (latest, event) =>
@@ -7890,25 +8018,17 @@ function assertCurrentEvaluationReplyTarget(
       )
     : undefined;
 
-  if (
-    !order ||
-    order.assignedDriverId !== driverId ||
-    !isOrderAcceptedByDriver(order, driverId) ||
-    latestEvaluation?.id !== evaluationEventId
-  ) {
-    throw new BusinessError(
-      ApiErrorCode.ORDER_CONFLICT,
-      '订单已被其他操作更新',
-    );
-  }
+  return Boolean(
+    order &&
+      order.assignedDriverId === driverId &&
+      isOrderAcceptedByDriver(order, driverId) &&
+      latestEvaluation?.id === evaluationEventId,
+  );
 }
 
 function createOrderExceptionNote(input: ReportShipperOrderExceptionRequest) {
   const photoCount = getOrderEventPhotoCount(input);
-  const photoText =
-    photoCount > 0
-      ? `；图片凭证 ${photoCount} 张`
-      : '';
+  const photoText = photoCount > 0 ? `；图片凭证 ${photoCount} 张` : '';
 
   return `${input.typeLabel}：${input.description}${photoText}`;
 }
@@ -7916,12 +8036,11 @@ function createOrderExceptionNote(input: ReportShipperOrderExceptionRequest) {
 function createOrderEvaluationNote(input: SubmitShipperOrderEvaluationRequest) {
   const evaluationInfo = input.anonymous ? '匿名' : '实名';
   const photoCount = getOrderEventPhotoCount(input);
-  const photoText =
-    photoCount > 0
-      ? `；图片凭证 ${photoCount} 张`
-      : '';
+  const photoText = photoCount > 0 ? `；图片凭证 ${photoCount} 张` : '';
 
-  return `${input.rating} 星：${input.tags.join('、')}；评价信息：${evaluationInfo}${photoText}；评价正文：${input.content}`;
+  return `${input.rating} 星：${input.tags.join(
+    '、',
+  )}；评价信息：${evaluationInfo}${photoText}；评价正文：${input.content}`;
 }
 
 function getOrderEventPhotoCount(input: {
@@ -7950,7 +8069,10 @@ function createInMemoryExceptionCase({
 }): OrderExceptionCaseRecord {
   return {
     id: `exception-case-${sequence}`,
-    caseNo: `YC${formatOrderDate(new Date(nowIso))}${String(sequence).padStart(4, '0')}`,
+    caseNo: `YC${formatOrderDate(new Date(nowIso))}${String(sequence).padStart(
+      4,
+      '0',
+    )}`,
     orderId: order.id,
     orderNo: order.orderNo,
     sourceEventId: event.id,
@@ -7995,10 +8117,11 @@ function createNextUpdatedAtIso(previousIso: string, now: Date) {
   return new Date(nextTimestamp).toISOString();
 }
 
-const COMPENSATION_TARGET_LABEL: Record<OrderExceptionCaseSourceRole, string> = {
-  shipper: '货主',
-  driver: '司机',
-};
+const COMPENSATION_TARGET_LABEL: Record<OrderExceptionCaseSourceRole, string> =
+  {
+    shipper: '货主',
+    driver: '司机',
+  };
 
 function createExceptionCompensationNote(
   targetRole: OrderExceptionCaseSourceRole,
@@ -8062,9 +8185,7 @@ function createLocationCoordinateWrite(
   };
 }
 
-function toOptionalCoordinate(
-  value?: { toNumber(): number } | number | null,
-) {
+function toOptionalCoordinate(value?: { toNumber(): number } | number | null) {
   if (value === undefined || value === null) {
     return undefined;
   }

@@ -171,16 +171,12 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.createWithdrawal(
-        createRequest('driver-1'),
-        IDEMPOTENCY_KEY,
-        {
-          amountCents: 12000,
-          bankAccountName: '  李师傅  ',
-          bankName: '  招商银行深圳宝安支行  ',
-          bankAccountNo: '  6225 8888 0000 1234  ',
-        },
-      ),
+      controller.createWithdrawal(createRequest('driver-1'), IDEMPOTENCY_KEY, {
+        amountCents: 12000,
+        bankAccountName: '  李师傅  ',
+        bankName: '  招商银行深圳宝安支行  ',
+        bankAccountNo: '  6225 8888 0000 1234  ',
+      }),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'withdrawal-1', amountCents: 12000 },
@@ -359,7 +355,11 @@ describe('DriverOrdersController', () => {
     });
     expect(service.listMyOrders).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
-      { statuses: ['loading', 'transporting', 'confirming'], page: 1, pageSize: 20 },
+      {
+        statuses: ['loading', 'transporting', 'confirming'],
+        page: 1,
+        pageSize: 20,
+      },
     );
   });
 
@@ -515,7 +515,7 @@ describe('DriverOrdersController', () => {
     expect(service.reportException).not.toHaveBeenCalled();
   });
 
-  it('replies to an evaluated order for the authenticated driver', async () => {
+  it('replies idempotently to an evaluated order for the authenticated driver', async () => {
     const service = {
       replyToEvaluation: jest.fn().mockResolvedValue({
         id: 'order-1',
@@ -524,10 +524,15 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.replyToEvaluation(createRequest('driver-1'), 'order-1', {
-        evaluationEventId: '  event-evaluation-1  ',
-        content: '  谢谢认可，后续继续保持。  ',
-      }),
+      controller.replyToEvaluation(
+        createRequest('driver-1'),
+        'order-1',
+        `  ${IDEMPOTENCY_KEY}  `,
+        {
+          evaluationEventId: '  event-evaluation-1  ',
+          content: '  谢谢认可，后续继续保持。  ',
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1' },
@@ -535,12 +540,39 @@ describe('DriverOrdersController', () => {
     expect(service.replyToEvaluation).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
+      IDEMPOTENCY_KEY,
       {
         evaluationEventId: 'event-evaluation-1',
         content: '谢谢认可，后续继续保持。',
       },
     );
   });
+
+  it.each([undefined, 'not-a-uuid'])(
+    'rejects evaluation replies with an invalid idempotency key before service I/O',
+    async idempotencyKey => {
+      const service = {
+        replyToEvaluation: jest.fn(),
+      } as unknown as DriverOrdersService;
+      const controller = new DriverOrdersController(service);
+
+      await expect(
+        controller.replyToEvaluation(
+          createRequest('driver-1'),
+          'order-1',
+          idempotencyKey,
+          {
+            evaluationEventId: 'event-evaluation-1',
+            content: '谢谢认可，后续继续保持。',
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        message: 'Idempotency-Key 无效',
+      });
+      expect(service.replyToEvaluation).not.toHaveBeenCalled();
+    },
+  );
 
   it('submits a shipper evaluation for the authenticated driver', async () => {
     const service = {
@@ -583,6 +615,7 @@ describe('DriverOrdersController', () => {
       controller.replyToEvaluation(
         createRequest('shipper-1', 'shipper'),
         'order-1',
+        undefined,
         {} as never,
       ),
     ).rejects.toMatchObject({

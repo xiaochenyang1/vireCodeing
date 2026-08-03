@@ -15,7 +15,7 @@ const originalSetItemImplementation =
 const originalRemoveItemImplementation =
   asyncStorageRemoveItemMock.getMockImplementation();
 
-describe('driver evaluation reply queue v2 storage', () => {
+describe('driver evaluation reply queue v3 storage', () => {
   beforeEach(async () => {
     asyncStorageSetItemMock.mockImplementation(originalSetItemImplementation);
     asyncStorageRemoveItemMock.mockImplementation(
@@ -45,7 +45,7 @@ describe('driver evaluation reply queue v2 storage', () => {
       AsyncStorage.getItem(createStorageKey('driver-a')),
     ).resolves.toBe(
       JSON.stringify({
-        version: 2,
+        version: 3,
         queue,
       }),
     );
@@ -101,24 +101,64 @@ describe('driver evaluation reply queue v2 storage', () => {
     ).resolves.toBeNull();
   });
 
+  it('clears an account-scoped v2 queue without inventing an idempotency key', async () => {
+    const storageKey = createStorageKey('driver-a');
+    await AsyncStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        version: 2,
+        queue: {
+          'order-legacy': {
+            driverAccountId: 'driver-a',
+            orderId: 'order-legacy',
+            orderNo: 'HY202607090002',
+            evaluationEventId: 'evaluation-order-legacy',
+            evaluationSubmittedAtIso: '2026-08-03T08:00:00.000Z',
+            content: '旧队列没有可安全恢复的幂等键。',
+          },
+        },
+      }),
+    );
+
+    await expect(
+      hydrateDriverEvaluationReplyQueue('driver-a'),
+    ).resolves.toEqual({});
+    await expect(AsyncStorage.getItem(storageKey)).resolves.toBeNull();
+  });
+
   it.each([
     ['invalid json', '{broken'],
     ['wrong version', JSON.stringify({ version: 1, queue: {} })],
-    ['array queue', JSON.stringify({ version: 2, queue: [] })],
+    ['array queue', JSON.stringify({ version: 3, queue: [] })],
     [
       'mismatched queue key',
       createStoredSnapshot('driver-a', 'order-1', {
         queueKey: 'order-other',
       }),
     ],
-    [
-      'mismatched driver account',
-      createStoredSnapshot('driver-b', 'order-1'),
-    ],
+    ['mismatched driver account', createStoredSnapshot('driver-b', 'order-1')],
     [
       'missing evaluation event id',
       createStoredSnapshot('driver-a', 'order-1', {
         item: { evaluationEventId: '' },
+      }),
+    ],
+    [
+      'missing idempotency key',
+      createStoredSnapshot('driver-a', 'order-1', {
+        item: { idempotencyKey: undefined },
+      }),
+    ],
+    [
+      'malformed idempotency key',
+      createStoredSnapshot('driver-a', 'order-1', {
+        item: { idempotencyKey: 'not-a-uuid' },
+      }),
+    ],
+    [
+      'non-v4 idempotency key',
+      createStoredSnapshot('driver-a', 'order-1', {
+        item: { idempotencyKey: '550e8400-e29b-11d4-a716-446655440000' },
       }),
     ],
     [
@@ -153,9 +193,17 @@ describe('driver evaluation reply queue v2 storage', () => {
         createQueue('driver-b', 'order-1'),
       ),
     ).toThrow('Driver evaluation reply queue is invalid');
-    await expect(
-      hydrateDriverEvaluationReplyQueue('   '),
-    ).rejects.toThrow('driverAccountId is required');
+    expect(() =>
+      saveDriverEvaluationReplyQueue('driver-a', {
+        'order-1': {
+          ...createQueueItem('driver-a', 'order-1'),
+          idempotencyKey: '550e8400-e29b-11d4-a716-446655440000',
+        },
+      }),
+    ).toThrow('Driver evaluation reply queue is invalid');
+    await expect(hydrateDriverEvaluationReplyQueue('   ')).rejects.toThrow(
+      'driverAccountId is required',
+    );
     await expect(AsyncStorage.getAllKeys()).resolves.toEqual([]);
   });
 
@@ -164,10 +212,10 @@ describe('driver evaluation reply queue v2 storage', () => {
     const writeStarted = createDeferred<void>();
     const releaseWrite = createDeferred<void>();
     asyncStorageSetItemMock.mockImplementationOnce(async (key, value) => {
-        writeStarted.resolve();
-        await releaseWrite.promise;
-        await originalSetItemImplementation?.(key, value);
-      });
+      writeStarted.resolve();
+      await releaseWrite.promise;
+      await originalSetItemImplementation?.(key, value);
+    });
 
     const delayedSave = saveDriverEvaluationReplyQueue(
       'driver-a',
@@ -175,8 +223,9 @@ describe('driver evaluation reply queue v2 storage', () => {
     );
     await writeStarted.promise;
 
-    const removalCountBefore = (AsyncStorage.removeItem as jest.Mock).mock.calls
-      .filter(([key]) => key === storageKey).length;
+    const removalCountBefore = (
+      AsyncStorage.removeItem as jest.Mock
+    ).mock.calls.filter(([key]) => key === storageKey).length;
     const laterRemoval = saveDriverEvaluationReplyQueue('driver-a', {});
     expect(
       (AsyncStorage.removeItem as jest.Mock).mock.calls.filter(
@@ -201,14 +250,14 @@ describe('driver evaluation reply queue v2 storage', () => {
     const releaseCleanup = createDeferred<void>();
     let shouldDelayCleanup = true;
     asyncStorageRemoveItemMock.mockImplementation(async key => {
-        if (key === storageKey && shouldDelayCleanup) {
-          shouldDelayCleanup = false;
-          cleanupStarted.resolve();
-          await releaseCleanup.promise;
-        }
+      if (key === storageKey && shouldDelayCleanup) {
+        shouldDelayCleanup = false;
+        cleanupStarted.resolve();
+        await releaseCleanup.promise;
+      }
 
-        await originalRemoveItemImplementation?.(key);
-      });
+      await originalRemoveItemImplementation?.(key);
+    });
     const setItemCallCountBefore = asyncStorageSetItemMock.mock.calls.length;
 
     const hydration = hydrateDriverEvaluationReplyQueue('driver-a');
@@ -265,6 +314,7 @@ function createQueueItem(
 ): DriverEvaluationReplyQueueItem {
   return {
     driverAccountId,
+    idempotencyKey: '550e8400-e29b-41d4-a716-446655440000',
     orderId,
     orderNo: `HY-${orderId}`,
     evaluationEventId: `evaluation-${orderId}`,
@@ -284,7 +334,7 @@ function createStoredSnapshot(
   const queueKey = options.queueKey ?? orderId;
 
   return JSON.stringify({
-    version: 2,
+    version: 3,
     queue: {
       [queueKey]: {
         ...createQueueItem(driverAccountId, orderId),

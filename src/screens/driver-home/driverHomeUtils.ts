@@ -163,7 +163,9 @@ export function aggregateIncomeRecordsByDay(
 
   for (const record of chronologicalRecords) {
     const date = new Date(record.completedAtIso);
-    const dateText = `${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+    const dateText = `${(date.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 
     const existing = dayMap.get(dateText);
     if (existing) {
@@ -397,7 +399,8 @@ export function isDriverCertificationFormDirty(
     form.hasTailboard !== baseline.hasTailboard ||
     form.drivingLicenseFileId !== baseline.drivingLicenseFileId ||
     form.driverLicenseFileId !== baseline.driverLicenseFileId ||
-    form.transportQualificationFileId !== baseline.transportQualificationFileId ||
+    form.transportQualificationFileId !==
+      baseline.transportQualificationFileId ||
     form.operationPermitFileId !== baseline.operationPermitFileId ||
     form.vehiclePhotoFileId !== baseline.vehiclePhotoFileId
   );
@@ -472,10 +475,7 @@ export function formatDriverBankCardNumberInput(value: string) {
 export function isDriverBankCardNumberValid(value: string) {
   const bankCardNumber = normalizeDriverBankCardNumber(value);
 
-  if (
-    !/^\d{10,30}$/.test(bankCardNumber) ||
-    /^(\d)\1+$/.test(bankCardNumber)
-  ) {
+  if (!/^\d{10,30}$/.test(bankCardNumber) || /^(\d)\1+$/.test(bankCardNumber)) {
     return false;
   }
 
@@ -577,8 +577,7 @@ export function createDriverBankCardUpdateRequest(
 
   if (
     bankAccountNo &&
-    (!isDriverBankCardNumberValid(bankAccountNo) ||
-      bankAccountNo.length < 16)
+    (!isDriverBankCardNumberValid(bankAccountNo) || bankAccountNo.length < 16)
   ) {
     return undefined;
   }
@@ -660,9 +659,7 @@ export function canDriverReportException(
   status: PlatformShipperOrder['status'],
 ) {
   return (
-    status === 'loading' ||
-    status === 'transporting' ||
-    status === 'confirming'
+    status === 'loading' || status === 'transporting' || status === 'confirming'
   );
 }
 
@@ -712,9 +709,7 @@ function compareDriverOrdersByLatestActivityDesc(
   return 0;
 }
 
-export function sortDriverMyOrders(
-  orders: PlatformShipperOrder[],
-) {
+export function sortDriverMyOrders(orders: PlatformShipperOrder[]) {
   return [...orders].sort(compareDriverOrdersByLatestActivityDesc);
 }
 
@@ -729,9 +724,7 @@ export function upsertOrder(
   }
 
   return sortDriverMyOrders(
-    orders.map(order =>
-      order.id === updatedOrder.id ? updatedOrder : order,
-    ),
+    orders.map(order => (order.id === updatedOrder.id ? updatedOrder : order)),
   );
 }
 
@@ -822,7 +815,10 @@ export function createDriverOrderHallNotice(
   orders: PlatformShipperOrder[],
   acceptanceSettings: PlatformDriverAcceptanceSettings | undefined,
 ) {
-  const filteredOrders = filterDriverOrderHallOrders(orders, acceptanceSettings);
+  const filteredOrders = filterDriverOrderHallOrders(
+    orders,
+    acceptanceSettings,
+  );
   const hasVehicleFilter =
     (acceptanceSettings?.vehicleTypePreferences.length ?? 0) > 0;
   const hasDistanceFilter = orders.some(hasKnownPickupDistance);
@@ -885,9 +881,7 @@ function getDriverOrderHallSortTimeValue(order: PlatformShipperOrder) {
   return order.updatedAtIso ?? order.createdAtIso;
 }
 
-export function sortDriverOrderHallOrders(
-  orders: PlatformShipperOrder[],
-) {
+export function sortDriverOrderHallOrders(orders: PlatformShipperOrder[]) {
   return [...orders].sort((left, right) => {
     const leftHasDistance = hasKnownPickupDistance(left);
     const rightHasDistance = hasKnownPickupDistance(right);
@@ -1005,7 +999,9 @@ export function formatDriverCurrency(valueCents: number) {
 }
 
 function normalizeDriverIncomeAmount(valueCents?: number) {
-  return typeof valueCents === 'number' && Number.isFinite(valueCents) && valueCents >= 0
+  return typeof valueCents === 'number' &&
+    Number.isFinite(valueCents) &&
+    valueCents >= 0
     ? valueCents
     : 0;
 }
@@ -1024,8 +1020,9 @@ function getDriverIncomeVehicleTypeText(vehicleType: string) {
   }
 
   return (
-    vehicleRequirementOptions.find(option => option.id === normalizedVehicleType)
-      ?.label ?? normalizedVehicleType
+    vehicleRequirementOptions.find(
+      option => option.id === normalizedVehicleType,
+    )?.label ?? normalizedVehicleType
   );
 }
 
@@ -1035,9 +1032,7 @@ export function getDriverIncomeSummaryText(summary?: DriverIncomeSummary) {
   )} · 已完成 ${normalizeDriverIncomeCount(summary?.completedOrderCount)} 单`;
 }
 
-export function getDriverIncomeRecordSummaryText(
-  record: DriverIncomeRecord,
-) {
+export function getDriverIncomeRecordSummaryText(record: DriverIncomeRecord) {
   const facts: string[] = [];
   const vehicleTypeText = getDriverIncomeVehicleTypeText(record.vehicleType);
 
@@ -1054,9 +1049,7 @@ export function getDriverIncomeRecordSummaryText(
   return facts.join(' · ');
 }
 
-export function getDriverIncomeRecordBreakdownText(
-  record: DriverIncomeRecord,
-) {
+export function getDriverIncomeRecordBreakdownText(record: DriverIncomeRecord) {
   return `平台服务费：${formatDriverCurrency(
     normalizeDriverIncomeAmount(record.platformFeeCents),
   )} · 司机净收入：${formatDriverCurrency(
@@ -1068,15 +1061,11 @@ export function formatDriverIncomeTime(value: string) {
   return formatPlatformIsoMinute(value);
 }
 
-function getDriverBankCardSortTimeValue(
-  card: PlatformDriverBankCardRecord,
-) {
+function getDriverBankCardSortTimeValue(card: PlatformDriverBankCardRecord) {
   return card.lastUsedAtIso ?? card.updatedAtIso ?? card.createdAtIso;
 }
 
-export function sortDriverBankCards(
-  cards: PlatformDriverBankCardRecord[],
-) {
+export function sortDriverBankCards(cards: PlatformDriverBankCardRecord[]) {
   return [...cards].sort((left, right) => {
     if (left.isDefault !== right.isDefault) {
       return left.isDefault ? -1 : 1;
@@ -1170,11 +1159,15 @@ export function getDriverWithdrawalStatusDetailText(
   const providerPayoutNo = withdrawal.providerPayoutNo?.trim();
 
   if (payoutChannel) {
-    detailFacts.push(`打款渠道：${getDriverWithdrawalChannelText(payoutChannel)}`);
+    detailFacts.push(
+      `打款渠道：${getDriverWithdrawalChannelText(payoutChannel)}`,
+    );
   }
 
   if (payoutExecutedAtIso) {
-    detailFacts.push(`打款时间：${formatDriverIncomeTime(payoutExecutedAtIso)}`);
+    detailFacts.push(
+      `打款时间：${formatDriverIncomeTime(payoutExecutedAtIso)}`,
+    );
   }
 
   if (providerPayoutNo) {
@@ -1236,7 +1229,9 @@ export function getLatestDriverReceivedEvaluation(order: PlatformShipperOrder) {
 export function getLatestDriverEvaluationReply(order: PlatformShipperOrder) {
   return (order.events ?? [])
     .filter(event => event.eventType === 'evaluation_replied')
-    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
 }
 
 export function isDriverEvaluationReplyQueueItemCurrent(
@@ -1254,7 +1249,9 @@ export function isDriverEvaluationReplyQueueItemCurrent(
 export function getLatestDriverShipperEvaluation(order: PlatformShipperOrder) {
   return (order.events ?? [])
     .filter(event => event.eventType === 'shipper_evaluation_submitted')
-    .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+    .sort((left, right) =>
+      right.createdAtIso.localeCompare(left.createdAtIso),
+    )[0];
 }
 
 export function omitDriverEvaluationReplyQueueItem(
@@ -1267,6 +1264,7 @@ export function omitDriverEvaluationReplyQueueItem(
     !currentItem ||
     currentItem.orderId !== expectedItem.orderId ||
     currentItem.driverAccountId !== expectedItem.driverAccountId ||
+    currentItem.idempotencyKey !== expectedItem.idempotencyKey ||
     currentItem.evaluationEventId !== expectedItem.evaluationEventId ||
     currentItem.evaluationSubmittedAtIso !==
       expectedItem.evaluationSubmittedAtIso ||

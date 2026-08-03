@@ -2,6 +2,7 @@ import type { DriverAcceptOrderEventPayload } from '../driver-orders/dto';
 import { ApiErrorCode } from '../common/errors';
 import {
   createAdminOrderBatchCancelFingerprint,
+  createDriverEvaluationReplyFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
 } from './order-mutation-idempotency';
@@ -403,10 +404,7 @@ describe('PrismaOrdersRepository order coupon mutations', () => {
         id: 'coupon-1',
         shipperId: 'shipper-1',
         status: 'locked',
-        OR: [
-          { lockedOrderNo: current.orderNo },
-          { lockedOrderNo: null },
-        ],
+        OR: [{ lockedOrderNo: current.orderNo }, { lockedOrderNo: null }],
       },
       data: {
         status: 'usable',
@@ -494,10 +492,7 @@ describe('PrismaOrdersRepository order coupon mutations', () => {
         id: 'coupon-1',
         shipperId: 'shipper-1',
         status: 'locked',
-        OR: [
-          { lockedOrderNo: current.orderNo },
-          { lockedOrderNo: null },
-        ],
+        OR: [{ lockedOrderNo: current.orderNo }, { lockedOrderNo: null }],
       },
       data: testCase.expectedData,
     });
@@ -627,7 +622,10 @@ describe('PrismaOrdersRepository order coupon mutations', () => {
 
     await expect(
       repository.executeIdempotentOrderMutation(
-        createCompleteMutationInput(current.id, current.updatedAt.toISOString()),
+        createCompleteMutationInput(
+          current.id,
+          current.updatedAt.toISOString(),
+        ),
       ),
     ).resolves.toMatchObject({ kind: 'success' });
 
@@ -703,24 +701,28 @@ describe('PrismaOrdersRepository admin batch cancel idempotency', () => {
       },
     );
     const updatedAt = new Date('2026-07-14T08:00:01.000Z');
-    const firstUpdated = createPrismaOrderRecord(createOrderInput(), updatedAt, {
-      id: firstCurrent.id,
-      orderNo: firstCurrent.orderNo,
-      shipperId: firstCurrent.shipperId,
-      status: 'cancelled',
-      createdAt: firstCurrent.createdAt,
-      events: [
-        ...firstCurrent.events,
-        {
-          id: 'event-cancelled-1',
-          actorUserId: 'admin-1',
-          eventType: 'cancelled',
-          noteText: '后台取消：运营按筛选结果批量清理 waiting 单',
-          attachmentFileIds: [],
-          createdAt: updatedAt,
-        },
-      ],
-    });
+    const firstUpdated = createPrismaOrderRecord(
+      createOrderInput(),
+      updatedAt,
+      {
+        id: firstCurrent.id,
+        orderNo: firstCurrent.orderNo,
+        shipperId: firstCurrent.shipperId,
+        status: 'cancelled',
+        createdAt: firstCurrent.createdAt,
+        events: [
+          ...firstCurrent.events,
+          {
+            id: 'event-cancelled-1',
+            actorUserId: 'admin-1',
+            eventType: 'cancelled',
+            noteText: '后台取消：运营按筛选结果批量清理 waiting 单',
+            attachmentFileIds: [],
+            createdAt: updatedAt,
+          },
+        ],
+      },
+    );
     const secondUpdated = createPrismaOrderRecord(
       createOrderInput({ pickupAddress: '南山区科技园' }),
       updatedAt,
@@ -954,9 +956,9 @@ describe('PrismaOrdersRepository order change reviews', () => {
       }),
     ]);
 
-    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(
-      1,
-    );
+    expect(
+      results.filter(result => result.status === 'fulfilled'),
+    ).toHaveLength(1);
     const rejected = results.find(result => result.status === 'rejected');
     expect(rejected).toMatchObject({
       reason: {
@@ -1173,6 +1175,292 @@ describe('OrdersRepository evaluation reply targets', () => {
     });
   });
 
+  it('replays an idempotent in-memory evaluation reply snapshot without appending another event', async () => {
+    let currentNow = observedAt;
+    const repository = new InMemoryOrdersRepository(() => currentNow);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['准时送达'], content: '司机服务细致' },
+    );
+    const evaluationEventId = evaluatedOrder.events.at(-1)!.id;
+    const input = createEvaluationReplyMutationInput(
+      order.id,
+      evaluatedOrder.updatedAtIso,
+      evaluationEventId,
+    );
+    const first = await repository.executeIdempotentOrderMutation(input);
+
+    currentNow = new Date('2026-07-14T08:01:00.000Z');
+    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
+      rating: 4,
+      tags: ['服务好'],
+      content: '后来提交的新评价',
+    });
+    const replay = await repository.executeIdempotentOrderMutation(input);
+
+    expect(first).toMatchObject({ kind: 'success', replayed: false });
+    expect(replay).toEqual({
+      ...(first as Extract<typeof first, { kind: 'success' }>),
+      replayed: true,
+    });
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'evaluation_replied',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('returns key-reused and key-expired for in-memory evaluation reply replays', async () => {
+    let currentNow = observedAt;
+    const repository = new InMemoryOrdersRepository(() => currentNow);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['准时送达'], content: '司机服务细致' },
+    );
+    const evaluationEventId = evaluatedOrder.events.at(-1)!.id;
+    const input = createEvaluationReplyMutationInput(
+      order.id,
+      evaluatedOrder.updatedAtIso,
+      evaluationEventId,
+      {
+        expiresAtIso: '2026-07-14T08:00:01.000Z',
+      },
+    );
+    await repository.executeIdempotentOrderMutation(input);
+
+    await expect(
+      repository.executeIdempotentOrderMutation({
+        ...input,
+        requestFingerprint: createDriverEvaluationReplyFingerprint(order.id, {
+          evaluationEventId,
+          content: '另一条回复。',
+        }),
+        mutation: {
+          type: 'driver_evaluation_reply',
+          input: { evaluationEventId, content: '另一条回复。' },
+        },
+      }),
+    ).resolves.toEqual({ kind: 'key-reused' });
+
+    currentNow = new Date('2026-07-14T08:00:01.001Z');
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toEqual({ kind: 'key-expired' });
+  });
+
+  it('does not persist an idempotency record for stale or wrong-driver evaluation targets', async () => {
+    const repository = new InMemoryOrdersRepository(() => observedAt);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const firstEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 4, tags: ['准时送达'], content: '第一次评价' },
+    );
+    const staleEvaluationEventId = firstEvaluation.events.at(-1)!.id;
+    const latestEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['服务好'], content: '更新后的评价' },
+    );
+
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createEvaluationReplyMutationInput(
+          order.id,
+          latestEvaluation.updatedAtIso,
+          staleEvaluationEventId,
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createEvaluationReplyMutationInput(
+          order.id,
+          latestEvaluation.updatedAtIso,
+          latestEvaluation.events.at(-1)!.id,
+          {
+            actorUserId: 'driver-2',
+            idempotencyKey: 'evaluation-reply-key-driver-2',
+          },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(
+      (
+        repository as unknown as {
+          orderIdempotencyRecords: unknown[];
+        }
+      ).orderIdempotencyRecords,
+    ).toHaveLength(0);
+  });
+
+  it('stores a Prisma evaluation reply event and idempotency snapshot in one transaction', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const replyEvent = {
+      id: 'event-evaluation-reply',
+      actorUserId: 'driver-1',
+      eventType: 'evaluation_replied',
+      noteText: '谢谢认可。',
+      attachmentFileIds: [],
+      createdAt: expectedUpdatedAt,
+    };
+    const updated: PrismaOrderRecord = {
+      ...current,
+      updatedAt: expectedUpdatedAt,
+      events: [...current.events, replyEvent],
+    };
+    const { repository, transaction } = createPrismaMutationHarness(
+      current,
+      updated,
+      observedAt,
+    );
+    const input = createEvaluationReplyMutationInput(
+      current.id,
+      current.updatedAt.toISOString(),
+      'event-evaluation-latest',
+    );
+
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toMatchObject({
+      kind: 'success',
+      replayed: false,
+      order: expect.objectContaining({
+        id: current.id,
+        updatedAtIso: expectedUpdatedAt.toISOString(),
+      }),
+    });
+    expect(transaction.orderIdempotencyRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorUserId: 'driver-1',
+        orderId: current.id,
+        operation: 'driver_evaluation_reply',
+        idempotencyKey: input.idempotencyKey,
+        requestFingerprint: input.requestFingerprint,
+        responseSnapshot: {},
+      }),
+    });
+    expect(transaction.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: current.id,
+        updatedAt: observedAt,
+        status: current.status,
+        paymentStatus: current.paymentStatus,
+        assignedDriverId: 'driver-1',
+      },
+      data: { updatedAt: expectedUpdatedAt },
+    });
+    expect(transaction.orderEvent.create).toHaveBeenCalledWith({
+      data: {
+        orderId: current.id,
+        actorUserId: 'driver-1',
+        eventType: 'evaluation_replied',
+        noteText: '谢谢认可。',
+        attachmentFileIds: [],
+        createdAt: expectedUpdatedAt,
+      },
+    });
+    expect(transaction.orderIdempotencyRecord.update).toHaveBeenCalledWith({
+      where: { id: 'idempotency-mutation' },
+      data: {
+        responseSnapshot: expect.objectContaining({
+          id: current.id,
+          updatedAtIso: expectedUpdatedAt.toISOString(),
+          events: expect.arrayContaining([
+            expect.objectContaining({ eventType: 'evaluation_replied' }),
+          ]),
+        }),
+      },
+    });
+  });
+
+  it('returns conflict without appending or snapshotting after a lost Prisma evaluation reply claim', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const updated: PrismaOrderRecord = {
+      ...current,
+      updatedAt: expectedUpdatedAt,
+    };
+    const { repository, transaction } = createPrismaMutationHarness(
+      current,
+      updated,
+      observedAt,
+    );
+    transaction.order.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createEvaluationReplyMutationInput(
+          current.id,
+          current.updatedAt.toISOString(),
+          'event-evaluation-latest',
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.orderIdempotencyRecord.update).not.toHaveBeenCalled();
+  });
+
+  it('recovers the committed Prisma evaluation reply winner after a reservation race', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const updated: PrismaOrderRecord = {
+      ...current,
+      updatedAt: expectedUpdatedAt,
+    };
+    const { repository, prisma } = createPrismaMutationHarness(
+      current,
+      updated,
+      observedAt,
+    );
+    const input = createEvaluationReplyMutationInput(
+      current.id,
+      current.updatedAt.toISOString(),
+      'event-evaluation-latest',
+    );
+    const responseSnapshot = {
+      ...createOrderSnapshot(createOrderInput(), current),
+      id: current.id,
+      status: current.status,
+      assignedDriverId: 'driver-1',
+      updatedAtIso: expectedUpdatedAt.toISOString(),
+    };
+    prisma.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+    prisma.orderIdempotencyRecord.findUnique.mockResolvedValueOnce({
+      id: 'idempotency-winner',
+      actorUserId: input.actorUserId,
+      orderId: input.orderId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot,
+      createdAt: observedAt,
+      expiresAt: new Date(input.expiresAtIso),
+    });
+
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toEqual({
+      kind: 'success',
+      order: responseSnapshot,
+      replayed: true,
+    });
+  });
+
   it('claims the order version before appending a Prisma evaluation reply', async () => {
     const current = createEvaluatedPrismaOrder();
     const { repository, prisma, transaction } =
@@ -1217,8 +1505,10 @@ describe('OrdersRepository evaluation reply targets', () => {
 
   it('rejects a mismatched Prisma evaluation target before claiming the order', async () => {
     const current = createEvaluatedPrismaOrder();
-    const { repository, transaction } =
-      createPrismaEvaluationReplyHarness(current, 1);
+    const { repository, transaction } = createPrismaEvaluationReplyHarness(
+      current,
+      1,
+    );
 
     await expect(
       repository.replyToOrderEvaluation('order-evaluated', 'driver-1', {
@@ -1235,8 +1525,10 @@ describe('OrdersRepository evaluation reply targets', () => {
 
   it('rejects a lost Prisma version claim before appending the reply event', async () => {
     const current = createEvaluatedPrismaOrder();
-    const { repository, transaction } =
-      createPrismaEvaluationReplyHarness(current, 0);
+    const { repository, transaction } = createPrismaEvaluationReplyHarness(
+      current,
+      0,
+    );
 
     await expect(
       repository.replyToOrderEvaluation('order-evaluated', 'driver-1', {
@@ -1266,7 +1558,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 
   it('replays the first successful mutation without adding another event', async () => {
     const { repository } = createRepository();
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
     const input = createCancelMutationInput(order.id, order.updatedAtIso);
 
     const first = await repository.executeIdempotentOrderMutation(input);
@@ -1290,7 +1585,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 
   it('rejects a stale baseline from another mutation key', async () => {
     const { repository } = createRepository();
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
 
     await repository.executeIdempotentOrderMutation(
       createDriverAcceptMutationInput(
@@ -1307,18 +1605,17 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 
     await expect(
       repository.executeIdempotentOrderMutation(
-        createCancelMutationInput(
-          order.id,
-          order.updatedAtIso,
-          'cancel-key-2',
-        ),
+        createCancelMutationInput(order.id, order.updatedAtIso, 'cancel-key-2'),
       ),
     ).resolves.toEqual({ kind: 'conflict' });
   });
 
   it('rejects reuse of the key for a different fingerprint', async () => {
     const { repository } = createRepository();
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
     const input = createCancelMutationInput(order.id, order.updatedAtIso);
 
     await repository.executeIdempotentOrderMutation(input);
@@ -1333,10 +1630,18 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 
   it('returns key-expired when the replay window has elapsed', async () => {
     const { repository, setNow } = createRepository();
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
-    const input = createCancelMutationInput(order.id, order.updatedAtIso, 'key-1', {
-      expiresAtIso: '2026-07-12T08:00:01.000Z',
-    });
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    const input = createCancelMutationInput(
+      order.id,
+      order.updatedAtIso,
+      'key-1',
+      {
+        expiresAtIso: '2026-07-12T08:00:01.000Z',
+      },
+    );
 
     await repository.executeIdempotentOrderMutation(input);
     setNow('2026-07-13T08:00:02.000Z');
@@ -1348,7 +1653,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
 
   it('only lets one driver accept mutation win a shared baseline', async () => {
     const { repository } = createRepository();
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
 
     const first = await repository.executeIdempotentOrderMutation(
       createDriverAcceptMutationInput(
@@ -1424,8 +1732,12 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
       ],
     });
     expect(replay).toEqual(first);
-    expect((await repository.findOrderById(firstOrder.id))?.events).toHaveLength(2);
-    expect((await repository.findOrderById(secondOrder.id))?.events).toHaveLength(2);
+    expect(
+      (await repository.findOrderById(firstOrder.id))?.events,
+    ).toHaveLength(2);
+    expect(
+      (await repository.findOrderById(secondOrder.id))?.events,
+    ).toHaveLength(2);
   });
 
   it('publishes no staged batch cancel state when any order is not waiting', async () => {
@@ -1470,7 +1782,9 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
       code: 'ORDER_STATE_INVALID',
       message: '当前订单状态不允许批量取消',
     });
-    await expect(repository.findOrderById(waitingOrder.id)).resolves.toMatchObject({
+    await expect(
+      repository.findOrderById(waitingOrder.id),
+    ).resolves.toMatchObject({
       status: 'waiting',
     });
   });
@@ -1487,7 +1801,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
         }),
       ],
     });
-    const repository = new InMemoryOrdersRepository(() => new Date('2026-07-14T08:00:00.000Z'), couponStore);
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-14T08:00:00.000Z'),
+      couponStore,
+    );
     const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput({
@@ -1536,7 +1853,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
     const couponStore = new InMemoryProfileCouponsStore({
       coupons: [createCoupon({ status: 'locked' })],
     });
-    const repository = new InMemoryOrdersRepository(() => new Date('2026-07-14T08:00:00.000Z'), couponStore);
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-14T08:00:00.000Z'),
+      couponStore,
+    );
     const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput({ couponId: 'coupon-1' }),
@@ -1558,17 +1878,18 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
     const couponStore = new InMemoryProfileCouponsStore({
       coupons: [createCoupon({ status: 'locked' })],
     });
-    const repository = new InMemoryOrdersRepository(() => new Date('2026-07-14T08:00:00.000Z'), couponStore);
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-14T08:00:00.000Z'),
+      couponStore,
+    );
     const seeded = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput({ couponId: 'coupon-1' }),
     );
     await repository.acceptDriverOrder(seeded.id, 'driver-1', {});
-    const order = await repository.advanceOrderStatus(
-      seeded.id,
-      'shipper-1',
-      { nextStatus: 'confirming' },
-    );
+    const order = await repository.advanceOrderStatus(seeded.id, 'shipper-1', {
+      nextStatus: 'confirming',
+    });
 
     await expect(
       repository.executeIdempotentOrderMutation(
@@ -1600,7 +1921,10 @@ describe('InMemoryOrdersRepository order mutation idempotency', () => {
         }),
       ],
     });
-    const repository = new InMemoryOrdersRepository(() => new Date('2026-07-14T08:00:00.000Z'), couponStore);
+    const repository = new InMemoryOrdersRepository(
+      () => new Date('2026-07-14T08:00:00.000Z'),
+      couponStore,
+    );
     const order = await repository.seedOrderForTest(
       'shipper-1',
       createOrderInput({ couponId: 'coupon-1' }),
@@ -1639,7 +1963,10 @@ describe('InMemoryOrdersRepository exception cases', () => {
   it('sorts shipper and admin exception case lists by most recent updatedAt first', async () => {
     let currentTime = new Date('2026-07-12T08:00:00.000Z');
     const repository = new InMemoryOrdersRepository(() => currentTime);
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
 
     await repository.reportOrderException(order.id, 'shipper-1', {
       typeLabel: '司机延误',
@@ -1652,9 +1979,9 @@ describe('InMemoryOrdersRepository exception cases', () => {
       typeLabel: '货损',
       description: '第二张异常工单仍在待处理状态。',
     });
-    const second = (await repository.listOrderExceptionCases(order.id)).items.find(
-      item => item.id !== first.id,
-    );
+    const second = (
+      await repository.listOrderExceptionCases(order.id)
+    ).items.find(item => item.id !== first.id);
 
     if (!second) {
       throw new Error('second exception case missing');
@@ -1677,7 +2004,9 @@ describe('InMemoryOrdersRepository exception cases', () => {
       status: 'processing',
       updatedAtIso: '2026-07-12T08:10:00.000Z',
     });
-    await expect(repository.listOrderExceptionCases(order.id)).resolves.toMatchObject({
+    await expect(
+      repository.listOrderExceptionCases(order.id),
+    ).resolves.toMatchObject({
       total: 2,
       items: [
         expect.objectContaining({
@@ -1719,12 +2048,16 @@ describe('InMemoryOrdersRepository exception cases', () => {
     const repository = new InMemoryOrdersRepository(
       () => new Date('2026-07-12T08:00:00.000Z'),
     );
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
     await repository.reportOrderException(order.id, 'shipper-1', {
       typeLabel: '司机延误',
       description: '司机反馈高速拥堵，预计晚到 40 分钟',
     });
-    const created = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
     const processing = await repository.transitionOrderExceptionCase(
       created.id,
       'admin-1',
@@ -1759,12 +2092,16 @@ describe('InMemoryOrdersRepository exception cases', () => {
     const repository = new InMemoryOrdersRepository(
       () => new Date('2026-07-12T08:00:00.000Z'),
     );
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
     await repository.reportOrderException(order.id, 'shipper-1', {
       typeLabel: '货损',
       description: '司机反馈货物外包装破损。',
     });
-    const created = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
     const processing = await repository.transitionOrderExceptionCase(
       created.id,
       'admin-1',
@@ -1776,7 +2113,11 @@ describe('InMemoryOrdersRepository exception cases', () => {
       },
     );
 
-    if (!processing || processing === 'state-invalid' || processing === 'conflict') {
+    if (
+      !processing ||
+      processing === 'state-invalid' ||
+      processing === 'conflict'
+    ) {
       throw new Error('processing transition failed');
     }
 
@@ -1817,19 +2158,28 @@ describe('InMemoryOrdersRepository exception cases', () => {
       }),
     ).resolves.toMatchObject({
       total: 1,
-      items: [expect.objectContaining({ id: created.id, compensationStatus: 'pending' })],
+      items: [
+        expect.objectContaining({
+          id: created.id,
+          compensationStatus: 'pending',
+        }),
+      ],
     });
   });
 
   it('appends exception case actions without changing status', async () => {
     let currentTime = new Date('2026-07-12T08:00:00.000Z');
     const repository = new InMemoryOrdersRepository(() => currentTime);
-    const order = await repository.seedOrderForTest('shipper-1', createOrderInput());
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
     await repository.reportOrderException(order.id, 'shipper-1', {
       typeLabel: '司机延误',
       description: '异常工单待系统升级。',
     });
-    const created = (await repository.listOrderExceptionCases(order.id)).items[0];
+    const created = (await repository.listOrderExceptionCases(order.id))
+      .items[0];
 
     currentTime = new Date('2026-07-12T08:20:00.000Z');
     await expect(
@@ -1881,7 +2231,9 @@ describe('PrismaOrdersRepository exception case lists', () => {
       () => new Date('2026-07-12T08:10:00.000Z'),
     );
 
-    await expect(repository.listOrderExceptionCases('order-1')).resolves.toMatchObject({
+    await expect(
+      repository.listOrderExceptionCases('order-1'),
+    ).resolves.toMatchObject({
       total: 1,
       items: [expect.objectContaining({ id: 'case-2' })],
     });
@@ -1944,7 +2296,12 @@ describe('PrismaOrdersRepository exception case lists', () => {
       }),
     ).resolves.toMatchObject({
       total: 1,
-      items: [expect.objectContaining({ id: 'case-1', compensationStatus: 'pending' })],
+      items: [
+        expect.objectContaining({
+          id: 'case-1',
+          compensationStatus: 'pending',
+        }),
+      ],
     });
   });
 
@@ -1976,7 +2333,9 @@ describe('PrismaOrdersRepository exception case lists', () => {
       }),
     ).resolves.toMatchObject({
       total: 1,
-      items: [expect.objectContaining({ id: 'case-1', appealStatus: 'requested' })],
+      items: [
+        expect.objectContaining({ id: 'case-1', appealStatus: 'requested' }),
+      ],
     });
   });
 
@@ -2369,9 +2728,7 @@ describe('InMemoryOrdersRepository exception compensation execution', () => {
     const signed = transactions[0].entries.reduce(
       (total, entry) =>
         total +
-        (entry.direction === 'credit'
-          ? entry.amountCents
-          : -entry.amountCents),
+        (entry.direction === 'credit' ? entry.amountCents : -entry.amountCents),
       0,
     );
     expect(signed).toBe(0);
@@ -2588,9 +2945,7 @@ describe('PrismaOrdersRepository exception compensation execution', () => {
         update: jest.fn().mockResolvedValue(updated),
       },
       financialTransaction: {
-        create: jest
-          .fn()
-          .mockResolvedValue({ id: 'financial-transaction-1' }),
+        create: jest.fn().mockResolvedValue({ id: 'financial-transaction-1' }),
       },
       driverWallet: { upsert: jest.fn() },
       orderEvent: { create: jest.fn().mockResolvedValue({ id: 'event-1' }) },
@@ -2848,7 +3203,10 @@ describe('InMemoryOrdersRepository exception appeal', () => {
       'admin-1',
       'processing',
       'resolved',
-      { baseUpdatedAtIso: processing.updatedAtIso, content: '客服判定无需赔付。' },
+      {
+        baseUpdatedAtIso: processing.updatedAtIso,
+        content: '客服判定无需赔付。',
+      },
     );
     if (!resolved || resolved === 'state-invalid' || resolved === 'conflict') {
       throw new Error('resolve failed');
@@ -2892,7 +3250,9 @@ describe('InMemoryOrdersRepository exception appeal', () => {
       }),
     ).resolves.toMatchObject({
       total: 1,
-      items: [expect.objectContaining({ id: caseId, appealStatus: 'requested' })],
+      items: [
+        expect.objectContaining({ id: caseId, appealStatus: 'requested' }),
+      ],
     });
   });
 
@@ -3065,7 +3425,12 @@ describe('InMemoryOrdersRepository exception appeal', () => {
       throw new Error('execution failed');
     }
 
-    return { repository, order, caseId: created.id, resolved: executed.exceptionCase };
+    return {
+      repository,
+      order,
+      caseId: created.id,
+      resolved: executed.exceptionCase,
+    };
   }
 });
 
@@ -3371,7 +3736,9 @@ function createPrismaMutationHarness(
     orderCargo: { upsert: jest.fn() },
     orderLocation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     orderRequirement: { upsert: jest.fn() },
-    orderEvent: { create: jest.fn().mockResolvedValue({ id: 'event-updated' }) },
+    orderEvent: {
+      create: jest.fn().mockResolvedValue({ id: 'event-updated' }),
+    },
     orderIdempotencyRecord: {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'idempotency-mutation' }),
@@ -3420,16 +3787,20 @@ function createPrismaBatchCancelHarness(
   const transaction = {
     order: {
       findUnique: jest.fn(),
-      findMany: jest.fn().mockImplementation((args: { select?: { id: true } }) => {
-        if (args?.select) {
-          return Promise.resolve(currentOrders.map(order => ({ id: order.id })));
-        }
+      findMany: jest
+        .fn()
+        .mockImplementation((args: { select?: { id: true } }) => {
+          if (args?.select) {
+            return Promise.resolve(
+              currentOrders.map(order => ({ id: order.id })),
+            );
+          }
 
-        includeFindManyCall += 1;
-        return Promise.resolve(
-          includeFindManyCall === 1 ? currentOrders : updatedOrders,
-        );
-      }),
+          includeFindManyCall += 1;
+          return Promise.resolve(
+            includeFindManyCall === 1 ? currentOrders : updatedOrders,
+          );
+        }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn(),
       create: jest.fn(),
@@ -3438,15 +3809,13 @@ function createPrismaBatchCancelHarness(
     orderCargo: { upsert: jest.fn() },
     orderLocation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     orderRequirement: { upsert: jest.fn() },
-    orderEvent: { create: jest.fn().mockResolvedValue({ id: 'event-updated' }) },
+    orderEvent: {
+      create: jest.fn().mockResolvedValue({ id: 'event-updated' }),
+    },
     orderIdempotencyRecord: {
       findUnique: jest.fn().mockResolvedValue(null),
-      create: jest
-        .fn()
-        .mockResolvedValue({ id: 'idempotency-batch-cancel' }),
-      update: jest
-        .fn()
-        .mockResolvedValue({ id: 'idempotency-batch-cancel' }),
+      create: jest.fn().mockResolvedValue({ id: 'idempotency-batch-cancel' }),
+      update: jest.fn().mockResolvedValue({ id: 'idempotency-batch-cancel' }),
     },
     shipperCoupon: {
       findFirst: jest.fn().mockResolvedValue(null),
@@ -3540,9 +3909,7 @@ function createPrismaCreateHarness(created: PrismaOrderRecord, now: Date) {
   };
 }
 
-function createCoupon(
-  overrides: Partial<ShipperCouponRecord> = {},
-) {
+function createCoupon(overrides: Partial<ShipperCouponRecord> = {}) {
   return { ...createCouponBase(), ...overrides } as ShipperCouponRecord;
 }
 
@@ -3665,6 +4032,36 @@ function createCancelMutationInput(
         reasonText: request.reasonText,
         description: request.description,
       },
+    },
+    ...overrides,
+  };
+}
+
+function createEvaluationReplyMutationInput(
+  orderId: string,
+  baseUpdatedAtIso: string,
+  evaluationEventId: string,
+  overrides: Partial<ExecuteOrderMutationInput> = {},
+): ExecuteOrderMutationInput {
+  const request = {
+    evaluationEventId,
+    content: '谢谢认可。',
+  };
+
+  return {
+    actorUserId: 'driver-1',
+    orderId,
+    operation: 'driver_evaluation_reply',
+    idempotencyKey: 'evaluation-reply-key',
+    requestFingerprint: createDriverEvaluationReplyFingerprint(
+      orderId,
+      request,
+    ),
+    baseUpdatedAtIso,
+    expiresAtIso: '2026-07-15T08:00:00.000Z',
+    mutation: {
+      type: 'driver_evaluation_reply',
+      input: request,
     },
     ...overrides,
   };
