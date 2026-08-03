@@ -202,19 +202,45 @@ describe('driver orders validation', () => {
   it('parses driver evaluation reply requests', () => {
     expect(
       parseDriverReplyEvaluationRequest({
+        evaluationEventId: '  event-evaluation-1  ',
         content: '  谢谢认可，后续继续保持。  ',
       }),
     ).toEqual({
+      evaluationEventId: 'event-evaluation-1',
       content: '谢谢认可，后续继续保持。',
     });
 
     expect(() =>
-      parseDriverReplyEvaluationRequest({ content: '   ' }),
+      parseDriverReplyEvaluationRequest({
+        evaluationEventId: 'event-evaluation-1',
+        content: '   ',
+      }),
     ).toThrow('评价回复不能为空');
 
     expect(() =>
-      parseDriverReplyEvaluationRequest({ content: 'x'.repeat(201) }),
+      parseDriverReplyEvaluationRequest({
+        evaluationEventId: 'event-evaluation-1',
+        content: 'x'.repeat(201),
+      }),
     ).toThrow('评价回复最多 200 字');
+
+    expect(() =>
+      parseDriverReplyEvaluationRequest({
+        evaluationEventId: '   ',
+        content: '谢谢认可。',
+      }),
+    ).toThrow('评价事件 ID 不能为空');
+
+    expect(() =>
+      parseDriverReplyEvaluationRequest({
+        evaluationEventId: 'x'.repeat(121),
+        content: '谢谢认可。',
+      }),
+    ).toThrow('评价事件 ID 最多 120 字');
+
+    expect(() =>
+      parseDriverReplyEvaluationRequest({ content: '谢谢认可。' }),
+    ).toThrow();
   });
 
   it('parses driver exception requests', () => {

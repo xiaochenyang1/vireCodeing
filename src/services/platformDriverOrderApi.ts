@@ -78,6 +78,7 @@ export type PlatformDriverAdvanceOrderStatusRequest =
 };
 
 export type PlatformDriverReplyEvaluationRequest = {
+  evaluationEventId: string;
   content: string;
 };
 
@@ -765,8 +766,14 @@ function normalizeDriverReplyEvaluationRequest(
     'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
     200,
   );
+  const evaluationEventId = normalizeRequiredDriverString(
+    request.evaluationEventId,
+    'evaluationEventId',
+    'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
+    120,
+  );
 
-  return { content };
+  return { evaluationEventId, content };
 }
 
 function normalizeDriverReportExceptionRequest(

@@ -41,6 +41,7 @@ import {
   isDriverCertificationFormDirty,
   isDriverWithdrawalFormPristine,
   omitDriverEvaluationReplyQueueItem,
+  isDriverEvaluationReplyQueueItemCurrent,
   sortDriverBankCards,
   sortDriverIncomeRecords,
   sortDriverMyOrders,
@@ -992,6 +993,51 @@ test('reads order events for evaluation state and latest reply', () => {
   expect(getLatestDriverEvaluationReply(evaluated)?.noteText).toBe('晚');
 });
 
+test('selects the latest received evaluation with a deterministic event id tie break', () => {
+  const latestByTime = order({
+    events: [
+      {
+        id: 'evaluation-newer',
+        eventType: 'evaluation_submitted',
+        createdAtIso: '2026-07-10T04:00:00.000Z',
+      },
+      {
+        id: 'evaluation-older-but-later',
+        eventType: 'evaluation_submitted',
+        createdAtIso: '2026-07-10T03:00:00.000Z',
+      },
+    ],
+  } as never);
+  const evaluated = order({
+    events: [
+      {
+        id: 'evaluation-z',
+        eventType: 'evaluation_submitted',
+        noteText: '同时间较大事件 ID',
+        createdAtIso: '2026-07-10T03:00:00.000Z',
+      },
+      {
+        id: 'unrelated-event',
+        eventType: 'status_changed',
+        createdAtIso: '2026-07-10T04:00:00.000Z',
+      },
+      {
+        id: 'evaluation-a',
+        eventType: 'evaluation_submitted',
+        noteText: '同时间较小事件 ID',
+        createdAtIso: '2026-07-10T03:00:00.000Z',
+      },
+    ],
+  } as never);
+
+  expect(getLatestDriverReceivedEvaluation(latestByTime)?.id).toBe(
+    'evaluation-newer',
+  );
+  expect(getLatestDriverReceivedEvaluation(evaluated)?.id).toBe(
+    'evaluation-z',
+  );
+});
+
 test('parses structured driver order evaluation summaries from event notes', () => {
   expect(
     getDriverOrderEvaluationSummary({
@@ -1045,14 +1091,108 @@ test('parses structured driver order evaluation summaries from event notes', () 
 
 test('omits a driver evaluation reply queue item immutably', () => {
   const queue = {
-    'order-1': { orderId: 'order-1', orderNo: 'HY1', content: 'x' },
-    'order-2': { orderId: 'order-2', orderNo: 'HY2', content: 'y' },
+    'order-1': {
+      driverAccountId: 'driver-1',
+      orderId: 'order-1',
+      orderNo: 'HY1',
+      evaluationEventId: 'evaluation-1',
+      evaluationSubmittedAtIso: '2026-08-03T01:00:00.000Z',
+      content: 'x',
+    },
+    'order-2': {
+      driverAccountId: 'driver-1',
+      orderId: 'order-2',
+      orderNo: 'HY2',
+      evaluationEventId: 'evaluation-2',
+      evaluationSubmittedAtIso: '2026-08-03T02:00:00.000Z',
+      content: 'y',
+    },
   };
 
-  const next = omitDriverEvaluationReplyQueueItem(queue, 'order-1');
+  const next = omitDriverEvaluationReplyQueueItem(queue, {
+    ...queue['order-1'],
+  });
   expect(next['order-1']).toBeUndefined();
   expect(next['order-2']).toBeDefined();
   expect(queue['order-1']).toBeDefined();
+  expect(next).not.toBe(queue);
+});
+
+test('keeps a newer driver evaluation reply queue item when an old request completes', () => {
+  const currentItem = {
+    driverAccountId: 'driver-1',
+    orderId: 'order-1',
+    orderNo: 'HY1',
+    evaluationEventId: 'evaluation-1',
+    evaluationSubmittedAtIso: '2026-08-03T01:00:00.000Z',
+    content: '当前待提交回复',
+  };
+  const queue = { 'order-1': currentItem };
+  const staleItems = [
+    { ...currentItem, driverAccountId: 'driver-2' },
+    { ...currentItem, evaluationEventId: 'evaluation-older' },
+    {
+      ...currentItem,
+      evaluationSubmittedAtIso: '2026-08-03T00:59:59.000Z',
+    },
+    { ...currentItem, content: '旧回复' },
+    { ...currentItem, orderNo: 'HY-OLD' },
+  ];
+
+  staleItems.forEach(staleItem => {
+    expect(omitDriverEvaluationReplyQueueItem(queue, staleItem)).toBe(queue);
+    expect(queue['order-1']).toBe(currentItem);
+  });
+
+  expect(
+    omitDriverEvaluationReplyQueueItem(queue, {
+      ...currentItem,
+      orderId: 'order-missing',
+    }),
+  ).toBe(queue);
+});
+
+test('matches a queued driver reply only to the same latest evaluation event', () => {
+  const evaluatedOrder = order({
+    orderNo: 'HY1',
+    events: [
+      {
+        id: 'evaluation-1',
+        eventType: 'evaluation_submitted',
+        createdAtIso: '2026-08-03T01:00:00.000Z',
+      },
+      {
+        id: 'evaluation-2',
+        eventType: 'evaluation_submitted',
+        createdAtIso: '2026-08-03T02:00:00.000Z',
+      },
+    ],
+  });
+  const queueItem = {
+    driverAccountId: 'driver-1',
+    orderId: evaluatedOrder.id,
+    orderNo: evaluatedOrder.orderNo,
+    evaluationEventId: 'evaluation-2',
+    evaluationSubmittedAtIso: '2026-08-03T02:00:00.000Z',
+    content: '谢谢认可。',
+  };
+
+  expect(isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, queueItem)).toBe(
+    true,
+  );
+  expect(
+    isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, {
+      ...queueItem,
+      evaluationEventId: 'evaluation-1',
+      evaluationSubmittedAtIso: '2026-08-03T01:00:00.000Z',
+    }),
+  ).toBe(false);
+  expect(
+    isDriverEvaluationReplyQueueItemCurrent(evaluatedOrder, {
+      ...queueItem,
+      evaluationSubmittedAtIso: '2026-08-03T02:00:01.000Z',
+    }),
+  ).toBe(false);
 });
 
 test('maps driver action failures to friendly notices', () => {

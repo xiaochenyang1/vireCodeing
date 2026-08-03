@@ -1777,11 +1777,13 @@ export class InMemoryOrdersRepository implements OrdersRepository {
   ) {
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
-    if (!order) {
-      throw new Error(`Order not found: ${orderId}`);
-    }
+    assertCurrentEvaluationReplyTarget(
+      order,
+      driverId,
+      input.evaluationEventId,
+    );
 
-    const nowIso = this.now().toISOString();
+    const nowIso = createNextUpdatedAtIso(order.updatedAtIso, this.now());
     order.updatedAtIso = nowIso;
     order.events.push({
       id: `event-${this.orders.length}-${order.events.length + 1}`,
@@ -4187,9 +4189,7 @@ const orderInclude = {
   locations: true,
   requirement: true,
   events: {
-    orderBy: {
-      createdAt: 'asc',
-    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   },
 } as const;
 
@@ -6374,23 +6374,73 @@ export class PrismaOrdersRepository implements OrdersRepository {
     driverId: string,
     input: DriverReplyEvaluationRequest,
   ) {
-    const order = await this.prisma.order.update({
-      where: {
-        id: orderId,
-      },
-      data: {
-        events: {
-          create: {
-            actorUserId: driverId,
-            eventType: 'evaluation_replied',
-            noteText: input.content,
-          },
-        },
-      },
-      include: orderInclude,
-    });
+    if (!this.prisma.$transaction) {
+      throw new Error(
+        'Prisma transaction client is required for evaluation replies',
+      );
+    }
 
-    return mapPrismaOrder(order);
+    return this.prisma.$transaction(async transaction => {
+      const current = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+
+      if (!current) {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      }
+
+      const currentOrder = mapPrismaOrder(current);
+
+      assertCurrentEvaluationReplyTarget(
+        currentOrder,
+        driverId,
+        input.evaluationEventId,
+      );
+
+      const updatedAt = new Date(
+        createNextUpdatedAtIso(current.updatedAt.toISOString(), this.now()),
+      );
+      const claim = await transaction.order.updateMany({
+        where: {
+          id: orderId,
+          assignedDriverId: driverId,
+          updatedAt: current.updatedAt,
+        },
+        data: { updatedAt },
+      });
+
+      if (claim.count !== 1) {
+        throw new BusinessError(
+          ApiErrorCode.ORDER_CONFLICT,
+          '订单已被其他操作更新',
+        );
+      }
+
+      await transaction.orderEvent.create({
+        data: {
+          orderId,
+          actorUserId: driverId,
+          eventType: 'evaluation_replied',
+          noteText: input.content,
+          attachmentFileIds: [],
+          createdAt: updatedAt,
+        },
+      });
+      const updated = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: orderInclude,
+      });
+
+      if (!updated) {
+        throw new Error(`Order not found after evaluation reply: ${orderId}`);
+      }
+
+      return mapPrismaOrder(updated);
+    });
   }
 
   async reportDriverOrderException(
@@ -7819,6 +7869,38 @@ function isOrderAcceptedByDriver(order: ShipperOrderRecord, driverId: string) {
     event =>
       event.actorUserId === driverId && event.eventType === 'driver_accepted',
   );
+}
+
+function assertCurrentEvaluationReplyTarget(
+  order: ShipperOrderRecord | undefined,
+  driverId: string,
+  evaluationEventId: string,
+): asserts order is ShipperOrderRecord {
+  const latestEvaluation = order
+    ? order.events.reduce<ShipperOrderEventRecord | undefined>(
+        (latest, event) =>
+          event.eventType === 'evaluation_submitted' &&
+          (!latest ||
+            event.createdAtIso > latest.createdAtIso ||
+            (event.createdAtIso === latest.createdAtIso &&
+              event.id.localeCompare(latest.id) > 0))
+            ? event
+            : latest,
+        undefined,
+      )
+    : undefined;
+
+  if (
+    !order ||
+    order.assignedDriverId !== driverId ||
+    !isOrderAcceptedByDriver(order, driverId) ||
+    latestEvaluation?.id !== evaluationEventId
+  ) {
+    throw new BusinessError(
+      ApiErrorCode.ORDER_CONFLICT,
+      '订单已被其他操作更新',
+    );
+  }
 }
 
 function createOrderExceptionNote(input: ReportShipperOrderExceptionRequest) {

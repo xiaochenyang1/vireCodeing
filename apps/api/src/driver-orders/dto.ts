@@ -60,6 +60,7 @@ export type DriverAdvanceOrderStatusRequest = {
 };
 
 export type DriverReplyEvaluationRequest = {
+  evaluationEventId: string;
   content: string;
 };
 

@@ -599,17 +599,26 @@ describe('DriverOrdersService', () => {
       'driver-1',
       createOrderInput('宝安区福永物流园'),
     );
-    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
-      rating: 5,
-      tags: ['准时送达', '服务好'],
-      content: '司机服务细致',
-    });
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      {
+        rating: 5,
+        tags: ['准时送达', '服务好'],
+        content: '司机服务细致',
+      },
+    );
+    const evaluationEventId =
+      evaluatedOrder.events[evaluatedOrder.events.length - 1].id;
 
     await expect(
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { content: '谢谢认可，后续继续保持。' },
+        {
+          evaluationEventId,
+          content: '谢谢认可，后续继续保持。',
+        },
       ),
     ).resolves.toMatchObject({
       id: order.id,
@@ -630,17 +639,23 @@ describe('DriverOrdersService', () => {
       'driver-2',
       createOrderInput('宝安区福永物流园'),
     );
-    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
-      rating: 5,
-      tags: ['准时送达'],
-      content: '整体不错',
-    });
+    const evaluatedOrder = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      {
+        rating: 5,
+        tags: ['准时送达'],
+        content: '整体不错',
+      },
+    );
+    const evaluationEventId =
+      evaluatedOrder.events[evaluatedOrder.events.length - 1].id;
 
     await expect(
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { content: '谢谢认可。' },
+        { evaluationEventId, content: '谢谢认可。' },
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在'),
@@ -659,11 +674,63 @@ describe('DriverOrdersService', () => {
       service.replyToEvaluation(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
-        { content: '谢谢认可。' },
+        {
+          evaluationEventId: 'event-evaluation-missing',
+          content: '谢谢认可。',
+        },
       ),
     ).rejects.toMatchObject(
       new BusinessError(ApiErrorCode.ORDER_STATE_INVALID, '订单尚未收到货主评价'),
     );
+  });
+
+  it('rejects a reply targeting an older shipper evaluation', async () => {
+    const { repository, service } = createService();
+    const order = await createCompletedDriverOrder(
+      repository,
+      'driver-1',
+      createOrderInput('宝安区福永物流园'),
+    );
+    const firstEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      {
+        rating: 4,
+        tags: ['准时送达'],
+        content: '第一次评价',
+      },
+    );
+    const staleEvaluationEventId =
+      firstEvaluation.events[firstEvaluation.events.length - 1].id;
+    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
+      rating: 5,
+      tags: ['服务好'],
+      content: '更新后的评价',
+    });
+
+    await expect(
+      service.replyToEvaluation(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+        {
+          evaluationEventId: staleEvaluationEventId,
+          content: '谢谢认可。',
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.ORDER_CONFLICT,
+      message: '订单已被其他操作更新',
+    });
+    await expect(
+      service.getOrder(
+        { id: 'driver-1', phone: '13900139009', userType: 'driver' },
+        order.id,
+      ),
+    ).resolves.toMatchObject({
+      events: expect.not.arrayContaining([
+        expect.objectContaining({ eventType: 'evaluation_replied' }),
+      ]),
+    });
   });
 
   it('reports an exception without changing the driver order status', async () => {

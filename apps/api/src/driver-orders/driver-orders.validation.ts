@@ -172,6 +172,11 @@ export const driverAdvanceOrderStatusSchema = z.object({
 });
 
 export const driverReplyEvaluationSchema = z.object({
+  evaluationEventId: z
+    .string()
+    .trim()
+    .min(1, '评价事件 ID 不能为空')
+    .max(120, '评价事件 ID 最多 120 字'),
   content: z
     .string()
     .trim()

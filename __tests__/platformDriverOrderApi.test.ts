@@ -584,6 +584,7 @@ describe('platform driver order api', () => {
     });
 
     await api.replyToEvaluation(' order-1 ', {
+      evaluationEventId: ' event-evaluation-1 ',
       content: '  谢谢认可  ',
     });
 
@@ -591,7 +592,10 @@ describe('platform driver order api', () => {
       'http://localhost:3000/api/driver/orders/order-1/evaluation-reply',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ content: '谢谢认可' }),
+        body: JSON.stringify({
+          evaluationEventId: 'event-evaluation-1',
+          content: '谢谢认可',
+        }),
       }),
     );
   });
@@ -676,8 +680,25 @@ describe('platform driver order api', () => {
   );
 
   it.each([
-    ['blank content', { content: '   ' }],
-    ['too long content', { content: 'x'.repeat(201) }],
+    [
+      'blank event id',
+      { evaluationEventId: '   ', content: '谢谢认可' },
+    ],
+    [
+      'blank content',
+      { evaluationEventId: 'event-evaluation-1', content: '   ' },
+    ],
+    [
+      'too long event id',
+      { evaluationEventId: 'x'.repeat(121), content: '谢谢认可' },
+    ],
+    [
+      'too long content',
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: 'x'.repeat(201),
+      },
+    ],
     ['non-object request', null],
   ])(
     'rejects invalid driver evaluation reply requests before sending them: %s',
@@ -691,7 +712,13 @@ describe('platform driver order api', () => {
       });
 
       await expect(
-        api.replyToEvaluation('order-1', request as { content: string }),
+        api.replyToEvaluation(
+          'order-1',
+          request as {
+            evaluationEventId: string;
+            content: string;
+          },
+        ),
       ).rejects.toMatchObject({
         code: 'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID',
         status: 0,

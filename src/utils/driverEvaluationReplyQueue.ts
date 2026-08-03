@@ -5,13 +5,21 @@ import {
   writeJsonStorage,
 } from './storage';
 
-const DRIVER_EVALUATION_REPLY_QUEUE_VERSION = 1;
-const DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY =
+const DRIVER_EVALUATION_REPLY_QUEUE_VERSION = 2;
+const LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY =
   '@vireCodeing/driver-evaluation-reply-queue';
+const DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY_PREFIX =
+  LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY;
+const ISO_DATE_TIME_WITH_OFFSET_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const driverEvaluationReplyQueueStorageTails = new Map<string, Promise<void>>();
 
 export type DriverEvaluationReplyQueueItem = {
+  driverAccountId: string;
   orderId: string;
   orderNo: string;
+  evaluationEventId: string;
+  evaluationSubmittedAtIso: string;
   content: string;
 };
 
@@ -25,68 +33,165 @@ type DriverEvaluationReplyQueueSnapshot = {
   queue: DriverEvaluationReplyQueue;
 };
 
-export async function hydrateDriverEvaluationReplyQueue() {
-  const storedSnapshot =
-    await readJsonStorage<DriverEvaluationReplyQueueSnapshot>(
-      DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY,
-    );
+export async function hydrateDriverEvaluationReplyQueue(
+  driverAccountId: string,
+) {
+  const normalizedDriverAccountId = normalizeDriverAccountId(driverAccountId);
+  const storageKey = createDriverEvaluationReplyQueueStorageKey(
+    normalizedDriverAccountId,
+  );
 
-  if (!isValidSnapshot(storedSnapshot)) {
-    await removeStorageItem(DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY);
-    return {};
-  }
+  return enqueueDriverEvaluationReplyQueueStorageOperation(
+    storageKey,
+    async () => {
+      await removeStorageItem(LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY);
+      const storedSnapshot =
+        await readJsonStorage<DriverEvaluationReplyQueueSnapshot>(storageKey);
 
-  return cloneQueue(storedSnapshot.queue);
+      if (!isValidSnapshot(storedSnapshot, normalizedDriverAccountId)) {
+        await removeStorageItem(storageKey);
+        return {};
+      }
+
+      return cloneQueue(storedSnapshot.queue);
+    },
+  );
 }
 
 export function saveDriverEvaluationReplyQueue(
+  driverAccountId: string,
   queue: DriverEvaluationReplyQueue,
-) {
-  if (Object.keys(queue).length === 0) {
-    fireAndForget(removeStorageItem(DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY));
-    return;
+): Promise<void> {
+  const normalizedDriverAccountId = normalizeDriverAccountId(driverAccountId);
+  const storageKey = createDriverEvaluationReplyQueueStorageKey(
+    normalizedDriverAccountId,
+  );
+
+  if (!isValidQueue(queue, normalizedDriverAccountId)) {
+    throw new Error('Driver evaluation reply queue is invalid');
   }
 
+  const snapshot = Object.keys(queue).length
+    ? {
+        version: DRIVER_EVALUATION_REPLY_QUEUE_VERSION,
+        queue: cloneQueue(queue),
+      }
+    : undefined;
+
+  return enqueueDriverEvaluationReplyQueueStorageOperation(
+    storageKey,
+    async () => {
+      await removeStorageItem(LEGACY_DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY);
+
+      if (!snapshot) {
+        await removeStorageItem(storageKey);
+        return;
+      }
+
+      await writeJsonStorage(storageKey, snapshot);
+    },
+  );
+}
+
+function enqueueDriverEvaluationReplyQueueStorageOperation<T>(
+  storageKey: string,
+  operation: () => Promise<T>,
+) {
+  const previousTail =
+    driverEvaluationReplyQueueStorageTails.get(storageKey) ?? Promise.resolve();
+  const result = previousTail.catch(() => undefined).then(operation);
+  const nextTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  driverEvaluationReplyQueueStorageTails.set(storageKey, nextTail);
   fireAndForget(
-    writeJsonStorage(DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY, {
-      version: DRIVER_EVALUATION_REPLY_QUEUE_VERSION,
-      queue: cloneQueue(queue),
+    nextTail.then(() => {
+      if (driverEvaluationReplyQueueStorageTails.get(storageKey) === nextTail) {
+        driverEvaluationReplyQueueStorageTails.delete(storageKey);
+      }
     }),
   );
+
+  return result;
 }
 
 function isValidSnapshot(
   snapshot: DriverEvaluationReplyQueueSnapshot | undefined,
+  driverAccountId: string,
 ): snapshot is DriverEvaluationReplyQueueSnapshot {
   return (
     snapshot !== undefined &&
     snapshot.version === DRIVER_EVALUATION_REPLY_QUEUE_VERSION &&
-    isValidQueue(snapshot.queue)
+    isValidQueue(snapshot.queue, driverAccountId)
   );
 }
 
-function isValidQueue(value: unknown): value is DriverEvaluationReplyQueue {
+function isValidQueue(
+  value: unknown,
+  driverAccountId: string,
+): value is DriverEvaluationReplyQueue {
   return (
     typeof value === 'object' &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.values(value).every(isValidQueueItem)
+    Object.entries(value).every(
+      ([key, item]) =>
+        isValidQueueItem(item, driverAccountId) && key === item.orderId,
+    )
   );
 }
 
 function isValidQueueItem(
   value: unknown,
+  driverAccountId: string,
 ): value is DriverEvaluationReplyQueueItem {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const item = value as DriverEvaluationReplyQueueItem;
+
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as DriverEvaluationReplyQueueItem).orderId === 'string' &&
-    typeof (value as DriverEvaluationReplyQueueItem).orderNo === 'string' &&
-    typeof (value as DriverEvaluationReplyQueueItem).content === 'string' &&
-    Boolean((value as DriverEvaluationReplyQueueItem).orderId.trim()) &&
-    Boolean((value as DriverEvaluationReplyQueueItem).orderNo.trim()) &&
-    Boolean((value as DriverEvaluationReplyQueueItem).content.trim())
+    item.driverAccountId === driverAccountId &&
+    isNonEmptyString(item.orderId) &&
+    isNonEmptyString(item.orderNo) &&
+    isNonEmptyString(item.evaluationEventId) &&
+    isIsoDateTime(item.evaluationSubmittedAtIso) &&
+    isNonEmptyString(item.content)
+  );
+}
+
+function createDriverEvaluationReplyQueueStorageKey(driverAccountId: string) {
+  return `${DRIVER_EVALUATION_REPLY_QUEUE_STORAGE_KEY_PREFIX}:${encodeURIComponent(
+    normalizeDriverAccountId(driverAccountId),
+  )}`;
+}
+
+function normalizeDriverAccountId(driverAccountId: string) {
+  if (typeof driverAccountId !== 'string') {
+    throw new Error('driverAccountId is required');
+  }
+
+  const normalizedDriverAccountId = driverAccountId.trim();
+
+  if (!normalizedDriverAccountId) {
+    throw new Error('driverAccountId is required');
+  }
+
+  return normalizedDriverAccountId;
+}
+
+function isNonEmptyString(value: unknown) {
+  return typeof value === 'string' && Boolean(value.trim());
+}
+
+function isIsoDateTime(value: unknown) {
+  return (
+    typeof value === 'string' &&
+    ISO_DATE_TIME_WITH_OFFSET_PATTERN.test(value) &&
+    !Number.isNaN(Date.parse(value))
   );
 }
 

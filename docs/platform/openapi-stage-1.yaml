@@ -6329,7 +6329,7 @@ paths:
   /driver/orders/{orderId}/evaluation-reply:
     post:
       summary: Reply to a shipper evaluation
-      description: Appends an evaluation_replied event to an order accepted by the current driver after the shipper has submitted an evaluation. The order status is not changed.
+      description: Appends an evaluation_replied event to an order accepted by the current driver. evaluationEventId must still identify the latest shipper evaluation_submitted event when the repository claims the order write; stale or mismatched targets return ORDER_CONFLICT. The order status is not changed.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
         - name: orderId
@@ -6382,16 +6382,26 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-06T08:00:00.000Z'
         '409':
-          description: The order has not received a shipper evaluation yet
+          description: The order has not received a shipper evaluation yet, or the targeted evaluation is stale or mismatched
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 订单尚未收到货主评价
-                requestId: req_local
-                timestamp: '2026-07-09T08:30:00.000Z'
+              examples:
+                evaluationMissing:
+                  summary: No shipper evaluation exists
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 订单尚未收到货主评价
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
+                evaluationTargetConflict:
+                  summary: Evaluation target is stale or mismatched
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:31:00.000Z'
   /driver/orders/{orderId}/shipper-evaluation:
     post:
       summary: Submit a driver evaluation for the shipper
@@ -10122,8 +10132,14 @@ components:
           example: [file-receipt-1]
     DriverReplyEvaluationRequest:
       type: object
-      required: [content]
+      required: [evaluationEventId, content]
       properties:
+        evaluationEventId:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Event ID of the shipper evaluation being replied to. It must still be the latest evaluation_submitted event for this order and current driver at the repository write boundary.
+          example: event_01J1Z8EVALUATION0000000001
         content:
           type: string
           minLength: 1

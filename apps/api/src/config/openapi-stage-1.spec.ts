@@ -987,6 +987,21 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('DriverAcceptOrderRequest');
     expect(source).toContain('DriverAdvanceOrderStatusRequest');
     expect(source).toContain('DriverReplyEvaluationRequest');
+    expectSchemaBlockToContain(
+      source,
+      'DriverReplyEvaluationRequest',
+      'required: [evaluationEventId, content]',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverReplyEvaluationRequest',
+      'evaluationEventId:',
+    );
+    expectPathBlockToContain(
+      source,
+      '/driver/orders/{orderId}/evaluation-reply',
+      'ORDER_CONFLICT',
+    );
     expect(source).toContain('DriverEvaluateShipperRequest');
     expect(source).toContain('DriverReportOrderExceptionRequest');
     expect(source).toContain('driver_exception_reported');

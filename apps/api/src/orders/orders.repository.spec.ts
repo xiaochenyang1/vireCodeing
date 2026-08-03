@@ -995,6 +995,263 @@ describe('PrismaOrdersRepository order change reviews', () => {
   });
 });
 
+describe('OrdersRepository evaluation reply targets', () => {
+  const observedAt = new Date('2026-07-14T08:00:00.000Z');
+  const expectedUpdatedAt = new Date('2026-07-14T08:00:00.001Z');
+
+  function createEvaluatedPrismaOrder(
+    evaluationEventIds = ['event-evaluation-latest'],
+    overrides: Partial<PrismaOrderRecord> = {},
+  ) {
+    return createPrismaOrderRecord(createOrderInput(), observedAt, {
+      id: 'order-evaluated',
+      status: 'completed',
+      assignedDriverId: 'driver-1',
+      events: [
+        {
+          id: 'event-accepted',
+          actorUserId: 'driver-1',
+          eventType: 'driver_accepted',
+          noteText: null,
+          attachmentFileIds: [],
+          createdAt: new Date('2026-07-14T07:50:00.000Z'),
+        },
+        ...evaluationEventIds.map((id, index) => ({
+          id,
+          actorUserId: 'shipper-1',
+          eventType: 'evaluation_submitted',
+          noteText: '5 星：准时送达；评价正文：司机服务细致',
+          attachmentFileIds: [],
+          createdAt: new Date(`2026-07-14T07:5${index + 1}:00.000Z`),
+        })),
+      ],
+      ...overrides,
+    });
+  }
+
+  function createPrismaEvaluationReplyHarness(
+    current: PrismaOrderRecord,
+    claimCount: number,
+  ) {
+    const replyEvent = {
+      id: 'event-evaluation-reply',
+      actorUserId: 'driver-1',
+      eventType: 'evaluation_replied',
+      noteText: '谢谢认可。',
+      attachmentFileIds: [],
+      createdAt: expectedUpdatedAt,
+    };
+    const updated: PrismaOrderRecord = {
+      ...current,
+      updatedAt: expectedUpdatedAt,
+      events: [...current.events, replyEvent],
+    };
+    const transaction = {
+      order: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(current)
+          .mockResolvedValueOnce(updated),
+        updateMany: jest.fn().mockResolvedValue({ count: claimCount }),
+      },
+      orderEvent: {
+        create: jest.fn().mockResolvedValue(replyEvent),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+    };
+
+    return {
+      repository: new PrismaOrdersRepository(
+        prisma as unknown as PrismaOrdersClient,
+        () => observedAt,
+      ),
+      prisma,
+      transaction,
+    };
+  }
+
+  it('rejects stale, wrong-event, and wrong-driver targets in memory without appending a reply', async () => {
+    const repository = new InMemoryOrdersRepository(() => observedAt);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const firstEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 4, tags: ['准时送达'], content: '第一次评价' },
+    );
+    const staleEvaluationEventId =
+      firstEvaluation.events[firstEvaluation.events.length - 1].id;
+    const latestEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['服务好'], content: '更新后的评价' },
+    );
+    const latestEvaluationEventId =
+      latestEvaluation.events[latestEvaluation.events.length - 1].id;
+
+    await expect(
+      repository.replyToOrderEvaluation(order.id, 'driver-1', {
+        evaluationEventId: staleEvaluationEventId,
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.ORDER_CONFLICT });
+    await expect(
+      repository.replyToOrderEvaluation(order.id, 'driver-1', {
+        evaluationEventId: order.events.find(
+          event => event.eventType === 'driver_accepted',
+        )!.id,
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.ORDER_CONFLICT });
+    await expect(
+      repository.replyToOrderEvaluation(order.id, 'driver-2', {
+        evaluationEventId: latestEvaluationEventId,
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.ORDER_CONFLICT });
+    expect(
+      latestEvaluation.events.filter(
+        event => event.eventType === 'evaluation_replied',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('uses the event id as a deterministic evaluation timestamp tie break', async () => {
+    const repository = new InMemoryOrdersRepository(() => observedAt);
+    const order = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await repository.acceptDriverOrder(order.id, 'driver-1', {});
+    const firstEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 4, tags: ['准时送达'], content: '第一次评价' },
+    );
+    const firstEvaluationEvent =
+      firstEvaluation.events[firstEvaluation.events.length - 1];
+    const secondEvaluation = await repository.submitOrderEvaluation(
+      order.id,
+      'shipper-1',
+      { rating: 5, tags: ['服务好'], content: '更新后的评价' },
+    );
+    const secondEvaluationEvent =
+      secondEvaluation.events[secondEvaluation.events.length - 1];
+
+    expect(firstEvaluationEvent.createdAtIso).toBe(
+      secondEvaluationEvent.createdAtIso,
+    );
+    firstEvaluationEvent.id = 'evaluation-z';
+    secondEvaluationEvent.id = 'evaluation-a';
+    await expect(
+      repository.replyToOrderEvaluation(order.id, 'driver-1', {
+        evaluationEventId: secondEvaluationEvent.id,
+        content: '旧评价回复。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.ORDER_CONFLICT });
+    await expect(
+      repository.replyToOrderEvaluation(order.id, 'driver-1', {
+        evaluationEventId: firstEvaluationEvent.id,
+        content: '谢谢认可。',
+      }),
+    ).resolves.toMatchObject({
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: 'driver-1',
+          eventType: 'evaluation_replied',
+          noteText: '谢谢认可。',
+        }),
+      ]),
+    });
+  });
+
+  it('claims the order version before appending a Prisma evaluation reply', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const { repository, prisma, transaction } =
+      createPrismaEvaluationReplyHarness(current, 1);
+
+    await expect(
+      repository.replyToOrderEvaluation('order-evaluated', 'driver-1', {
+        evaluationEventId: 'event-evaluation-latest',
+        content: '谢谢认可。',
+      }),
+    ).resolves.toMatchObject({
+      id: 'order-evaluated',
+      updatedAtIso: expectedUpdatedAt.toISOString(),
+      events: expect.arrayContaining([
+        expect.objectContaining({
+          actorUserId: 'driver-1',
+          eventType: 'evaluation_replied',
+          noteText: '谢谢认可。',
+        }),
+      ]),
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(transaction.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'order-evaluated',
+        assignedDriverId: 'driver-1',
+        updatedAt: observedAt,
+      },
+      data: { updatedAt: expectedUpdatedAt },
+    });
+    expect(transaction.orderEvent.create).toHaveBeenCalledWith({
+      data: {
+        orderId: 'order-evaluated',
+        actorUserId: 'driver-1',
+        eventType: 'evaluation_replied',
+        noteText: '谢谢认可。',
+        attachmentFileIds: [],
+        createdAt: expectedUpdatedAt,
+      },
+    });
+  });
+
+  it('rejects a mismatched Prisma evaluation target before claiming the order', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const { repository, transaction } =
+      createPrismaEvaluationReplyHarness(current, 1);
+
+    await expect(
+      repository.replyToOrderEvaluation('order-evaluated', 'driver-1', {
+        evaluationEventId: 'event-from-another-order',
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.ORDER_CONFLICT,
+      message: '订单已被其他操作更新',
+    });
+    expect(transaction.order.updateMany).not.toHaveBeenCalled();
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a lost Prisma version claim before appending the reply event', async () => {
+    const current = createEvaluatedPrismaOrder();
+    const { repository, transaction } =
+      createPrismaEvaluationReplyHarness(current, 0);
+
+    await expect(
+      repository.replyToOrderEvaluation('order-evaluated', 'driver-1', {
+        evaluationEventId: 'event-evaluation-latest',
+        content: '谢谢认可。',
+      }),
+    ).rejects.toMatchObject({
+      code: ApiErrorCode.ORDER_CONFLICT,
+      message: '订单已被其他操作更新',
+    });
+    expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(transaction.order.findUnique).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('InMemoryOrdersRepository order mutation idempotency', () => {
   function createRepository(initialNowIso = '2026-07-12T08:00:00.000Z') {
     let now = new Date(initialNowIso);

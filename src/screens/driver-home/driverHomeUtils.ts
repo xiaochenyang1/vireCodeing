@@ -18,7 +18,10 @@ import type { PlatformDriverCertificationSnapshot } from '../../services/platfor
 import { PlatformApiError } from '../../services/platformApiClient';
 import type { PlatformShipperOrder } from '../../services/platformOrderApi';
 import { formatPlatformIsoMinute } from '../../utils/dateTime';
-import type { DriverEvaluationReplyQueue } from '../../utils/driverEvaluationReplyQueue';
+import type {
+  DriverEvaluationReplyQueue,
+  DriverEvaluationReplyQueueItem,
+} from '../../utils/driverEvaluationReplyQueue';
 import { parsePlatformEvaluationNote } from '../../utils/evaluationNote';
 
 /**
@@ -1223,8 +1226,10 @@ export function getDriverOrderEvaluationSummary(
 export function getLatestDriverReceivedEvaluation(order: PlatformShipperOrder) {
   return (order.events ?? [])
     .filter(event => event.eventType === 'evaluation_submitted')
-    .sort((left, right) =>
-      right.createdAtIso.localeCompare(left.createdAtIso),
+    .sort(
+      (left, right) =>
+        right.createdAtIso.localeCompare(left.createdAtIso) ||
+        right.id.localeCompare(left.id),
     )[0];
 }
 
@@ -1232,6 +1237,18 @@ export function getLatestDriverEvaluationReply(order: PlatformShipperOrder) {
   return (order.events ?? [])
     .filter(event => event.eventType === 'evaluation_replied')
     .sort((left, right) => right.createdAtIso.localeCompare(left.createdAtIso))[0];
+}
+
+export function isDriverEvaluationReplyQueueItemCurrent(
+  order: PlatformShipperOrder,
+  queueItem: DriverEvaluationReplyQueueItem,
+) {
+  const latestEvaluation = getLatestDriverReceivedEvaluation(order);
+
+  return (
+    latestEvaluation?.id === queueItem.evaluationEventId &&
+    latestEvaluation.createdAtIso === queueItem.evaluationSubmittedAtIso
+  );
 }
 
 export function getLatestDriverShipperEvaluation(order: PlatformShipperOrder) {
@@ -1242,10 +1259,25 @@ export function getLatestDriverShipperEvaluation(order: PlatformShipperOrder) {
 
 export function omitDriverEvaluationReplyQueueItem(
   queue: DriverEvaluationReplyQueue,
-  orderId: string,
+  expectedItem: DriverEvaluationReplyQueueItem,
 ) {
+  const currentItem = queue[expectedItem.orderId];
+
+  if (
+    !currentItem ||
+    currentItem.orderId !== expectedItem.orderId ||
+    currentItem.driverAccountId !== expectedItem.driverAccountId ||
+    currentItem.evaluationEventId !== expectedItem.evaluationEventId ||
+    currentItem.evaluationSubmittedAtIso !==
+      expectedItem.evaluationSubmittedAtIso ||
+    currentItem.content !== expectedItem.content ||
+    currentItem.orderNo !== expectedItem.orderNo
+  ) {
+    return queue;
+  }
+
   const nextQueue = { ...queue };
-  delete nextQueue[orderId];
+  delete nextQueue[expectedItem.orderId];
   return nextQueue;
 }
 

@@ -525,6 +525,7 @@ describe('DriverOrdersController', () => {
 
     await expect(
       controller.replyToEvaluation(createRequest('driver-1'), 'order-1', {
+        evaluationEventId: '  event-evaluation-1  ',
         content: '  谢谢认可，后续继续保持。  ',
       }),
     ).resolves.toMatchObject({
@@ -535,6 +536,7 @@ describe('DriverOrdersController', () => {
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
       {
+        evaluationEventId: 'event-evaluation-1',
         content: '谢谢认可，后续继续保持。',
       },
     );

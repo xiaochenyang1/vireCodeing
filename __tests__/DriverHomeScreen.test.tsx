@@ -9,7 +9,7 @@ import { DriverHomeScreen } from '../src/screens/DriverHomeScreen';
 import { PlatformApiError } from '../src/services/platformApiClient';
 
 const driverEvaluationReplyQueueStorageKey =
-  '@vireCodeing/driver-evaluation-reply-queue';
+  '@vireCodeing/driver-evaluation-reply-queue:local-driver';
 const driverOrderMutationQueueStorageKey =
   '@vireCodeing/driver-order-mutation-queue:local-driver';
 const originalFetch = globalThis.fetch;
@@ -39,6 +39,38 @@ function createDriverOrdersPage() {
     page: 1,
     pageSize: 20,
     total: 0,
+  };
+}
+
+function createDriverEvaluationReplyTestOrder() {
+  return {
+    id: 'order-evaluation-reply-race',
+    orderNo: 'HY202607090109',
+    status: 'completed' as const,
+    pickupAddress: '宝安区福永物流园',
+    deliveryAddress: '龙岗区坂田仓',
+    cargoType: 'build',
+    weightText: '2.5 吨',
+    quantityText: '12 箱',
+    pickupContact: '赵经理',
+    pickupPhone: '13900139001',
+    deliveryContact: '钱店长',
+    deliveryPhone: '13900139002',
+    vehicleRequirement: 'medium',
+    createdAtIso: '2026-07-09T08:00:00.000Z',
+    updatedAtIso: '2026-07-09T10:00:00.000Z',
+    pricingMode: 'fixed' as const,
+    priceCents: 76000,
+    paymentMethod: 'cod' as const,
+    shipperId: 'shipper-1',
+    events: [
+      {
+        id: 'event-evaluation-race',
+        eventType: 'evaluation_submitted' as const,
+        noteText: '服务准时。',
+        createdAtIso: '2026-07-09T10:00:00.000Z',
+      },
+    ],
   };
 }
 
@@ -6190,7 +6222,10 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
       'order-1',
-      { content: '谢谢认可，后续继续保持。' },
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '谢谢认可，后续继续保持。',
+      },
     );
     expect(getRenderedText(renderer)).toContain('评价回复已提交。');
     expect(getRenderedText(renderer)).toContain(
@@ -6577,14 +6612,31 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
       'order-1',
-      { content: '谢谢认可，后续继续保持。' },
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '谢谢认可，后续继续保持。',
+      },
     );
     expect(getRenderedText(renderer)).toContain(
       '订单尚未收到货主评价，暂不能回复。',
     );
   });
 
-  it('queues failed driver evaluation replies and retries them', async () => {
+  it('waits for queue hydration before persisting and retrying a failed reply', async () => {
+    const getItemMock = AsyncStorage.getItem as jest.Mock;
+    const originalGetItemImplementation =
+      getItemMock.getMockImplementation() as typeof AsyncStorage.getItem;
+    let resolveEvaluationQueueHydration!: (value: string | null) => void;
+    const delayedEvaluationQueueHydration = new Promise<string | null>(
+      resolve => {
+        resolveEvaluationQueueHydration = resolve;
+      },
+    );
+    getItemMock.mockImplementation(key =>
+      key === driverEvaluationReplyQueueStorageKey
+        ? delayedEvaluationQueueHydration
+        : originalGetItemImplementation(key),
+    );
     const order = {
       id: 'order-1',
       orderNo: 'HY202607090101',
@@ -6670,15 +6722,65 @@ describe('DriverHomeScreen certification uploads', () => {
       await flushMicrotasks();
     });
 
+    expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain(
+      '评价回复队列正在加载，请稍候。',
+    );
+
+    const hydratedQueue = {
+      version: 2,
+      queue: {
+        'order-existing': {
+          driverAccountId: 'local-driver',
+          orderId: 'order-existing',
+          orderNo: 'HY202607090099',
+          evaluationEventId: 'event-evaluation-existing',
+          evaluationSubmittedAtIso: '2026-07-09T09:00:00.000Z',
+          content: '水合前已有的待同步回复。',
+        },
+      },
+    };
+    getItemMock.mockImplementation(originalGetItemImplementation);
+    await ReactTestRenderer.act(async () => {
+      resolveEvaluationQueueHydration(JSON.stringify(hydratedQueue));
+      await delayedEvaluationQueueHydration;
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: 'driver-submit-evaluation-reply-HY202607090101',
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
     expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
       'order-1',
-      { content: '网络恢复后补交回复。' },
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '网络恢复后补交回复。',
+      },
     );
     expect(getRenderedText(renderer)).toContain(
       '评价回复提交失败，已加入本地重试队列。',
     );
     expect(getRenderedText(renderer)).toContain('评价回复同步队列');
     expect(getRenderedText(renderer)).toContain('网络恢复后补交回复。');
+    expect(
+      JSON.parse(
+        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+          '{}',
+      ),
+    ).toMatchObject({
+      queue: {
+        'order-existing': hydratedQueue.queue['order-existing'],
+        'order-1': {
+          content: '网络恢复后补交回复。',
+        },
+      },
+    });
 
     await ReactTestRenderer.act(async () => {
       renderer.root
@@ -6692,7 +6794,10 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenNthCalledWith(
       2,
       'order-1',
-      { content: '网络恢复后补交回复。' },
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '网络恢复后补交回复。',
+      },
     );
     expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
     expect(getRenderedText(renderer)).toContain(
@@ -6703,6 +6808,779 @@ describe('DriverHomeScreen certification uploads', () => {
         testID: 'driver-evaluation-reply-queue-HY202607090101',
       }),
     ).toHaveLength(0);
+    expect(
+      JSON.parse(
+        (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
+          '{}',
+      ),
+    ).toMatchObject({
+      queue: {
+        'order-existing': hydratedQueue.queue['order-existing'],
+      },
+    });
+  });
+
+  it('drops a queued reply when the shipper has submitted a newer evaluation', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090105',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-09T10:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-evaluation-1',
+          eventType: 'evaluation_submitted',
+          noteText: '第一次评价。',
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        },
+      ],
+    };
+    const refreshedOrder = {
+      ...order,
+      updatedAtIso: '2026-07-09T11:00:00.000Z',
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-2',
+          eventType: 'evaluation_submitted',
+          noteText: '货主更新后的评价。',
+          createdAtIso: '2026-07-09T11:00:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(refreshedOrder);
+    platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
+      new Error('Network request failed'),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('这条回复只针对第一次评价。');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(getRenderedText(renderer)).toContain(
+      '货主评价已更新，旧回复已移除，请重新填写。',
+    );
+    expect(getRenderedText(renderer)).toContain('货主更新后的评价。');
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-evaluation-reply-queue-${order.orderNo}`,
+      }),
+    ).toHaveLength(0);
+    expect(await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)).toBeNull();
+  });
+
+  it('keeps a queued reply when an order conflict does not change the evaluation', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090107',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-09T10:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-evaluation-1',
+          eventType: 'evaluation_submitted',
+          noteText: '服务准时。',
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        },
+      ],
+    };
+    const refreshedOrder = {
+      ...order,
+      updatedAtIso: '2026-07-09T10:05:00.000Z',
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(refreshedOrder);
+    platformDriverOrderApi.replyToEvaluation
+      .mockRejectedValueOnce(new Error('Network request failed'))
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          '订单已被其他操作更新',
+          'ORDER_CONFLICT',
+          409,
+        ),
+      );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('订单更新后继续重试。');
+    });
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(3);
+    expect(getRenderedText(renderer)).toContain(
+      '订单信息已更新，货主评价未变化；回复已保留在重试队列。',
+    );
+    expect(getRenderedText(renderer)).toContain('订单更新后继续重试。');
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-evaluation-reply-queue-${order.orderNo}`,
+      }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('hydrates evaluation reply queues from the active driver account only', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090106',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-09T10:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-evaluation-1',
+          eventType: 'evaluation_submitted',
+          noteText: '服务准时。',
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        },
+      ],
+    };
+    const createSnapshot = (driverAccountId: string, content: string) => ({
+      version: 2,
+      queue: {
+        [order.id]: {
+          driverAccountId,
+          orderId: order.id,
+          orderNo: order.orderNo,
+          evaluationEventId: 'event-evaluation-1',
+          evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+          content,
+        },
+      },
+    });
+    await AsyncStorage.setItem(
+      '@vireCodeing/driver-evaluation-reply-queue:driver-1',
+      JSON.stringify(createSnapshot('driver-1', '司机一的待同步回复。')),
+    );
+    await AsyncStorage.setItem(
+      '@vireCodeing/driver-evaluation-reply-queue:driver-2',
+      JSON.stringify(createSnapshot('driver-2', '司机二的待同步回复。')),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    const certificationApi = createMockDriverCertificationApi();
+    const onLogout = jest.fn();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          driverAccountId="driver-1"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    expect(getRenderedText(renderer)).toContain('司机一的待同步回复。');
+    expect(getRenderedText(renderer)).not.toContain('司机二的待同步回复。');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(
+        <DriverHomeScreen
+          driverAccountId="driver-2"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('司机二的待同步回复。');
+    expect(getRenderedText(renderer)).not.toContain('司机一的待同步回复。');
+  });
+
+  it('applies an old-account retry result after the account queue finishes rehydrating', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const updatedOrder = {
+      ...order,
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-reply-race',
+          eventType: 'evaluation_replied' as const,
+          noteText: '切换账号期间同步成功。',
+          createdAtIso: '2026-07-09T10:05:00.000Z',
+        },
+      ],
+    };
+    const driverOneStorageKey =
+      '@vireCodeing/driver-evaluation-reply-queue:driver-1';
+    const queuedReply = {
+      driverAccountId: 'driver-1',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: '切换账号期间同步成功。',
+    };
+    const unrelatedQueuedReply = {
+      driverAccountId: 'driver-1',
+      orderId: 'order-unrelated',
+      orderNo: 'HY202607090110',
+      evaluationEventId: 'event-evaluation-unrelated',
+      evaluationSubmittedAtIso: '2026-07-09T09:30:00.000Z',
+      content: '另一个订单仍待同步。',
+    };
+    const storedSnapshot = JSON.stringify({
+      version: 2,
+      queue: {
+        [queuedReply.orderId]: queuedReply,
+        [unrelatedQueuedReply.orderId]: unrelatedQueuedReply,
+      },
+    });
+    await AsyncStorage.setItem(driverOneStorageKey, storedSnapshot);
+
+    const getItemMock = AsyncStorage.getItem as jest.Mock;
+    const originalGetItemImplementation =
+      getItemMock.getMockImplementation() as typeof AsyncStorage.getItem;
+    let driverOneReadCount = 0;
+    let resolveSecondDriverOneHydration!: (value: string | null) => void;
+    const secondDriverOneHydration = new Promise<string | null>(resolve => {
+      resolveSecondDriverOneHydration = resolve;
+    });
+    getItemMock.mockImplementation(key => {
+      if (key === driverOneStorageKey) {
+        driverOneReadCount += 1;
+
+        if (driverOneReadCount === 2) {
+          return secondDriverOneHydration;
+        }
+      }
+
+      return originalGetItemImplementation(key);
+    });
+
+    let resolveReply!: (value: typeof updatedOrder) => void;
+    const pendingReply = new Promise<typeof updatedOrder>(resolve => {
+      resolveReply = resolve;
+    });
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockReturnValue(pendingReply);
+    const certificationApi = createMockDriverCertificationApi();
+    const onLogout = jest.fn();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          driverAccountId="driver-1"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    expect(getRenderedText(renderer)).toContain(queuedReply.content);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(
+        <DriverHomeScreen
+          driverAccountId="driver-2"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.update(
+        <DriverHomeScreen
+          driverAccountId="driver-1"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(driverOneReadCount).toBe(2);
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+      }).props.disabled,
+    ).toBe(true);
+    getItemMock.mockImplementation(originalGetItemImplementation);
+
+    await ReactTestRenderer.act(async () => {
+      resolveReply(updatedOrder);
+      await pendingReply;
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).not.toContain('评价回复已重新提交。');
+
+    await ReactTestRenderer.act(async () => {
+      resolveSecondDriverOneHydration(storedSnapshot);
+      await secondDriverOneHydration;
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-evaluation-reply-queue-${order.orderNo}`,
+      }),
+    ).toHaveLength(0);
+    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
+      JSON.stringify({
+        version: 2,
+        queue: {
+          [unrelatedQueuedReply.orderId]: unrelatedQueuedReply,
+        },
+      }),
+    );
+  });
+
+  it('keeps evaluation replies fail-closed until a failed queue hydration is retried', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const updatedOrder = {
+      ...order,
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-reply-after-reload',
+          eventType: 'evaluation_replied' as const,
+          noteText: '队列加载成功后提交。',
+          createdAtIso: '2026-07-09T10:06:00.000Z',
+        },
+      ],
+    };
+    const driverOneStorageKey =
+      '@vireCodeing/driver-evaluation-reply-queue:driver-1';
+    const unreadQueuedReply = {
+      driverAccountId: 'driver-1',
+      orderId: 'order-unread',
+      orderNo: 'HY202607090111',
+      evaluationEventId: 'event-evaluation-unread',
+      evaluationSubmittedAtIso: '2026-07-09T09:45:00.000Z',
+      content: '读取失败时不能覆盖的待同步回复。',
+    };
+    const storedSnapshot = JSON.stringify({
+      version: 2,
+      queue: {
+        [unreadQueuedReply.orderId]: unreadQueuedReply,
+      },
+    });
+    await AsyncStorage.setItem(driverOneStorageKey, storedSnapshot);
+
+    const getItemMock = AsyncStorage.getItem as jest.Mock;
+    const originalGetItemImplementation =
+      getItemMock.getMockImplementation() as typeof AsyncStorage.getItem;
+    let driverOneReadCount = 0;
+    let resolveRetryHydration!: (value: string | null) => void;
+    const retryHydration = new Promise<string | null>(resolve => {
+      resolveRetryHydration = resolve;
+    });
+    getItemMock.mockImplementation(key => {
+      if (key === driverOneStorageKey) {
+        driverOneReadCount += 1;
+
+        if (driverOneReadCount === 1) {
+          return Promise.reject(new Error('AsyncStorage read failed'));
+        }
+
+        if (driverOneReadCount === 2) {
+          return retryHydration;
+        }
+      }
+
+      return originalGetItemImplementation(key);
+    });
+
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockResolvedValue(updatedOrder);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          driverAccountId="driver-1"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('队列加载成功后提交。');
+    });
+
+    const retryLoadButton = renderer.root.findByProps({
+      testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+    });
+    expect(retryLoadButton.props.disabled).toBe(false);
+    expect(getRenderedText(renderer)).toContain('重新加载评价回复队列');
+    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
+      storedSnapshot,
+    );
+
+    await ReactTestRenderer.act(async () => {
+      retryLoadButton.props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(driverOneReadCount).toBe(2);
+    expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+      }).props.disabled,
+    ).toBe(true);
+    getItemMock.mockImplementation(originalGetItemImplementation);
+
+    await ReactTestRenderer.act(async () => {
+      resolveRetryHydration(storedSnapshot);
+      await retryHydration;
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).not.toHaveBeenCalled();
+    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
+      storedSnapshot,
+    );
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+      }).props.disabled,
+    ).toBe(false);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      order.id,
+      {
+        evaluationEventId: 'event-evaluation-race',
+        content: '队列加载成功后提交。',
+      },
+    );
+    await expect(originalGetItemImplementation(driverOneStorageKey)).resolves.toBe(
+      storedSnapshot,
+    );
+  });
+
+  it('ignores an in-flight reply result after switching driver accounts', async () => {
+    const order = {
+      id: 'order-1',
+      orderNo: 'HY202607090108',
+      status: 'completed' as const,
+      pickupAddress: '宝安区福永物流园',
+      deliveryAddress: '龙岗区坂田仓',
+      cargoType: 'build',
+      weightText: '2.5 吨',
+      quantityText: '12 箱',
+      pickupContact: '赵经理',
+      pickupPhone: '13900139001',
+      deliveryContact: '钱店长',
+      deliveryPhone: '13900139002',
+      vehicleRequirement: 'medium',
+      createdAtIso: '2026-07-09T08:00:00.000Z',
+      updatedAtIso: '2026-07-09T10:00:00.000Z',
+      pricingMode: 'fixed' as const,
+      priceCents: 76000,
+      paymentMethod: 'cod' as const,
+      shipperId: 'shipper-1',
+      events: [
+        {
+          id: 'event-evaluation-1',
+          eventType: 'evaluation_submitted',
+          noteText: '服务准时。',
+          createdAtIso: '2026-07-09T10:00:00.000Z',
+        },
+      ],
+    };
+    const driverTwoStorageKey =
+      '@vireCodeing/driver-evaluation-reply-queue:driver-2';
+    await AsyncStorage.setItem(
+      driverTwoStorageKey,
+      JSON.stringify({
+        version: 2,
+        queue: {
+          [order.id]: {
+            driverAccountId: 'driver-2',
+            orderId: order.id,
+            orderNo: order.orderNo,
+            evaluationEventId: 'event-evaluation-1',
+            evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+            content: '司机二的待同步回复。',
+          },
+        },
+      }),
+    );
+    let resolveReply!: (value: typeof order) => void;
+    const pendingReply = new Promise<typeof order>(resolve => {
+      resolveReply = resolve;
+    });
+    const updatedOrder = {
+      ...order,
+      events: [
+        ...order.events,
+        {
+          id: 'event-evaluation-reply-1',
+          eventType: 'evaluation_replied',
+          noteText: '旧账号的延迟回复。',
+          createdAtIso: '2026-07-09T10:05:00.000Z',
+        },
+      ],
+    };
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockReturnValue(pendingReply);
+    const certificationApi = createMockDriverCertificationApi();
+    const onLogout = jest.fn();
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          driverAccountId="driver-1"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({ testID: `driver-evaluation-reply-${order.orderNo}` })
+        .props.onChangeText('旧账号的延迟回复。');
+    });
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+      }).props.disabled,
+    ).toBe(true);
+    ReactTestRenderer.act(() => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-evaluation-reply-${order.orderNo}`,
+        })
+        .props.onPress();
+    });
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(getRenderedText(renderer)).toContain('评价回复正在提交，请稍候。');
+
+    await ReactTestRenderer.act(async () => {
+      renderer.update(
+        <DriverHomeScreen
+          driverAccountId="driver-2"
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={certificationApi}
+          onLogout={onLogout}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await ReactTestRenderer.act(async () => {
+      resolveReply(updatedOrder);
+      await pendingReply;
+      await flushMicrotasks();
+    });
+
+    expect(getRenderedText(renderer)).toContain('司机二的待同步回复。');
+    expect(getRenderedText(renderer)).not.toContain(
+      '司机回复：旧账号的延迟回复。',
+    );
+    await expect(AsyncStorage.getItem(driverTwoStorageKey)).resolves.toContain(
+      '司机二的待同步回复。',
+    );
   });
 
   it('keeps driver evaluation replies queued when the access token is missing', async () => {
@@ -6795,11 +7673,14 @@ describe('DriverHomeScreen certification uploads', () => {
           '{}',
       ),
     ).toMatchObject({
-      version: 1,
+      version: 2,
       queue: {
         'order-1': {
+          driverAccountId: 'local-driver',
           orderId: 'order-1',
           orderNo: 'HY202607090103',
+          evaluationEventId: 'event-evaluation-1',
+          evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
           content: '登录恢复后继续同步。',
         },
       },
@@ -6926,11 +7807,14 @@ describe('DriverHomeScreen certification uploads', () => {
           '{}',
       ),
     ).toMatchObject({
-      version: 1,
+      version: 2,
       queue: {
         'order-1': {
+          driverAccountId: 'local-driver',
           orderId: 'order-1',
           orderNo: 'HY202607090102',
+          evaluationEventId: 'event-evaluation-1',
+          evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
           content: '持久化队列恢复后重试。',
         },
       },
@@ -6977,7 +7861,10 @@ describe('DriverHomeScreen certification uploads', () => {
 
     expect(retryDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
       'order-1',
-      { content: '持久化队列恢复后重试。' },
+      {
+        evaluationEventId: 'event-evaluation-1',
+        content: '持久化队列恢复后重试。',
+      },
     );
     expect(await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)).toBeNull();
     expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
