@@ -1115,6 +1115,44 @@ describe('ProfileEvaluationsService', () => {
     });
   });
 
+  it('keeps historical full-width semicolons inside versioned evaluation tags', async () => {
+    const repository = new InMemoryProfileEvaluationsRepository({
+      orders: [
+        createOrder({
+          id: 'order-versioned-tag-delimiter',
+          shipperId: 'shipper-1',
+          orderNo: 'HY202607090018',
+          events: [
+            createEvent({
+              id: 'evaluation-versioned-tag-delimiter',
+              actorUserId: 'shipper-1',
+              eventType: 'evaluation_submitted',
+              noteText:
+                '4 星：准时；送达、服务好；评价信息：匿名；图片凭证 2 张；评价正文：司机沟通顺畅，凭证完整',
+              attachmentFileIds: ['file-eval-1', 'file-eval-2'],
+              createdAtIso: '2026-07-09T09:00:00.000Z',
+            }),
+          ],
+        }),
+      ],
+    });
+    const service = new ProfileEvaluationsService(repository);
+
+    await expect(service.listRecords('shipper-1')).resolves.toEqual({
+      shipperId: 'shipper-1',
+      items: [
+        expect.objectContaining({
+          id: 'evaluation-versioned-tag-delimiter',
+          rating: 4,
+          tags: ['准时；送达', '服务好'],
+          anonymous: true,
+          photoCount: 2,
+          content: '司机沟通顺畅，凭证完整',
+        }),
+      ],
+    });
+  });
+
   it('skips received evaluation notes that fail to parse', async () => {
     const repository = new InMemoryProfileEvaluationsRepository({
       orders: [

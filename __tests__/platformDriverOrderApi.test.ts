@@ -635,6 +635,7 @@ describe('platform driver order api', () => {
   it.each([
     ['invalid rating', { rating: 0, tags: ['沟通顺畅'], content: '货主装货配合好，结算沟通清楚。' }],
     ['empty tags', { rating: 5, tags: [], content: '货主装货配合好，结算沟通清楚。' }],
+    ['full-width semicolon tag', { rating: 5, tags: ['沟通；顺畅'], content: '货主装货配合好，结算沟通清楚。' }],
     ['short content', { rating: 5, tags: ['沟通顺畅'], content: '太短' }],
     [
       'too many photo ids',

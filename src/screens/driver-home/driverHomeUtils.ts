@@ -19,6 +19,7 @@ import { PlatformApiError } from '../../services/platformApiClient';
 import type { PlatformShipperOrder } from '../../services/platformOrderApi';
 import { formatPlatformIsoMinute } from '../../utils/dateTime';
 import type { DriverEvaluationReplyQueue } from '../../utils/driverEvaluationReplyQueue';
+import { parsePlatformEvaluationNote } from '../../utils/evaluationNote';
 
 /**
  * 司机首页的纯逻辑：表单请求构建、状态/按钮文案、金额与时间格式化、
@@ -115,8 +116,19 @@ export type DailyIncomePoint = {
   orderCount: number;
 };
 
+type DriverOrderEvent = NonNullable<PlatformShipperOrder['events']>[number];
 type DriverIncomeRecord = PlatformDriverIncomeOverview['records'][number];
 type DriverIncomeSummary = PlatformDriverIncomeOverview['summary'];
+
+export type DriverOrderEvaluationSummary = {
+  content: string;
+  submittedAtIso: string;
+  submittedAtText: string;
+  rating?: number;
+  tags?: string[];
+  anonymous?: boolean;
+  photoCount?: number;
+};
 
 export function sortDriverIncomeRecords(
   records: PlatformDriverIncomeOverview['records'],
@@ -596,6 +608,7 @@ export function createShipperEvaluationRequest(
     rating > 5 ||
     tags.length === 0 ||
     tags.length > 6 ||
+    tags.some(tag => tag.includes('；')) ||
     content.length < 6 ||
     content.length > 200 ||
     photoFileIds.length > 6
@@ -1173,6 +1186,38 @@ export function hasDriverEvaluationSubmitted(order: PlatformShipperOrder) {
     order.events?.some(event => event.eventType === 'evaluation_submitted') ??
     false
   );
+}
+
+export function getDriverOrderEvaluationSummary(
+  event: DriverOrderEvent | undefined,
+): DriverOrderEvaluationSummary | undefined {
+  if (!event) {
+    return undefined;
+  }
+
+  const submittedAtIso = event.createdAtIso;
+  const submittedAtText = formatPlatformIsoMinute(submittedAtIso);
+  const parsedEvaluation = parsePlatformEvaluationNote(event.noteText);
+
+  if (parsedEvaluation) {
+    return {
+      ...parsedEvaluation,
+      submittedAtIso,
+      submittedAtText,
+    };
+  }
+
+  const content = event.noteText?.trim();
+
+  if (!content) {
+    return undefined;
+  }
+
+  return {
+    content,
+    submittedAtIso,
+    submittedAtText,
+  };
 }
 
 export function getLatestDriverReceivedEvaluation(order: PlatformShipperOrder) {

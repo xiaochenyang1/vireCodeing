@@ -859,14 +859,22 @@ function normalizeDriverEvaluateShipperRequest(
 
   const tags = Array.from(
     new Set(
-      request.tags.map(tag =>
-        normalizeRequiredDriverString(
+      request.tags.map(tag => {
+        const normalizedTag = normalizeRequiredDriverString(
           tag,
           'tags',
           'PLATFORM_DRIVER_SHIPPER_EVALUATION_INVALID',
           40,
-        ),
-      ),
+        );
+
+        if (normalizedTag.includes('；')) {
+          throwInvalidShipperEvaluationRequest(
+            'Platform driver shipper evaluation tags are invalid',
+          );
+        }
+
+        return normalizedTag;
+      }),
     ),
   );
   const content = normalizeRequiredDriverString(

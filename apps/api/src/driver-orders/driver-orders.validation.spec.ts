@@ -312,6 +312,16 @@ describe('driver orders validation', () => {
     ).toThrow('请至少填写 6 个字的评价内容');
   });
 
+  it('rejects a shipper evaluation tag containing the note delimiter', () => {
+    expect(() =>
+      parseDriverEvaluateShipperRequest({
+        rating: 5,
+        tags: ['沟通；顺畅'],
+        content: '货主装货配合好，结算沟通清楚。',
+      }),
+    ).toThrow('评价标签不能包含全角分号');
+  });
+
   it('parses driver acceptance settings requests', () => {
     expect(
       parseSaveDriverAcceptanceSettingsRequest({

@@ -497,7 +497,16 @@ const listAdminOrderChangeRequestsQuerySchema = z.object({
 export const submitShipperOrderEvaluationSchema = z.object({
   rating: z.number().int().min(1).max(5),
   tags: z
-    .array(z.string().trim().min(1))
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .refine(
+          tag => !tag.includes('；'),
+          '评价标签不能包含全角分号',
+        ),
+    )
     .min(1, '请选择至少一个评价标签')
     .max(6)
     .transform(tags =>

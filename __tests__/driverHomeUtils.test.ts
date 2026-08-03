@@ -24,6 +24,7 @@ import {
   getDriverIncomeRecordBreakdownText,
   getDriverIncomeRecordSummaryText,
   getDriverIncomeSummaryText,
+  getDriverOrderEvaluationSummary,
   getDriverOrderActionFailureNotice,
   getDriverOrderPickupDistanceText,
   getDriverReceiptUploadButtonText,
@@ -486,6 +487,16 @@ test('parses shipper evaluation tags and enforces content bounds', () => {
       content: '货主配合很好',
       anonymous: false,
       photoFileIds: Array.from({ length: 7 }, (_, index) => `file-${index}`),
+    }),
+  ).toBeUndefined();
+
+  expect(
+    createShipperEvaluationRequest({
+      ratingText: '5',
+      tagsText: '沟通；顺畅',
+      content: '货主配合很好',
+      anonymous: false,
+      photoFileIds: [],
     }),
   ).toBeUndefined();
 });
@@ -979,6 +990,57 @@ test('reads order events for evaluation state and latest reply', () => {
     '最新评价',
   );
   expect(getLatestDriverEvaluationReply(evaluated)?.noteText).toBe('晚');
+});
+
+test('parses structured driver order evaluation summaries from event notes', () => {
+  expect(
+    getDriverOrderEvaluationSummary({
+      id: 'evaluation-1',
+      eventType: 'evaluation_submitted',
+      noteText:
+        '5 星：准时、沟通顺畅；评价信息：匿名；图片凭证 2 张；评价正文：整体运输顺畅，沟通积极。',
+      attachmentFileIds: ['file-1', 'file-2'],
+      createdAtIso: '2026-08-03T02:16:00.000Z',
+    }),
+  ).toEqual({
+    rating: 5,
+    tags: ['准时', '沟通顺畅'],
+    anonymous: true,
+    photoCount: 2,
+    content: '整体运输顺畅，沟通积极。',
+    submittedAtIso: '2026-08-03T02:16:00.000Z',
+    submittedAtText: '2026-08-03 10:16',
+  });
+
+  expect(
+    getDriverOrderEvaluationSummary({
+      id: 'evaluation-2',
+      eventType: 'shipper_evaluation_submitted',
+      noteText: '普通文本评价',
+      createdAtIso: '2026-08-03T02:18:00.000Z',
+    }),
+  ).toEqual({
+    content: '普通文本评价',
+    submittedAtIso: '2026-08-03T02:18:00.000Z',
+    submittedAtText: '2026-08-03 10:18',
+  });
+
+  expect(
+    getDriverOrderEvaluationSummary({
+      id: 'evaluation-3',
+      eventType: 'shipper_evaluation_submitted',
+      noteText:
+        '4 星：装货；配合、沟通顺畅；评价信息：实名；评价正文：货主安排清楚；结算也很及时。',
+      createdAtIso: '2026-08-03T02:20:00.000Z',
+    }),
+  ).toEqual({
+    rating: 4,
+    tags: ['装货；配合', '沟通顺畅'],
+    anonymous: false,
+    content: '货主安排清楚；结算也很及时。',
+    submittedAtIso: '2026-08-03T02:20:00.000Z',
+    submittedAtText: '2026-08-03 10:20',
+  });
 });
 
 test('omits a driver evaluation reply queue item immutably', () => {

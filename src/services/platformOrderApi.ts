@@ -2453,7 +2453,7 @@ function normalizeSubmitEvaluationRequest(
 
     const normalizedTag = tag.trim();
 
-    if (!normalizedTag) {
+    if (!normalizedTag || normalizedTag.includes('；')) {
       throw new PlatformApiError(
         'Platform order evaluation tags are invalid',
         'PLATFORM_ORDER_EVALUATION_REQUEST_INVALID',

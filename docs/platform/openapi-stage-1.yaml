@@ -8389,6 +8389,8 @@ components:
           items:
             type: string
             minLength: 1
+            pattern: '^[^；]+$'
+            description: Evaluation tags cannot contain the full-width semicolon used by the event note protocol.
           example: [准时, 服务好]
         content:
           type: string
@@ -10144,6 +10146,8 @@ components:
             type: string
             minLength: 1
             maxLength: 40
+            pattern: '^[^；]+$'
+            description: Evaluation tags cannot contain the full-width semicolon used by the event note protocol.
           example: [沟通顺畅, 装货配合]
         content:
           type: string

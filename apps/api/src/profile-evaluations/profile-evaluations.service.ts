@@ -746,6 +746,12 @@ function parseEvaluationNote(noteText?: string) {
     return undefined;
   }
 
+  const versionedEvaluation = parseVersionedEvaluationNote(noteText);
+
+  if (versionedEvaluation) {
+    return versionedEvaluation;
+  }
+
   const noteParts = noteText.split('；');
   const ratingAndTagsText = noteParts.shift()?.trim();
   const ratingMatch = ratingAndTagsText?.match(/^([1-5]) 星：(.*)$/);
@@ -834,6 +840,34 @@ function parseEvaluationNote(noteText?: string) {
     content,
     anonymous,
     photoCount,
+  };
+}
+
+function parseVersionedEvaluationNote(noteText: string) {
+  const versionedMatch = noteText.match(
+    /^([1-5]) 星：(.+?)；评价信息：(匿名|实名)(?:；图片凭证 (\d+) 张)?；评价正文：([\s\S]+)$/,
+  );
+
+  if (!versionedMatch) {
+    return undefined;
+  }
+
+  const tags = versionedMatch[2]
+    .split('、')
+    .map(tag => tag.trim())
+    .filter(Boolean);
+  const content = versionedMatch[5].trim();
+
+  if (tags.length === 0 || !content) {
+    return undefined;
+  }
+
+  return {
+    rating: Number(versionedMatch[1]),
+    tags,
+    content,
+    anonymous: versionedMatch[3] === '匿名',
+    photoCount: versionedMatch[4] ? Number(versionedMatch[4]) : 0,
   };
 }
 

@@ -1367,7 +1367,8 @@ describe('DriverHomeScreen certification uploads', () => {
         {
           id: 'event-evaluation-latest',
           eventType: 'evaluation_submitted',
-          noteText: '服务准时，凭证完整。',
+          noteText:
+            '5 星：准时、凭证完整；评价信息：匿名；图片凭证 2 张；评价正文：服务准时，凭证完整。',
           attachmentFileIds: [
             'file-evaluation-latest-1',
             'file-evaluation-latest-2',
@@ -1421,9 +1422,29 @@ describe('DriverHomeScreen certification uploads', () => {
     );
     expect(
       renderer.root.findByProps({
+        testID: `driver-received-evaluation-rating-${order.orderNo}`,
+      }).props.children,
+    ).toBe('5 星 · 准时、凭证完整');
+    expect(
+      renderer.root.findByProps({
         testID: `driver-received-evaluation-text-${order.orderNo}`,
       }).props.children,
     ).toBe('服务准时，凭证完整。');
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-received-evaluation-submitted-at-${order.orderNo}`,
+      }).props.children,
+    ).toBe('提交时间：2026-07-09 18:00');
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-received-evaluation-anonymous-${order.orderNo}`,
+      }).props.children,
+    ).toBe('匿名评价');
+    expect(
+      renderer.root.findByProps({
+        testID: `driver-received-evaluation-photo-count-${order.orderNo}`,
+      }).props.children,
+    ).toBe('图片凭证 2 张');
     expect(
       renderer.root.findByProps({
         testID: 'driver-received-evaluation-preview-image-1',
@@ -6177,9 +6198,32 @@ describe('DriverHomeScreen certification uploads', () => {
       },
     );
     expect(getRenderedText(renderer)).toContain('货主评价已提交。');
-    expect(getRenderedText(renderer)).toContain(
-      '司机评价货主：5 星：沟通顺畅、装货配合；评价信息：实名；图片凭证 1 张；评价正文：货主装货配合好，结算沟通清楚。',
-    );
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-shipper-evaluation-summary-rating-HY202607090104',
+      }).props.children,
+    ).toBe('5 星 · 沟通顺畅、装货配合');
+    expect(
+      renderer.root.findByProps({
+        testID:
+          'driver-shipper-evaluation-summary-submitted-at-HY202607090104',
+      }).props.children,
+    ).toBe('提交时间：2026-07-09 18:20');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-shipper-evaluation-summary-anonymous-HY202607090104',
+      }).props.children,
+    ).toBe('实名评价');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-shipper-evaluation-summary-photo-count-HY202607090104',
+      }).props.children,
+    ).toBe('图片凭证 1 张');
+    expect(
+      renderer.root.findByProps({
+        testID: 'driver-shipper-evaluation-summary-text-HY202607090104',
+      }).props.children,
+    ).toBe('货主装货配合好，结算沟通清楚。');
     expect(getRenderedText(renderer)).toContain('最近一次评价货主凭证');
     expect(
       renderer.root.findByProps({

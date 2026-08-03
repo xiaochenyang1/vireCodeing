@@ -75,6 +75,32 @@ describe('stage 1 OpenAPI contract', () => {
     expect(source).toContain('Non-participants receive ORDER_NOT_FOUND');
   });
 
+  it('documents the reserved evaluation note delimiter for both reviewer roles', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const delimiterPattern = "pattern: '^[^；]+$'";
+
+    expectSchemaBlockToContain(
+      source,
+      'SubmitShipperOrderEvaluationRequest',
+      delimiterPattern,
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      delimiterPattern,
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'CreateShipperOrderRequest',
+      delimiterPattern,
+    );
+    expectSchemaBlockNotToContain(
+      source,
+      'SaveDriverAcceptanceSettingsRequest',
+      delimiterPattern,
+    );
+  });
+
   it('documents historical exception case attachment preview renewal', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

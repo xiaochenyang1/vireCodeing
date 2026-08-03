@@ -1,6 +1,7 @@
 import { cargoTypeOptions, vehicleRequirementOptions } from '../data/options';
 import type { RecentOrder, RecentOrderStatus } from '../types';
 import { formatPlatformIsoMinute } from '../utils/dateTime';
+import { parsePlatformEvaluationNote } from '../utils/evaluationNote';
 import {
   createCancellationRecord,
   sortDriverQuotesByQuotedTimeDesc,
@@ -579,100 +580,6 @@ function createShipperEvaluationFromPlatformEvents(
     submittedAtText: formatPlatformIsoMinute(submittedAtIso),
     ...(photoCount ? { photoCount } : {}),
     ...(photoFiles.length > 0 ? { photoFiles } : {}),
-  };
-}
-
-function parsePlatformEvaluationNote(noteText?: string) {
-  if (!noteText) {
-    return undefined;
-  }
-
-  const noteParts = noteText.split('；');
-  const ratingAndTagsText = noteParts.shift()?.trim();
-  const ratingMatch = ratingAndTagsText?.match(/^([1-5]) 星：(.*)$/);
-
-  if (!ratingMatch) {
-    return undefined;
-  }
-
-  const tags = ratingMatch[2]
-    .split('、')
-    .map(tag => tag.trim())
-    .filter(Boolean);
-
-  if (tags.length === 0) {
-    return undefined;
-  }
-
-  const evaluationInfoMatch = noteParts[0]
-    ?.trim()
-    .match(/^评价信息：(匿名|实名)$/);
-
-  if (evaluationInfoMatch) {
-    noteParts.shift();
-    const photoCountMatch = noteParts[0]?.trim().match(/^图片凭证 (\d+) 张$/);
-    const photoCount = photoCountMatch ? Number(photoCountMatch[1]) : 0;
-
-    if (photoCountMatch) {
-      noteParts.shift();
-    }
-
-    const versionedContent = noteParts.join('；').trim();
-    const contentPrefix = '评价正文：';
-
-    if (!versionedContent.startsWith(contentPrefix)) {
-      return undefined;
-    }
-
-    const content = versionedContent.slice(contentPrefix.length).trim();
-
-    if (!content) {
-      return undefined;
-    }
-
-    return {
-      rating: Number(ratingMatch[1]),
-      tags,
-      content,
-      anonymous: evaluationInfoMatch[1] === '匿名',
-      photoCount,
-    };
-  }
-
-  let anonymous = false;
-  let photoCount = 0;
-
-  while (noteParts.length > 0) {
-    const currentPart = noteParts[0].trim();
-    const photoCountMatch = currentPart.match(/^图片凭证 (\d+) 张$/);
-
-    if (currentPart === '匿名评价') {
-      anonymous = true;
-      noteParts.shift();
-      continue;
-    }
-
-    if (photoCountMatch) {
-      photoCount = Number(photoCountMatch[1]);
-      noteParts.shift();
-      continue;
-    }
-
-    break;
-  }
-
-  const content = noteParts.join('；').trim();
-
-  if (!content) {
-    return undefined;
-  }
-
-  return {
-    rating: Number(ratingMatch[1]),
-    tags,
-    content,
-    anonymous,
-    photoCount,
   };
 }
 

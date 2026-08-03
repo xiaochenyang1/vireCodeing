@@ -488,6 +488,16 @@ describe('orders validation', () => {
     ).toThrow('请选择至少一个评价标签');
   });
 
+  it('rejects an order evaluation tag containing the note delimiter', () => {
+    expect(() =>
+      parseSubmitShipperOrderEvaluationRequest({
+        rating: 5,
+        tags: ['准时；服务好'],
+        content: '司机服务细致，整体运输体验很好',
+      }),
+    ).toThrow('评价标签不能包含全角分号');
+  });
+
   it('parses a shipper order change request', () => {
     expect(
       parseSubmitShipperOrderChangeRequest({

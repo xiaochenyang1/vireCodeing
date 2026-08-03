@@ -3055,6 +3055,11 @@ describe('platform order api', () => {
       tags: ['   '],
       content: '司机服务细致，整体运输体验很好',
     } as unknown as Parameters<typeof api.submitEvaluation>[1];
+    const fullWidthSemicolonTagRequest = {
+      rating: 5,
+      tags: ['准时；送达'],
+      content: '司机服务细致，整体运输体验很好',
+    } as unknown as Parameters<typeof api.submitEvaluation>[1];
     const nonStringTagRequest = {
       rating: 5,
       tags: ['准时送达', 123],
@@ -3133,6 +3138,7 @@ describe('platform order api', () => {
       () => api.submitEvaluation('order-1', emptyTagsRequest),
       () => api.submitEvaluation('order-1', tooManyTagsRequest),
       () => api.submitEvaluation('order-1', blankTagRequest),
+      () => api.submitEvaluation('order-1', fullWidthSemicolonTagRequest),
       () => api.submitEvaluation('order-1', nonStringTagRequest),
       () => api.submitEvaluation('order-1', stringTagsRequest),
       () => api.submitEvaluation('order-1', shortContentRequest),

@@ -700,6 +700,29 @@ describe('platform order mapper', () => {
     });
   });
 
+  it('keeps full-width semicolons inside versioned evaluation tags and content', () => {
+    const evaluation = mapPlatformOrderToRecentOrder(
+      baseOrder({
+        status: 'completed',
+        events: [
+          event({
+            id: 'evaluation-with-semicolons',
+            eventType: 'evaluation_submitted',
+            noteText:
+              '5 星：装货；配合、服务好；评价信息：实名；评价正文：司机服务细致；整体运输体验很好',
+          }),
+        ],
+      }),
+    ).evaluation;
+
+    expect(evaluation).toMatchObject({
+      rating: 5,
+      tags: ['装货；配合', '服务好'],
+      content: '司机服务细致；整体运输体验很好',
+      anonymous: false,
+    });
+  });
+
   it('drops driver quotes whose note payload is malformed or invalid', () => {
     const order = baseOrder({
       pricingMode: 'negotiable',

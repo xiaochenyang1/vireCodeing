@@ -108,6 +108,7 @@ import {
   getDriverIncomeRecordSummaryText,
   getDriverIncomeSummaryText,
   getDriverExecutionReceiptFileIds,
+  getDriverOrderEvaluationSummary,
   getDriverOrderHallBonusText,
   getDriverOrderActionFailureNotice,
   getDriverOrderHallPricingText,
@@ -2341,7 +2342,9 @@ export function DriverHomeScreen({
     );
 
     if (!request) {
-      setNotice('请填写 1-5 星评分、评价标签和至少 6 个字的评价内容。');
+      setNotice(
+        '请填写 1-5 星评分、评价标签和至少 6 个字的评价内容，标签不能包含全角分号。',
+      );
       return;
     }
 
@@ -2986,6 +2989,12 @@ export function DriverHomeScreen({
   const latestShipperEvaluation = selectedOrder
     ? getLatestDriverShipperEvaluation(selectedOrder)
     : undefined;
+  const latestReceivedEvaluationSummary = getDriverOrderEvaluationSummary(
+    latestReceivedEvaluation,
+  );
+  const latestShipperEvaluationSummary = getDriverOrderEvaluationSummary(
+    latestShipperEvaluation,
+  );
   const latestDriverException = selectedOrder
     ? getLatestDriverException(selectedOrder)
     : undefined;
@@ -5075,14 +5084,46 @@ export function DriverHomeScreen({
           ) : null}
           {hasDriverEvaluationSubmitted(selectedOrder) ? (
             <>
-              {latestReceivedEvaluation?.noteText ? (
+              {latestReceivedEvaluationSummary ? (
                 <>
                   <Text style={styles.draftSectionTitle}>货主评价</Text>
+                  {latestReceivedEvaluationSummary.rating !== undefined ? (
+                    <Text
+                      testID={`driver-received-evaluation-rating-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {`${latestReceivedEvaluationSummary.rating} 星 · ${(latestReceivedEvaluationSummary.tags ?? []).join('、')}`}
+                    </Text>
+                  ) : null}
+                  <Text
+                    testID={`driver-received-evaluation-submitted-at-${selectedOrder.orderNo}`}
+                    style={styles.detailMeta}
+                  >
+                    {`提交时间：${latestReceivedEvaluationSummary.submittedAtText}`}
+                  </Text>
+                  {latestReceivedEvaluationSummary.anonymous !== undefined ? (
+                    <Text
+                      testID={`driver-received-evaluation-anonymous-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {latestReceivedEvaluationSummary.anonymous
+                        ? '匿名评价'
+                        : '实名评价'}
+                    </Text>
+                  ) : null}
+                  {latestReceivedEvaluationSummary.photoCount ? (
+                    <Text
+                      testID={`driver-received-evaluation-photo-count-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {`图片凭证 ${latestReceivedEvaluationSummary.photoCount} 张`}
+                    </Text>
+                  ) : null}
                   <Text
                     testID={`driver-received-evaluation-text-${selectedOrder.orderNo}`}
                     style={styles.detailMeta}
                   >
-                    {latestReceivedEvaluation.noteText}
+                    {latestReceivedEvaluationSummary.content}
                   </Text>
                 </>
               ) : null}
@@ -5160,10 +5201,48 @@ export function DriverHomeScreen({
           ) : null}
           {selectedOrder.status === 'completed' ? (
             <>
-              {latestShipperEvaluation?.noteText ? (
-                <Text style={styles.detailMeta}>
-                  司机评价货主：{latestShipperEvaluation.noteText}
-                </Text>
+              {latestShipperEvaluationSummary ? (
+                <View>
+                  <Text style={styles.draftSectionTitle}>司机评价货主</Text>
+                  {latestShipperEvaluationSummary.rating !== undefined ? (
+                    <Text
+                      testID={`driver-shipper-evaluation-summary-rating-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {`${latestShipperEvaluationSummary.rating} 星 · ${(latestShipperEvaluationSummary.tags ?? []).join('、')}`}
+                    </Text>
+                  ) : null}
+                  <Text
+                    testID={`driver-shipper-evaluation-summary-submitted-at-${selectedOrder.orderNo}`}
+                    style={styles.detailMeta}
+                  >
+                    {`提交时间：${latestShipperEvaluationSummary.submittedAtText}`}
+                  </Text>
+                  {latestShipperEvaluationSummary.anonymous !== undefined ? (
+                    <Text
+                      testID={`driver-shipper-evaluation-summary-anonymous-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {latestShipperEvaluationSummary.anonymous
+                        ? '匿名评价'
+                        : '实名评价'}
+                    </Text>
+                  ) : null}
+                  {latestShipperEvaluationSummary.photoCount ? (
+                    <Text
+                      testID={`driver-shipper-evaluation-summary-photo-count-${selectedOrder.orderNo}`}
+                      style={styles.detailMeta}
+                    >
+                      {`图片凭证 ${latestShipperEvaluationSummary.photoCount} 张`}
+                    </Text>
+                  ) : null}
+                  <Text
+                    testID={`driver-shipper-evaluation-summary-text-${selectedOrder.orderNo}`}
+                    style={styles.detailMeta}
+                  >
+                    {latestShipperEvaluationSummary.content}
+                  </Text>
+                </View>
               ) : null}
               {selectedReportedShipperEvaluationAttachmentRefs.length > 0 ? (
                 <View>
