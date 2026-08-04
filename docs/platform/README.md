@@ -205,7 +205,14 @@ S3 兼容上传完成回调第一片已补：`POST /files/storage-callbacks/s3-c
 - `POST /shipper/orders/{orderId}/evaluation` 要求 UUID `Idempotency-Key`，请求体不暴露 `baseUpdatedAtIso`；服务端首次写入时使用刚读取的订单版本执行内部 CAS。
 - 同账号、同操作、同 Key 和同一规范化请求会在读取订单现态或附件前重放首次成功快照；变更请求内容或跨订单复用 Key 返回 `IDEMPOTENCY_KEY_REUSED`，过期记录返回 `IDEMPOTENCY_KEY_EXPIRED`。
 - 完成态与货主归属检查、附件本人归属 / uploaded 状态 / evaluation 用途校验、`evaluation_submitted` 事件、幂等记录和成功响应快照在同一仓储事务中提交；CAS 失败返回 `ORDER_CONFLICT`。
-- 本切片只完成服务端持久幂等。货主移动端生成 UUID、首次 POST 前落盘以及账号隔离 durable 重试队列将在下一独立提交完成。
+- 本切片已完成服务端持久幂等及货主移动端 UUID、首次 POST 前落盘、账号隔离 durable 重试队列；评价仍由订单事件派生，不等于独立评价快照表、审核 / 申诉后台或跨设备冲突收敛已经完成。
+
+## 货主移动端评价司机 durable 队列
+
+- 移动端 `platformOrderApi.submitEvaluation()` 现要求调用方传入 UUID v4 `Idempotency-Key`，adapter 在任何 fetch 前校验并发送 `Idempotency-Key` 请求头。
+- 货主首次提交评价会把账号、完整规范化请求、本地订单 ID、平台订单 ID、订单号和原 Key 先写入账号隔离的 AsyncStorage durable 队列；落盘失败时不会产生平台 I/O。
+- 普通失败、缺 token 和 `ORDER_CONFLICT` 保留原 Key；冷启动 / 账号切换会重新 hydration 对应账号队列，重试优先使用原请求和原 Key，成功后 GET 最新订单并按完整请求身份删除队列项。
+- `IDEMPOTENCY_KEY_REUSED` 会持久化新 UUID 并等待再次手动重试，`IDEMPOTENCY_KEY_EXPIRED` 会清理队列并阻止自动重试，避免旧异步结果误删后续新评价。
 
 ## 目录规划
 

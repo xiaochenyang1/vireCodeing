@@ -154,6 +154,13 @@ import {
   optionalText,
 } from './src/utils/platformOrderRequest';
 import {
+  hydrateShipperDriverEvaluationQueue,
+  omitShipperDriverEvaluationQueueItem,
+  saveShipperDriverEvaluationQueue,
+  type ShipperDriverEvaluationQueue,
+  type ShipperDriverEvaluationQueueItem,
+} from './src/utils/shipperDriverEvaluationQueue';
+import {
   createPlatformOrderListQuery,
   findLocalOrderForPlatformOrder,
   isPlatformOrderAdvanceStatus,
@@ -623,6 +630,30 @@ function App({
     shouldSyncRestoredPushToken ? currentDeviceId : undefined,
   );
   const [orders, setOrders] = useState<RecentOrder[]>([]);
+  const [, setShipperDriverEvaluationQueue] =
+    useState<ShipperDriverEvaluationQueue>({});
+  const shipperDriverEvaluationQueueRef = useRef<ShipperDriverEvaluationQueue>(
+    {},
+  );
+  const [, setShipperDriverEvaluationQueueHydratedAccountId] =
+    useState<string>();
+  const shipperDriverEvaluationQueueHydratedAccountIdRef =
+    useRef<string>(undefined);
+  const [
+    shipperDriverEvaluationQueueHydrationFailedAccountId,
+    setShipperDriverEvaluationQueueHydrationFailedAccountId,
+  ] = useState<string>();
+  const [
+    shipperDriverEvaluationQueueHydrationAttempt,
+    setShipperDriverEvaluationQueueHydrationAttempt,
+  ] = useState(0);
+  const shipperDriverEvaluationQueueHydrationContextRef = useRef<
+    | {
+        accountId: string;
+        promise: Promise<ShipperDriverEvaluationQueue>;
+      }
+    | undefined
+  >(undefined);
   const [messages, setMessages] = useState<MessageCenterItem[]>([]);
   const [messageUnreadCount, setMessageUnreadCount] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
@@ -892,6 +923,65 @@ function App({
     resetScreen,
     syncPlatformAuthenticatedProfile,
   ]);
+
+  const resolvedShipperAccountId = authenticatedUser?.id?.trim();
+  const activeShipperAccountIdRef = useRef(resolvedShipperAccountId);
+  activeShipperAccountIdRef.current = resolvedShipperAccountId;
+
+  useEffect(() => {
+    if (!resolvedShipperAccountId) {
+      shipperDriverEvaluationQueueHydrationContextRef.current = undefined;
+      shipperDriverEvaluationQueueHydratedAccountIdRef.current = undefined;
+      shipperDriverEvaluationQueueRef.current = {};
+      setShipperDriverEvaluationQueue({});
+      setShipperDriverEvaluationQueueHydratedAccountId(undefined);
+      setShipperDriverEvaluationQueueHydrationFailedAccountId(undefined);
+      return;
+    }
+
+    let isMounted = true;
+    const promise = hydrateShipperDriverEvaluationQueue(
+      resolvedShipperAccountId,
+    );
+    const context = { accountId: resolvedShipperAccountId, promise };
+    shipperDriverEvaluationQueueHydrationContextRef.current = context;
+    shipperDriverEvaluationQueueHydratedAccountIdRef.current = undefined;
+    shipperDriverEvaluationQueueRef.current = {};
+    setShipperDriverEvaluationQueue({});
+    setShipperDriverEvaluationQueueHydratedAccountId(undefined);
+    setShipperDriverEvaluationQueueHydrationFailedAccountId(undefined);
+
+    promise
+      .then(queue => {
+        if (
+          !isMounted ||
+          shipperDriverEvaluationQueueHydrationContextRef.current !== context
+        ) {
+          return;
+        }
+        shipperDriverEvaluationQueueRef.current = queue;
+        setShipperDriverEvaluationQueue(queue);
+        shipperDriverEvaluationQueueHydratedAccountIdRef.current =
+          resolvedShipperAccountId;
+        setShipperDriverEvaluationQueueHydratedAccountId(
+          resolvedShipperAccountId,
+        );
+      })
+      .catch(() => {
+        if (
+          isMounted &&
+          shipperDriverEvaluationQueueHydrationContextRef.current === context
+        ) {
+          setShipperDriverEvaluationQueueHydrationFailedAccountId(
+            resolvedShipperAccountId,
+          );
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [resolvedShipperAccountId, shipperDriverEvaluationQueueHydrationAttempt]);
 
   useEffect(() => {
     if (
@@ -2320,6 +2410,201 @@ function App({
     });
   };
 
+  const createNormalizedShipperDriverEvaluationRequest = (
+    evaluation: NonNullable<RecentOrder['evaluation']>,
+  ) => {
+    const request = createPlatformEvaluationRequest(evaluation);
+    const tags = Array.from(new Set(request.tags.map(tag => tag.trim())));
+    const content = request.content.trim();
+    const photoFileIds = request.photoFileIds?.map(fileId => fileId.trim());
+    return {
+      ...request,
+      tags,
+      content,
+      anonymous: Boolean(request.anonymous),
+      photoCount:
+        photoFileIds?.length ?? Math.max(evaluation.photoCount ?? 0, 0),
+      ...(photoFileIds ? { photoFileIds } : {}),
+    };
+  };
+
+  const persistShipperDriverEvaluationQueue = (
+    accountId: string,
+    queue: ShipperDriverEvaluationQueue,
+  ) => {
+    try {
+      const task = saveShipperDriverEvaluationQueue(accountId, queue);
+      task.catch(() => undefined);
+      return task;
+    } catch (error) {
+      const task = Promise.reject(error);
+      task.catch(() => undefined);
+      return task;
+    }
+  };
+
+  const upsertShipperDriverEvaluationQueueItem = (
+    item: ShipperDriverEvaluationQueueItem,
+  ) => {
+    if (
+      item.shipperAccountId !== activeShipperAccountIdRef.current ||
+      shipperDriverEvaluationQueueHydratedAccountIdRef.current !==
+        item.shipperAccountId
+    ) {
+      return Promise.reject(new Error('Shipper evaluation queue is not ready'));
+    }
+
+    const nextQueue = {
+      ...shipperDriverEvaluationQueueRef.current,
+      [item.localOrderId]: item,
+    };
+    const previousQueue = shipperDriverEvaluationQueueRef.current;
+    shipperDriverEvaluationQueueRef.current = nextQueue;
+    setShipperDriverEvaluationQueue(nextQueue);
+    return persistShipperDriverEvaluationQueue(
+      item.shipperAccountId,
+      nextQueue,
+    ).catch(error => {
+      if (shipperDriverEvaluationQueueRef.current === nextQueue) {
+        shipperDriverEvaluationQueueRef.current = previousQueue;
+        setShipperDriverEvaluationQueue(previousQueue);
+      }
+      throw error;
+    });
+  };
+
+  const removeShipperDriverEvaluationQueueItem = (
+    item: ShipperDriverEvaluationQueueItem,
+  ) => {
+    if (item.shipperAccountId !== activeShipperAccountIdRef.current) {
+      return Promise.resolve();
+    }
+
+    const currentQueue = shipperDriverEvaluationQueueRef.current;
+    const nextQueue = omitShipperDriverEvaluationQueueItem(currentQueue, item);
+    if (nextQueue === currentQueue) {
+      return Promise.resolve();
+    }
+
+    shipperDriverEvaluationQueueRef.current = nextQueue;
+    setShipperDriverEvaluationQueue(nextQueue);
+    return persistShipperDriverEvaluationQueue(
+      item.shipperAccountId,
+      nextQueue,
+    ).catch(error => {
+      if (shipperDriverEvaluationQueueRef.current === nextQueue) {
+        shipperDriverEvaluationQueueRef.current = currentQueue;
+        setShipperDriverEvaluationQueue(currentQueue);
+      }
+      throw error;
+    });
+  };
+
+  const findShipperDriverEvaluationQueueItem = (order: RecentOrder) => {
+    const item = shipperDriverEvaluationQueueRef.current[order.id];
+    if (
+      !item ||
+      item.shipperAccountId !== resolvedShipperAccountId ||
+      item.platformOrderId !== order.platformOrderId ||
+      item.orderNo !== order.id
+    ) {
+      return undefined;
+    }
+    return item;
+  };
+
+  const retryShipperDriverEvaluationQueueHydration = () => {
+    setShipperDriverEvaluationQueueHydrationFailedAccountId(undefined);
+    setShipperDriverEvaluationQueueHydrationAttempt(current => current + 1);
+  };
+
+  const handleShipperDriverEvaluationFailure = (
+    error: unknown,
+    item: ShipperDriverEvaluationQueueItem,
+    isRetry: boolean,
+  ) => {
+    if (item.shipperAccountId !== activeShipperAccountIdRef.current) {
+      return Promise.resolve();
+    }
+
+    if (
+      error instanceof PlatformApiError &&
+      error.code === 'IDEMPOTENCY_KEY_REUSED'
+    ) {
+      const replacement = {
+        ...item,
+        idempotencyKey: createOrderMutationContext().idempotencyKey,
+      };
+      return upsertShipperDriverEvaluationQueueItem(replacement)
+        .then(() => {
+          updateOrder(item.localOrderId, {
+            syncState: createFailedOrderSyncState(
+              '评价凭证与原请求不一致，已生成新凭证，请再次点击重试。',
+              'evaluation',
+              nowRef.current,
+            ),
+          });
+        })
+        .catch(() => {
+          updateOrder(item.localOrderId, {
+            syncState: createFailedOrderSyncState(
+              '评价凭证冲突且新凭证保存失败，请保持应用打开后重试。',
+              'evaluation',
+              nowRef.current,
+            ),
+          });
+        });
+    }
+
+    if (
+      error instanceof PlatformApiError &&
+      error.code === 'IDEMPOTENCY_KEY_EXPIRED'
+    ) {
+      return removeShipperDriverEvaluationQueueItem(item)
+        .then(() => {
+          updateOrder(item.localOrderId, {
+            syncState: createFailedOrderSyncState(
+              '评价凭证已过期，请刷新订单后重新评价。',
+              'evaluation',
+              nowRef.current,
+              { retryBlocked: true },
+            ),
+          });
+        })
+        .catch(() => {
+          updateOrder(item.localOrderId, {
+            syncState: createFailedOrderSyncState(
+              '评价凭证已过期，但本地队列清理失败，请重试清理。',
+              'evaluation',
+              nowRef.current,
+            ),
+          });
+        });
+    }
+
+    if (isAuthAccessTokenMissingError(error)) {
+      updateOrder(item.localOrderId, {
+        syncState: createFailedOrderSyncState(
+          '平台订单评价需要重新登录后再同步。',
+          'evaluation',
+          nowRef.current,
+        ),
+      });
+      return Promise.resolve();
+    }
+
+    updateOrder(item.localOrderId, {
+      syncState: createFailedOrderSyncState(
+        isRetry
+          ? '平台订单评价重试失败，已保留原凭证。'
+          : '平台订单评价失败，已保留原凭证等待重试。',
+        'evaluation',
+        nowRef.current,
+      ),
+    });
+    return Promise.resolve();
+  };
+
   const retryOrderSyncToPlatform = (order: RecentOrder) => {
     if (!platformOrderApi) {
       updateOrder(order.id, {
@@ -2339,6 +2624,128 @@ function App({
       order.platformOrderId && isPlatformOrderMutationOperation(retryOperation)
         ? getOrderMutationRetryContext(order)
         : undefined;
+
+    if (
+      retryOperation === 'evaluation' &&
+      order.platformOrderId &&
+      order.evaluation
+    ) {
+      if (order.syncState?.retryBlocked) {
+        return;
+      }
+
+      if (!resolvedShipperAccountId) {
+        updateOrder(order.id, {
+          syncState: createFailedOrderSyncState(
+            '平台订单评价重试需要登录货主账号。',
+            'evaluation',
+            nowRef.current,
+          ),
+        });
+        return;
+      }
+
+      if (
+        shipperDriverEvaluationQueueHydratedAccountIdRef.current !==
+        resolvedShipperAccountId
+      ) {
+        if (
+          shipperDriverEvaluationQueueHydrationFailedAccountId ===
+          resolvedShipperAccountId
+        ) {
+          retryShipperDriverEvaluationQueueHydration();
+        }
+        updateOrder(order.id, {
+          syncState: createFailedOrderSyncState(
+            '评价队列正在加载，请稍候再重试。',
+            'evaluation',
+            nowRef.current,
+          ),
+        });
+        return;
+      }
+
+      const queueItem =
+        findShipperDriverEvaluationQueueItem(order) ??
+        ({
+          shipperAccountId: resolvedShipperAccountId,
+          idempotencyKey: createOrderMutationContext().idempotencyKey,
+          localOrderId: order.id,
+          platformOrderId: order.platformOrderId,
+          orderNo: order.id,
+          request: createNormalizedShipperDriverEvaluationRequest(
+            order.evaluation,
+          ),
+        } satisfies ShipperDriverEvaluationQueueItem);
+
+      let didStartPlatformRequest = false;
+      upsertShipperDriverEvaluationQueueItem(queueItem)
+        .then(() => {
+          if (!getAuthSessionSnapshot()?.accessToken) {
+            updateOrder(order.id, {
+              syncState: createFailedOrderSyncState(
+                '平台订单评价重试需要重新登录后再同步。',
+                'evaluation',
+                nowRef.current,
+              ),
+            });
+            return undefined;
+          }
+
+          didStartPlatformRequest = true;
+          return platformOrderApi.submitEvaluation(
+            queueItem.platformOrderId,
+            queueItem.request,
+            queueItem.idempotencyKey,
+          );
+        })
+        .then(platformOrder => {
+          if (!platformOrder) {
+            return undefined;
+          }
+          return platformOrderApi.getOrder(queueItem.platformOrderId).then(
+            latestOrder => ({ latestOrder, refreshed: true }),
+            () => ({ latestOrder: platformOrder, refreshed: false }),
+          );
+        })
+        .then(result => {
+          if (
+            !result ||
+            queueItem.shipperAccountId !== activeShipperAccountIdRef.current
+          ) {
+            return undefined;
+          }
+          return applyPlatformOrderSnapshot(order.id, result.latestOrder, {
+            evaluation: order.evaluation,
+          }).then(() =>
+            removeShipperDriverEvaluationQueueItem(queueItem).then(() => {
+              updateOrder(order.id, {
+                syncState: createSyncedOrderSyncState(
+                  result.refreshed
+                    ? '平台订单评价已重新提交。'
+                    : '平台订单评价已确认，最新订单刷新失败，请稍后刷新。',
+                  'evaluation',
+                  nowRef.current,
+                ),
+              });
+            }),
+          );
+        })
+        .catch(error => {
+          if (!didStartPlatformRequest) {
+            updateOrder(order.id, {
+              syncState: createFailedOrderSyncState(
+                '评价队列保存失败，尚未重试平台。',
+                'evaluation',
+                nowRef.current,
+              ),
+            });
+            return;
+          }
+          void handleShipperDriverEvaluationFailure(error, queueItem, true);
+        });
+      return;
+    }
 
     if (retryOperation === 'create' && order.syncState?.retryBlocked) {
       return;
@@ -2615,33 +3022,6 @@ function App({
     }
 
     if (
-      order.syncState?.operation === 'evaluation' &&
-      order.platformOrderId &&
-      order.evaluation
-    ) {
-      platformOrderApi
-        .submitEvaluation(
-          order.platformOrderId,
-          createPlatformEvaluationRequest(order.evaluation),
-        )
-        .then(platformOrder => {
-          void applyPlatformOrderSnapshot(order.id, platformOrder, {
-            evaluation: order.evaluation,
-          });
-        })
-        .catch(() => {
-          updateOrder(order.id, {
-            syncState: createFailedOrderSyncState(
-              '平台订单评价重试失败，已继续保留本地评价记录。',
-              'evaluation',
-              nowRef.current,
-            ),
-          });
-        });
-      return;
-    }
-
-    if (
       order.syncState?.operation === 'changeRequest' &&
       order.platformOrderId &&
       order.modificationRequest
@@ -2745,44 +3125,136 @@ function App({
       updatedAtIso: new Date(nowRef.current).toISOString(),
     };
 
-    if (isPlatformOrderActionMissingAuth(order)) {
-      keepPlatformOrderActionQueuedUntilLogin(
-        order,
-        localEvaluationChanges,
-        'evaluation',
-        '评价',
-      );
-      return;
-    }
-
-    if (
-      !platformOrderApi ||
-      !getAuthSessionSnapshot()?.accessToken ||
-      !order.platformOrderId
-    ) {
+    if (!platformOrderApi || !order.platformOrderId) {
       updateOrder(order.id, localEvaluationChanges);
       return;
     }
 
-    platformOrderApi
-      .submitEvaluation(
-        order.platformOrderId,
-        createPlatformEvaluationRequest(evaluation),
-      )
-      .then(platformOrder => {
-        void applyPlatformOrderSnapshot(order.id, platformOrder, {
-          evaluation,
-        });
+    updateOrder(order.id, localEvaluationChanges);
+
+    if (!resolvedShipperAccountId) {
+      updateOrder(order.id, {
+        syncState: createFailedOrderSyncState(
+          '平台订单评价需要登录货主账号后再同步。',
+          'evaluation',
+          nowRef.current,
+        ),
+      });
+      return;
+    }
+
+    if (
+      shipperDriverEvaluationQueueHydratedAccountIdRef.current !==
+      resolvedShipperAccountId
+    ) {
+      if (
+        shipperDriverEvaluationQueueHydrationFailedAccountId ===
+        resolvedShipperAccountId
+      ) {
+        retryShipperDriverEvaluationQueueHydration();
+      }
+      updateOrder(order.id, {
+        syncState: createFailedOrderSyncState(
+          '评价队列正在加载，请稍候再提交。',
+          'evaluation',
+          nowRef.current,
+        ),
+      });
+      return;
+    }
+
+    const normalizedRequest =
+      createNormalizedShipperDriverEvaluationRequest(evaluation);
+    const existingItem = shipperDriverEvaluationQueueRef.current[order.id];
+
+    if (
+      existingItem &&
+      existingItem.shipperAccountId === resolvedShipperAccountId
+    ) {
+      updateOrder(order.id, {
+        syncState: createFailedOrderSyncState(
+          '该订单已有待同步评价，请先重试确认原提交结果。',
+          'evaluation',
+          nowRef.current,
+        ),
+      });
+      return;
+    }
+
+    const queueItem: ShipperDriverEvaluationQueueItem = {
+      shipperAccountId: resolvedShipperAccountId,
+      idempotencyKey: createOrderMutationContext().idempotencyKey,
+      localOrderId: order.id,
+      platformOrderId: order.platformOrderId,
+      orderNo: order.id,
+      request: normalizedRequest,
+    };
+    let didStartPlatformRequest = false;
+
+    upsertShipperDriverEvaluationQueueItem(queueItem)
+      .then(() => {
+        if (!getAuthSessionSnapshot()?.accessToken) {
+          updateOrder(order.id, {
+            syncState: createFailedOrderSyncState(
+              '平台订单评价需要重新登录后再同步。',
+              'evaluation',
+              nowRef.current,
+            ),
+          });
+          return undefined;
+        }
+
+        didStartPlatformRequest = true;
+        return platformOrderApi.submitEvaluation(
+          queueItem.platformOrderId,
+          queueItem.request,
+          queueItem.idempotencyKey,
+        );
       })
-      .catch(() => {
-        updateOrder(order.id, {
-          ...localEvaluationChanges,
-          syncState: createFailedOrderSyncState(
-            '平台订单评价失败，已保留本地评价记录。',
-            'evaluation',
-            nowRef.current,
-          ),
-        });
+      .then(platformOrder => {
+        if (!platformOrder) {
+          return;
+        }
+        return platformOrderApi.getOrder(queueItem.platformOrderId).then(
+          latestOrder => ({ latestOrder, refreshed: true }),
+          () => ({ latestOrder: platformOrder, refreshed: false }),
+        );
+      })
+      .then(result => {
+        if (
+          !result ||
+          queueItem.shipperAccountId !== activeShipperAccountIdRef.current
+        ) {
+          return;
+        }
+        return applyPlatformOrderSnapshot(order.id, result.latestOrder, {
+          evaluation,
+        }).then(() =>
+          removeShipperDriverEvaluationQueueItem(queueItem).then(() => {
+            updateOrder(order.id, {
+              syncState: createSyncedOrderSyncState(
+                result.refreshed
+                  ? '平台订单评价已提交。'
+                  : '平台订单评价已提交，最新订单刷新失败，请稍后刷新。',
+                'evaluation',
+                nowRef.current,
+              ),
+            });
+          }),
+        );
+      })
+      .catch(error => {
+        if (!didStartPlatformRequest) {
+          updateOrder(order.id, {
+            syncState: createFailedOrderSyncState(
+              '评价队列保存失败，尚未提交平台，请稍后重试。',
+              'evaluation',
+              nowRef.current,
+            ),
+          });
+          return;
+        }
+        void handleShipperDriverEvaluationFailure(error, queueItem, false);
       });
   };
 

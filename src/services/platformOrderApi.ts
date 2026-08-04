@@ -1052,14 +1052,24 @@ export function createPlatformOrderApi(config: PlatformApiConfig) {
     async submitEvaluation(
       orderId: string,
       request: PlatformSubmitShipperOrderEvaluationRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeOrderId(orderId);
       const normalizedRequest = normalizeSubmitEvaluationRequest(request);
+      const normalizedIdempotencyKey = normalizeOrderMutationIdempotencyKey(
+        idempotencyKey,
+        'PLATFORM_ORDER_EVALUATION_REQUEST_INVALID',
+      );
 
       return platformPost<
         PlatformSubmitShipperOrderEvaluationRequest,
         PlatformShipperOrder
-      >(config, `/shipper/orders/${normalizedOrderId}/evaluation`, normalizedRequest);
+      >(
+        config,
+        `/shipper/orders/${normalizedOrderId}/evaluation`,
+        normalizedRequest,
+        createOrderMutationRequestOptions(normalizedIdempotencyKey),
+      );
     },
     async appealExceptionCase(
       orderId: string,
@@ -2584,7 +2594,8 @@ function normalizeOrderMutationIdempotencyKey(
     | 'PLATFORM_ORDER_COMPLETE_REQUEST_INVALID'
     | 'PLATFORM_ORDER_STATUS_REQUEST_INVALID'
     | 'PLATFORM_ORDER_ACCEPT_QUOTE_REQUEST_INVALID'
-    | 'PLATFORM_ORDER_BONUS_REQUEST_INVALID',
+    | 'PLATFORM_ORDER_BONUS_REQUEST_INVALID'
+    | 'PLATFORM_ORDER_EVALUATION_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {
     throw new PlatformApiError(

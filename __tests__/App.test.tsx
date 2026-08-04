@@ -27583,6 +27583,39 @@ test('retries a failed platform order evaluation through the evaluation api', as
         operation: 'evaluation',
       },
     });
+    const initialEvaluationCall = findFetchCall(fetchMock, {
+      url: 'http://localhost:3000/api/shipper/orders/order-platform-evaluation-retry/evaluation',
+      method: 'POST',
+    });
+    const originalEvaluationKey = getFetchCallHeaders(initialEvaluationCall)?.[
+      'Idempotency-Key'
+    ] as string;
+    expect(originalEvaluationKey).toMatch(uuidV4Pattern);
+    await expect(
+      AsyncStorage.getItem(
+        '@vireCodeing/shipper-driver-evaluation-queue:user-platform-order-evaluation-retry',
+      ),
+    ).resolves.toBe(
+      JSON.stringify({
+        version: 1,
+        queue: {
+          HY202607030006: {
+            shipperAccountId: 'user-platform-order-evaluation-retry',
+            idempotencyKey: originalEvaluationKey,
+            localOrderId: 'HY202607030006',
+            platformOrderId: 'order-platform-evaluation-retry',
+            orderNo: 'HY202607030006',
+            request: {
+              rating: 5,
+              tags: ['准时'],
+              content: '司机服务细致，整体运输体验很好',
+              anonymous: false,
+              photoCount: 0,
+            },
+          },
+        },
+      }),
+    );
 
     await ReactTestRenderer.act(async () => {
       app.root.findByProps({ testID: 'order-sync-retry' }).props.onPress();
@@ -27602,6 +27635,7 @@ test('retries a failed platform order evaluation through the evaluation api', as
     ).toEqual(
       expect.objectContaining({
         Authorization: 'Bearer access.platform-order-evaluation-retry.900',
+        'Idempotency-Key': originalEvaluationKey,
       }),
     );
     expect(
@@ -27629,7 +27663,110 @@ test('retries a failed platform order evaluation through the evaluation api', as
       },
       syncState: { status: 'synced' },
     });
+    await expect(
+      AsyncStorage.getItem(
+        '@vireCodeing/shipper-driver-evaluation-queue:user-platform-order-evaluation-retry',
+      ),
+    ).resolves.toBeNull();
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('does not submit a platform evaluation when its durable queue write fails', async () => {
+  const originalFetch = globalThis.fetch;
+  const setItemMock = AsyncStorage.setItem as jest.Mock;
+  const originalSetItemImplementation = setItemMock.getMockImplementation();
+  const completedPlatformOrder = createPlatformOrderFixture({
+    id: 'order-platform-evaluation-storage-failure',
+    orderNo: 'HY202607030099',
+    shipperId: 'user-platform-evaluation-storage-failure',
+    status: 'completed',
+    cargoType: 'digital',
+    weightText: '1.8 吨',
+    quantityText: '18 箱',
+    pickupAddress: '宝安临时仓',
+    deliveryAddress: '南山门店新址',
+  });
+  const fetchMock = jest
+    .fn()
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({ expireSeconds: 300, devCode: '999999' }),
+    )
+    .mockResolvedValueOnce(
+      createPlatformApiResponse({
+        user: {
+          id: 'user-platform-evaluation-storage-failure',
+          phone: '13800138000',
+          userType: 'shipper',
+        },
+        tokens: {
+          accessToken: 'access.platform-evaluation-storage-failure.900',
+          refreshToken: 'refresh.platform-evaluation-storage-failure.604800',
+          expiresIn: 900,
+        },
+      }),
+    )
+    .mockResolvedValueOnce(createPlatformApiResponse(null))
+    .mockResolvedValueOnce(createPlatformApiResponse(completedPlatformOrder));
+  let queueWriteRejected = false;
+
+  if (!originalSetItemImplementation) {
+    throw new Error('AsyncStorage.setItem mock implementation is required');
+  }
+  installPlatformFetchMock(fetchMock);
+
+  try {
+    const app = await renderApp(new Date('2026-07-03T08:00:00.000Z').getTime(), {
+      platformApiBaseUrl: 'http://localhost:3000/api',
+    });
+    await loginToHomeWithPlatformAuth(app);
+    await publishDigitalPlatformOrderFromHome(app);
+
+    ReactTestRenderer.act(() => {
+      app.root
+        .findByProps({ testID: 'order-detail-primary-action' })
+        .props.onPress();
+    });
+    ReactTestRenderer.act(() => {
+      app.root.findByProps({ testID: 'evaluation-rating-5' }).props.onPress();
+      app.root.findByProps({ testID: 'evaluation-tag-punctual' }).props.onPress();
+      app.root
+        .findByProps({ testID: 'evaluation-content' })
+        .props.onChangeText('司机服务细致，整体运输体验很好');
+    });
+
+    setItemMock.mockImplementation((key: string, value: string) => {
+      if (
+        key ===
+          '@vireCodeing/shipper-driver-evaluation-queue:user-platform-evaluation-storage-failure' &&
+        !queueWriteRejected
+      ) {
+        queueWriteRejected = true;
+        return Promise.reject(new Error('queue storage failed'));
+      }
+      return originalSetItemImplementation(key, value);
+    });
+
+    await ReactTestRenderer.act(async () => {
+      app.root.findByProps({ testID: 'evaluation-submit' }).props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(queueWriteRejected).toBe(true);
+    expect(
+      findFetchCalls(fetchMock, {
+        url: 'http://localhost:3000/api/shipper/orders/order-platform-evaluation-storage-failure/evaluation',
+        method: 'POST',
+      }),
+    ).toHaveLength(0);
+    expect(getAppRuntimeState().orders[0].syncState).toMatchObject({
+      status: 'failed',
+      operation: 'evaluation',
+      message: '评价队列保存失败，尚未提交平台，请稍后重试。',
+    });
+  } finally {
+    setItemMock.mockImplementation(originalSetItemImplementation);
     globalThis.fetch = originalFetch;
   }
 });

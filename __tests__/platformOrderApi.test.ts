@@ -2447,7 +2447,7 @@ describe('platform order api', () => {
         rating: 5,
         tags: ['准时送达'],
         content: '司机服务细致，整体运输体验很好',
-      }),
+      }, '550e8400-e29b-41d4-a716-446655440000'),
       () => api.getAdminOrder(blankOrderId),
       () =>
         api.reviewAdminOrderChangeRequest(blankOrderId, {
@@ -2940,7 +2940,7 @@ describe('platform order api', () => {
         content: '司机服务细致，整体运输体验很好',
         anonymous: true,
         photoCount: 1,
-      }),
+      }, '550e8400-e29b-41d4-a716-446655440000'),
     ).resolves.toMatchObject({
       id: 'order-1',
       status: 'completed',
@@ -2951,6 +2951,7 @@ describe('platform order api', () => {
         method: 'POST',
         headers: expect.objectContaining({
           Authorization: 'Bearer access-token',
+          'Idempotency-Key': '550e8400-e29b-41d4-a716-446655440000',
         }),
         body: JSON.stringify({
           rating: 5,
@@ -2991,7 +2992,7 @@ describe('platform order api', () => {
       content: '  司机服务细致，整体运输体验很好  ',
       photoCount: 0,
       photoFileIds: [' file-evaluation-1 ', 'file-evaluation-1'],
-    });
+    }, '550e8400-e29b-41d4-a716-446655440000');
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/shipper/orders/order-1/evaluation',
@@ -3006,6 +3007,35 @@ describe('platform order api', () => {
         }),
       }),
     );
+  });
+
+  it('rejects a missing or invalid evaluation idempotency key before sending', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const api = createPlatformOrderApi({
+      baseUrl: 'http://localhost:3000/api',
+      getAccessToken: () => 'access-token',
+    });
+    const request = {
+      rating: 5,
+      tags: ['准时送达'],
+      content: '司机服务细致，整体运输体验很好',
+      photoCount: 0,
+    };
+
+    await expect(
+      api.submitEvaluation('order-1', request, ''),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_EVALUATION_REQUEST_INVALID',
+      status: 0,
+    });
+    await expect(
+      api.submitEvaluation('order-1', request, 'not-a-uuid'),
+    ).rejects.toMatchObject({
+      code: 'PLATFORM_ORDER_EVALUATION_REQUEST_INVALID',
+      status: 0,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects invalid evaluation request before sending it', async () => {
@@ -3129,28 +3159,28 @@ describe('platform order api', () => {
     } as unknown as Parameters<typeof api.submitEvaluation>[1];
 
     const requests = [
-      () => api.submitEvaluation('order-1', nullRequest),
-      () => api.submitEvaluation('order-1', stringRequest),
-      () => api.submitEvaluation('order-1', lowRatingRequest),
-      () => api.submitEvaluation('order-1', highRatingRequest),
-      () => api.submitEvaluation('order-1', fractionalRatingRequest),
-      () => api.submitEvaluation('order-1', stringRatingRequest),
-      () => api.submitEvaluation('order-1', emptyTagsRequest),
-      () => api.submitEvaluation('order-1', tooManyTagsRequest),
-      () => api.submitEvaluation('order-1', blankTagRequest),
-      () => api.submitEvaluation('order-1', fullWidthSemicolonTagRequest),
-      () => api.submitEvaluation('order-1', nonStringTagRequest),
-      () => api.submitEvaluation('order-1', stringTagsRequest),
-      () => api.submitEvaluation('order-1', shortContentRequest),
-      () => api.submitEvaluation('order-1', longContentRequest),
-      () => api.submitEvaluation('order-1', numberContentRequest),
-      () => api.submitEvaluation('order-1', stringAnonymousRequest),
-      () => api.submitEvaluation('order-1', negativePhotoCountRequest),
-      () => api.submitEvaluation('order-1', tooManyPhotosRequest),
-      () => api.submitEvaluation('order-1', fractionalPhotoCountRequest),
-      () => api.submitEvaluation('order-1', stringPhotoCountRequest),
-      () => api.submitEvaluation('order-1', tooManyPhotoFileIdsRequest),
-      () => api.submitEvaluation('order-1', nonStringPhotoFileIdsRequest),
+      () => api.submitEvaluation('order-1', nullRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', stringRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', lowRatingRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', highRatingRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', fractionalRatingRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', stringRatingRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', emptyTagsRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', tooManyTagsRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', blankTagRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', fullWidthSemicolonTagRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', nonStringTagRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', stringTagsRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', shortContentRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', longContentRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', numberContentRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', stringAnonymousRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', negativePhotoCountRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', tooManyPhotosRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', fractionalPhotoCountRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', stringPhotoCountRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', tooManyPhotoFileIdsRequest, '550e8400-e29b-41d4-a716-446655440000'),
+      () => api.submitEvaluation('order-1', nonStringPhotoFileIdsRequest, '550e8400-e29b-41d4-a716-446655440000'),
     ];
 
     for (const request of requests) {
