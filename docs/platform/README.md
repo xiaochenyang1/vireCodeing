@@ -4,6 +4,7 @@
 
 ## 阶段 1 当前基线
 
+- 2026-08-04 司机首页已接入评价 durable 队列的水合后单次自动尝试：App 开启 `DriverHomeScreen` 自动同步开关后，当前账号的评价回复和评价货主队列各尝试一次，仍复用原 UUID Key；普通失败、缺 token、`ORDER_CONFLICT` 保留队列，`IDEMPOTENCY_KEY_REUSED` 换 Key 后等待手动确认，`IDEMPOTENCY_KEY_EXPIRED` 清队。该能力不是网络恢复监听、后台任务或定时补偿，应用未打开时不会发送评价。
 - 移动端与 API 自动检查最近一次通过：移动端根 Jest 执行共 44 个 suite / 777 个测试，API 89 个 Jest suite / 1158 个测试；本轮重新跑通了根 `npx tsc --noEmit`、根/API ESLint、API `typecheck`、`prisma:validate` 和 API build。API `tsconfig` 已关闭 incremental 缓存，避免失败构建遗留的 `tsconfig.tsbuildinfo` 在后续 typecheck/build 中重复回放旧 `TS5033` emit 诊断。
 - 真实 PostgreSQL 测试库验收已跑通：2026-07-18 显式注入 `DATABASE_URL` 与 `TEST_DATABASE_URL` 后，`db:test:postgres:financial-ledger-smoke` 与完整 `db:test:postgres:bootstrap` 均退出 0；`bootstrap` 会先执行 `db:test:postgres:wait` / `db:postgres:wait` 做非破坏性连接检查，Docker CLI 不是当前验收阻塞。
 - 后台优惠券单发 / 批量发放已补持久化幂等：两条写接口强制 UUID `Idempotency-Key`，按“管理员 + 操作 + Key”保存请求指纹和首次成功响应；同请求可重放，不同请求复用或过期分别返回 `IDEMPOTENCY_KEY_REUSED` / `IDEMPOTENCY_KEY_EXPIRED`。幂等占位、全部券写入和响应快照在同一 Prisma 事务内提交，批量货主 ID 会去重排序，静态发券台在普通失败后复用原 Key 和原请求。这一片只覆盖直接手工发券，不包含活动编排、审批、预算、定时发放、记录归档或跨服务 exactly-once。
