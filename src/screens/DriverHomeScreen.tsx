@@ -2874,7 +2874,11 @@ export function DriverHomeScreen({
     }
 
     platformDriverOrderApi
-      .evaluateShipper(order.id, request)
+      .evaluateShipper(
+        order.id,
+        request,
+        createOrderMutationContext().idempotencyKey,
+      )
       .then(updatedOrder => {
         const submittedAttachments =
           shipperEvaluationAttachments[order.orderNo] ?? [];

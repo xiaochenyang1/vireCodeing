@@ -1144,6 +1144,80 @@ describe('stage 1 OpenAPI contract', () => {
     expectPathBlockToContain(source, path, 'ORDER_STATE_INVALID');
   });
 
+  it('documents idempotent driver shipper evaluations without a client baseline', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/driver/orders/{orderId}/shipper-evaluation';
+
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'the request body does not contain baseUpdatedAtIso.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'replays the first successful order snapshot before current order existence, ownership or state is checked, without appending another shipper_evaluation_submitted event.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'Reusing the key for a different normalized request or another order is rejected',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'The order compare-and-set, attachment validation and event binding, shipper_evaluation_submitted event, idempotency record and successful response snapshot commit in one atomic transaction.',
+    );
+    expectPathBlockToContain(source, path, "'400':");
+    expectPathBlockToContain(source, path, "'404':");
+    expectPathBlockToContain(source, path, "'409':");
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_INVALID');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_REUSED');
+    expectPathBlockToContain(source, path, 'IDEMPOTENCY_KEY_EXPIRED');
+    expectPathBlockToContain(source, path, 'ORDER_NOT_FOUND');
+    expectPathBlockToContain(source, path, 'ORDER_CONFLICT');
+    expectPathBlockToContain(source, path, 'ORDER_STATE_INVALID');
+    expectPathBlockToContain(source, path, 'FILE_NOT_FOUND');
+    expectPathBlockToContain(source, path, 'FILE_STATE_INVALID');
+    expectPathBlockToContain(source, path, 'FILE_PURPOSE_INVALID');
+
+    expectSchemaBlockNotToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'baseUpdatedAtIso',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'photoCount:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'photoFileIds:',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'maximum: 6',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'maxItems: 6',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'DriverEvaluateShipperRequest',
+      'every file must belong to the current driver and use evaluation purpose.',
+    );
+  });
+
   it('documents idempotent shipper order creation without a mutation baseline', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

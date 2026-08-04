@@ -583,12 +583,17 @@ describe('DriverOrdersController', () => {
     const controller = new DriverOrdersController(service);
 
     await expect(
-      controller.evaluateShipper(createRequest('driver-1'), 'order-1', {
-        rating: 5,
-        tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
-        content: '  货主装货配合好，结算沟通清楚。  ',
-        photoFileIds: [' file-1 ', 'file-1'],
-      }),
+      controller.evaluateShipper(
+        createRequest('driver-1'),
+        'order-1',
+        `  ${IDEMPOTENCY_KEY}  `,
+        {
+          rating: 5,
+          tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
+          content: '  货主装货配合好，结算沟通清楚。  ',
+          photoFileIds: [' file-1 ', 'file-1'],
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1' },
@@ -596,6 +601,7 @@ describe('DriverOrdersController', () => {
     expect(service.evaluateShipper).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'driver-1', userType: 'driver' }),
       'order-1',
+      IDEMPOTENCY_KEY,
       {
         rating: 5,
         tags: ['沟通顺畅', '装货配合'],
@@ -604,6 +610,33 @@ describe('DriverOrdersController', () => {
       },
     );
   });
+
+  it.each([undefined, 'not-a-uuid'])(
+    'rejects shipper evaluations with an invalid idempotency key before service I/O',
+    async idempotencyKey => {
+      const service = {
+        evaluateShipper: jest.fn(),
+      } as unknown as DriverOrdersService;
+      const controller = new DriverOrdersController(service);
+
+      await expect(
+        controller.evaluateShipper(
+          createRequest('driver-1'),
+          'order-1',
+          idempotencyKey,
+          {
+            rating: 5,
+            tags: ['沟通顺畅'],
+            content: '货主装货配合好，结算沟通清楚。',
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        message: 'Idempotency-Key 无效',
+      });
+      expect(service.evaluateShipper).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects non-driver evaluation replies before parsing request data', async () => {
     const service = {

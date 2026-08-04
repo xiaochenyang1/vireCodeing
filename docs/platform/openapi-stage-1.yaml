@@ -6431,9 +6431,10 @@ paths:
   /driver/orders/{orderId}/shipper-evaluation:
     post:
       summary: Submit a driver evaluation for the shipper
-      description: Appends a shipper_evaluation_submitted event to a completed order accepted by the current driver. This is the first slice of driver-to-shipper evaluation and does not include moderation, appeal handling, or credit-score settlement yet.
+      description: Requires a UUID Idempotency-Key and has no optimistic-concurrency baseline; the request body does not contain baseUpdatedAtIso. On the first attempt, the order must be completed and assigned to the current driver when the repository claims its internal order version. Optional photoFileIds must belong to the current driver, be uploaded, and use evaluation purpose. Reusing the same key for the current driver and driver_shipper_evaluation operation with the same normalized orderId, rating, tags, content, anonymous value, photoCount and photoFileIds replays the first successful order snapshot before current order existence, ownership or state is checked, without appending another shipper_evaluation_submitted event. Tags and photoFileIds are trimmed and deduplicated while retaining first-occurrence order, because their order is persisted in the event; changing either order is a different request. Reusing the key for a different normalized request or another order is rejected, and an expired replay record is not executed again. The order compare-and-set, attachment validation and event binding, shipper_evaluation_submitted event, idempotency record and successful response snapshot commit in one atomic transaction. This slice does not include moderation, appeal handling, or credit-score settlement yet.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -6450,11 +6451,39 @@ paths:
               $ref: '#/components/schemas/DriverEvaluateShipperRequest'
       responses:
         '200':
-          description: Driver evaluation for shipper appended
+          description: Driver evaluation for shipper appended, or the first successful order snapshot replayed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key or request body is invalid, or an evaluation file has the wrong purpose
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotencyKeyInvalid:
+                  summary: The required UUID idempotency key is missing or invalid
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:29:00.000Z'
+                requestInvalid:
+                  summary: The evaluation request body is invalid
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 请至少填写 6 个字的评价内容
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:29:00.000Z'
+                filePurposeInvalid:
+                  summary: An evaluation attachment does not use evaluation purpose
+                  value:
+                    code: FILE_PURPOSE_INVALID
+                    message: 货主评价图片用途不匹配
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:29:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -6473,27 +6502,68 @@ paths:
                 requestId: req_local
                 timestamp: '2026-07-09T08:30:00.000Z'
         '404':
-          description: Order does not exist or was not accepted by current driver
+          description: Order does not exist or was not accepted by current driver, or an evaluation file does not exist or does not belong to current driver
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_NOT_FOUND
-                message: 订单不存在
-                requestId: req_local
-                timestamp: '2026-07-09T08:30:00.000Z'
+              examples:
+                orderNotFound:
+                  summary: Order does not exist or was not accepted by current driver
+                  value:
+                    code: ORDER_NOT_FOUND
+                    message: 订单不存在
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
+                fileNotFound:
+                  summary: An evaluation attachment does not exist or belongs to another user
+                  value:
+                    code: FILE_NOT_FOUND
+                    message: 货主评价图片不存在
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
         '409':
-          description: The order is not completed yet
+          description: Idempotency key is reused or expired, the internal order compare-and-set lost a race, the order is not completed, or an evaluation file is not uploaded
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 订单完成后才能评价货主
-                requestId: req_local
-                timestamp: '2026-07-09T08:30:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for different normalized evaluation content or another order
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
+                keyExpired:
+                  summary: Successful evaluation replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-10T08:30:00.000Z'
+                orderConflict:
+                  summary: Internal order version changed before the first evaluation write
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
+                stateInvalid:
+                  summary: The order is not completed at the first write boundary
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 订单完成后才能评价货主
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
+                fileStateInvalid:
+                  summary: An evaluation attachment is not uploaded
+                  value:
+                    code: FILE_STATE_INVALID
+                    message: 货主评价图片尚未上传完成
+                    requestId: req_local
+                    timestamp: '2026-07-09T08:30:00.000Z'
   /driver/orders/{orderId}/exception:
     post:
       summary: Report an order exception as the driver
@@ -10199,6 +10269,21 @@ components:
         anonymous:
           type: boolean
           example: false
+        photoCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: Optional evaluation image count used when no photoFileIds are supplied.
+          example: 1
+        photoFileIds:
+          type: array
+          maxItems: 6
+          description: Optional uploaded evaluation file ids to bind atomically to the shipper_evaluation_submitted event. Values are trimmed and duplicates are removed while retaining first-occurrence order; every file must belong to the current driver and use evaluation purpose.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 120
+          example: [file-driver-shipper-evaluation-1]
     DriverReportOrderExceptionRequest:
       type: object
       required: [typeLabel, description]

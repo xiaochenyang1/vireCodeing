@@ -30,6 +30,7 @@ import type {
   DriverReplyEvaluationRequest,
   DriverReportExceptionRequest,
 } from '../driver-orders/dto';
+import type { FilesRepository } from '../files/files.repository';
 import type {
   OrderExceptionCaseListQuery,
   ResolveOrderExceptionCaseRequest,
@@ -157,6 +158,10 @@ export type OrderMutationCommand =
   | {
       type: 'driver_evaluation_reply';
       input: DriverReplyEvaluationRequest;
+    }
+  | {
+      type: 'driver_shipper_evaluation';
+      input: DriverEvaluateShipperRequest;
     };
 
 export type ExecuteOrderMutationInput = {
@@ -416,11 +421,6 @@ export interface OrdersRepository {
     driverId: string,
     input: DriverReportExceptionRequest,
   ): Promise<ShipperOrderRecord>;
-  evaluateShipper(
-    orderId: string,
-    driverId: string,
-    input: DriverEvaluateShipperRequest,
-  ): Promise<ShipperOrderRecord>;
 }
 
 type InMemoryOrderIdempotencyRecord = {
@@ -446,6 +446,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     private readonly couponStore = new InMemoryProfileCouponsStore(),
     private readonly financialStore = new InMemoryFinancialStore(),
     private readonly platformFeeRateBps = DEFAULT_PLATFORM_FEE_RATE_BPS,
+    private readonly filesRepository?: Pick<FilesRepository, 'findFilesByIds'>,
   ) {}
 
   async executeIdempotentOrderCreate(
@@ -1028,6 +1029,50 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         input,
         now,
       );
+    }
+
+    if (input.mutation.type === 'driver_shipper_evaluation') {
+      const currentOrder = this.orders.find(
+        order => order.id === input.orderId,
+      );
+
+      if (!currentOrder) {
+        return { kind: 'not-found' };
+      }
+
+      if (currentOrder.updatedAtIso !== input.baseUpdatedAtIso) {
+        return { kind: 'conflict' };
+      }
+
+      if (!isOrderMutationAllowed(currentOrder, input)) {
+        return { kind: 'state-invalid' };
+      }
+
+      const fileIds = input.mutation.input.photoFileIds ?? [];
+      const files =
+        fileIds.length > 0 && this.filesRepository
+          ? await this.filesRepository.findFilesByIds(fileIds)
+          : [];
+      assertDriverShipperEvaluationFiles(
+        fileIds,
+        input.actorUserId,
+        files,
+      );
+
+      const racedRecord = this.orderIdempotencyRecords.find(
+        record =>
+          record.actorUserId === input.actorUserId &&
+          record.operation === input.operation &&
+          record.idempotencyKey === input.idempotencyKey,
+      );
+
+      if (racedRecord) {
+        return mapExistingInMemoryOrderIdempotencyRecord(
+          racedRecord,
+          input,
+          this.now(),
+        );
+      }
     }
 
     const stagedOrders = structuredClone(this.orders);
@@ -1865,30 +1910,6 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     return order;
   }
 
-  async evaluateShipper(
-    orderId: string,
-    driverId: string,
-    input: DriverEvaluateShipperRequest,
-  ) {
-    const order = this.orders.find(currentOrder => currentOrder.id === orderId);
-
-    if (!order) {
-      throw new Error(`Order not found: ${orderId}`);
-    }
-
-    const nowIso = this.now().toISOString();
-    order.updatedAtIso = nowIso;
-    order.events.push({
-      id: `event-${this.orders.length}-${order.events.length + 1}`,
-      actorUserId: driverId,
-      eventType: 'shipper_evaluation_submitted',
-      noteText: createOrderEvaluationNote(input),
-      attachmentFileIds: input.photoFileIds ?? [],
-      createdAtIso: nowIso,
-    });
-
-    return order;
-  }
 }
 
 function createInMemoryOrderRecord(
@@ -2052,6 +2073,75 @@ function mapExistingInMemoryOrderIdempotencyRecord(
   );
 }
 
+function assertDriverShipperEvaluationFiles(
+  fileIds: string[],
+  driverId: string,
+  files: Array<{
+    id: string;
+    ownerUserId: string;
+    purpose: string;
+    status: string;
+  }>,
+) {
+  if (fileIds.length === 0) {
+    return;
+  }
+
+  const filesById = new Map(files.map(file => [file.id, file]));
+
+  for (const fileId of fileIds) {
+    const file = filesById.get(fileId);
+
+    if (!file || file.ownerUserId !== driverId) {
+      throw new BusinessError(
+        ApiErrorCode.FILE_NOT_FOUND,
+        '货主评价图片不存在',
+      );
+    }
+
+    if (file.status !== 'uploaded') {
+      throw new BusinessError(
+        ApiErrorCode.FILE_STATE_INVALID,
+        '货主评价图片尚未上传完成',
+      );
+    }
+
+    if (file.purpose !== 'evaluation') {
+      throw new BusinessError(
+        ApiErrorCode.FILE_PURPOSE_INVALID,
+        '货主评价图片用途不匹配',
+      );
+    }
+  }
+}
+
+async function assertPrismaDriverShipperEvaluationFiles(
+  transaction: PrismaOrdersTransactionClient,
+  input: ExecuteOrderMutationInput,
+) {
+  if (input.mutation.type !== 'driver_shipper_evaluation') {
+    return;
+  }
+
+  const fileIds = input.mutation.input.photoFileIds ?? [];
+
+  if (fileIds.length === 0) {
+    return;
+  }
+
+  const files = await transaction.fileObject.findMany({
+    where: { id: { in: fileIds } },
+    select: {
+      id: true,
+      ownerUserId: true,
+      purpose: true,
+      status: true,
+    },
+  });
+
+  assertDriverShipperEvaluationFiles(fileIds, input.actorUserId, files);
+}
+
 function isOrderMutationAllowed(
   order: ShipperOrderRecord,
   input: ExecuteOrderMutationInput,
@@ -2090,6 +2180,12 @@ function isOrderMutationAllowed(
       );
     case 'driver_evaluation_reply':
       return true;
+    case 'driver_shipper_evaluation':
+      return (
+        order.status === 'completed' &&
+        order.assignedDriverId === input.actorUserId &&
+        isOrderAcceptedByDriver(order, input.actorUserId)
+      );
     default:
       return false;
   }
@@ -2209,6 +2305,7 @@ function applyInMemoryOrderCouponMutation(
     case 'driver_accept':
     case 'driver_status':
     case 'driver_evaluation_reply':
+    case 'driver_shipper_evaluation':
       return undefined;
   }
 }
@@ -2683,6 +2780,16 @@ function applyInMemoryOrderMutation(
         createdAtIso: updatedAtIso,
       });
       return;
+    case 'driver_shipper_evaluation':
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'shipper_evaluation_submitted',
+        noteText: createOrderEvaluationNote(input.mutation.input),
+        attachmentFileIds: input.mutation.input.photoFileIds ?? [],
+        createdAtIso: updatedAtIso,
+      });
+      return;
   }
 }
 
@@ -3097,6 +3204,7 @@ async function applyPrismaOrderCouponMutation(
     case 'driver_accept':
     case 'driver_status':
     case 'driver_evaluation_reply':
+    case 'driver_shipper_evaluation':
       return undefined;
   }
 }
@@ -3677,6 +3785,7 @@ function createPrismaOrderMutationOrderData(
         updatedAt,
       };
     case 'driver_evaluation_reply':
+    case 'driver_shipper_evaluation':
       return { updatedAt };
   }
 }
@@ -3901,6 +4010,18 @@ async function applyPrismaOrderMutation(
         },
       });
       return;
+    case 'driver_shipper_evaluation':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'shipper_evaluation_submitted',
+          noteText: createOrderEvaluationNote(input.mutation.input),
+          attachmentFileIds: input.mutation.input.photoFileIds ?? [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
   }
 }
 
@@ -4059,6 +4180,24 @@ type PrismaOrdersTransactionClient = {
   };
   orderRequirement: {
     upsert(args: unknown): Promise<unknown>;
+  };
+  fileObject: {
+    findMany(args: {
+      where: { id: { in: string[] } };
+      select: {
+        id: true;
+        ownerUserId: true;
+        purpose: true;
+        status: true;
+      };
+    }): Promise<
+      Array<{
+        id: string;
+        ownerUserId: string;
+        purpose: string;
+        status: string;
+      }>
+    >;
   };
   orderEvent: {
     create(args: unknown): Promise<{
@@ -5372,6 +5511,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
           });
         }
 
+        await assertPrismaDriverShipperEvaluationFiles(transaction, input);
+
         const updatedAt = new Date(
           createNextUpdatedAtIso(currentOrder.updatedAtIso, now),
         );
@@ -5394,7 +5535,8 @@ export class PrismaOrdersRepository implements OrdersRepository {
             updatedAt: current.updatedAt,
             status: current.status,
             paymentStatus: currentOrder.paymentStatus,
-            ...(input.mutation.type === 'driver_evaluation_reply'
+            ...(input.mutation.type === 'driver_evaluation_reply' ||
+            input.mutation.type === 'driver_shipper_evaluation'
               ? { assignedDriverId: input.actorUserId }
               : {}),
           },
@@ -6559,31 +6701,6 @@ export class PrismaOrdersRepository implements OrdersRepository {
       'driver_exception_reported',
       input,
     );
-  }
-
-  async evaluateShipper(
-    orderId: string,
-    driverId: string,
-    input: DriverEvaluateShipperRequest,
-  ) {
-    const order = await this.prisma.order.update({
-      where: {
-        id: orderId,
-      },
-      data: {
-        events: {
-          create: {
-            actorUserId: driverId,
-            eventType: 'shipper_evaluation_submitted',
-            noteText: createOrderEvaluationNote(input),
-            attachmentFileIds: input.photoFileIds ?? [],
-          },
-        },
-      },
-      include: orderInclude,
-    });
-
-    return mapPrismaOrder(order);
   }
 
   private async createPrismaExceptionCase(

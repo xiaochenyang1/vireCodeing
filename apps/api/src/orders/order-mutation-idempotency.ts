@@ -13,6 +13,7 @@ export const ORDER_MUTATION_OPERATIONS = [
   'driver_status',
   'driver_cancel',
   'driver_evaluation_reply',
+  'driver_shipper_evaluation',
 ] as const;
 
 export const ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION =
@@ -63,6 +64,47 @@ export function createDriverEvaluationReplyFingerprint(
     evaluationEventId: request.evaluationEventId.trim(),
     content: request.content.trim(),
   });
+}
+
+export function normalizeDriverShipperEvaluationRequest(request: {
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
+}) {
+  const tags = Array.from(new Set(request.tags.map(tag => tag.trim())));
+  const photoFileIds = Array.from(
+    new Set((request.photoFileIds ?? []).map(fileId => fileId.trim())),
+  );
+  const hasPhotoFileIds = request.photoFileIds !== undefined;
+
+  return {
+    rating: request.rating,
+    tags,
+    content: request.content.trim(),
+    anonymous: request.anonymous ?? false,
+    photoCount: hasPhotoFileIds
+      ? photoFileIds.length
+      : request.photoCount ?? 0,
+    ...(hasPhotoFileIds ? { photoFileIds } : {}),
+  };
+}
+
+export function createDriverShipperEvaluationFingerprint(
+  orderId: string,
+  request: Parameters<typeof normalizeDriverShipperEvaluationRequest>[0],
+) {
+  const normalizedRequest = normalizeDriverShipperEvaluationRequest(request);
+
+  return createOrderMutationFingerprint(
+    orderId.trim(),
+    {
+      ...normalizedRequest,
+      photoFileIds: normalizedRequest.photoFileIds ?? [],
+    },
+  );
 }
 
 export function createAdminOrderBatchCancelFingerprint(request: unknown) {

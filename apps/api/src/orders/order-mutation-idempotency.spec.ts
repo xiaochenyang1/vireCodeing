@@ -3,9 +3,11 @@ import {
   ORDER_IDEMPOTENCY_OPERATIONS,
   ORDER_MUTATION_OPERATIONS,
   createDriverEvaluationReplyFingerprint,
+  createDriverShipperEvaluationFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
   createOrderMutationIdempotencyConfigFromEnv,
+  normalizeDriverShipperEvaluationRequest,
   parseOrderIdempotencyKey,
   type OrderMutationOperation,
 } from './order-mutation-idempotency';
@@ -69,6 +71,82 @@ describe('order mutation idempotency', () => {
     );
   });
 
+  it('normalizes driver shipper evaluation fields without changing display order', () => {
+    expect(
+      normalizeDriverShipperEvaluationRequest({
+        rating: 5,
+        tags: [' 装货配合 ', '沟通顺畅', '装货配合'],
+        content: '  货主配合顺畅。  ',
+        photoCount: 6,
+        photoFileIds: [' file-2 ', 'file-1', 'file-2'],
+      }),
+    ).toEqual({
+      rating: 5,
+      tags: ['装货配合', '沟通顺畅'],
+      content: '货主配合顺畅。',
+      anonymous: false,
+      photoCount: 2,
+      photoFileIds: ['file-2', 'file-1'],
+    });
+  });
+
+  it('uses effective photo semantics in driver shipper evaluation fingerprints', () => {
+    const request = {
+      rating: 5,
+      tags: ['沟通顺畅'],
+      content: '货主装货配合好，结算沟通清楚。',
+    };
+
+    expect(
+      createDriverShipperEvaluationFingerprint(' order-1 ', request),
+    ).toBe(
+      createDriverShipperEvaluationFingerprint('order-1', {
+        ...request,
+        anonymous: false,
+        photoCount: 0,
+        photoFileIds: [],
+      }),
+    );
+    expect(
+      createDriverShipperEvaluationFingerprint('order-1', {
+        ...request,
+        photoCount: 2,
+      }),
+    ).not.toBe(
+      createDriverShipperEvaluationFingerprint('order-1', {
+        ...request,
+        photoCount: 2,
+        photoFileIds: [],
+      }),
+    );
+  });
+
+  it('keeps event-significant ordering in driver shipper evaluation fingerprints', () => {
+    const request = {
+      rating: 5,
+      tags: ['沟通顺畅', '装货配合'],
+      content: '货主装货配合好，结算沟通清楚。',
+      photoFileIds: ['file-1', 'file-2'],
+    };
+
+    expect(
+      createDriverShipperEvaluationFingerprint('order-1', request),
+    ).not.toBe(
+      createDriverShipperEvaluationFingerprint('order-1', {
+        ...request,
+        tags: [...request.tags].reverse(),
+      }),
+    );
+    expect(
+      createDriverShipperEvaluationFingerprint('order-1', request),
+    ).not.toBe(
+      createDriverShipperEvaluationFingerprint('order-1', {
+        ...request,
+        photoFileIds: [...request.photoFileIds].reverse(),
+      }),
+    );
+  });
+
   it('creates a stable shipper create fingerprint from normalized object keys', () => {
     const expectedDigest =
       'e6ad7906f6d64a9e20c66858ea984653c940a8bc313f48645919626186c955cc';
@@ -95,6 +173,7 @@ describe('order mutation idempotency', () => {
       'driver_status',
       'driver_cancel',
       'driver_evaluation_reply',
+      'driver_shipper_evaluation',
     ]);
   });
 
@@ -111,6 +190,7 @@ describe('order mutation idempotency', () => {
       'driver_status',
       'driver_cancel',
       'driver_evaluation_reply',
+      'driver_shipper_evaluation',
     ]);
   });
 

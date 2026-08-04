@@ -11,7 +11,9 @@ import {
 } from '../payments/driver-finance.repository';
 import {
   createDriverEvaluationReplyFingerprint,
+  createDriverShipperEvaluationFingerprint,
   createOrderMutationFingerprint,
+  normalizeDriverShipperEvaluationRequest,
 } from '../orders/order-mutation-idempotency';
 import type {
   ExecuteOrderMutationResult,
@@ -612,9 +614,30 @@ export class DriverOrdersService {
   async evaluateShipper(
     currentUser: AuthenticatedUser,
     orderId: string,
+    idempotencyKey: string,
     input: DriverEvaluateShipperRequest,
   ): Promise<ShipperOrderRecord> {
     this.assertDriver(currentUser);
+    const normalizedInput = normalizeDriverShipperEvaluationRequest(input);
+    const requestFingerprint = createDriverShipperEvaluationFingerprint(
+      orderId,
+      normalizedInput,
+    );
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: currentUser.id,
+        orderId,
+        operation: 'driver_shipper_evaluation',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '订单完成后才能评价货主',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
     const order = await this.getOrder(currentUser, orderId);
 
     if (order.status !== 'completed') {
@@ -626,14 +649,25 @@ export class DriverOrdersService {
 
     await this.assertShipperEvaluationProofFiles(
       currentUser.id,
-      input.photoFileIds,
+      normalizedInput.photoFileIds,
     );
 
-    return this.ordersRepository.evaluateShipper(
-      order.id,
-      currentUser.id,
-      input,
-    );
+    return this.unwrapOrderMutationResult(
+      await this.ordersRepository.executeIdempotentOrderMutation({
+        actorUserId: currentUser.id,
+        orderId: order.id,
+        operation: 'driver_shipper_evaluation',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: order.updatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'driver_shipper_evaluation',
+          input: normalizedInput,
+        },
+      }),
+      '订单完成后才能评价货主',
+    ).order;
   }
 
   private assertDriver(currentUser: AuthenticatedUser) {

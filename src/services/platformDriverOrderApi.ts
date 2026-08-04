@@ -471,9 +471,15 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
     async evaluateShipper(
       orderId: string,
       request: PlatformDriverEvaluateShipperRequest,
+      idempotencyKey: string,
     ) {
       const normalizedOrderId = normalizeDriverOrderId(orderId);
       const normalizedRequest = normalizeDriverEvaluateShipperRequest(request);
+      const normalizedIdempotencyKey =
+        normalizeDriverOrderMutationIdempotencyKey(
+          idempotencyKey,
+          'PLATFORM_DRIVER_SHIPPER_EVALUATION_INVALID',
+        );
 
       return platformPost<
         PlatformDriverEvaluateShipperRequest,
@@ -482,6 +488,7 @@ export function createPlatformDriverOrderApi(config: PlatformApiConfig) {
         config,
         `/driver/orders/${normalizedOrderId}/shipper-evaluation`,
         normalizedRequest,
+        createDriverOrderMutationRequestOptions(normalizedIdempotencyKey),
       );
     },
   };
@@ -1332,6 +1339,7 @@ function normalizeDriverOrderMutationIdempotencyKey(
     | 'PLATFORM_DRIVER_ORDER_STATUS_INVALID'
     | 'PLATFORM_DRIVER_ORDER_CANCEL_INVALID'
     | 'PLATFORM_DRIVER_EVALUATION_REPLY_INVALID'
+    | 'PLATFORM_DRIVER_SHIPPER_EVALUATION_INVALID'
     | 'PLATFORM_DRIVER_WITHDRAWAL_REQUEST_INVALID',
 ) {
   if (typeof value !== 'string') {

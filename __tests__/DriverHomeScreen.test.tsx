@@ -6516,6 +6516,7 @@ describe('DriverHomeScreen certification uploads', () => {
         photoCount: 1,
         photoFileIds: ['file-shipper-evaluation-1'],
       },
+      expect.stringMatching(uuidV4Pattern),
     );
     expect(getRenderedText(renderer)).toContain('货主评价已提交。');
     expect(

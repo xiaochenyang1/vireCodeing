@@ -48,6 +48,12 @@ describe('DriverOrdersService', () => {
         evaluationEventId: 'evaluation-1',
         content: '谢谢认可。',
       });
+      // @ts-expect-error Shipper evaluations require an idempotency key.
+      service.evaluateShipper(driver, 'order-1', {
+        rating: 5,
+        tags: ['沟通顺畅'],
+        content: '货主配合顺畅。',
+      });
     }
 
     expect(service).toBeNull();
@@ -70,10 +76,13 @@ describe('DriverOrdersService', () => {
   ) {
     const nowProvider = options.now ?? (() => now);
     const financialStore = new InMemoryFinancialStore();
+    const filesRepository = new InMemoryFilesRepository(nowProvider);
     const repository = new InMemoryOrdersRepository(
       nowProvider,
       new InMemoryProfileCouponsStore(),
       financialStore,
+      500,
+      filesRepository,
     );
     const certificationRepository = createDriverCertificationRepository({
       identityStatus: 'approved',
@@ -84,7 +93,6 @@ describe('DriverOrdersService', () => {
     const driverBankCardsRepository = new InMemoryDriverBankCardsRepository(
       nowProvider,
     );
-    const filesRepository = new InMemoryFilesRepository(nowProvider);
     const driverWithdrawalsRepository = new InMemoryDriverWithdrawalsRepository(
       nowProvider,
     );
@@ -1074,6 +1082,7 @@ describe('DriverOrdersService', () => {
       service.evaluateShipper(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440101',
         {
           rating: 5,
           tags: ['沟通顺畅', '装货配合'],
@@ -1094,6 +1103,191 @@ describe('DriverOrdersService', () => {
         }),
       ]),
     });
+  });
+
+  it('replays the first shipper evaluation snapshot without reloading order or files', async () => {
+    const { repository, service, filesRepository } = createService();
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(
+      filesRepository,
+      driver.id,
+      'evaluation',
+    );
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440106';
+    const first = await service.evaluateShipper(
+      driver,
+      order.id,
+      idempotencyKey,
+      {
+        rating: 5,
+        tags: ['沟通顺畅', '装货配合'],
+        content: '货主装货配合好，结算沟通清楚。',
+        anonymous: false,
+        photoCount: 99,
+        photoFileIds: [proof.id],
+      },
+    );
+
+    await repository.submitOrderEvaluation(order.id, 'shipper-1', {
+      rating: 4,
+      tags: ['准时送达'],
+      content: '评价提交后的订单现态',
+    });
+    const currentOrderLookup = jest
+      .spyOn(repository, 'findDriverAcceptedOrder')
+      .mockRejectedValue(new Error('replay must not inspect the current order'));
+    const serviceFileLookup = jest
+      .spyOn(filesRepository, 'findFileByIdAndOwner')
+      .mockRejectedValue(new Error('replay must not inspect proof files'));
+    const atomicFileLookup = jest
+      .spyOn(filesRepository, 'findFilesByIds')
+      .mockRejectedValue(new Error('replay must not inspect proof files'));
+
+    const replay = await service.evaluateShipper(
+      driver,
+      `  ${order.id}  `,
+      idempotencyKey,
+      {
+        rating: 5,
+        tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
+        content: '  货主装货配合好，结算沟通清楚。  ',
+        photoFileIds: [` ${proof.id} `, proof.id],
+      },
+    );
+
+    expect(replay).toEqual(first);
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+    expect(serviceFileLookup).not.toHaveBeenCalled();
+    expect(atomicFileLookup).not.toHaveBeenCalled();
+    currentOrderLookup.mockRestore();
+    serviceFileLookup.mockRestore();
+    atomicFileLookup.mockRestore();
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'shipper_evaluation_submitted',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rejects a shipper evaluation key reused for changed content, ordering, or order', async () => {
+    const { repository, service, filesRepository } = createService();
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const firstProof = await createUploadedFile(
+      filesRepository,
+      driver.id,
+      'evaluation',
+    );
+    const secondProof = await createUploadedFile(
+      filesRepository,
+      driver.id,
+      'evaluation',
+    );
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440107';
+    const request = {
+      rating: 5,
+      tags: ['沟通顺畅', '装货配合'],
+      content: '货主装货配合好，结算沟通清楚。',
+      photoFileIds: [firstProof.id, secondProof.id],
+    };
+    await service.evaluateShipper(driver, order.id, idempotencyKey, request);
+    const currentOrderLookup = jest.spyOn(
+      repository,
+      'findDriverAcceptedOrder',
+    );
+
+    await expect(
+      service.evaluateShipper(driver, order.id, idempotencyKey, {
+        ...request,
+        content: '同一个 key 的另一条评价。',
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(
+      service.evaluateShipper(driver, order.id, idempotencyKey, {
+        ...request,
+        tags: [...request.tags].reverse(),
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(
+      service.evaluateShipper(driver, order.id, idempotencyKey, {
+        ...request,
+        photoFileIds: [...request.photoFileIds].reverse(),
+      }),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(
+      service.evaluateShipper(
+        driver,
+        'another-order',
+        idempotencyKey,
+        request,
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects an expired shipper evaluation replay before loading order or files', async () => {
+    let currentNow = new Date('2026-07-06T08:00:00.000Z');
+    const { repository, service, filesRepository } = createService({
+      now: () => currentNow,
+      orderMutationIdempotencyTtlSeconds: 1,
+    });
+    const driver = {
+      id: 'driver-1',
+      phone: '13900139009',
+      userType: 'driver' as const,
+    };
+    const order = await createCompletedDriverOrder(
+      repository,
+      driver.id,
+      createOrderInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(
+      filesRepository,
+      driver.id,
+      'evaluation',
+    );
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440108';
+    const request = {
+      rating: 5,
+      tags: ['沟通顺畅'],
+      content: '货主装货配合好，结算沟通清楚。',
+      photoFileIds: [proof.id],
+    };
+    await service.evaluateShipper(driver, order.id, idempotencyKey, request);
+    currentNow = new Date('2026-07-06T08:00:01.001Z');
+    const currentOrderLookup = jest.spyOn(
+      repository,
+      'findDriverAcceptedOrder',
+    );
+    const serviceFileLookup = jest.spyOn(
+      filesRepository,
+      'findFileByIdAndOwner',
+    );
+    const atomicFileLookup = jest.spyOn(filesRepository, 'findFilesByIds');
+
+    await expect(
+      service.evaluateShipper(driver, order.id, idempotencyKey, request),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED });
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+    expect(serviceFileLookup).not.toHaveBeenCalled();
+    expect(atomicFileLookup).not.toHaveBeenCalled();
   });
 
   it('rejects pending and wrong-purpose shipper evaluation files', async () => {
@@ -1120,6 +1314,7 @@ describe('DriverOrdersService', () => {
       service.evaluateShipper(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440102',
         {
           rating: 5,
           tags: ['沟通顺畅'],
@@ -1138,6 +1333,7 @@ describe('DriverOrdersService', () => {
       service.evaluateShipper(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440103',
         {
           rating: 5,
           tags: ['沟通顺畅'],
@@ -1165,6 +1361,7 @@ describe('DriverOrdersService', () => {
       service.evaluateShipper(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440104',
         {
           rating: 5,
           tags: ['沟通顺畅'],
@@ -1191,6 +1388,7 @@ describe('DriverOrdersService', () => {
       service.evaluateShipper(
         { id: 'driver-1', phone: '13900139009', userType: 'driver' },
         order.id,
+        '550e8400-e29b-41d4-a716-446655440105',
         {
           rating: 5,
           tags: ['沟通顺畅'],

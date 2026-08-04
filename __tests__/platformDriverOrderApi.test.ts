@@ -636,19 +636,26 @@ describe('platform driver order api', () => {
       getAccessToken: () => 'access-token',
     });
 
-    await api.evaluateShipper(' order-1 ', {
-      rating: 5,
-      tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
-      content: '  货主装货配合好，结算沟通清楚。  ',
-      anonymous: true,
-      photoCount: 2,
-      photoFileIds: [' file-1 ', 'file-1', 'file-2'],
-    });
+    await api.evaluateShipper(
+      ' order-1 ',
+      {
+        rating: 5,
+        tags: [' 沟通顺畅 ', '装货配合', '沟通顺畅'],
+        content: '  货主装货配合好，结算沟通清楚。  ',
+        anonymous: true,
+        photoCount: 2,
+        photoFileIds: [' file-1 ', 'file-1', 'file-2'],
+      },
+      ' 550e8400-e29b-41d4-a716-446655440114 ',
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/api/driver/orders/order-1/shipper-evaluation',
       expect.objectContaining({
         method: 'POST',
+        headers: expect.objectContaining({
+          'Idempotency-Key': '550e8400-e29b-41d4-a716-446655440114',
+        }),
         body: JSON.stringify({
           rating: 5,
           tags: ['沟通顺畅', '装货配合'],
@@ -712,6 +719,40 @@ describe('platform driver order api', () => {
             tags: string[];
             content: string;
           },
+          '550e8400-e29b-41d4-a716-446655440114',
+        ),
+      ).rejects.toMatchObject({
+        code: 'PLATFORM_DRIVER_SHIPPER_EVALUATION_INVALID',
+        status: 0,
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['missing', undefined],
+    ['blank', '   '],
+    ['malformed', 'not-a-uuid'],
+  ])(
+    'rejects a %s shipper evaluation idempotency key before sending',
+    async (_caseName, idempotencyKey) => {
+      const fetchMock = jest.fn();
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const api = createPlatformDriverOrderApi({
+        baseUrl: 'http://localhost:3000/api',
+        getAccessToken: () => 'access-token',
+      });
+
+      await expect(
+        api.evaluateShipper(
+          'order-1',
+          {
+            rating: 5,
+            tags: ['沟通顺畅'],
+            content: '货主装货配合好，结算沟通清楚。',
+          },
+          idempotencyKey as string,
         ),
       ).rejects.toMatchObject({
         code: 'PLATFORM_DRIVER_SHIPPER_EVALUATION_INVALID',

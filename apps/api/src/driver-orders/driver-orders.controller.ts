@@ -376,6 +376,7 @@ export class DriverOrdersController {
   async evaluateShipper(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(driverEvaluateShipperSchema))
     body: DriverEvaluateShipperRequest,
   ) {
@@ -383,6 +384,7 @@ export class DriverOrdersController {
       await this.driverOrdersService.evaluateShipper(
         getCurrentDriver(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseDriverEvaluateShipperRequest(body),
       ),
       getRequestId(request),
