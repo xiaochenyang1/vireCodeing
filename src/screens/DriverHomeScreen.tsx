@@ -57,6 +57,14 @@ import {
   type DriverEvaluationReplyQueueItem,
 } from '../utils/driverEvaluationReplyQueue';
 import {
+  areDriverShipperEvaluationRequestsEqual,
+  hydrateDriverShipperEvaluationQueue,
+  omitDriverShipperEvaluationQueueItem,
+  saveDriverShipperEvaluationQueue,
+  type DriverShipperEvaluationQueue,
+  type DriverShipperEvaluationQueueItem,
+} from '../utils/driverShipperEvaluationQueue';
+import {
   createDriverOrderMutationQueueKey,
   hydrateDriverOrderMutationQueue,
   saveDriverOrderMutationQueue,
@@ -895,6 +903,9 @@ export function DriverHomeScreen({
   const [shipperEvaluationForms, setShipperEvaluationForms] = useState<
     Record<string, DriverShipperEvaluationFormState>
   >({});
+  const shipperEvaluationFormsRef = useRef<
+    Record<string, DriverShipperEvaluationFormState>
+  >({});
   const [exceptionForms, setExceptionForms] = useState<
     Record<string, DriverExceptionFormState>
   >({});
@@ -935,6 +946,44 @@ export function DriverHomeScreen({
   );
   const evaluationReplyInFlightKeysRef = useRef(new Set<string>());
   const [evaluationReplyInFlightKeys, setEvaluationReplyInFlightKeys] =
+    useState<Record<string, boolean>>({});
+  const [shipperEvaluationQueue, setShipperEvaluationQueue] =
+    useState<DriverShipperEvaluationQueue>({});
+  const shipperEvaluationQueueRef = useRef<DriverShipperEvaluationQueue>({});
+  const [
+    shipperEvaluationQueueHydratedAccountId,
+    setShipperEvaluationQueueHydratedAccountId,
+  ] = useState<string>();
+  const [
+    shipperEvaluationQueueHydrationFailedAccountId,
+    setShipperEvaluationQueueHydrationFailedAccountId,
+  ] = useState<string>();
+  const [
+    shipperEvaluationQueueHydrationAttempt,
+    setShipperEvaluationQueueHydrationAttempt,
+  ] = useState(0);
+  const shipperEvaluationQueueHydratedAccountIdRef = useRef<string | undefined>(
+    undefined,
+  );
+  const shipperEvaluationQueueHydrationContextRef = useRef<
+    | {
+        driverAccountId: string;
+        promise: Promise<DriverShipperEvaluationQueue>;
+      }
+    | undefined
+  >(undefined);
+  const pendingShipperEvaluationQueueTasksRef = useRef(
+    new Map<
+      string,
+      Array<{
+        run: () => unknown | Promise<unknown>;
+        resolve: (value: unknown) => void;
+        reject: (error: unknown) => void;
+      }>
+    >(),
+  );
+  const shipperEvaluationInFlightKeysRef = useRef(new Set<string>());
+  const [shipperEvaluationInFlightKeys, setShipperEvaluationInFlightKeys] =
     useState<Record<string, boolean>>({});
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
@@ -1599,6 +1648,84 @@ export function DriverHomeScreen({
 
   useEffect(() => {
     let isMounted = true;
+    const hydrationPromise = hydrateDriverShipperEvaluationQueue(
+      resolvedDriverAccountId,
+    );
+    const hydrationContext = {
+      driverAccountId: resolvedDriverAccountId,
+      promise: hydrationPromise,
+    };
+
+    shipperEvaluationQueueHydrationContextRef.current = hydrationContext;
+    shipperEvaluationQueueHydratedAccountIdRef.current = undefined;
+    shipperEvaluationQueueRef.current = {};
+    setShipperEvaluationQueue({});
+    setShipperEvaluationQueueHydratedAccountId(undefined);
+    setShipperEvaluationQueueHydrationFailedAccountId(undefined);
+    hydrationPromise
+      .then(queue => {
+        if (
+          !isMounted ||
+          shipperEvaluationQueueHydrationContextRef.current !== hydrationContext
+        ) {
+          return;
+        }
+
+        shipperEvaluationQueueRef.current = queue;
+        setShipperEvaluationQueue(queue);
+        shipperEvaluationQueueHydratedAccountIdRef.current =
+          resolvedDriverAccountId;
+        setShipperEvaluationQueueHydratedAccountId(resolvedDriverAccountId);
+        const pendingTasks =
+          pendingShipperEvaluationQueueTasksRef.current.get(
+            resolvedDriverAccountId,
+          ) ?? [];
+        pendingShipperEvaluationQueueTasksRef.current.delete(
+          resolvedDriverAccountId,
+        );
+        pendingTasks.forEach(task => {
+          if (
+            activeDriverAccountIdRef.current !== resolvedDriverAccountId ||
+            shipperEvaluationQueueHydrationContextRef.current !==
+              hydrationContext
+          ) {
+            const currentTasks =
+              pendingShipperEvaluationQueueTasksRef.current.get(
+                resolvedDriverAccountId,
+              ) ?? [];
+            pendingShipperEvaluationQueueTasksRef.current.set(
+              resolvedDriverAccountId,
+              [...currentTasks, task],
+            );
+            return;
+          }
+
+          try {
+            Promise.resolve(task.run()).then(task.resolve, task.reject);
+          } catch (error) {
+            task.reject(error);
+          }
+        });
+      })
+      .catch(() => {
+        if (
+          isMounted &&
+          shipperEvaluationQueueHydrationContextRef.current === hydrationContext
+        ) {
+          setShipperEvaluationQueueHydrationFailedAccountId(
+            resolvedDriverAccountId,
+          );
+          setNotice('评价货主队列加载失败，提交已暂停，请重试加载。');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [resolvedDriverAccountId, shipperEvaluationQueueHydrationAttempt]);
+
+  useEffect(() => {
+    let isMounted = true;
 
     setOrderMutationQueue({});
     hydrateDriverOrderMutationQueue(resolvedDriverAccountId)
@@ -1792,13 +1919,16 @@ export function DriverHomeScreen({
     orderNo: string,
     changes: Partial<DriverShipperEvaluationFormState>,
   ) => {
-    setShipperEvaluationForms(currentForms => ({
+    const currentForms = shipperEvaluationFormsRef.current;
+    const nextForms = {
       ...currentForms,
       [orderNo]: {
         ...(currentForms[orderNo] ?? emptyShipperEvaluationForm),
         ...changes,
       },
-    }));
+    };
+    shipperEvaluationFormsRef.current = nextForms;
+    setShipperEvaluationForms(nextForms);
   };
 
   const updateExceptionForm = (
@@ -2027,6 +2157,231 @@ export function DriverHomeScreen({
         [orderNo]: '',
       };
     });
+  };
+
+  const createShipperEvaluationInFlightKey = (
+    accountId: string,
+    orderId: string,
+  ) => `${accountId}:${orderId}`;
+
+  const beginShipperEvaluationRequest = (orderId: string) => {
+    const key = createShipperEvaluationInFlightKey(
+      resolvedDriverAccountId,
+      orderId,
+    );
+
+    if (shipperEvaluationInFlightKeysRef.current.has(key)) {
+      return undefined;
+    }
+
+    shipperEvaluationInFlightKeysRef.current.add(key);
+    setShipperEvaluationInFlightKeys(current => ({
+      ...current,
+      [key]: true,
+    }));
+    return key;
+  };
+
+  const finishShipperEvaluationRequest = (key: string) => {
+    shipperEvaluationInFlightKeysRef.current.delete(key);
+    setShipperEvaluationInFlightKeys(current => {
+      if (!current[key]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const isActiveShipperEvaluationAccount = (accountId: string) =>
+    activeDriverAccountIdRef.current === accountId;
+
+  const retryShipperEvaluationQueueHydration = () => {
+    setShipperEvaluationQueueHydrationFailedAccountId(undefined);
+    setShipperEvaluationQueueHydrationAttempt(current => current + 1);
+    setNotice('正在重新加载评价货主队列。');
+  };
+
+  const runAfterShipperEvaluationQueueHydration = <T,>(
+    accountId: string,
+    operation: () => T | Promise<T>,
+  ): Promise<T | undefined> => {
+    if (!isActiveShipperEvaluationAccount(accountId)) {
+      return Promise.resolve(undefined);
+    }
+
+    if (
+      shipperEvaluationQueueHydratedAccountIdRef.current === accountId &&
+      shipperEvaluationQueueHydrationContextRef.current?.driverAccountId ===
+        accountId
+    ) {
+      return Promise.resolve().then(operation);
+    }
+
+    return new Promise<T | undefined>((resolve, reject) => {
+      const pendingTasks =
+        pendingShipperEvaluationQueueTasksRef.current.get(accountId) ?? [];
+      pendingShipperEvaluationQueueTasksRef.current.set(accountId, [
+        ...pendingTasks,
+        {
+          run: operation,
+          resolve: value => resolve(value as T),
+          reject,
+        },
+      ]);
+    });
+  };
+
+  const persistShipperEvaluationQueue = (
+    accountId: string,
+    queue: DriverShipperEvaluationQueue,
+  ) => {
+    const handlePersistenceFailure = () => {
+      if (isActiveShipperEvaluationAccount(accountId)) {
+        setNotice(
+          '评价货主队列保存失败，当前会话仍会保留，请保持应用打开后重试。',
+        );
+      }
+    };
+
+    try {
+      const persistenceTask = saveDriverShipperEvaluationQueue(
+        accountId,
+        queue,
+      );
+      persistenceTask.catch(handlePersistenceFailure);
+      return persistenceTask;
+    } catch (error) {
+      handlePersistenceFailure();
+      const persistenceTask = Promise.reject(error);
+      persistenceTask.catch(() => undefined);
+      return persistenceTask;
+    }
+  };
+
+  const upsertShipperEvaluationQueueItem = (
+    item: DriverShipperEvaluationQueueItem,
+  ) => {
+    if (!isActiveShipperEvaluationAccount(item.driverAccountId)) {
+      return Promise.resolve();
+    }
+
+    const nextQueue = {
+      ...shipperEvaluationQueueRef.current,
+      [item.orderId]: item,
+    };
+    shipperEvaluationQueueRef.current = nextQueue;
+    setShipperEvaluationQueue(nextQueue);
+    return persistShipperEvaluationQueue(item.driverAccountId, nextQueue);
+  };
+
+  const removeShipperEvaluationQueueItem = (
+    item: DriverShipperEvaluationQueueItem,
+  ) => {
+    if (!isActiveShipperEvaluationAccount(item.driverAccountId)) {
+      return Promise.resolve();
+    }
+
+    const currentQueue = shipperEvaluationQueueRef.current;
+    const nextQueue = omitDriverShipperEvaluationQueueItem(currentQueue, item);
+
+    if (nextQueue === currentQueue) {
+      return Promise.resolve();
+    }
+
+    shipperEvaluationQueueRef.current = nextQueue;
+    setShipperEvaluationQueue(nextQueue);
+    return persistShipperEvaluationQueue(item.driverAccountId, nextQueue).catch(
+      error => {
+        if (
+          isActiveShipperEvaluationAccount(item.driverAccountId) &&
+          shipperEvaluationQueueRef.current === nextQueue
+        ) {
+          shipperEvaluationQueueRef.current = currentQueue;
+          setShipperEvaluationQueue(currentQueue);
+        }
+        throw error;
+      },
+    );
+  };
+
+  const clearShipperEvaluationDraftIfUnchanged = (
+    item: DriverShipperEvaluationQueueItem,
+    submittedAttachments: DriverUploadedFileRef[] = [],
+  ) => {
+    const currentForm =
+      shipperEvaluationFormsRef.current[item.orderNo] ??
+      emptyShipperEvaluationForm;
+    const currentRequest = createShipperEvaluationRequest(currentForm);
+
+    if (
+      !areDriverShipperEvaluationRequestsEqual(currentRequest, item.request)
+    ) {
+      return false;
+    }
+
+    const nextForms = {
+      ...shipperEvaluationFormsRef.current,
+      [item.orderNo]: emptyShipperEvaluationForm,
+    };
+    shipperEvaluationFormsRef.current = nextForms;
+    setShipperEvaluationForms(nextForms);
+    if (submittedAttachments.length > 0) {
+      setReportedShipperEvaluationAttachments(current => ({
+        ...current,
+        [item.orderNo]: submittedAttachments,
+      }));
+    }
+    setShipperEvaluationAttachments(current => {
+      if (!current[item.orderNo]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[item.orderNo];
+      return next;
+    });
+    return true;
+  };
+
+  const clearShipperEvaluationProofsIfUnchanged = (
+    item: DriverShipperEvaluationQueueItem,
+  ) => {
+    const currentForm =
+      shipperEvaluationFormsRef.current[item.orderNo] ??
+      emptyShipperEvaluationForm;
+    const currentRequest = createShipperEvaluationRequest(currentForm);
+
+    if (
+      !areDriverShipperEvaluationRequestsEqual(currentRequest, item.request)
+    ) {
+      return;
+    }
+
+    updateShipperEvaluationForm(item.orderNo, { photoFileIds: [] });
+    setShipperEvaluationAttachments(current => {
+      if (!current[item.orderNo]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[item.orderNo];
+      return next;
+    });
+  };
+
+  const applyShipperEvaluationOrderSnapshot = (
+    accountId: string,
+    order: PlatformShipperOrder,
+  ) => {
+    if (!isActiveShipperEvaluationAccount(accountId)) {
+      return;
+    }
+
+    setSelectedOrder(order);
+    setMyOrders(currentOrders => upsertOrder(currentOrders, order));
   };
 
   const submitQuote = (order: PlatformShipperOrder) => {
@@ -2856,14 +3211,143 @@ export function DriverHomeScreen({
       .finally(() => finishEvaluationReplyRequest(inFlightKey));
   };
 
+  const handleShipperEvaluationIdempotencyFailure = (
+    error: unknown,
+    queueItem: DriverShipperEvaluationQueueItem,
+  ) => {
+    if (!(error instanceof PlatformApiError)) {
+      return undefined;
+    }
+
+    if (error.code === 'IDEMPOTENCY_KEY_REUSED') {
+      return upsertShipperEvaluationQueueItem({
+        ...queueItem,
+        idempotencyKey: createOrderMutationContext().idempotencyKey,
+      })
+        .then(() => {
+          setNotice('评价货主重试标识冲突，已生成新标识，请再次重试。');
+        })
+        .catch(() => {
+          setNotice(
+            '评价货主重试标识冲突，但新标识保存失败，请保持应用打开后重试。',
+          );
+        });
+    }
+
+    if (error.code !== 'IDEMPOTENCY_KEY_EXPIRED') {
+      return undefined;
+    }
+
+    clearShipperEvaluationDraftIfUnchanged(queueItem);
+    return removeShipperEvaluationQueueItem(queueItem)
+      .then(() => {
+        setNotice(
+          '货主评价已由平台处理，但幂等回放窗口已过期；本地队列已清理，请刷新订单查看。',
+        );
+      })
+      .catch(() => {
+        setNotice(
+          '货主评价已由平台处理，但本地过期队列清理失败；再次重试只会校验原结果。',
+        );
+      });
+  };
+
+  const handleShipperEvaluationRequestFailure = (
+    error: unknown,
+    queueItem: DriverShipperEvaluationQueueItem,
+    isRetry: boolean,
+  ) => {
+    const idempotencyFailureTask = handleShipperEvaluationIdempotencyFailure(
+      error,
+      queueItem,
+    );
+
+    if (idempotencyFailureTask) {
+      return idempotencyFailureTask;
+    }
+
+    if (isDriverEvaluationReplyMissingAccessToken(error)) {
+      setNotice(
+        isRetry
+          ? '评价货主重试需要重新登录后再同步。'
+          : '评价货主需要重新登录后再同步。',
+      );
+      return undefined;
+    }
+
+    if (error instanceof PlatformApiError) {
+      const fileFailureNotices: Record<string, string> = {
+        FILE_NOT_FOUND: '货主评价图片不存在，已移出队列，请重新上传。',
+        FILE_STATE_INVALID:
+          '货主评价图片尚未上传完成，已移出队列，请重新上传。',
+        FILE_PURPOSE_INVALID:
+          '货主评价图片用途不匹配，已移出队列，请重新上传。',
+      };
+      const fileFailureNotice = fileFailureNotices[error.code];
+
+      if (fileFailureNotice) {
+        clearShipperEvaluationProofsIfUnchanged(queueItem);
+        return removeShipperEvaluationQueueItem(queueItem)
+          .then(() => {
+            setNotice(fileFailureNotice);
+          })
+          .catch(() => {
+            setNotice('货主评价图片无效，但本地队列清理失败，请再次重试。');
+          });
+      }
+
+      if (
+        error.code === 'ORDER_STATE_INVALID' ||
+        error.code === 'ORDER_NOT_FOUND'
+      ) {
+        return removeShipperEvaluationQueueItem(queueItem)
+          .then(() => {
+            setNotice(
+              error.code === 'ORDER_STATE_INVALID'
+                ? '订单完成后才能评价货主，旧队列已移除。'
+                : '当前账号无法读取该订单，旧评价队列已移除。',
+            );
+          })
+          .catch(() => {
+            setNotice('货主评价已不可提交，但本地队列清理失败。');
+          });
+      }
+
+      if (error.code === 'ORDER_CONFLICT') {
+        setNotice('订单刚刚发生并发更新，货主评价仍保留在重试队列。');
+        return undefined;
+      }
+    }
+
+    setNotice(
+      isRetry
+        ? '评价货主重试失败，仍保留本地队列。'
+        : '货主评价提交失败，已加入本地重试队列。',
+    );
+    return undefined;
+  };
+
   const submitShipperEvaluation = (order: PlatformShipperOrder) => {
     if (!platformDriverOrderApi) {
       setNotice('评价货主需要平台 API 配置。');
       return;
     }
 
+    if (shipperEvaluationQueueHydratedAccountId !== resolvedDriverAccountId) {
+      if (
+        shipperEvaluationQueueHydrationFailedAccountId ===
+        resolvedDriverAccountId
+      ) {
+        retryShipperEvaluationQueueHydration();
+      } else {
+        setNotice('评价货主队列正在加载，请稍候。');
+      }
+      return;
+    }
+
     const request = createShipperEvaluationRequest(
-      shipperEvaluationForms[order.orderNo] ?? emptyShipperEvaluationForm,
+      shipperEvaluationFormsRef.current[order.orderNo] ??
+        emptyShipperEvaluationForm,
     );
 
     if (!request) {
@@ -2873,56 +3357,183 @@ export function DriverHomeScreen({
       return;
     }
 
-    platformDriverOrderApi
-      .evaluateShipper(
-        order.id,
-        request,
-        createOrderMutationContext().idempotencyKey,
-      )
-      .then(updatedOrder => {
-        const submittedAttachments =
-          shipperEvaluationAttachments[order.orderNo] ?? [];
-        setSelectedOrder(updatedOrder);
-        setMyOrders(currentOrders => upsertOrder(currentOrders, updatedOrder));
-        setShipperEvaluationForms(currentForms => ({
-          ...currentForms,
-          [order.orderNo]: emptyShipperEvaluationForm,
-        }));
-        if (submittedAttachments.length > 0) {
-          setReportedShipperEvaluationAttachments(currentAttachments => ({
-            ...currentAttachments,
-            [order.orderNo]: submittedAttachments,
-          }));
-        }
-        setShipperEvaluationAttachments(currentAttachments => {
-          if (!currentAttachments[order.orderNo]) {
-            return currentAttachments;
-          }
+    const queuedItem = shipperEvaluationQueueRef.current[order.id];
 
-          const nextAttachments = { ...currentAttachments };
-          delete nextAttachments[order.orderNo];
-          return nextAttachments;
-        });
-        setNotice('货主评价已提交。');
+    if (queuedItem?.driverAccountId === resolvedDriverAccountId) {
+      setNotice('该订单已有待同步货主评价，请先重试确认原提交结果。');
+      return;
+    }
+
+    const inFlightKey = beginShipperEvaluationRequest(order.id);
+
+    if (!inFlightKey) {
+      setNotice('货主评价正在提交，请稍候。');
+      return;
+    }
+
+    const queueItem: DriverShipperEvaluationQueueItem = {
+      driverAccountId: resolvedDriverAccountId,
+      idempotencyKey: createOrderMutationContext().idempotencyKey,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      request,
+    };
+    const submittedAttachments =
+      shipperEvaluationAttachments[order.orderNo] ?? [];
+    let didStartPlatformRequest = false;
+
+    upsertShipperEvaluationQueueItem(queueItem)
+      .then(() => {
+        didStartPlatformRequest = true;
+        return platformDriverOrderApi.evaluateShipper(
+          queueItem.orderId,
+          queueItem.request,
+          queueItem.idempotencyKey,
+        );
       })
-      .catch(error => {
-        if (error instanceof PlatformApiError) {
-          const noticeByCode: Record<string, string> = {
-            ORDER_STATE_INVALID: '订单完成后才能评价货主。',
-            FILE_NOT_FOUND: '货主评价图片不存在，请重新上传。',
-            FILE_STATE_INVALID: '货主评价图片尚未上传完成。',
-            FILE_PURPOSE_INVALID: '货主评价图片用途不匹配，请重新上传。',
-          };
-          const mappedNotice = noticeByCode[error.code];
+      .then(updatedOrder =>
+        runAfterShipperEvaluationQueueHydration(
+          queueItem.driverAccountId,
+          async () => {
+            applyShipperEvaluationOrderSnapshot(
+              queueItem.driverAccountId,
+              updatedOrder,
+            );
+            clearShipperEvaluationDraftIfUnchanged(
+              queueItem,
+              submittedAttachments,
+            );
+            try {
+              await removeShipperEvaluationQueueItem(queueItem);
+              setNotice('货主评价已提交。');
+            } catch {
+              setNotice(
+                '货主评价已提交，但本地队列清理失败；再次重试只会确认原结果。',
+              );
+            }
+          },
+        ),
+      )
+      .catch(error =>
+        runAfterShipperEvaluationQueueHydration(
+          queueItem.driverAccountId,
+          () => {
+            if (!didStartPlatformRequest) {
+              setNotice(
+                '评价货主队列保存失败，尚未提交平台，请保持应用打开后重试。',
+              );
+              return;
+            }
 
-          if (mappedNotice) {
-            setNotice(mappedNotice);
-            return;
-          }
-        }
+            return handleShipperEvaluationRequestFailure(
+              error,
+              queueItem,
+              false,
+            );
+          },
+        ),
+      )
+      .finally(() => finishShipperEvaluationRequest(inFlightKey));
+  };
 
-        setNotice('货主评价提交失败，请稍后重试。');
-      });
+  const retryShipperEvaluation = (
+    queueItem: DriverShipperEvaluationQueueItem,
+  ) => {
+    if (!platformDriverOrderApi) {
+      setNotice('评价货主重试需要平台 API 配置。');
+      return;
+    }
+
+    if (queueItem.driverAccountId !== resolvedDriverAccountId) {
+      setNotice('评价货主队列已切换账号，请重新打开当前订单。');
+      return;
+    }
+
+    if (shipperEvaluationQueueHydratedAccountId !== resolvedDriverAccountId) {
+      if (
+        shipperEvaluationQueueHydrationFailedAccountId ===
+        resolvedDriverAccountId
+      ) {
+        retryShipperEvaluationQueueHydration();
+      } else {
+        setNotice('评价货主队列正在加载，请稍候。');
+      }
+      return;
+    }
+
+    const inFlightKey = beginShipperEvaluationRequest(queueItem.orderId);
+
+    if (!inFlightKey) {
+      setNotice('货主评价正在提交，请稍候。');
+      return;
+    }
+
+    const submittedAttachments =
+      shipperEvaluationAttachments[queueItem.orderNo] ?? [];
+    let didStartPlatformRequest = false;
+
+    upsertShipperEvaluationQueueItem(queueItem)
+      .then(() => {
+        didStartPlatformRequest = true;
+        return platformDriverOrderApi.evaluateShipper(
+          queueItem.orderId,
+          queueItem.request,
+          queueItem.idempotencyKey,
+        );
+      })
+      .then(replayedOrder =>
+        platformDriverOrderApi.getOrder(queueItem.orderId).then(
+          updatedOrder => ({ updatedOrder, refreshed: true }),
+          () => ({ updatedOrder: replayedOrder, refreshed: false }),
+        ),
+      )
+      .then(({ updatedOrder, refreshed }) =>
+        runAfterShipperEvaluationQueueHydration(
+          queueItem.driverAccountId,
+          async () => {
+            applyShipperEvaluationOrderSnapshot(
+              queueItem.driverAccountId,
+              updatedOrder,
+            );
+            clearShipperEvaluationDraftIfUnchanged(
+              queueItem,
+              submittedAttachments,
+            );
+            try {
+              await removeShipperEvaluationQueueItem(queueItem);
+              setNotice(
+                refreshed
+                  ? '货主评价已重新提交。'
+                  : '货主评价已确认，但最新订单刷新失败，请稍后刷新。',
+              );
+            } catch {
+              setNotice(
+                '货主评价已确认，但本地队列清理失败；再次重试只会确认原结果。',
+              );
+            }
+          },
+        ),
+      )
+      .catch(error =>
+        runAfterShipperEvaluationQueueHydration(
+          queueItem.driverAccountId,
+          () => {
+            if (!didStartPlatformRequest) {
+              setNotice(
+                '评价货主队列保存失败，尚未重试平台，请保持应用打开后重试。',
+              );
+              return;
+            }
+
+            return handleShipperEvaluationRequestFailure(
+              error,
+              queueItem,
+              true,
+            );
+          },
+        ),
+      )
+      .finally(() => finishShipperEvaluationRequest(inFlightKey));
   };
 
   const uploadShipperEvaluationProof = async (order: PlatformShipperOrder) => {
@@ -3548,6 +4159,14 @@ export function DriverHomeScreen({
     resolvedDriverAccountId
       ? selectedOrderEvaluationReplyQueueItem
       : undefined;
+  const selectedOrderShipperEvaluationQueueItem = selectedOrder
+    ? shipperEvaluationQueue[selectedOrder.id]
+    : undefined;
+  const selectedShipperEvaluationQueueItem =
+    selectedOrderShipperEvaluationQueueItem?.driverAccountId ===
+    resolvedDriverAccountId
+      ? selectedOrderShipperEvaluationQueueItem
+      : undefined;
   const isSelectedEvaluationReplyInFlight = selectedOrder
     ? Boolean(
         evaluationReplyInFlightKeys[
@@ -3562,6 +4181,20 @@ export function DriverHomeScreen({
     evaluationReplyQueueHydratedAccountId === resolvedDriverAccountId;
   const didEvaluationReplyQueueHydrationFail =
     evaluationReplyQueueHydrationFailedAccountId === resolvedDriverAccountId;
+  const isSelectedShipperEvaluationInFlight = selectedOrder
+    ? Boolean(
+        shipperEvaluationInFlightKeys[
+          createShipperEvaluationInFlightKey(
+            resolvedDriverAccountId,
+            selectedOrder.id,
+          )
+        ],
+      )
+    : false;
+  const isShipperEvaluationQueueHydrated =
+    shipperEvaluationQueueHydratedAccountId === resolvedDriverAccountId;
+  const didShipperEvaluationQueueHydrationFail =
+    shipperEvaluationQueueHydrationFailedAccountId === resolvedDriverAccountId;
   const incomeRecords = Array.isArray(incomeOverview?.records)
     ? incomeOverview.records
     : [];
@@ -5876,6 +6509,10 @@ export function DriverHomeScreen({
                 placeholder="给货主评分，1-5"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
+                editable={
+                  !selectedShipperEvaluationQueueItem &&
+                  !isSelectedShipperEvaluationInFlight
+                }
                 value={selectedShipperEvaluationForm.ratingText}
                 onChangeText={ratingText =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
@@ -5888,6 +6525,10 @@ export function DriverHomeScreen({
                 style={styles.ordersSearchInput}
                 placeholder="评价标签，用顿号或逗号分隔"
                 placeholderTextColor={colors.textMuted}
+                editable={
+                  !selectedShipperEvaluationQueueItem &&
+                  !isSelectedShipperEvaluationInFlight
+                }
                 value={selectedShipperEvaluationForm.tagsText}
                 onChangeText={tagsText =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
@@ -5900,6 +6541,10 @@ export function DriverHomeScreen({
                 style={styles.ordersSearchInput}
                 placeholder="评价货主，至少 6 个字"
                 placeholderTextColor={colors.textMuted}
+                editable={
+                  !selectedShipperEvaluationQueueItem &&
+                  !isSelectedShipperEvaluationInFlight
+                }
                 value={selectedShipperEvaluationForm.content}
                 onChangeText={content =>
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
@@ -5910,6 +6555,10 @@ export function DriverHomeScreen({
               <Pressable
                 testID={`driver-toggle-shipper-evaluation-anonymous-${selectedOrder.orderNo}`}
                 style={styles.detailSecondaryButton}
+                disabled={
+                  Boolean(selectedShipperEvaluationQueueItem) ||
+                  isSelectedShipperEvaluationInFlight
+                }
                 onPress={() => {
                   updateShipperEvaluationForm(selectedOrder.orderNo, {
                     anonymous: !selectedShipperEvaluationForm.anonymous,
@@ -5927,6 +6576,10 @@ export function DriverHomeScreen({
               <Pressable
                 testID={`driver-upload-shipper-evaluation-proof-${selectedOrder.orderNo}`}
                 style={styles.detailSecondaryButton}
+                disabled={
+                  Boolean(selectedShipperEvaluationQueueItem) ||
+                  isSelectedShipperEvaluationInFlight
+                }
                 onPress={() => {
                   uploadShipperEvaluationProof(selectedOrder).catch(
                     () => undefined,
@@ -5982,11 +6635,67 @@ export function DriverHomeScreen({
               <Pressable
                 testID={`driver-submit-shipper-evaluation-${selectedOrder.orderNo}`}
                 style={styles.detailSecondaryButton}
+                disabled={
+                  !isShipperEvaluationQueueHydrated
+                    ? !didShipperEvaluationQueueHydrationFail
+                    : isSelectedShipperEvaluationInFlight ||
+                      Boolean(selectedShipperEvaluationQueueItem)
+                }
                 onPress={() => submitShipperEvaluation(selectedOrder)}
               >
-                <Text style={styles.detailSecondaryButtonText}>评价货主</Text>
+                <Text style={styles.detailSecondaryButtonText}>
+                  {!isShipperEvaluationQueueHydrated
+                    ? didShipperEvaluationQueueHydrationFail
+                      ? '重新加载评价货主队列'
+                      : '评价货主队列加载中'
+                    : isSelectedShipperEvaluationInFlight
+                    ? '货主评价提交中'
+                    : selectedShipperEvaluationQueueItem
+                    ? '请先处理待同步评价'
+                    : '评价货主'}
+                </Text>
               </Pressable>
             </>
+          ) : null}
+          {selectedShipperEvaluationQueueItem ? (
+            <View
+              testID={`driver-shipper-evaluation-queue-${selectedOrder.orderNo}`}
+              style={styles.detailInlineGroup}
+            >
+              <Text style={styles.draftSectionTitle}>评价货主同步队列</Text>
+              <Text style={styles.detailMeta}>
+                {`${
+                  selectedShipperEvaluationQueueItem.request.rating
+                } 星 · ${selectedShipperEvaluationQueueItem.request.tags.join(
+                  '、',
+                )}`}
+              </Text>
+              <Text style={styles.detailMeta}>
+                待重试：{selectedShipperEvaluationQueueItem.request.content}
+              </Text>
+              <Pressable
+                testID={`driver-retry-shipper-evaluation-${selectedOrder.orderNo}`}
+                style={styles.detailSecondaryButton}
+                disabled={
+                  !isShipperEvaluationQueueHydrated
+                    ? !didShipperEvaluationQueueHydrationFail
+                    : isSelectedShipperEvaluationInFlight
+                }
+                onPress={() =>
+                  retryShipperEvaluation(selectedShipperEvaluationQueueItem)
+                }
+              >
+                <Text style={styles.detailSecondaryButtonText}>
+                  {!isShipperEvaluationQueueHydrated
+                    ? didShipperEvaluationQueueHydrationFail
+                      ? '重新加载评价货主队列'
+                      : '评价货主队列加载中'
+                    : isSelectedShipperEvaluationInFlight
+                    ? '货主评价提交中'
+                    : '重试评价货主'}
+                </Text>
+              </Pressable>
+            </View>
           ) : null}
           {selectedEvaluationReplyQueueItem ? (
             <View

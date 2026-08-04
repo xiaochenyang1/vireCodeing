@@ -512,6 +512,16 @@ test('parses shipper evaluation tags and enforces content bounds', () => {
       photoFileIds: [],
     }),
   ).toBeUndefined();
+
+  expect(
+    createShipperEvaluationRequest({
+      ratingText: '5',
+      tagsText: '超'.repeat(41),
+      content: '货主配合很好',
+      anonymous: false,
+      photoFileIds: [],
+    }),
+  ).toBeUndefined();
 });
 
 test('builds a normalized driver exception request with proof ids', () => {

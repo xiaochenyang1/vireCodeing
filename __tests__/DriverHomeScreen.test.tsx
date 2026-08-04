@@ -10,6 +10,8 @@ import { PlatformApiError } from '../src/services/platformApiClient';
 
 const driverEvaluationReplyQueueStorageKey =
   '@vireCodeing/driver-evaluation-reply-queue:local-driver';
+const driverShipperEvaluationQueueStorageKey =
+  '@vireCodeing/driver-shipper-evaluation-queue:local-driver';
 const driverOrderMutationQueueStorageKey =
   '@vireCodeing/driver-order-mutation-queue:local-driver';
 const originalFetch = globalThis.fetch;
@@ -72,6 +74,73 @@ function createDriverEvaluationReplyTestOrder() {
       },
     ],
   };
+}
+
+function createDriverShipperEvaluationTestOrder() {
+  return {
+    id: 'order-shipper-evaluation-queue',
+    orderNo: 'HY202608040001',
+    status: 'completed' as const,
+    pickupAddress: '宝安区福永物流园',
+    deliveryAddress: '龙岗区坂田仓',
+    cargoType: 'build',
+    weightText: '2.5 吨',
+    quantityText: '12 箱',
+    pickupContact: '赵经理',
+    pickupPhone: '13900139001',
+    deliveryContact: '钱店长',
+    deliveryPhone: '13900139002',
+    vehicleRequirement: 'medium',
+    createdAtIso: '2026-08-04T08:00:00.000Z',
+    updatedAtIso: '2026-08-04T09:00:00.000Z',
+    pricingMode: 'fixed' as const,
+    priceCents: 76000,
+    paymentMethod: 'cod' as const,
+    shipperId: 'shipper-1',
+    events: [],
+  };
+}
+
+function createDriverShipperEvaluationUpdatedOrder() {
+  const order = createDriverShipperEvaluationTestOrder();
+
+  return {
+    ...order,
+    updatedAtIso: '2026-08-04T09:05:00.000Z',
+    events: [
+      {
+        id: 'event-shipper-evaluation-queue',
+        eventType: 'shipper_evaluation_submitted' as const,
+        noteText:
+          '5 星：沟通顺畅、装货配合；评价信息：实名；评价正文：货主装货配合好，结算沟通清楚。',
+        attachmentFileIds: [],
+        createdAtIso: '2026-08-04T09:05:00.000Z',
+      },
+    ],
+  };
+}
+
+function fillDriverShipperEvaluationForm(
+  renderer: ReactTestRenderer.ReactTestRenderer,
+  orderNo: string,
+) {
+  ReactTestRenderer.act(() => {
+    renderer.root
+      .findByProps({
+        testID: `driver-shipper-evaluation-rating-${orderNo}`,
+      })
+      .props.onChangeText('5');
+    renderer.root
+      .findByProps({
+        testID: `driver-shipper-evaluation-tags-${orderNo}`,
+      })
+      .props.onChangeText('沟通顺畅、装货配合');
+    renderer.root
+      .findByProps({
+        testID: `driver-shipper-evaluation-content-${orderNo}`,
+      })
+      .props.onChangeText('货主装货配合好，结算沟通清楚。');
+  });
 }
 
 function createDriverAcceptanceSettingsSnapshot() {
@@ -6398,7 +6467,14 @@ describe('DriverHomeScreen certification uploads', () => {
       total: 1,
     });
     platformDriverOrderApi.getOrder.mockResolvedValue(order);
-    platformDriverOrderApi.evaluateShipper.mockResolvedValue(updatedOrder);
+    let shipperEvaluationSnapshotAtRequest: Record<string, unknown> | undefined;
+    platformDriverOrderApi.evaluateShipper.mockImplementation(async () => {
+      shipperEvaluationSnapshotAtRequest = JSON.parse(
+        (await AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey)) ??
+          '{}',
+      );
+      return updatedOrder;
+    });
     const platformFileApi = {
       createUploadIntent: jest.fn().mockResolvedValue({
         id: 'file-shipper-evaluation-1',
@@ -6518,6 +6594,27 @@ describe('DriverHomeScreen certification uploads', () => {
       },
       expect.stringMatching(uuidV4Pattern),
     );
+    expect(shipperEvaluationSnapshotAtRequest).toMatchObject({
+      version: 1,
+      queue: {
+        'order-1': {
+          driverAccountId: 'local-driver',
+          idempotencyKey: expect.stringMatching(uuidV4Pattern),
+          orderId: 'order-1',
+          orderNo: 'HY202607090104',
+          request: {
+            rating: 5,
+            tags: ['沟通顺畅', '装货配合'],
+            content: '货主装货配合好，结算沟通清楚。',
+            photoCount: 1,
+            photoFileIds: ['file-shipper-evaluation-1'],
+          },
+        },
+      },
+    });
+    await expect(
+      AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey),
+    ).resolves.toBeNull();
     expect(getRenderedText(renderer)).toContain('货主评价已提交。');
     expect(
       renderer.root.findByProps({
@@ -6566,6 +6663,268 @@ describe('DriverHomeScreen certification uploads', () => {
     expect(
       reportedShipperEvaluationCard?.props.previewGroup[0].expiresAtIso,
     ).toBe('2026-07-09T08:30:00.000Z');
+  });
+
+  it('does not submit a shipper evaluation when its durable queue write fails', async () => {
+    const order = createDriverShipperEvaluationTestOrder();
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    fillDriverShipperEvaluationForm(renderer, order.orderNo);
+    const setItemMock = AsyncStorage.setItem as jest.Mock;
+    const originalSetItemImplementation =
+      setItemMock.getMockImplementation() as typeof AsyncStorage.setItem;
+    setItemMock.mockRejectedValueOnce(new Error('AsyncStorage write failed'));
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-shipper-evaluation-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+    setItemMock.mockImplementation(originalSetItemImplementation);
+
+    expect(platformDriverOrderApi.evaluateShipper).not.toHaveBeenCalled();
+    expect(getRenderedText(renderer)).toContain(
+      '评价货主队列保存失败，尚未提交平台',
+    );
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-shipper-evaluation-queue-${order.orderNo}`,
+      }).length,
+    ).toBeGreaterThan(0);
+    await expect(
+      AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey),
+    ).resolves.toBeNull();
+  });
+
+  it('restores a failed shipper evaluation and reuses its key after restart', async () => {
+    const order = createDriverShipperEvaluationTestOrder();
+    const updatedOrder = createDriverShipperEvaluationUpdatedOrder();
+    const failingDriverOrderApi = createMockDriverOrderApi();
+    failingDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    failingDriverOrderApi.getOrder.mockResolvedValue(order);
+    failingDriverOrderApi.evaluateShipper.mockRejectedValue(
+      new Error('Network request failed'),
+    );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={failingDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    await openDriverOrderDetail(renderer, order.orderNo);
+    fillDriverShipperEvaluationForm(renderer, order.orderNo);
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-submit-shipper-evaluation-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const storedSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey)) ??
+        '{}',
+    );
+    const persistedIdempotencyKey =
+      storedSnapshot.queue[order.id].idempotencyKey;
+    expect(persistedIdempotencyKey).toEqual(
+      expect.stringMatching(uuidV4Pattern),
+    );
+    expect(getRenderedText(renderer)).toContain(
+      '货主评价提交失败，已加入本地重试队列。',
+    );
+
+    ReactTestRenderer.act(() => {
+      renderer.unmount();
+    });
+
+    const retryDriverOrderApi = createMockDriverOrderApi();
+    retryDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    retryDriverOrderApi.getOrder
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(updatedOrder);
+    retryDriverOrderApi.evaluateShipper.mockResolvedValue(updatedOrder);
+
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={retryDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    expect(getRenderedText(renderer)).toContain('评价货主同步队列');
+    expect(getRenderedText(renderer)).toContain(
+      '货主装货配合好，结算沟通清楚。',
+    );
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-shipper-evaluation-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(retryDriverOrderApi.evaluateShipper).toHaveBeenCalledWith(
+      order.id,
+      storedSnapshot.queue[order.id].request,
+      persistedIdempotencyKey,
+    );
+    await expect(
+      AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey),
+    ).resolves.toBeNull();
+    expect(getRenderedText(renderer)).toContain('货主评价已重新提交。');
+  });
+
+  it('rotates reused shipper evaluation keys and clears expired replays', async () => {
+    const order = createDriverShipperEvaluationTestOrder();
+    const originalIdempotencyKey = '550e8400-e29b-41d4-a716-446655440121';
+    const queuedItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: originalIdempotencyKey,
+      orderId: order.id,
+      orderNo: order.orderNo,
+      request: {
+        rating: 5,
+        tags: ['沟通顺畅', '装货配合'],
+        content: '货主装货配合好，结算沟通清楚。',
+        photoCount: 0,
+      },
+    };
+    await AsyncStorage.setItem(
+      driverShipperEvaluationQueueStorageKey,
+      JSON.stringify({
+        version: 1,
+        queue: { [order.id]: queuedItem },
+      }),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.evaluateShipper
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          'Idempotency-Key 已绑定其他请求',
+          'IDEMPOTENCY_KEY_REUSED',
+          409,
+        ),
+      )
+      .mockRejectedValueOnce(
+        new PlatformApiError(
+          'Idempotency-Key 已过期',
+          'IDEMPOTENCY_KEY_EXPIRED',
+          409,
+        ),
+      );
+
+    let renderer!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      renderer = ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+    await openDriverOrderDetail(renderer, order.orderNo);
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-shipper-evaluation-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    const rotatedSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey)) ??
+        '{}',
+    );
+    const rotatedIdempotencyKey =
+      rotatedSnapshot.queue[order.id].idempotencyKey;
+    expect(rotatedIdempotencyKey).toEqual(expect.stringMatching(uuidV4Pattern));
+    expect(rotatedIdempotencyKey).not.toBe(originalIdempotencyKey);
+    expect(getRenderedText(renderer)).toContain(
+      '评价货主重试标识冲突，已生成新标识，请再次重试。',
+    );
+
+    await ReactTestRenderer.act(async () => {
+      renderer.root
+        .findByProps({
+          testID: `driver-retry-shipper-evaluation-${order.orderNo}`,
+        })
+        .props.onPress();
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.evaluateShipper.mock.calls[1][2]).toBe(
+      rotatedIdempotencyKey,
+    );
+    await expect(
+      AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey),
+    ).resolves.toBeNull();
+    expect(
+      renderer.root.findAllByProps({
+        testID: `driver-shipper-evaluation-queue-${order.orderNo}`,
+      }),
+    ).toHaveLength(0);
+    expect(getRenderedText(renderer)).toContain(
+      '幂等回放窗口已过期；本地队列已清理',
+    );
   });
 
   it('blocks blank driver evaluation replies before calling the api', async () => {
@@ -6950,8 +7309,7 @@ describe('DriverHomeScreen certification uploads', () => {
       (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ??
         '{}',
     );
-    const queuedIdempotencyKey =
-      storedSnapshot.queue[order.id].idempotencyKey;
+    const queuedIdempotencyKey = storedSnapshot.queue[order.id].idempotencyKey;
     expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
     expect(
       renderer.root.findByProps({
@@ -7489,9 +7847,7 @@ describe('DriverHomeScreen certification uploads', () => {
       queueItem.idempotencyKey,
     );
     expect(platformDriverOrderApi.getOrder).toHaveBeenCalledTimes(2);
-    expect(getRenderedText(renderer)).toContain(
-      '刷新失败时仍需保留的新评价。',
-    );
+    expect(getRenderedText(renderer)).toContain('刷新失败时仍需保留的新评价。');
     expect(getRenderedText(renderer)).toContain(
       '评价回复已确认，但最新订单刷新失败，请稍后刷新。',
     );

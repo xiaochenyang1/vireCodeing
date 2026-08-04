@@ -610,7 +610,7 @@ export function createShipperEvaluationRequest(
     rating > 5 ||
     tags.length === 0 ||
     tags.length > 6 ||
-    tags.some(tag => tag.includes('；')) ||
+    tags.some(tag => tag.length > 40 || tag.includes('；')) ||
     content.length < 6 ||
     content.length > 200 ||
     photoFileIds.length > 6
