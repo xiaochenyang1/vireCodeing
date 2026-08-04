@@ -810,6 +810,7 @@ export function DriverHomeScreen({
   platformFileApi,
   platformMapsApi,
   driverAccountId = 'local-driver',
+  autoRetryEvaluationQueues = false,
   onLogout,
 }: {
   platformDriverOrderApi?: PlatformDriverOrderApi;
@@ -817,6 +818,7 @@ export function DriverHomeScreen({
   platformFileApi?: DriverPlatformFileApi;
   platformMapsApi?: PlatformMapsApi;
   driverAccountId?: string;
+  autoRetryEvaluationQueues?: boolean;
   onLogout: () => void;
 }) {
   const resolvedDriverAccountId = driverAccountId.trim() || 'local-driver';
@@ -985,6 +987,12 @@ export function DriverHomeScreen({
   const shipperEvaluationInFlightKeysRef = useRef(new Set<string>());
   const [shipperEvaluationInFlightKeys, setShipperEvaluationInFlightKeys] =
     useState<Record<string, boolean>>({});
+  const autoRetriedEvaluationReplyHydrationKeyRef = useRef<string | undefined>(
+    undefined,
+  );
+  const autoRetriedShipperEvaluationHydrationKeyRef = useRef<
+    string | undefined
+  >(undefined);
   const [orderMutationQueue, setOrderMutationQueue] =
     useState<DriverOrderMutationQueue>({});
   const [notice, setNotice] = useState('');
@@ -3535,6 +3543,66 @@ export function DriverHomeScreen({
       )
       .finally(() => finishShipperEvaluationRequest(inFlightKey));
   };
+
+  useEffect(() => {
+    if (
+      !autoRetryEvaluationQueues ||
+      !platformDriverOrderApi ||
+      evaluationReplyQueueHydratedAccountId !== resolvedDriverAccountId ||
+      autoRetriedEvaluationReplyHydrationKeyRef.current ===
+        resolvedDriverAccountId
+    ) {
+      return;
+    }
+
+    autoRetriedEvaluationReplyHydrationKeyRef.current =
+      resolvedDriverAccountId;
+    const queueItems = Object.values(evaluationReplyQueueRef.current);
+
+    if (!queueItems.length) {
+      return;
+    }
+
+    setNotice('正在自动同步已保存的评价队列。');
+    queueItems.forEach(queueItem => retryEvaluationReply(queueItem));
+    // Retry callbacks intentionally use the hydrated account refs; the account
+    // gate above makes this a single attempt for each mounted account.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    autoRetryEvaluationQueues,
+    evaluationReplyQueueHydratedAccountId,
+    platformDriverOrderApi,
+    resolvedDriverAccountId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !autoRetryEvaluationQueues ||
+      !platformDriverOrderApi ||
+      shipperEvaluationQueueHydratedAccountId !== resolvedDriverAccountId ||
+      autoRetriedShipperEvaluationHydrationKeyRef.current ===
+        resolvedDriverAccountId
+    ) {
+      return;
+    }
+
+    autoRetriedShipperEvaluationHydrationKeyRef.current =
+      resolvedDriverAccountId;
+    const queueItems = Object.values(shipperEvaluationQueueRef.current);
+
+    if (!queueItems.length) {
+      return;
+    }
+
+    setNotice('正在自动同步已保存的评价队列。');
+    queueItems.forEach(queueItem => retryShipperEvaluation(queueItem));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    autoRetryEvaluationQueues,
+    platformDriverOrderApi,
+    resolvedDriverAccountId,
+    shipperEvaluationQueueHydratedAccountId,
+  ]);
 
   const uploadShipperEvaluationProof = async (order: PlatformShipperOrder) => {
     if (!platformFileApi) {

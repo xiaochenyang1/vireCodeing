@@ -8998,4 +8998,157 @@ describe('DriverHomeScreen certification uploads', () => {
     ).toBeNull();
     expect(getRenderedText(renderer)).toContain('评价回复已重新提交。');
   });
+
+  it('automatically retries hydrated evaluation queues when enabled by the app', async () => {
+    const replyOrder = createDriverEvaluationReplyTestOrder();
+    const shipperOrder = createDriverShipperEvaluationTestOrder();
+    const replyQueueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440130',
+      orderId: replyOrder.id,
+      orderNo: replyOrder.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: '水合后自动补交回复。',
+    };
+    const shipperQueueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440131',
+      orderId: shipperOrder.id,
+      orderNo: shipperOrder.orderNo,
+      request: {
+        rating: 5,
+        tags: ['沟通顺畅', '装货配合'],
+        content: '水合后自动补交货主评价。',
+        photoCount: 0,
+      },
+    };
+    await AsyncStorage.setItem(
+      driverEvaluationReplyQueueStorageKey,
+      JSON.stringify({ version: 3, queue: { [replyOrder.id]: replyQueueItem } }),
+    );
+    await AsyncStorage.setItem(
+      driverShipperEvaluationQueueStorageKey,
+      JSON.stringify({ version: 1, queue: { [shipperOrder.id]: shipperQueueItem } }),
+    );
+
+    const updatedReplyOrder = {
+      ...replyOrder,
+      events: [
+        ...replyOrder.events,
+        {
+          id: 'event-evaluation-reply-auto',
+          eventType: 'evaluation_replied' as const,
+          noteText: replyQueueItem.content,
+          createdAtIso: '2026-07-09T10:05:00.000Z',
+        },
+      ],
+    };
+    const updatedShipperOrder = createDriverShipperEvaluationUpdatedOrder();
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [replyOrder, shipperOrder],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    platformDriverOrderApi.getOrder.mockImplementation(async orderId =>
+      orderId === replyOrder.id ? updatedReplyOrder : updatedShipperOrder,
+    );
+    platformDriverOrderApi.replyToEvaluation.mockResolvedValue(
+      updatedReplyOrder,
+    );
+    platformDriverOrderApi.evaluateShipper.mockResolvedValue(
+      updatedShipperOrder,
+    );
+
+    await ReactTestRenderer.act(async () => {
+      ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          autoRetryEvaluationQueues
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledWith(
+      replyOrder.id,
+      {
+        evaluationEventId: replyQueueItem.evaluationEventId,
+        content: replyQueueItem.content,
+      },
+      replyQueueItem.idempotencyKey,
+    );
+    expect(platformDriverOrderApi.evaluateShipper).toHaveBeenCalledWith(
+      shipperOrder.id,
+      shipperQueueItem.request,
+      shipperQueueItem.idempotencyKey,
+    );
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    expect(platformDriverOrderApi.evaluateShipper).toHaveBeenCalledTimes(1);
+    await expect(
+      AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey),
+    ).resolves.toBeNull();
+    await expect(
+      AsyncStorage.getItem(driverShipperEvaluationQueueStorageKey),
+    ).resolves.toBeNull();
+  });
+
+  it('does not loop an automatic retry after an idempotency key is renewed', async () => {
+    const order = createDriverEvaluationReplyTestOrder();
+    const queueItem = {
+      driverAccountId: 'local-driver',
+      idempotencyKey: '550e8400-e29b-41d4-a716-446655440132',
+      orderId: order.id,
+      orderNo: order.orderNo,
+      evaluationEventId: 'event-evaluation-race',
+      evaluationSubmittedAtIso: '2026-07-09T10:00:00.000Z',
+      content: '换新标识后等待人工确认。',
+    };
+    await AsyncStorage.setItem(
+      driverEvaluationReplyQueueStorageKey,
+      JSON.stringify({ version: 3, queue: { [order.id]: queueItem } }),
+    );
+    const platformDriverOrderApi = createMockDriverOrderApi();
+    platformDriverOrderApi.listMyOrders.mockResolvedValue({
+      items: [order],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    platformDriverOrderApi.getOrder.mockResolvedValue(order);
+    platformDriverOrderApi.replyToEvaluation.mockRejectedValue(
+      new PlatformApiError(
+        'Idempotency-Key 已被其他请求复用',
+        'IDEMPOTENCY_KEY_REUSED',
+        409,
+      ),
+    );
+
+    await ReactTestRenderer.act(async () => {
+      ReactTestRenderer.create(
+        <DriverHomeScreen
+          platformDriverOrderApi={platformDriverOrderApi}
+          platformDriverCertificationApi={createMockDriverCertificationApi()}
+          autoRetryEvaluationQueues
+          onLogout={jest.fn()}
+        />,
+      );
+      await flushMicrotasks();
+    });
+
+    expect(platformDriverOrderApi.replyToEvaluation).toHaveBeenCalledTimes(1);
+    const renewedSnapshot = JSON.parse(
+      (await AsyncStorage.getItem(driverEvaluationReplyQueueStorageKey)) ?? '{}',
+    );
+    expect(renewedSnapshot.queue[order.id].idempotencyKey).toEqual(
+      expect.stringMatching(uuidV4Pattern),
+    );
+    expect(renewedSnapshot.queue[order.id].idempotencyKey).not.toBe(
+      queueItem.idempotencyKey,
+    );
+  });
 });

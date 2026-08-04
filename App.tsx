@@ -3780,6 +3780,7 @@ function App({
             platformFileApi={platformFileApi}
             platformMapsApi={platformMapsApi}
             driverAccountId={authenticatedUser?.id}
+            autoRetryEvaluationQueues
             onLogout={handleLogout}
           />
         ) : screen === 'network-error' ? (
