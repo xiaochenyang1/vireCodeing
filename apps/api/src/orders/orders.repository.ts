@@ -162,6 +162,10 @@ export type OrderMutationCommand =
   | {
       type: 'driver_shipper_evaluation';
       input: DriverEvaluateShipperRequest;
+    }
+  | {
+      type: 'shipper_driver_evaluation';
+      input: SubmitShipperOrderEvaluationRequest;
     };
 
 export type ExecuteOrderMutationInput = {
@@ -375,11 +379,6 @@ export interface OrdersRepository {
     orderId: string,
     actorUserId: string,
     input: ReviewShipperOrderChangeRequest,
-  ): Promise<ShipperOrderRecord>;
-  submitOrderEvaluation(
-    orderId: string,
-    actorUserId: string,
-    input: SubmitShipperOrderEvaluationRequest,
   ): Promise<ShipperOrderRecord>;
   listDriverOrderHall(
     query: DriverOrderHallQuery,
@@ -1031,7 +1030,10 @@ export class InMemoryOrdersRepository implements OrdersRepository {
       );
     }
 
-    if (input.mutation.type === 'driver_shipper_evaluation') {
+    if (
+      input.mutation.type === 'driver_shipper_evaluation' ||
+      input.mutation.type === 'shipper_driver_evaluation'
+    ) {
       const currentOrder = this.orders.find(
         order => order.id === input.orderId,
       );
@@ -1053,10 +1055,11 @@ export class InMemoryOrdersRepository implements OrdersRepository {
         fileIds.length > 0 && this.filesRepository
           ? await this.filesRepository.findFilesByIds(fileIds)
           : [];
-      assertDriverShipperEvaluationFiles(
+      assertOrderEvaluationFiles(
         fileIds,
         input.actorUserId,
         files,
+        input.mutation.type,
       );
 
       const racedRecord = this.orderIdempotencyRecords.find(
@@ -1687,6 +1690,7 @@ export class InMemoryOrdersRepository implements OrdersRepository {
     _actorUserId: string,
     input: SubmitShipperOrderEvaluationRequest,
   ) {
+    // Test fixture helper. Production evaluation writes use the idempotent mutation path.
     const order = this.orders.find(currentOrder => currentOrder.id === orderId);
 
     if (!order) {
@@ -2073,15 +2077,18 @@ function mapExistingInMemoryOrderIdempotencyRecord(
   );
 }
 
-function assertDriverShipperEvaluationFiles(
+function assertOrderEvaluationFiles(
   fileIds: string[],
-  driverId: string,
+  actorUserId: string,
   files: Array<{
     id: string;
     ownerUserId: string;
     purpose: string;
     status: string;
   }>,
+  evaluationType:
+    | 'driver_shipper_evaluation'
+    | 'shipper_driver_evaluation',
 ) {
   if (fileIds.length === 0) {
     return;
@@ -2092,34 +2099,43 @@ function assertDriverShipperEvaluationFiles(
   for (const fileId of fileIds) {
     const file = filesById.get(fileId);
 
-    if (!file || file.ownerUserId !== driverId) {
+    if (!file || file.ownerUserId !== actorUserId) {
       throw new BusinessError(
         ApiErrorCode.FILE_NOT_FOUND,
-        '货主评价图片不存在',
+        evaluationType === 'driver_shipper_evaluation'
+          ? '货主评价图片不存在'
+          : '订单评价图片不存在',
       );
     }
 
     if (file.status !== 'uploaded') {
       throw new BusinessError(
         ApiErrorCode.FILE_STATE_INVALID,
-        '货主评价图片尚未上传完成',
+        evaluationType === 'driver_shipper_evaluation'
+          ? '货主评价图片尚未上传完成'
+          : '订单评价图片尚未上传完成',
       );
     }
 
     if (file.purpose !== 'evaluation') {
       throw new BusinessError(
         ApiErrorCode.FILE_PURPOSE_INVALID,
-        '货主评价图片用途不匹配',
+        evaluationType === 'driver_shipper_evaluation'
+          ? '货主评价图片用途不匹配'
+          : '订单评价图片用途不匹配',
       );
     }
   }
 }
 
-async function assertPrismaDriverShipperEvaluationFiles(
+async function assertPrismaOrderEvaluationFiles(
   transaction: PrismaOrdersTransactionClient,
   input: ExecuteOrderMutationInput,
 ) {
-  if (input.mutation.type !== 'driver_shipper_evaluation') {
+  if (
+    input.mutation.type !== 'driver_shipper_evaluation' &&
+    input.mutation.type !== 'shipper_driver_evaluation'
+  ) {
     return;
   }
 
@@ -2139,7 +2155,12 @@ async function assertPrismaDriverShipperEvaluationFiles(
     },
   });
 
-  assertDriverShipperEvaluationFiles(fileIds, input.actorUserId, files);
+  assertOrderEvaluationFiles(
+    fileIds,
+    input.actorUserId,
+    files,
+    input.mutation.type,
+  );
 }
 
 function isOrderMutationAllowed(
@@ -2185,6 +2206,10 @@ function isOrderMutationAllowed(
         order.status === 'completed' &&
         order.assignedDriverId === input.actorUserId &&
         isOrderAcceptedByDriver(order, input.actorUserId)
+      );
+    case 'shipper_driver_evaluation':
+      return (
+        order.status === 'completed' && order.shipperId === input.actorUserId
       );
     default:
       return false;
@@ -2306,6 +2331,7 @@ function applyInMemoryOrderCouponMutation(
     case 'driver_status':
     case 'driver_evaluation_reply':
     case 'driver_shipper_evaluation':
+    case 'shipper_driver_evaluation':
       return undefined;
   }
 }
@@ -2790,6 +2816,16 @@ function applyInMemoryOrderMutation(
         createdAtIso: updatedAtIso,
       });
       return;
+    case 'shipper_driver_evaluation':
+      order.events.push({
+        id: `event-${orderCount}-${order.events.length + 1}`,
+        actorUserId: input.actorUserId,
+        eventType: 'evaluation_submitted',
+        noteText: createOrderEvaluationNote(input.mutation.input),
+        attachmentFileIds: input.mutation.input.photoFileIds ?? [],
+        createdAtIso: updatedAtIso,
+      });
+      return;
   }
 }
 
@@ -3205,6 +3241,7 @@ async function applyPrismaOrderCouponMutation(
     case 'driver_status':
     case 'driver_evaluation_reply':
     case 'driver_shipper_evaluation':
+    case 'shipper_driver_evaluation':
       return undefined;
   }
 }
@@ -3786,6 +3823,7 @@ function createPrismaOrderMutationOrderData(
       };
     case 'driver_evaluation_reply':
     case 'driver_shipper_evaluation':
+    case 'shipper_driver_evaluation':
       return { updatedAt };
   }
 }
@@ -4016,6 +4054,18 @@ async function applyPrismaOrderMutation(
           orderId: input.orderId,
           actorUserId: input.actorUserId,
           eventType: 'shipper_evaluation_submitted',
+          noteText: createOrderEvaluationNote(input.mutation.input),
+          attachmentFileIds: input.mutation.input.photoFileIds ?? [],
+          createdAt: updatedAt,
+        },
+      });
+      return;
+    case 'shipper_driver_evaluation':
+      await transaction.orderEvent.create({
+        data: {
+          orderId: input.orderId,
+          actorUserId: input.actorUserId,
+          eventType: 'evaluation_submitted',
           noteText: createOrderEvaluationNote(input.mutation.input),
           attachmentFileIds: input.mutation.input.photoFileIds ?? [],
           createdAt: updatedAt,
@@ -5511,7 +5561,7 @@ export class PrismaOrdersRepository implements OrdersRepository {
           });
         }
 
-        await assertPrismaDriverShipperEvaluationFiles(transaction, input);
+        await assertPrismaOrderEvaluationFiles(transaction, input);
 
         const updatedAt = new Date(
           createNextUpdatedAtIso(currentOrder.updatedAtIso, now),
@@ -5538,6 +5588,9 @@ export class PrismaOrdersRepository implements OrdersRepository {
             ...(input.mutation.type === 'driver_evaluation_reply' ||
             input.mutation.type === 'driver_shipper_evaluation'
               ? { assignedDriverId: input.actorUserId }
+              : {}),
+            ...(input.mutation.type === 'shipper_driver_evaluation'
+              ? { shipperId: input.actorUserId }
               : {}),
           },
           data: createPrismaOrderMutationOrderData(
@@ -6389,31 +6442,6 @@ export class PrismaOrdersRepository implements OrdersRepository {
 
       return mapPrismaOrder(order);
     });
-  }
-
-  async submitOrderEvaluation(
-    orderId: string,
-    actorUserId: string,
-    input: SubmitShipperOrderEvaluationRequest,
-  ) {
-    const order = await this.prisma.order.update({
-      where: {
-        id: orderId,
-      },
-      data: {
-        events: {
-          create: {
-            actorUserId,
-            eventType: 'evaluation_submitted',
-            noteText: createOrderEvaluationNote(input),
-            attachmentFileIds: input.photoFileIds ?? [],
-          },
-        },
-      },
-      include: orderInclude,
-    });
-
-    return mapPrismaOrder(order);
   }
 
   async listDriverOrderHall(query: DriverOrderHallQuery) {

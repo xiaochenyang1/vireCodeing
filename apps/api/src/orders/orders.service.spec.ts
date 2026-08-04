@@ -5,6 +5,7 @@ import {
   InMemoryProfileCouponsStore,
 } from '../profile-coupons/profile-coupons.repository';
 import { ProfileCouponsService } from '../profile-coupons/profile-coupons.service';
+import { InMemoryFinancialStore } from '../payments/in-memory-financial.store';
 import {
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
@@ -94,14 +95,26 @@ describe('OrdersService', () => {
       service.advanceOrderStatus('shipper-1', 'order-1', 'key', {
         nextStatus: 'transporting',
       });
+      // @ts-expect-error Evaluations require an idempotency key.
+      service.submitOrderEvaluation('shipper-1', 'order-1', {
+        rating: 5,
+        tags: ['准时送达'],
+        content: '司机服务细致，整体运输体验很好',
+      });
     }
 
     expect(service).toBeNull();
   });
 
   function createService() {
-    const repository = new InMemoryOrdersRepository(() => now);
     const filesRepository = new InMemoryFilesRepository(() => now);
+    const repository = new InMemoryOrdersRepository(
+      () => now,
+      new InMemoryProfileCouponsStore(),
+      new InMemoryFinancialStore(),
+      500,
+      filesRepository,
+    );
     return {
       filesRepository,
       repository,
@@ -1822,22 +1835,29 @@ describe('OrdersService', () => {
   });
 
   it('submits an evaluation for a completed shipper order and records an event', async () => {
-    const { repository, service } = createService();
+    const { filesRepository, repository, service } = createService();
     const order = await createOrderForTest(service,
       'shipper-1',
       createInput('宝安区福永物流园'),
     );
+    const proof = await createUploadedFile(filesRepository, 'shipper-1', {
+      purpose: 'evaluation',
+      fileName: 'driver-evaluation.png',
+      contentType: 'image/png',
+    });
     setInMemoryOrderStatus(repository, 0, 'completed');
 
     const evaluatedOrder = await service.submitOrderEvaluation(
       'shipper-1',
       order.id,
+      '550e8400-e29b-41d4-a716-446655440131',
       {
         rating: 5,
         tags: ['准时送达', '服务好'],
         content: '司机服务细致，整体运输体验很好',
         anonymous: true,
-        photoCount: 1,
+        photoCount: 99,
+        photoFileIds: [proof.id],
       },
     );
 
@@ -1850,9 +1870,291 @@ describe('OrdersService', () => {
           eventType: 'evaluation_submitted',
           noteText:
             '5 星：准时送达、服务好；评价信息：匿名；图片凭证 1 张；评价正文：司机服务细致，整体运输体验很好',
+          attachmentFileIds: [proof.id],
         }),
       ],
     });
+  });
+
+  it('replays the first driver evaluation snapshot without reloading order or files', async () => {
+    const { filesRepository, repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    const proof = await createUploadedFile(filesRepository, 'shipper-1', {
+      purpose: 'evaluation',
+      fileName: 'driver-evaluation-replay.png',
+      contentType: 'image/png',
+    });
+    setInMemoryOrderStatus(repository, 0, 'completed');
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440133';
+    const first = await service.submitOrderEvaluation(
+      'shipper-1',
+      order.id,
+      idempotencyKey,
+      {
+        rating: 5,
+        tags: ['准时送达', '服务好'],
+        content: '司机服务细致，整体运输体验很好',
+        photoCount: 99,
+        photoFileIds: [proof.id],
+      },
+    );
+    const currentOrderLookup = jest
+      .spyOn(repository, 'findOrderById')
+      .mockRejectedValue(new Error('replay must not inspect the current order'));
+    const serviceFileLookup = jest
+      .spyOn(filesRepository, 'findFileByIdAndOwner')
+      .mockRejectedValue(new Error('replay must not inspect proof files'));
+    const atomicFileLookup = jest
+      .spyOn(filesRepository, 'findFilesByIds')
+      .mockRejectedValue(new Error('replay must not inspect proof files'));
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        `  ${order.id}  `,
+        idempotencyKey,
+        {
+          rating: 5,
+          tags: [' 准时送达 ', '服务好', '准时送达'],
+          content: '  司机服务细致，整体运输体验很好  ',
+          anonymous: false,
+          photoFileIds: [` ${proof.id} `, proof.id],
+        },
+      ),
+    ).resolves.toEqual(first);
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+    expect(serviceFileLookup).not.toHaveBeenCalled();
+    expect(atomicFileLookup).not.toHaveBeenCalled();
+    currentOrderLookup.mockRestore();
+    serviceFileLookup.mockRestore();
+    atomicFileLookup.mockRestore();
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'evaluation_submitted',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rejects a driver evaluation key reused for changed content or another order', async () => {
+    const { repository, service } = createService();
+    const firstOrder = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    const secondOrder = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('龙华区民治仓'),
+    );
+    setInMemoryOrderStatus(repository, 0, 'completed');
+    setInMemoryOrderStatus(repository, 1, 'completed');
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440134';
+    const request = {
+      rating: 5,
+      tags: ['准时送达', '服务好'],
+      content: '司机服务细致，整体运输体验很好',
+    };
+    await service.submitOrderEvaluation(
+      'shipper-1',
+      firstOrder.id,
+      idempotencyKey,
+      request,
+    );
+    const currentOrderLookup = jest.spyOn(repository, 'findOrderById');
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        firstOrder.id,
+        idempotencyKey,
+        { ...request, content: '同一个 Key 的另一条司机评价' },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        secondOrder.id,
+        idempotencyKey,
+        request,
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_REUSED });
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects an expired driver evaluation replay before loading order or files', async () => {
+    let currentNow = new Date('2026-07-01T08:00:00.000Z');
+    const filesRepository = new InMemoryFilesRepository(() => currentNow);
+    const repository = new InMemoryOrdersRepository(
+      () => currentNow,
+      new InMemoryProfileCouponsStore(),
+      new InMemoryFinancialStore(),
+      500,
+      filesRepository,
+    );
+    const service = new OrdersService(
+      repository,
+      filesRepository,
+      undefined,
+      () => currentNow,
+      1,
+    );
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    setInMemoryOrderStatus(repository, 0, 'completed');
+    const idempotencyKey = '550e8400-e29b-41d4-a716-446655440135';
+    const request = {
+      rating: 5,
+      tags: ['准时送达'],
+      content: '司机服务细致，整体运输体验很好',
+    };
+    await service.submitOrderEvaluation(
+      'shipper-1',
+      order.id,
+      idempotencyKey,
+      request,
+    );
+    currentNow = new Date('2026-07-01T08:00:01.001Z');
+    const currentOrderLookup = jest.spyOn(repository, 'findOrderById');
+    const serviceFileLookup = jest.spyOn(
+      filesRepository,
+      'findFileByIdAndOwner',
+    );
+    const atomicFileLookup = jest.spyOn(filesRepository, 'findFilesByIds');
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        idempotencyKey,
+        request,
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.IDEMPOTENCY_KEY_EXPIRED });
+    expect(currentOrderLookup).not.toHaveBeenCalled();
+    expect(serviceFileLookup).not.toHaveBeenCalled();
+    expect(atomicFileLookup).not.toHaveBeenCalled();
+  });
+
+  it('maps a concurrent driver evaluation order update to ORDER_CONFLICT', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    setInMemoryOrderStatus(repository, 0, 'completed');
+    const executeMutation = repository.executeIdempotentOrderMutation.bind(
+      repository,
+    );
+    jest
+      .spyOn(repository, 'executeIdempotentOrderMutation')
+      .mockImplementation(async input => {
+        const stored = (
+          repository as unknown as {
+            orders: Array<{ updatedAtIso: string }>;
+          }
+        ).orders[0];
+        stored.updatedAtIso = '2026-07-01T08:00:00.001Z';
+        return executeMutation(input);
+      });
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440136',
+        {
+          rating: 5,
+          tags: ['准时送达'],
+          content: '司机服务细致，整体运输体验很好',
+        },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.ORDER_CONFLICT });
+  });
+
+  it('rejects driver evaluation for an order owned by another shipper', async () => {
+    const { repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-2',
+      createInput('宝安区福永物流园'),
+    );
+    setInMemoryOrderStatus(repository, 0, 'completed');
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440137',
+        {
+          rating: 5,
+          tags: ['准时送达'],
+          content: '司机服务细致，整体运输体验很好',
+        },
+      ),
+    ).rejects.toEqual(
+      new BusinessError(ApiErrorCode.ORDER_NOT_FOUND, '订单不存在'),
+    );
+  });
+
+  it('rejects pending and wrong-purpose driver evaluation files', async () => {
+    const { filesRepository, repository, service } = createService();
+    const order = await createOrderForTest(
+      service,
+      'shipper-1',
+      createInput('宝安区福永物流园'),
+    );
+    setInMemoryOrderStatus(repository, 0, 'completed');
+    const pendingFile = await filesRepository.createPendingFile('shipper-1', {
+      purpose: 'evaluation',
+      fileName: 'pending-evaluation.png',
+      contentType: 'image/png',
+      byteSize: 1024,
+      objectKey: 'shipper-1/evaluation/pending-evaluation.png',
+    });
+    const wrongPurposeFile = await createUploadedFile(
+      filesRepository,
+      'shipper-1',
+      {
+        purpose: 'exception',
+        fileName: 'wrong-purpose.png',
+        contentType: 'image/png',
+      },
+    );
+
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440138',
+        {
+          rating: 5,
+          tags: ['准时送达'],
+          content: '司机服务细致，整体运输体验很好',
+          photoFileIds: [pendingFile.id],
+        },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.FILE_STATE_INVALID });
+    await expect(
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440139',
+        {
+          rating: 5,
+          tags: ['准时送达'],
+          content: '司机服务细致，整体运输体验很好',
+          photoFileIds: [wrongPurposeFile.id],
+        },
+      ),
+    ).rejects.toMatchObject({ code: ApiErrorCode.FILE_PURPOSE_INVALID });
   });
 
   it('rejects evaluation for a non-completed order', async () => {
@@ -1863,11 +2165,16 @@ describe('OrdersService', () => {
     );
 
     await expect(
-      service.submitOrderEvaluation('shipper-1', order.id, {
-        rating: 5,
-        tags: ['准时送达'],
-        content: '司机服务细致，整体运输体验很好',
-      }),
+      service.submitOrderEvaluation(
+        'shipper-1',
+        order.id,
+        '550e8400-e29b-41d4-a716-446655440132',
+        {
+          rating: 5,
+          tags: ['准时送达'],
+          content: '司机服务细致，整体运输体验很好',
+        },
+      ),
     ).rejects.toEqual(
       new BusinessError(
         ApiErrorCode.ORDER_STATE_INVALID,

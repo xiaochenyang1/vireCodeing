@@ -1218,6 +1218,69 @@ describe('stage 1 OpenAPI contract', () => {
     );
   });
 
+  it('documents idempotent shipper driver evaluations without a client baseline', () => {
+    const source = readFileSync(openApiPath, 'utf8');
+    const path = '/shipper/orders/{orderId}/evaluation';
+
+    expectPathBlockToContain(
+      source,
+      path,
+      "$ref: '#/components/parameters/IdempotencyKeyHeader'",
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'the request body does not contain baseUpdatedAtIso.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'replays the first successful order snapshot before current order existence, ownership, state or attachment status is checked, without appending another evaluation_submitted event.',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'Reusing the key for a different normalized request or another order is rejected',
+    );
+    expectPathBlockToContain(
+      source,
+      path,
+      'The order compare-and-set, attachment validation and event binding, evaluation_submitted event, idempotency record and successful response snapshot commit in one atomic transaction.',
+    );
+    expectPathBlockToContain(source, path, "'400':");
+    expectPathBlockToContain(source, path, "'404':");
+    expectPathBlockToContain(source, path, "'409':");
+    for (const errorCode of [
+      'IDEMPOTENCY_KEY_INVALID',
+      'IDEMPOTENCY_KEY_REUSED',
+      'IDEMPOTENCY_KEY_EXPIRED',
+      'ORDER_NOT_FOUND',
+      'ORDER_CONFLICT',
+      'ORDER_STATE_INVALID',
+      'FILE_NOT_FOUND',
+      'FILE_STATE_INVALID',
+      'FILE_PURPOSE_INVALID',
+    ]) {
+      expectPathBlockToContain(source, path, errorCode);
+    }
+
+    expectSchemaBlockNotToContain(
+      source,
+      'SubmitShipperOrderEvaluationRequest',
+      'baseUpdatedAtIso',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'SubmitShipperOrderEvaluationRequest',
+      'bind atomically to the evaluation event',
+    );
+    expectSchemaBlockToContain(
+      source,
+      'SubmitShipperOrderEvaluationRequest',
+      'every file must belong to the current shipper and use evaluation purpose.',
+    );
+  });
+
   it('documents idempotent shipper order creation without a mutation baseline', () => {
     const source = readFileSync(openApiPath, 'utf8');
 

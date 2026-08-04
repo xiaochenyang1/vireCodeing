@@ -365,13 +365,18 @@ describe('OrdersController', () => {
     const controller = new OrdersController(service);
 
     await expect(
-      controller.submitOrderEvaluation(createRequest('shipper-1'), 'order-1', {
-        rating: 5,
-        tags: ['准时送达', '服务好'],
-        content: '司机服务细致，整体运输体验很好',
-        anonymous: true,
-        photoCount: 1,
-      }),
+      controller.submitOrderEvaluation(
+        createRequest('shipper-1'),
+        'order-1',
+        `  ${IDEMPOTENCY_KEY}  `,
+        {
+          rating: 5,
+          tags: ['准时送达', '服务好'],
+          content: '司机服务细致，整体运输体验很好',
+          anonymous: true,
+          photoCount: 1,
+        },
+      ),
     ).resolves.toMatchObject({
       code: 'OK',
       data: { id: 'order-1', status: 'completed' },
@@ -380,6 +385,7 @@ describe('OrdersController', () => {
     expect(service.submitOrderEvaluation).toHaveBeenCalledWith(
       'shipper-1',
       'order-1',
+      IDEMPOTENCY_KEY,
       {
         rating: 5,
         tags: ['准时送达', '服务好'],
@@ -389,6 +395,33 @@ describe('OrdersController', () => {
       },
     );
   });
+
+  it.each([undefined, 'not-a-uuid'])(
+    'rejects order evaluations with an invalid idempotency key before service I/O',
+    async invalidKey => {
+      const service = {
+        submitOrderEvaluation: jest.fn(),
+      } as unknown as OrdersService;
+      const controller = new OrdersController(service);
+
+      await expect(
+        controller.submitOrderEvaluation(
+          createRequest('shipper-1'),
+          'order-1',
+          invalidKey,
+          {
+            rating: 5,
+            tags: ['准时送达'],
+            content: '司机服务细致，整体运输体验很好',
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+        message: 'Idempotency-Key 无效',
+      });
+      expect(service.submitOrderEvaluation).not.toHaveBeenCalled();
+    },
+  );
 
   it('submits an order change request for the authenticated shipper', async () => {
     const service = {

@@ -11,10 +11,12 @@ import {
   createDriverShipperEvaluationFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
+  createShipperDriverEvaluationFingerprint,
 } from './order-mutation-idempotency';
 import type {
   BatchCancelAdminOrdersRequest,
   CreateShipperOrderRequest,
+  SubmitShipperOrderEvaluationRequest,
 } from './dto';
 import type { ShipperCouponRecord } from '../profile-coupons/dto';
 import {
@@ -1865,6 +1867,416 @@ describe('OrdersRepository driver shipper evaluation idempotency', () => {
       observedAt,
     );
     const input = createDriverShipperEvaluationMutationInput(
+      current.id,
+      current.updatedAt.toISOString(),
+    );
+    const responseSnapshot = {
+      ...createOrderSnapshot(createOrderInput(), current),
+      id: current.id,
+      status: current.status,
+      assignedDriverId: 'driver-1',
+      updatedAtIso: expectedUpdatedAt.toISOString(),
+    };
+    prisma.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+    prisma.orderIdempotencyRecord.findUnique.mockResolvedValueOnce({
+      id: 'idempotency-winner',
+      actorUserId: input.actorUserId,
+      orderId: input.orderId,
+      operation: input.operation,
+      idempotencyKey: input.idempotencyKey,
+      requestFingerprint: input.requestFingerprint,
+      responseSnapshot,
+      createdAt: observedAt,
+      expiresAt: new Date(input.expiresAtIso),
+    });
+
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toEqual({
+      kind: 'success',
+      order: responseSnapshot,
+      replayed: true,
+    });
+  });
+});
+
+describe('OrdersRepository shipper driver evaluation idempotency', () => {
+  const observedAt = new Date('2026-07-14T08:00:00.000Z');
+  const expectedUpdatedAt = new Date('2026-07-14T08:00:00.001Z');
+
+  function createCompletedPrismaOrder(
+    overrides: Partial<PrismaOrderRecord> = {},
+  ) {
+    return createPrismaOrderRecord(createOrderInput(), observedAt, {
+      id: 'order-shipper-evaluation',
+      status: 'completed',
+      assignedDriverId: 'driver-1',
+      ...overrides,
+    });
+  }
+
+  it('replays the first in-memory snapshot without duplicating its driver evaluation event', async () => {
+    const { filesRepository, repository } =
+      createInMemoryEvaluationRepository([
+        createEvaluationFile({ ownerUserId: 'shipper-1' }),
+      ]);
+    const order = await seedCompletedDriverOrder(repository);
+    const input = createShipperDriverEvaluationMutationInput(
+      order.id,
+      order.updatedAtIso,
+    );
+
+    const first = await repository.executeIdempotentOrderMutation(input);
+    const replay = await repository.executeIdempotentOrderMutation(input);
+
+    expect(first).toMatchObject({ kind: 'success', replayed: false });
+    expect(replay).toEqual({
+      ...(first as Extract<typeof first, { kind: 'success' }>),
+      replayed: true,
+    });
+    expect(filesRepository.findFilesByIds).toHaveBeenCalledTimes(1);
+    expect(
+      (await repository.findOrderById(order.id))?.events.filter(
+        event => event.eventType === 'evaluation_submitted',
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        actorUserId: 'shipper-1',
+        attachmentFileIds: ['file-evaluation-1'],
+      }),
+    ]);
+  });
+
+  it('rejects changed content and cross-order reuse of an in-memory key', async () => {
+    const { repository } = createInMemoryEvaluationRepository([
+      createEvaluationFile({ ownerUserId: 'shipper-1' }),
+    ]);
+    const firstOrder = await seedCompletedDriverOrder(repository);
+    const secondOrder = await seedCompletedDriverOrder(repository);
+    const input = createShipperDriverEvaluationMutationInput(
+      firstOrder.id,
+      firstOrder.updatedAtIso,
+    );
+    await repository.executeIdempotentOrderMutation(input);
+
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          firstOrder.id,
+          firstOrder.updatedAtIso,
+          {
+            ...shipperDriverEvaluationRequest,
+            content: '另一条不同的司机评价内容。',
+          },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'key-reused' });
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          secondOrder.id,
+          secondOrder.updatedAtIso,
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'key-reused' });
+  });
+
+  it('returns key-expired before reading current in-memory order or files', async () => {
+    const { filesRepository, repository, setNow } =
+      createInMemoryEvaluationRepository([
+        createEvaluationFile({ ownerUserId: 'shipper-1' }),
+      ]);
+    const order = await seedCompletedDriverOrder(repository);
+    const input = createShipperDriverEvaluationMutationInput(
+      order.id,
+      order.updatedAtIso,
+      shipperDriverEvaluationRequest,
+      { expiresAtIso: '2026-07-14T08:00:01.000Z' },
+    );
+    await repository.executeIdempotentOrderMutation(input);
+    setNow('2026-07-14T08:00:01.001Z');
+    jest.mocked(filesRepository.findFilesByIds).mockClear();
+
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toEqual({ kind: 'key-expired' });
+    expect(filesRepository.findFilesByIds).not.toHaveBeenCalled();
+  });
+
+  it('checks completed state and current shipper ownership before in-memory attachment I/O', async () => {
+    const { filesRepository, repository } =
+      createInMemoryEvaluationRepository([
+        createEvaluationFile({ ownerUserId: 'shipper-1' }),
+      ]);
+    const completedOrder = await seedCompletedDriverOrder(repository);
+
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          completedOrder.id,
+          completedOrder.updatedAtIso,
+          shipperDriverEvaluationRequest,
+          {
+            actorUserId: 'shipper-2',
+            idempotencyKey: 'wrong-shipper-key',
+          },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'state-invalid' });
+
+    const waitingOrder = await repository.seedOrderForTest(
+      'shipper-1',
+      createOrderInput(),
+    );
+    await expect(
+      repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          waitingOrder.id,
+          waitingOrder.updatedAtIso,
+          shipperDriverEvaluationRequest,
+          { idempotencyKey: 'waiting-order-key' },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'state-invalid' });
+    expect(filesRepository.findFilesByIds).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing', [], ApiErrorCode.FILE_NOT_FOUND],
+    [
+      'other owner',
+      [createEvaluationFile({ ownerUserId: 'shipper-2' })],
+      ApiErrorCode.FILE_NOT_FOUND,
+    ],
+    [
+      'pending',
+      [
+        createEvaluationFile({
+          ownerUserId: 'shipper-1',
+          status: 'pending',
+        }),
+      ],
+      ApiErrorCode.FILE_STATE_INVALID,
+    ],
+    [
+      'wrong purpose',
+      [
+        createEvaluationFile({
+          ownerUserId: 'shipper-1',
+          purpose: 'exception',
+        }),
+      ],
+      ApiErrorCode.FILE_PURPOSE_INVALID,
+    ],
+  ] as const)(
+    'rolls back an in-memory driver evaluation when its attachment is %s',
+    async (_label, files, errorCode) => {
+      const { repository } = createInMemoryEvaluationRepository([...files]);
+      const order = await seedCompletedDriverOrder(repository);
+
+      await expect(
+        repository.executeIdempotentOrderMutation(
+          createShipperDriverEvaluationMutationInput(
+            order.id,
+            order.updatedAtIso,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: errorCode });
+      expect(
+        (await repository.findOrderById(order.id))?.events.filter(
+          event => event.eventType === 'evaluation_submitted',
+        ),
+      ).toHaveLength(0);
+      expect(
+        (
+          repository as unknown as {
+            orderIdempotencyRecords: Array<{ operation: string }>;
+          }
+        ).orderIdempotencyRecords.filter(
+          record => record.operation === 'shipper_driver_evaluation',
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it('checks Prisma attachments, claims the shipper, writes the event, and snapshots in one transaction', async () => {
+    const current = createCompletedPrismaOrder();
+    const evaluationEvent = {
+      id: 'event-driver-evaluation',
+      actorUserId: 'shipper-1',
+      eventType: 'evaluation_submitted',
+      noteText:
+        '5 星：准时送达、服务好；评价信息：实名；图片凭证 1 张；评价正文：司机服务细致，整体运输体验很好。',
+      attachmentFileIds: ['file-evaluation-1'],
+      createdAt: expectedUpdatedAt,
+    };
+    const updated: PrismaOrderRecord = {
+      ...current,
+      updatedAt: expectedUpdatedAt,
+      events: [...current.events, evaluationEvent],
+    };
+    const { repository, transaction } = createPrismaMutationHarness(
+      current,
+      updated,
+      observedAt,
+    );
+    transaction.fileObject.findMany.mockResolvedValueOnce([
+      createEvaluationFile({ ownerUserId: 'shipper-1' }),
+    ]);
+    const input = createShipperDriverEvaluationMutationInput(
+      current.id,
+      current.updatedAt.toISOString(),
+    );
+
+    await expect(
+      repository.executeIdempotentOrderMutation(input),
+    ).resolves.toMatchObject({ kind: 'success', replayed: false });
+    expect(transaction.fileObject.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['file-evaluation-1'] } },
+      select: {
+        id: true,
+        ownerUserId: true,
+        purpose: true,
+        status: true,
+      },
+    });
+    expect(transaction.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: current.id,
+        updatedAt: observedAt,
+        status: 'completed',
+        paymentStatus: current.paymentStatus,
+        shipperId: 'shipper-1',
+      },
+      data: { updatedAt: expectedUpdatedAt },
+    });
+    expect(transaction.orderEvent.create).toHaveBeenCalledWith({
+      data: {
+        orderId: current.id,
+        actorUserId: 'shipper-1',
+        eventType: 'evaluation_submitted',
+        noteText: evaluationEvent.noteText,
+        attachmentFileIds: ['file-evaluation-1'],
+        createdAt: expectedUpdatedAt,
+      },
+    });
+    expect(transaction.orderIdempotencyRecord.update).toHaveBeenCalledWith({
+      where: { id: 'idempotency-mutation' },
+      data: {
+        responseSnapshot: expect.objectContaining({
+          id: current.id,
+          events: expect.arrayContaining([
+            expect.objectContaining({ eventType: 'evaluation_submitted' }),
+          ]),
+        }),
+      },
+    });
+  });
+
+  it.each([
+    ['missing', [], ApiErrorCode.FILE_NOT_FOUND],
+    [
+      'other owner',
+      [createEvaluationFile({ ownerUserId: 'shipper-2' })],
+      ApiErrorCode.FILE_NOT_FOUND,
+    ],
+    [
+      'pending',
+      [
+        createEvaluationFile({
+          ownerUserId: 'shipper-1',
+          status: 'pending',
+        }),
+      ],
+      ApiErrorCode.FILE_STATE_INVALID,
+    ],
+    [
+      'wrong purpose',
+      [
+        createEvaluationFile({
+          ownerUserId: 'shipper-1',
+          purpose: 'exception',
+        }),
+      ],
+      ApiErrorCode.FILE_PURPOSE_INVALID,
+    ],
+  ] as const)(
+    'does not claim, append, or snapshot a Prisma driver evaluation with a %s attachment',
+    async (_label, files, errorCode) => {
+      const current = createCompletedPrismaOrder();
+      const { repository, transaction } = createPrismaMutationHarness(
+        current,
+        current,
+        observedAt,
+      );
+      transaction.fileObject.findMany.mockResolvedValueOnce([...files]);
+
+      await expect(
+        repository.executeIdempotentOrderMutation(
+          createShipperDriverEvaluationMutationInput(
+            current.id,
+            current.updatedAt.toISOString(),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: errorCode });
+      expect(transaction.order.updateMany).not.toHaveBeenCalled();
+      expect(transaction.orderEvent.create).not.toHaveBeenCalled();
+      expect(transaction.orderIdempotencyRecord.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects stale or wrong-owner Prisma evaluations before appending an event', async () => {
+    const current = createCompletedPrismaOrder();
+    const staleHarness = createPrismaMutationHarness(
+      current,
+      current,
+      observedAt,
+    );
+    staleHarness.transaction.fileObject.findMany.mockResolvedValueOnce([
+      createEvaluationFile({ ownerUserId: 'shipper-1' }),
+    ]);
+    staleHarness.transaction.order.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      staleHarness.repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          current.id,
+          current.updatedAt.toISOString(),
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(staleHarness.transaction.orderEvent.create).not.toHaveBeenCalled();
+    expect(
+      staleHarness.transaction.orderIdempotencyRecord.update,
+    ).not.toHaveBeenCalled();
+
+    const wrongOwner = createCompletedPrismaOrder({ shipperId: 'shipper-2' });
+    const ownerHarness = createPrismaMutationHarness(
+      wrongOwner,
+      wrongOwner,
+      observedAt,
+    );
+    await expect(
+      ownerHarness.repository.executeIdempotentOrderMutation(
+        createShipperDriverEvaluationMutationInput(
+          wrongOwner.id,
+          wrongOwner.updatedAt.toISOString(),
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'state-invalid' });
+    expect(ownerHarness.transaction.fileObject.findMany).not.toHaveBeenCalled();
+    expect(ownerHarness.transaction.order.updateMany).not.toHaveBeenCalled();
+    expect(ownerHarness.transaction.orderEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers a committed Prisma driver evaluation snapshot after a same-key reservation race', async () => {
+    const current = createCompletedPrismaOrder();
+    const { repository, prisma } = createPrismaMutationHarness(
+      current,
+      current,
+      observedAt,
+    );
+    const input = createShipperDriverEvaluationMutationInput(
       current.id,
       current.updatedAt.toISOString(),
     );
@@ -4449,6 +4861,40 @@ function createDriverShipperEvaluationMutationInput(
     expiresAtIso: '2026-07-15T08:00:00.000Z',
     mutation: {
       type: 'driver_shipper_evaluation',
+      input: request,
+    },
+    ...overrides,
+  };
+}
+
+const shipperDriverEvaluationRequest: SubmitShipperOrderEvaluationRequest = {
+  rating: 5,
+  tags: ['准时送达', '服务好'],
+  content: '司机服务细致，整体运输体验很好。',
+  anonymous: false,
+  photoFileIds: ['file-evaluation-1'],
+};
+
+function createShipperDriverEvaluationMutationInput(
+  orderId: string,
+  baseUpdatedAtIso: string,
+  request: SubmitShipperOrderEvaluationRequest =
+    shipperDriverEvaluationRequest,
+  overrides: Partial<ExecuteOrderMutationInput> = {},
+): ExecuteOrderMutationInput {
+  return {
+    actorUserId: 'shipper-1',
+    orderId,
+    operation: 'shipper_driver_evaluation',
+    idempotencyKey: 'driver-evaluation-key',
+    requestFingerprint: createShipperDriverEvaluationFingerprint(
+      orderId,
+      request,
+    ),
+    baseUpdatedAtIso,
+    expiresAtIso: '2026-07-15T08:00:00.000Z',
+    mutation: {
+      type: 'shipper_driver_evaluation',
       input: request,
     },
     ...overrides,

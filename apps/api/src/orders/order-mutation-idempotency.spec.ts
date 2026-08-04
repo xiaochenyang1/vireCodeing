@@ -4,10 +4,12 @@ import {
   ORDER_MUTATION_OPERATIONS,
   createDriverEvaluationReplyFingerprint,
   createDriverShipperEvaluationFingerprint,
+  createShipperDriverEvaluationFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
   createOrderMutationIdempotencyConfigFromEnv,
   normalizeDriverShipperEvaluationRequest,
+  normalizeShipperDriverEvaluationRequest,
   parseOrderIdempotencyKey,
   type OrderMutationOperation,
 } from './order-mutation-idempotency';
@@ -147,6 +149,42 @@ describe('order mutation idempotency', () => {
     );
   });
 
+  it('uses the same normalized semantics for shipper driver evaluations', () => {
+    const request = {
+      rating: 5,
+      tags: [' 准时送达 ', '服务好', '准时送达'],
+      content: '  司机服务细致，整体运输体验很好。  ',
+      photoCount: 6,
+      photoFileIds: [' file-2 ', 'file-1', 'file-2'],
+    };
+
+    expect(normalizeShipperDriverEvaluationRequest(request)).toEqual({
+      rating: 5,
+      tags: ['准时送达', '服务好'],
+      content: '司机服务细致，整体运输体验很好。',
+      anonymous: false,
+      photoCount: 2,
+      photoFileIds: ['file-2', 'file-1'],
+    });
+    expect(
+      createShipperDriverEvaluationFingerprint(' order-1 ', request),
+    ).toBe(
+      createShipperDriverEvaluationFingerprint('order-1', {
+        ...request,
+        tags: ['准时送达', '服务好'],
+        content: '司机服务细致，整体运输体验很好。',
+        anonymous: false,
+        photoCount: 2,
+        photoFileIds: ['file-2', 'file-1'],
+      }),
+    );
+    expect(
+      createShipperDriverEvaluationFingerprint('order-1', request),
+    ).not.toBe(
+      createShipperDriverEvaluationFingerprint('order-2', request),
+    );
+  });
+
   it('creates a stable shipper create fingerprint from normalized object keys', () => {
     const expectedDigest =
       'e6ad7906f6d64a9e20c66858ea984653c940a8bc313f48645919626186c955cc';
@@ -174,6 +212,7 @@ describe('order mutation idempotency', () => {
       'driver_cancel',
       'driver_evaluation_reply',
       'driver_shipper_evaluation',
+      'shipper_driver_evaluation',
     ]);
   });
 
@@ -191,6 +230,7 @@ describe('order mutation idempotency', () => {
       'driver_cancel',
       'driver_evaluation_reply',
       'driver_shipper_evaluation',
+      'shipper_driver_evaluation',
     ]);
   });
 

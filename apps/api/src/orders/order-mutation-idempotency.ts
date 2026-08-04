@@ -14,6 +14,7 @@ export const ORDER_MUTATION_OPERATIONS = [
   'driver_cancel',
   'driver_evaluation_reply',
   'driver_shipper_evaluation',
+  'shipper_driver_evaluation',
 ] as const;
 
 export const ADMIN_ORDER_BATCH_CANCEL_IDEMPOTENCY_OPERATION =
@@ -74,6 +75,28 @@ export function normalizeDriverShipperEvaluationRequest(request: {
   photoCount?: number;
   photoFileIds?: string[];
 }) {
+  return normalizeOrderEvaluationRequest(request);
+}
+
+export function normalizeShipperDriverEvaluationRequest(request: {
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
+}) {
+  return normalizeOrderEvaluationRequest(request);
+}
+
+function normalizeOrderEvaluationRequest(request: {
+  rating: number;
+  tags: string[];
+  content: string;
+  anonymous?: boolean;
+  photoCount?: number;
+  photoFileIds?: string[];
+}) {
   const tags = Array.from(new Set(request.tags.map(tag => tag.trim())));
   const photoFileIds = Array.from(
     new Set((request.photoFileIds ?? []).map(fileId => fileId.trim())),
@@ -97,6 +120,21 @@ export function createDriverShipperEvaluationFingerprint(
   request: Parameters<typeof normalizeDriverShipperEvaluationRequest>[0],
 ) {
   const normalizedRequest = normalizeDriverShipperEvaluationRequest(request);
+
+  return createOrderMutationFingerprint(
+    orderId.trim(),
+    {
+      ...normalizedRequest,
+      photoFileIds: normalizedRequest.photoFileIds ?? [],
+    },
+  );
+}
+
+export function createShipperDriverEvaluationFingerprint(
+  orderId: string,
+  request: Parameters<typeof normalizeShipperDriverEvaluationRequest>[0],
+) {
+  const normalizedRequest = normalizeShipperDriverEvaluationRequest(request);
 
   return createOrderMutationFingerprint(
     orderId.trim(),

@@ -294,6 +294,7 @@ export class OrdersController {
   async submitOrderEvaluation(
     @Req() request: AuthenticatedRequest,
     @Param('orderId') orderId: string,
+    @Headers('idempotency-key') idempotencyKey: unknown,
     @Body(new ZodValidationPipe(submitShipperOrderEvaluationSchema))
     body: SubmitShipperOrderEvaluationRequest,
   ) {
@@ -301,6 +302,7 @@ export class OrdersController {
       await this.ordersService.submitOrderEvaluation(
         getCurrentShipperId(request),
         orderId,
+        parseRequiredOrderIdempotencyKey(idempotencyKey),
         parseSubmitShipperOrderEvaluationRequest(body),
       ),
       getRequestId(request),

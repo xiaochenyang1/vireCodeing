@@ -3785,9 +3785,10 @@ paths:
   /shipper/orders/{orderId}/evaluation:
     post:
       summary: Submit current shipper order evaluation
-      description: Appends an evaluation_submitted event for a completed order. Optional photoFileIds must belong to the current shipper, be uploaded, and use evaluation purpose. It does not create the full review center record yet.
+      description: Requires a UUID Idempotency-Key and has no optimistic-concurrency baseline; the request body does not contain baseUpdatedAtIso. On the first attempt, the order must be completed and owned by the current shipper when the repository claims the order version read by the service. Optional photoFileIds must belong to the current shipper, be uploaded, and use evaluation purpose. Reusing the same key for the current shipper and shipper_driver_evaluation operation with the same normalized orderId, rating, tags, content, anonymous value, photoCount and photoFileIds replays the first successful order snapshot before current order existence, ownership, state or attachment status is checked, without appending another evaluation_submitted event. Tags and photoFileIds are trimmed and deduplicated while retaining first-occurrence order, because their order is persisted in the event; changing either order is a different request. Reusing the key for a different normalized request or another order is rejected, and an expired replay record is not executed again. The order compare-and-set, attachment validation and event binding, evaluation_submitted event, idempotency record and successful response snapshot commit in one atomic transaction. It does not create the full review center record yet.
       parameters:
         - $ref: '#/components/parameters/RequestIdHeader'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - name: orderId
           in: path
           required: true
@@ -3804,11 +3805,39 @@ paths:
               $ref: '#/components/schemas/SubmitShipperOrderEvaluationRequest'
       responses:
         '200':
-          description: Order evaluation submitted
+          description: Order evaluation submitted, or the first successful order snapshot replayed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipperOrderResponse'
+        '400':
+          description: Idempotency key or request body is invalid, or an evaluation file has the wrong purpose
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                idempotencyKeyInvalid:
+                  summary: The required UUID idempotency key is missing or invalid
+                  value:
+                    code: IDEMPOTENCY_KEY_INVALID
+                    message: Idempotency-Key 无效
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:29:00.000Z'
+                requestInvalid:
+                  summary: The evaluation request body is invalid
+                  value:
+                    code: VALIDATION_ERROR
+                    message: 请至少填写 6 个字的评价内容
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:29:00.000Z'
+                filePurposeInvalid:
+                  summary: An evaluation attachment does not use evaluation purpose
+                  value:
+                    code: FILE_PURPOSE_INVALID
+                    message: 订单评价图片用途不匹配
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:29:00.000Z'
         '401':
           description: Access token is invalid
           content:
@@ -3818,27 +3847,68 @@ paths:
         '403':
           $ref: '#/components/responses/ShipperOnlyError'
         '404':
-          description: Order does not exist or does not belong to current shipper
+          description: Order does not exist or does not belong to current shipper, or an evaluation file does not exist or belongs to another user
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_NOT_FOUND
-                message: 订单不存在
-                requestId: req_local
-                timestamp: '2026-07-01T08:00:00.000Z'
+              examples:
+                orderNotFound:
+                  summary: Order does not exist or does not belong to current shipper
+                  value:
+                    code: ORDER_NOT_FOUND
+                    message: 订单不存在
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
+                fileNotFound:
+                  summary: An evaluation attachment does not exist or belongs to another user
+                  value:
+                    code: FILE_NOT_FOUND
+                    message: 订单评价图片不存在
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
         '409':
-          description: Current order status does not allow evaluation
+          description: Idempotency key is reused or expired, the internal order compare-and-set lost a race, the order is not completed, or an evaluation file is not uploaded
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-              example:
-                code: ORDER_STATE_INVALID
-                message: 当前订单状态不允许评价
-                requestId: req_local
-                timestamp: '2026-07-01T08:10:00.000Z'
+              examples:
+                keyReused:
+                  summary: Same key reused for different normalized evaluation content or another order
+                  value:
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: Idempotency-Key 已被其他请求复用
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
+                keyExpired:
+                  summary: Successful evaluation replay window expired
+                  value:
+                    code: IDEMPOTENCY_KEY_EXPIRED
+                    message: Idempotency-Key 已过期
+                    requestId: req_local
+                    timestamp: '2026-07-16T08:30:00.000Z'
+                orderConflict:
+                  summary: Internal order version changed before the first evaluation write
+                  value:
+                    code: ORDER_CONFLICT
+                    message: 订单已被其他操作更新
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
+                stateInvalid:
+                  summary: The order is not completed at the first write boundary
+                  value:
+                    code: ORDER_STATE_INVALID
+                    message: 当前订单状态不允许评价
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
+                fileStateInvalid:
+                  summary: An evaluation attachment is not uploaded
+                  value:
+                    code: FILE_STATE_INVALID
+                    message: 订单评价图片尚未上传完成
+                    requestId: req_local
+                    timestamp: '2026-07-15T08:30:00.000Z'
   /shipper/orders/{orderId}/payments:
     post:
       summary: Create an online payment order
@@ -7788,7 +7858,7 @@ components:
         type: string
         format: uuid
         maxLength: 64
-      description: Required UUID idempotency key for order creation, protected versioned order mutations, evaluation replies and admin coupon issuance. Order creation and evaluation replies have no baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
+      description: Required UUID idempotency key for order creation, protected versioned order mutations, evaluation submissions, evaluation replies and admin coupon issuance. Order creation, evaluation submissions and evaluation replies have no client baseUpdatedAtIso; versioned mutations also require their request baseline. Reusing the same key with the same normalized request returns the first successful business result; reusing it for a different request returns IDEMPOTENCY_KEY_REUSED.
       example: 550e8400-e29b-41d4-a716-446655440000
   securitySchemes:
     bearerAuth:
@@ -8514,7 +8584,7 @@ components:
         photoFileIds:
           type: array
           maxItems: 6
-          description: Uploaded evaluation file ids to bind to the evaluation event.
+          description: Uploaded evaluation file ids to bind atomically to the evaluation event; every file must belong to the current shipper and use evaluation purpose.
           items:
             type: string
             minLength: 1

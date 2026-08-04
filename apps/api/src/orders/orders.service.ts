@@ -42,6 +42,8 @@ import {
   createAdminOrderBatchCancelFingerprint,
   createOrderCreateFingerprint,
   createOrderMutationFingerprint,
+  createShipperDriverEvaluationFingerprint,
+  normalizeShipperDriverEvaluationRequest,
 } from './order-mutation-idempotency';
 import type {
   ExecuteOrderCreateResult,
@@ -1066,8 +1068,29 @@ export class OrdersService {
   async submitOrderEvaluation(
     shipperId: string,
     orderId: string,
+    idempotencyKey: string,
     input: SubmitShipperOrderEvaluationRequest,
   ) {
+    const normalizedInput = normalizeShipperDriverEvaluationRequest(input);
+    const requestFingerprint = createShipperDriverEvaluationFingerprint(
+      orderId,
+      normalizedInput,
+    );
+    const existingOrder = await this.resolveExistingOrderMutation(
+      {
+        actorUserId: shipperId,
+        orderId,
+        operation: 'shipper_driver_evaluation',
+        idempotencyKey,
+        requestFingerprint,
+      },
+      '当前订单状态不允许评价',
+    );
+
+    if (existingOrder) {
+      return existingOrder;
+    }
+
     const order = await this.repository.findOrderById(orderId);
 
     if (!order || order.shipperId !== shipperId) {
@@ -1083,11 +1106,26 @@ export class OrdersService {
 
     await this.assertOrderAttachmentFiles(
       shipperId,
-      input.photoFileIds,
+      normalizedInput.photoFileIds,
       'evaluation',
     );
 
-    return this.repository.submitOrderEvaluation(orderId, shipperId, input);
+    return this.unwrapOrderMutationResult(
+      await this.repository.executeIdempotentOrderMutation({
+        actorUserId: shipperId,
+        orderId: order.id,
+        operation: 'shipper_driver_evaluation',
+        idempotencyKey,
+        requestFingerprint,
+        baseUpdatedAtIso: order.updatedAtIso,
+        expiresAtIso: this.createOrderMutationExpiresAtIso(),
+        mutation: {
+          type: 'shipper_driver_evaluation',
+          input: normalizedInput,
+        },
+      }),
+      '当前订单状态不允许评价',
+    ).order;
   }
 
   private async assertOrderAttachmentFiles(
